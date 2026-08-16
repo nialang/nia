@@ -15,13 +15,7 @@ impl Analyzer<'_> {
         // interner, even when only a nested const generic changes.
         self.ensure_type_context(module_id)
             .expect("current execution module must have a type context");
-        let mut type_substitutions = SymbolMap::default();
-        let mut const_substitutions = SymbolMap::default();
-        let frames = self.active_execution_frames().collect::<Vec<_>>();
-        for frame in frames.into_iter().rev() {
-            type_substitutions.extend(frame.type_substitutions.clone());
-            const_substitutions.extend(frame.const_substitutions.clone());
-        }
+        let (type_substitutions, const_substitutions) = self.current_execution_substitutions();
         let interner = self
             .type_contexts
             .get(&module_id)

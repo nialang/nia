@@ -306,7 +306,21 @@ fn const_eval_budget_limits_nested_calls_and_releases_depth() {
     budget.leave_call();
     assert!(budget.enter_call(span).is_ok());
 
+    budget.leave_call();
+    budget.leave_call();
     budget.end_session();
+}
+
+#[test]
+#[should_panic(expected = "without a matching entry")]
+fn const_eval_budget_rejects_unbalanced_call_exit() {
+    ConstEvalBudget::new(1, 1).leave_call();
+}
+
+#[test]
+#[should_panic(expected = "without a matching begin")]
+fn const_eval_budget_rejects_unbalanced_session_exit() {
+    ConstEvalBudget::new(1, 1).end_session();
 }
 
 #[test]

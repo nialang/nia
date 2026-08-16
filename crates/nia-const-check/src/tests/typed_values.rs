@@ -851,6 +851,104 @@ const BITS: u32 = reinterpret[u32](1065353216);
 }
 
 #[test]
+fn const_generic_inference_accepts_mutable_pointer_for_readonly_parameter() {
+    let fixture = check_source(
+        r#"
+const fn read[T](value: &T) usize {
+    let _unused = value;
+    7
+}
+
+const fn run() usize {
+    let mut value: i32 = 3;
+    read(&mut value)
+}
+
+const RESULT: usize = run();
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "RESULT"),
+        ConstValue::Int(IntConst::signed(7))
+    );
+}
+
+#[test]
+fn const_generic_inference_rejects_unrelated_trait_object_evidence() {
+    let fixture = check_source(
+        r#"
+trait Left[T] {}
+trait Right[T] {}
+
+struct Marker {}
+
+extend Marker : Right[i32] {}
+
+const fn inspect[T](value: &Left[T]) usize {
+    let _unused = value;
+    7
+}
+
+const fn run() usize {
+    let marker = Marker {};
+    let object: &Right[i32] = &marker;
+    inspect(object)
+}
+
+const RESULT: usize = run();
+"#,
+    );
+
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("cannot infer const generic type argument `T`")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_inference_rejects_evidence_below_mismatched_const_argument() {
+    let fixture = check_source(
+        r#"
+struct Packet[T, N: usize] {
+    value: T,
+}
+
+const fn inspect[T](packet: Packet[T, 3]) usize {
+    let _unused = packet;
+    7
+}
+
+const RESULT: usize = inspect(Packet[i32, 4] { value: 1 });
+"#,
+    );
+
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic
+                .summary
+                .contains("cannot infer const generic type argument `T`")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn evaluates_nominal_scalar_union_return_literal() {
     let fixture = check_source(
         r#"

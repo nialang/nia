@@ -18,6 +18,10 @@ use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Complete compile-time result for one module.
+///
+/// The maps are shared because later compiler queries frequently need only one
+/// view and should not clone all evaluated aggregate values.
 pub struct ConstCheck {
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
@@ -28,12 +32,14 @@ pub struct ConstCheck {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Cached output of the array-length phase.
 pub struct ConstArrayLengths {
     pub values: Arc<HashMap<GlobalConstExprId, u64>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Cached output of enum discriminant evaluation.
 pub struct ConstEnumValues {
     pub values: Arc<HashMap<DefId, ConstValue>>,
     pub typed_values: Arc<HashMap<DefId, TypedConstValue>>,
@@ -41,6 +47,7 @@ pub struct ConstEnumValues {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Cached values produced by initializer evaluation.
 pub struct ConstValues {
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
@@ -48,18 +55,25 @@ pub struct ConstValues {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Runtime type facts attached to evaluated const values.
 pub struct ConstTypedFacts {
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// An evaluated value paired with the type governing its runtime layout.
 pub struct TypedConstValue {
     pub value: ConstValue,
     pub ty: ConstValueType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Type information available while checking a compile-time value.
+///
+/// `Runtime` is a fully interned Nia type. The remaining variants represent
+/// literals and aggregates whose runtime representation is still driven by an
+/// expected type; preserving that distinction prevents premature defaulting.
 pub enum ConstValueType {
     Runtime(InternedTyId),
     Int,
@@ -123,6 +137,7 @@ pub(crate) fn resolved_pattern_local_id(pattern: &ResolvedConstPattern) -> Optio
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Identity of a module-level or local const initializer.
 pub enum ConstKey {
     Global(GlobalDefId),
     Local(LocalId),
@@ -131,6 +146,7 @@ pub enum ConstKey {
 pub use nia_const_eval::{ConstPointerValue, ConstValue};
 
 #[derive(Debug, Clone, Copy)]
+/// Borrowed semantic databases required for whole-module const analysis.
 pub struct ConstInput<'a> {
     pub module: &'a ResolvedConstModule,
     pub defs: &'a DefCollection,
@@ -148,12 +164,14 @@ pub struct ConstInput<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Resolved const IR and diagnostics produced by const lowering.
 pub struct ConstModuleLowering {
     pub module: Arc<ResolvedConstModule>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Inputs needed to lower active module items into resolved const IR.
 pub struct ConstModuleInput<'a> {
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
@@ -167,6 +185,12 @@ pub struct ConstModuleInput<'a> {
 }
 
 #[derive(Clone, Copy)]
+/// Lazy cross-module queries available during const analysis.
+///
+/// Keeping these providers optional lets isolated module tests and early
+/// compiler stages use the same analyzer. Missing providers yield ordinary
+/// unavailable-context results; they must never cause lookup to fall back to a
+/// different module's identities.
 pub struct ConstProgramContext<'a> {
     pub module: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>>,
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
@@ -206,6 +230,7 @@ impl fmt::Debug for ConstProgramContext<'_> {
 }
 
 impl<'a> ConstProgramContext<'a> {
+    /// Creates a context with no cross-module providers.
     pub fn empty() -> Self {
         Self {
             module: None,

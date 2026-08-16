@@ -15,12 +15,14 @@ use nia_ty::ConstGenericArg;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Integer width and signedness selected by semantic type analysis.
 pub struct ConstIntegerSemantics {
     pub bits: u32,
     pub signed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A user-facing failure produced while interpreting a const expression.
 pub struct ConstError {
     pub span: Span,
     pub message: String,
@@ -30,6 +32,13 @@ pub const DEFAULT_CONST_EVAL_STEP_LIMIT: usize = 1_000_000;
 pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 256;
 
 #[derive(Debug, Clone)]
+/// Shared step and recursion limits for one logical const evaluation.
+///
+/// Public evaluator entry points can nest when a const function calls another
+/// const function. Nested sessions share the outer session's remaining steps
+/// and call depth; only the outermost [`Self::begin_session`] resets the budget.
+/// Every successful `begin_session`/`enter_call` must be paired with exactly one
+/// `end_session`/`leave_call` respectively.
 pub struct ConstEvalBudget {
     step_limit: usize,
     remaining_steps: usize,
@@ -39,6 +48,7 @@ pub struct ConstEvalBudget {
 }
 
 impl ConstEvalBudget {
+    /// Creates a budget with explicit total-step and nested-call limits.
     pub fn new(step_limit: usize, call_depth_limit: usize) -> Self {
         Self {
             step_limit,
@@ -49,21 +59,39 @@ impl ConstEvalBudget {
         }
     }
 
+    /// Enters a possibly nested evaluation session.
     pub fn begin_session(&mut self) {
         if self.session_depth == 0 {
             self.remaining_steps = self.step_limit;
             self.call_depth = 0;
         }
-        self.session_depth += 1;
+        self.session_depth = self
+            .session_depth
+            .checked_add(1)
+            .expect("const evaluation session depth overflow");
     }
 
+    /// Leaves the current evaluation session.
+    ///
+    /// # Panics
+    ///
+    /// Panics when no session is active, or when the outermost session still
+    /// owns function calls. Either condition is an evaluator cleanup bug.
     pub fn end_session(&mut self) {
-        self.session_depth = self.session_depth.saturating_sub(1);
+        assert!(
+            self.session_depth > 0,
+            "const evaluation session ended without a matching begin"
+        );
+        self.session_depth -= 1;
         if self.session_depth == 0 {
-            self.call_depth = 0;
+            assert_eq!(
+                self.call_depth, 0,
+                "const evaluation session ended with active function calls"
+            );
         }
     }
 
+    /// Charges one interpreter operation to the current logical session.
     pub fn consume_step(&mut self, span: Span) -> Result<(), ConstError> {
         let Some(remaining) = self.remaining_steps.checked_sub(1) else {
             return Err(ConstError {
@@ -78,6 +106,7 @@ impl ConstEvalBudget {
         Ok(())
     }
 
+    /// Enters a const function call, rejecting recursion beyond the limit.
     pub fn enter_call(&mut self, span: Span) -> Result<(), ConstError> {
         if self.call_depth >= self.call_depth_limit {
             return Err(ConstError {
@@ -92,8 +121,18 @@ impl ConstEvalBudget {
         Ok(())
     }
 
+    /// Leaves a const function call previously accepted by [`Self::enter_call`].
+    ///
+    /// # Panics
+    ///
+    /// Panics when no call is active, which indicates unbalanced evaluator
+    /// frame cleanup.
     pub fn leave_call(&mut self) {
-        self.call_depth = self.call_depth.saturating_sub(1);
+        assert!(
+            self.call_depth > 0,
+            "const evaluation call ended without a matching entry"
+        );
+        self.call_depth -= 1;
     }
 }
 
@@ -106,6 +145,13 @@ impl Default for ConstEvalBudget {
     }
 }
 
+/// State and semantic services shared by early and resolved const evaluation.
+///
+/// The evaluator brackets every public operation with `begin_const_eval` and
+/// `end_const_eval`. Once a scope or function-frame push succeeds, the matching
+/// pop is guaranteed on every ordinary `Result` and control-flow exit. An
+/// implementation must therefore make a successful push fully usable; a
+/// failing push must leave its state unchanged.
 pub trait ConstCommonEnv {
     fn begin_const_eval(&mut self) {}
 
@@ -247,6 +293,10 @@ pub trait ConstCommonEnv {
     }
 }
 
+/// Semantic services required while evaluating early, partially resolved IR.
+///
+/// Implementations may resolve source names lazily, but a name already carrying
+/// a semantic identity must never fall back to spelling-based lookup.
 pub trait EarlyConstEnv: ConstCommonEnv {
     fn resolve_name(&mut self, span: Span, name: &EarlyConstName)
     -> Result<ConstValue, ConstError>;
@@ -369,6 +419,11 @@ pub trait EarlyConstEnv: ConstCommonEnv {
     }
 }
 
+/// Semantic services required while evaluating fully resolved const IR.
+///
+/// Resolved local and global identities are authoritative. This layer also owns
+/// typed places, aggregate construction, iterator witnesses, and resolved call
+/// dispatch that cannot be represented by the early environment.
 pub trait ResolvedConstEnv: ConstCommonEnv {
     fn reference_resolved_place(
         &mut self,
@@ -611,6 +666,10 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
 }
 
 #[derive(Default)]
+/// Minimal environment that rejects every compiler-dependent operation.
+///
+/// Useful for evaluating self-contained literals and for tests that need to
+/// prove resolved identities do not silently fall back to source names.
 pub struct EmptyEnv;
 
 impl ConstCommonEnv for EmptyEnv {}

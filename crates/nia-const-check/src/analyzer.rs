@@ -66,6 +66,11 @@ mod ty_substitution;
 mod type_infer;
 
 #[derive(Debug, Clone, Default)]
+/// Type context inherited by a standalone const-expression query.
+///
+/// Frames are ordered outermost to innermost. A frame with `module_id` marks a
+/// function boundary; locals and substitutions below the nearest such boundary
+/// are caller state and are not visible while typing the callee.
 pub struct TypedConstFrame {
     pub module_id: Option<ModuleId>,
     pub function_id: Option<GlobalDefId>,
@@ -75,6 +80,10 @@ pub struct TypedConstFrame {
 }
 
 #[derive(Debug)]
+/// All semantic inputs needed to type one already-resolved const expression.
+///
+/// This query-shaped input avoids rerunning whole-module const analysis for
+/// callers such as body checking and generic call instantiation.
 pub struct TypedConstQueryInput<'a> {
     pub module: &'a ResolvedConstModule,
     pub defs: &'a DefCollection,
@@ -95,6 +104,7 @@ pub struct TypedConstQueryInput<'a> {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Concrete type and value arguments inferred for a const function call.
 pub struct ConstGenericInstantiation {
     pub type_substitutions: SymbolMap<InternedTyId>,
     pub const_substitutions: SymbolMap<ConstGenericArg>,
@@ -122,6 +132,11 @@ pub(crate) struct ConstFunctionInstantiationInput<'a> {
     pub initial: ConstGenericInstantiation,
 }
 
+/// Infers omitted generic arguments for a resolved const function call.
+///
+/// Explicit arguments are validated against the signature. With no explicit
+/// arguments, inference combines the expected return type with every available
+/// argument type and rejects missing or conflicting substitutions.
 pub fn instantiate_resolved_const_function_generics(
     input: TypedConstQueryInput<'_>,
     span: Span,
@@ -145,6 +160,10 @@ pub fn instantiate_resolved_const_function_generics(
     )
 }
 
+/// Infers the semantic value type of one resolved const expression.
+///
+/// Literal-only values retain a [`ConstValueType`] such as `Int` until an
+/// expected runtime type provides the representation required by execution.
 pub fn infer_resolved_const_expr_type(
     input: TypedConstQueryInput<'_>,
     expr: &ResolvedConstExpr,
@@ -154,6 +173,7 @@ pub fn infer_resolved_const_expr_type(
     analyzer.resolved_const_expr_type(expr, expected)
 }
 
+/// Runs every const-analysis phase for a module in dependency order.
 pub fn check_module_const(input: ConstInput<'_>) -> ConstCheck {
     let array_lengths = compute_module_const_array_lengths(input);
     let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
@@ -167,6 +187,7 @@ pub fn check_module_const(input: ConstInput<'_>) -> ConstCheck {
     check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
 }
 
+/// Evaluates array-length expressions needed by the module's lowered types.
 pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLengths {
     let mut analyzer = Analyzer::new(input);
     analyzer.analyze_array_lengths();
@@ -176,6 +197,7 @@ pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLe
     }
 }
 
+/// Completes module const checking from a previously cached array-length phase.
 pub fn check_module_const_with_array_lengths(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
@@ -184,6 +206,7 @@ pub fn check_module_const_with_array_lengths(
     check_module_const_with_phases(input, array_lengths, enum_values)
 }
 
+/// Evaluates enum discriminants after array lengths are available.
 pub fn compute_module_const_enum_values(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
@@ -199,6 +222,7 @@ pub fn compute_module_const_enum_values(
     }
 }
 
+/// Completes module const checking from cached array-length and enum phases.
 pub fn check_module_const_with_phases(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
@@ -214,6 +238,7 @@ pub fn check_module_const_with_phases(
     check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
 }
 
+/// Evaluates global and local const initializers after prerequisite phases.
 pub fn compute_module_const_values(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
@@ -232,6 +257,7 @@ pub fn compute_module_const_values(
     }
 }
 
+/// Assembles independently cached phase outputs into the public result.
 pub fn check_module_const_with_all_phases(
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
@@ -248,6 +274,7 @@ pub fn check_module_const_with_all_phases(
     }
 }
 
+/// Computes runtime type facts for values produced by const evaluation.
 pub fn compute_module_const_typed_facts(
     input: ConstInput<'_>,
     array_lengths: ConstArrayLengths,
@@ -315,6 +342,11 @@ pub(crate) struct Analyzer<'a> {
 }
 
 #[derive(Debug, Clone, Default)]
+/// One lexical or function frame used while executing and typing const IR.
+///
+/// `module_id` is present only on function boundaries. Frames above that
+/// boundary are lexical scopes in the same invocation; frames below it belong
+/// to callers and must not participate in local or substitution lookup.
 pub(crate) struct ConstCallFrame {
     is_execution_frame: bool,
     module_id: Option<ModuleId>,
