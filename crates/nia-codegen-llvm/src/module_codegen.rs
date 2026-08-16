@@ -371,10 +371,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 align: target.pointer_align,
             }),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. }) => {
-                Some(TypeLayout {
-                    size: target.pointer_size * 2,
-                    align: target.pointer_align,
-                })
+                nia_layout::fat_pointer_layout(*target)
             }
             Some(
                 TyKind::Opaque
@@ -498,15 +495,30 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             PrimitiveTy::I8 | PrimitiveTy::U8 => Ok(self.context.i8_type()),
             PrimitiveTy::I16 | PrimitiveTy::U16 => Ok(self.context.i16_type()),
             PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => Ok(self.context.i32_type()),
-            PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::Isize | PrimitiveTy::Usize => {
-                Ok(self.context.i64_type())
-            }
+            PrimitiveTy::I64 | PrimitiveTy::U64 => Ok(self.context.i64_type()),
+            PrimitiveTy::Isize | PrimitiveTy::Usize => self.usize_llvm_type(span),
             PrimitiveTy::I128 | PrimitiveTy::U128 => Ok(self.context.i128_type()),
             PrimitiveTy::Bool => Ok(self.context.bool_type()),
             PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => {
                 Err(self.error(span, "expected integer primitive type"))
             }
         }
+    }
+
+    pub(super) fn usize_llvm_type(
+        &self,
+        span: Span,
+    ) -> Result<nia_llvm::types::IntType<'ctx>, Diagnostic> {
+        let bits = self
+            .source
+            .layouts
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+            .filter(|bits| matches!(bits, 8 | 16 | 32 | 64 | 128))
+            .ok_or_else(|| self.error(span, "target pointer width is not an LLVM integer width"))?;
+        Ok(self.context.custom_width_int_type(bits))
     }
 
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {

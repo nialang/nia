@@ -173,6 +173,206 @@ fn validates_function_return_runtime_layout_before_llvm() {
 }
 
 #[test]
+fn validates_static_array_initializer_length_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(2),
+        elem: u8_ty,
+    });
+    let global = BackendGlobal {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("oversized"),
+        link_name: None,
+        ty: array_ty,
+        is_let: false,
+        is_extern: false,
+        init: Some(StaticInit::Repeat {
+            value: Box::new(StaticInit::Byte(0)),
+            count: u64::MAX,
+        }),
+        span: Span::default(),
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (u8_ty, TypeLayout { size: 1, align: 1 }),
+                (array_ty, TypeLayout { size: 2, align: 1 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![global],
+        Vec::new(),
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "repeat static initializer has"
+    ));
+}
+
+#[test]
+fn validates_layout_builtin_array_length_for_32_bit_target() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let pointer_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: u8_ty,
+    });
+    let array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: pointer_ty,
+        },
+        elem: u8_ty,
+    });
+    let global = BackendGlobal {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("pointer_bytes"),
+        link_name: None,
+        ty: array_ty,
+        is_let: false,
+        is_extern: false,
+        init: Some(StaticInit::Repeat {
+            value: Box::new(StaticInit::Byte(0)),
+            count: 4,
+        }),
+        span: Span::default(),
+    };
+    let target = nia_layout::TargetDataLayout {
+        pointer_size: 4,
+        pointer_align: 4,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target,
+            types: vec![
+                (u8_ty, TypeLayout { size: 1, align: 1 }),
+                (array_ty, TypeLayout { size: 4, align: 1 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![global],
+        Vec::new(),
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.modules[0].ir.contains("[4 x i8]"));
+}
+
+#[test]
+fn emits_pointer_sized_integer_abi_for_32_bit_target() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let span = Span::default();
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("word"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: usize_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: usize_ty,
+                        kind: FunctionExprKind::BuiltinValue(
+                            nia_function_ir::FunctionBuiltinValue::Usize(7),
+                        ),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: usize_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout {
+                pointer_size: 4,
+                pointer_align: 4,
+            },
+            types: vec![(usize_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("define i32"), "{ir}");
+    assert!(ir.contains("ret i32 7"), "{ir}");
+}
+
+#[test]
 fn validates_terminator_type_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

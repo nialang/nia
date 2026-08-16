@@ -99,7 +99,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .context
             .append_basic_block(self.llvm_function, "memmove.end")
             .map_err(|_| self.error(span, "failed to create memmove end block"))?;
-        let usize_ty = self.module.context.i64_type();
+        let usize_ty = self.module.usize_llvm_type(span)?;
         let dest_addr = self
             .builder
             .build_ptr_to_int(dest, usize_ty, "memmove.dest")
@@ -250,8 +250,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .append_basic_block(self.llvm_function, "mem.body")
             .map_err(|_| self.error(span, "failed to create memory loop body"))?;
         let index_ptr = self.alloc_loop_index(span, "mem.i")?;
-        let zero = self.module.context.i64_type().const_int(0, false);
-        let one = self.module.context.i64_type().const_int(1, false);
+        let usize_ty = self.module.usize_llvm_type(span)?;
+        let zero = usize_ty.const_int(0, false);
+        let one = usize_ty.const_int(1, false);
         self.builder
             .build_store(index_ptr, zero)
             .map_err(|_| self.error(span, "failed to initialize memory loop index"))?;
@@ -302,8 +303,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .append_basic_block(self.llvm_function, "mem.rev.body")
             .map_err(|_| self.error(span, "failed to create reverse memory loop body"))?;
         let index_ptr = self.alloc_loop_index(span, "mem.rev.i")?;
-        let zero = self.module.context.i64_type().const_int(0, false);
-        let one = self.module.context.i64_type().const_int(1, false);
+        let usize_ty = self.module.usize_llvm_type(span)?;
+        let zero = usize_ty.const_int(0, false);
+        let one = usize_ty.const_int(1, false);
         self.builder
             .build_store(index_ptr, size)
             .map_err(|_| self.error(span, "failed to initialize reverse memory loop index"))?;
@@ -338,7 +340,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn alloc_loop_index(&self, span: Span, name: &str) -> Result<PointerValue<'ctx>, Diagnostic> {
         self.builder
-            .build_alloca(self.module.context.i64_type(), name)
+            .build_alloca(self.module.usize_llvm_type(span)?, name)
             .map_err(|_| self.error(span, "failed to allocate memory loop index"))
     }
 
@@ -348,7 +350,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ptr: PointerValue<'ctx>,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
         self.builder
-            .build_load(self.module.context.i64_type(), ptr, "mem.i.load")
+            .build_load(self.module.usize_llvm_type(span)?, ptr, "mem.i.load")
             .map_err(|_| self.error(span, "failed to load memory loop index"))?
             .into_int_value()
             .map_err(Into::into)
@@ -407,7 +409,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if elem_size == 1 {
             return Ok(len);
         }
-        let size = self.module.context.i64_type().const_int(elem_size, false);
+        let size = self
+            .module
+            .usize_llvm_type(span)?
+            .const_int(elem_size, false);
         self.builder
             .build_int_mul(len, size, "mem.bytes")
             .map_err(|_| self.error(span, "failed to compute memory intrinsic byte length"))

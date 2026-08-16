@@ -346,14 +346,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.llvm_basic_type_in(ty, span)
     }
 
-    pub(crate) fn slice_type(&self) -> StructType<'ctx> {
-        self.context.struct_type(
+    pub(crate) fn slice_type(&self, span: Span) -> Result<StructType<'ctx>, Diagnostic> {
+        let len_ty = self.integer_llvm_type(PrimitiveTy::Usize, span)?;
+        Ok(self.context.struct_type(
             &[
                 self.context.ptr_type(Default::default()).into(),
-                self.context.i64_type().into(),
+                len_ty.into(),
             ],
             false,
-        )
+        ))
     }
 
     pub(crate) fn trait_object_type(&self) -> StructType<'ctx> {
@@ -415,7 +416,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::VolatilePointer { .. }
                 | TyKind::FunctionPointer { .. },
             ) => Ok(self.context.ptr_type(Default::default()).into()),
-            Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
+            Some(TyKind::Slice { .. }) => Ok(self.slice_type(span)?.into()),
             Some(TyKind::TraitObject { .. }) => Ok(self.trait_object_type().into()),
             Some(TyKind::Callable { .. }) => Ok(self.callable_type().into()),
             Some(TyKind::Range { kind, bound }) => self.range_type(*kind, *bound, span),
@@ -604,7 +605,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             PrimitiveTy::I64 | PrimitiveTy::U64 => self.context.i64_type().into(),
             PrimitiveTy::I128 | PrimitiveTy::U128 => self.context.i128_type().into(),
-            PrimitiveTy::Isize | PrimitiveTy::Usize => self.context.i64_type().into(),
+            PrimitiveTy::Isize | PrimitiveTy::Usize => {
+                self.integer_llvm_type(primitive, span)?.into()
+            }
             PrimitiveTy::F32 => self.context.f32_type().into(),
             PrimitiveTy::F64 => self.context.f64_type().into(),
             PrimitiveTy::Bool => self.context.bool_type().into(),

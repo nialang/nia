@@ -169,7 +169,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match self.module.ty_kind(self_ty) {
             Some(TyKind::Array { len, .. }) => {
                 let len = self.module.array_len(len, span)?;
-                Ok(self.module.context.i64_type().const_int(len, false).into())
+                Ok(self
+                    .module
+                    .usize_llvm_type(span)?
+                    .const_int(len, false)
+                    .into())
             }
             Some(TyKind::Slice { .. }) => {
                 let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;

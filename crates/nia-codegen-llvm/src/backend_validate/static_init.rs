@@ -16,13 +16,26 @@ impl BackendValidator<'_> {
             | StaticInit::Char(_)
             | StaticInit::Byte(_)
             | StaticInit::NullPtr => {}
-            StaticInit::Chars(_) | StaticInit::Bytes(_) => {
+            StaticInit::Chars(values) => {
                 if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Array { .. })) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
                         "backend IR string static initializer target is not array",
                     ));
+                } else {
+                    self.validate_static_array_len(ty, values.len(), span, "char string");
+                }
+            }
+            StaticInit::Bytes(values) => {
+                if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Array { .. })) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        span,
+                        "backend IR string static initializer target is not array",
+                    ));
+                } else {
+                    self.validate_static_array_len(ty, values.len(), span, "byte string");
                 }
             }
             StaticInit::Array(elems) => {
@@ -34,11 +47,12 @@ impl BackendValidator<'_> {
                     ));
                     return;
                 };
+                self.validate_static_array_len(ty, elems.len(), span, "array");
                 for elem in elems {
                     self.validate_static_init(elem_ty, elem, span);
                 }
             }
-            StaticInit::Repeat { value, .. } => {
+            StaticInit::Repeat { value, count } => {
                 let Some(elem_ty) = self.array_elem_ty(ty) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -47,6 +61,7 @@ impl BackendValidator<'_> {
                     ));
                     return;
                 };
+                self.validate_static_array_count(ty, *count, span, "repeat");
                 self.validate_static_init(elem_ty, value, span);
             }
             StaticInit::Struct(fields) => self.validate_static_struct_init(ty, fields, span),
@@ -84,6 +99,48 @@ impl BackendValidator<'_> {
                     );
                 }
             }
+        }
+    }
+
+    fn validate_static_array_len(
+        &mut self,
+        ty: InternedTyId,
+        actual: usize,
+        span: Span,
+        kind: &'static str,
+    ) {
+        let Ok(actual) = u64::try_from(actual) else {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR {kind} static initializer length exceeds u64"),
+            ));
+            return;
+        };
+        self.validate_static_array_count(ty, actual, span, kind);
+    }
+
+    fn validate_static_array_count(
+        &mut self,
+        ty: InternedTyId,
+        actual: u64,
+        span: Span,
+        kind: &'static str,
+    ) {
+        let Some(nia_ty::TyKind::Array { len, .. }) = self.ty_kind(ty) else {
+            return;
+        };
+        let Some(expected) = self.array_len_value(len) else {
+            return;
+        };
+        if actual != expected {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR {kind} static initializer has {actual} elements but its array type requires {expected}"
+                ),
+            ));
         }
     }
 

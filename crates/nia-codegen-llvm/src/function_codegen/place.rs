@@ -172,12 +172,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         lhs: &FunctionExpr,
     ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, InternedTyId), Diagnostic> {
-        let one = self.module.context.i64_type().const_int(1, false);
+        let usize_ty = self.module.usize_llvm_type(span)?;
+        let one = usize_ty.const_int(1, false);
         match self.module.ty_kind(lhs.ty) {
             Some(TyKind::Array { len, elem }) => {
                 let base_ptr = self.emit_array_base_addr(lhs)?;
                 let array_len = self.module.array_len(len, span)?;
-                let len = self.module.context.i64_type().const_int(array_len, false);
+                let len = usize_ty.const_int(array_len, false);
                 if self.is_zero_sized(lhs.ty) {
                     return Ok((base_ptr, len, *elem));
                 }
@@ -198,7 +199,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }) = self.module.ty_kind(*elem)
                 {
                     let array_len = self.module.array_len(len, span)?;
-                    let len = self.module.context.i64_type().const_int(array_len, false);
+                    let len = usize_ty.const_int(array_len, false);
                     if self.is_zero_sized(*elem) {
                         return Ok((ptr, len, *array_elem));
                     }
@@ -286,7 +287,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(start) = &range.start {
             self.emit_usize_value(start)
         } else {
-            Ok(self.module.context.i64_type().const_int(0, false))
+            Ok(self
+                .module
+                .usize_llvm_type(Span::default())?
+                .const_int(0, false))
         }
     }
 
@@ -304,7 +308,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.builder
                 .build_int_add(
                     end,
-                    self.module.context.i64_type().const_int(1, false),
+                    self.module
+                        .usize_llvm_type(Span::default())?
+                        .const_int(1, false),
                     "sliceend",
                 )
                 .map_err(|_| self.error(Span::default(), "failed to compute inclusive slice end"))
@@ -315,7 +321,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_usize_value(&mut self, expr: &FunctionExpr) -> Result<IntValue<'ctx>, Diagnostic> {
         let value = self.emit_expr(expr)?.into_int_value()?;
-        let target = self.module.context.i64_type();
+        let target = self.module.usize_llvm_type(expr.span)?;
         let bits = value.get_type().bit_width();
         if bits == 64 {
             Ok(value)
@@ -335,7 +341,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ptr: PointerValue<'ctx>,
         len: IntValue<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let undef = self.module.slice_type().get_undef();
+        let undef = self.module.slice_type(Span::default())?.get_undef();
         let value = self
             .builder
             .build_insert_value(undef, ptr, 0, "slice.ptr")

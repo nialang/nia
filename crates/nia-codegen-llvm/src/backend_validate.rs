@@ -20,7 +20,7 @@ use nia_backend_ir::{
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
-use nia_layout::TypeLayout;
+use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_mangle::mangle_symbol_id;
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
@@ -44,8 +44,8 @@ pub(super) fn validate_backend_partition_definitions(
     partition: &CodegenPartition,
     index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
-    let mut validator = BackendValidator::new(index);
     let module = index.module_for_partition(partition);
+    let mut validator = BackendValidator::new(index, module.layouts.target);
     for &position in partition.function_definitions() {
         validator.validate_function(&module.name, &module.functions[position], true);
     }
@@ -74,8 +74,9 @@ pub(super) fn validate_backend_partition_definitions(
 pub(super) fn validate_backend_partition_declarations(
     declarations: &CodegenDeclarationMembership,
     index: &ProgramIndex,
+    target: TargetDataLayout,
 ) -> Vec<Diagnostic> {
-    let mut validator = BackendValidator::new(index);
+    let mut validator = BackendValidator::new(index, target);
     for &def_id in &declarations.functions {
         let item = index
             .function(def_id)
@@ -167,7 +168,7 @@ pub(super) fn validate_backend_declaration_module(
     module: &BackendModule,
     index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
-    let mut validator = BackendValidator::new(index);
+    let mut validator = BackendValidator::new(index, module.layouts.target);
     for function in &module.functions {
         validator.validate_function(&module.name, function, false);
     }
@@ -222,9 +223,10 @@ pub(super) fn validate_backend_declaration_module(
 }
 
 impl<'a> BackendValidator<'a> {
-    fn new(index: &'a ProgramIndex) -> Self {
+    fn new(index: &'a ProgramIndex, target: TargetDataLayout) -> Self {
         Self {
             index,
+            target,
             diagnostics: Vec::new(),
             seen_types: HashSet::new(),
             layout_cache: RefCell::new(HashMap::new()),
@@ -242,6 +244,7 @@ impl<'a> BackendValidator<'a> {
 
 pub(super) struct BackendValidator<'a> {
     index: &'a ProgramIndex,
+    target: TargetDataLayout,
     diagnostics: Vec<Diagnostic>,
     seen_types: HashSet<InternedTyId>,
     layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
