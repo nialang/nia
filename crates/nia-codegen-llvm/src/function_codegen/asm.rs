@@ -69,10 +69,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let value = if output_tys.len() == 1 {
                 result
             } else {
+                let index = u32::try_from(index).map_err(|_| {
+                    self.error(
+                        self.function.span,
+                        "inline assembly output index is too large",
+                    )
+                })?;
                 self.builder
                     .build_extract_value(
                         result.into_struct_value()?,
-                        index as u32,
+                        index,
                         &format!("asm.out.{index}"),
                     )
                     .map_err(|_| {
