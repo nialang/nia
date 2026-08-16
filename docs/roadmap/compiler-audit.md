@@ -329,6 +329,9 @@ commit as the corresponding implementation batch.
 - [x] Stable diagnostic bundles enforce their 64 MiB budget incrementally and
       cap initial allocations derived from untrusted sequence lengths; all 222
       compiler-query persistence and incremental consumer tests pass.
+- [x] Diagnostic reports now deduplicate by the complete structured diagnostic
+      in linear expected time, preserving distinct secondary labels, notes,
+      help, related locations, and internal debug evidence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
