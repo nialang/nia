@@ -311,6 +311,9 @@ commit as the corresponding implementation batch.
 - [x] Reachability trait-method expansion groups the concrete trait instance
       inputs into a named context, keeping the helper interface narrow without
       suppressing `too_many_arguments` diagnostics.
+- [x] Persistent signature-cache publication enforces the same bounded entry
+      size used by decoders, preventing oversized type/signature products from
+      being written only to become guaranteed cache misses on the next load.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
