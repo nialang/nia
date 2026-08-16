@@ -351,7 +351,9 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
                 pointer_size: 4,
                 pointer_align: 4,
             },
-            types: vec![(usize_ty, TypeLayout { size: 4, align: 4 })],
+            // Exercise the target-aware validator/codegen fallback rather than
+            // satisfying it from a precomputed per-type layout.
+            types: Vec::new(),
             structs: Vec::new(),
             unions: Vec::new(),
             enums: Vec::new(),
