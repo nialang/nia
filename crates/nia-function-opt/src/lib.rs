@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Policy-driven, semantics-preserving optimization of Nia function IR.
+//!
+//! The optimizer runs after function lowering and before backend-specific
+//! lowering. Passes may remove locals and blocks, but must preserve the
+//! structural invariants checked by [`nia_function_ir::validate_function_body`]
+//! as well as evaluation order and observable effects. Debug builds validate
+//! those structural invariants at the pipeline boundary and after every pass.
+
 use nia_function_ir::FunctionBody;
+#[cfg(debug_assertions)]
+use nia_function_ir::validate_function_body;
 use nia_ids::InternedTyId;
 use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
@@ -9,6 +19,8 @@ mod tests;
 
 use passes::*;
 
+/// Lists the function-pass names enabled by an optimization policy in their
+/// execution order.
 pub fn enabled_function_passes(policy: &OptimizationPolicy) -> Vec<&'static str> {
     FunctionOptPipeline::for_policy(policy)
         .passes
@@ -17,22 +29,36 @@ pub fn enabled_function_passes(policy: &OptimizationPolicy) -> Vec<&'static str>
         .collect()
 }
 
+/// Inputs for [`optimize_function_body`].
 pub struct FunctionOptInput<'a, F> {
+    /// Structurally valid function IR to optimize.
     pub body: FunctionBody,
+    /// Capabilities and depth selected for this compilation.
     pub policy: &'a OptimizationPolicy,
+    /// Target-aware zero-sized-type predicate used by storage cleanup.
     pub is_zero_sized: F,
 }
 
+/// Optimized IR and the ordered names of passes that changed it.
 pub struct FunctionOptOutput {
+    /// Function body after all enabled passes have run.
     pub body: FunctionBody,
+    /// Names of enabled passes that reported at least one transformation.
     pub changed_passes: Vec<&'static str>,
 }
 
+/// Optimizes a structurally valid function body according to `input.policy`.
+///
+/// Callers must reject malformed input with
+/// [`nia_function_ir::validate_function_body`] before this boundary. In debug
+/// builds this function checks that precondition and revalidates after every
+/// enabled pass, attributing invariant breakage to the pass that introduced it.
 pub fn optimize_function_body<F>(input: FunctionOptInput<'_, F>) -> FunctionOptOutput
 where
     F: Fn(InternedTyId) -> bool + Copy,
 {
     let mut body = input.body;
+    debug_validate_function_body(&body, "optimizer input");
     let changed_passes =
         FunctionOptPipeline::for_policy(input.policy).run(&mut body, input.is_zero_sized);
     FunctionOptOutput {
@@ -40,6 +66,19 @@ where
         changed_passes,
     }
 }
+
+#[cfg(debug_assertions)]
+fn debug_validate_function_body(body: &FunctionBody, stage: &str) {
+    if let Err(error) = validate_function_body(body) {
+        panic!(
+            "Nia ICE: invalid function IR at {stage}: {} at {:?}",
+            error.message, error.span
+        );
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn debug_validate_function_body(_body: &FunctionBody, _stage: &str) {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FunctionOptPass {
@@ -184,7 +223,9 @@ impl FunctionOptPipeline {
         for pass in &self.passes {
             let name = pass.name();
             debug_assert!(!name.is_empty());
-            if (*pass).run(body, is_zero_sized) {
+            let changed = (*pass).run(body, is_zero_sized);
+            debug_validate_function_body(body, name);
+            if changed {
                 changed_passes.push(name);
             }
         }

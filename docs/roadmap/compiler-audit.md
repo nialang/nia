@@ -401,6 +401,10 @@ commit as the corresponding implementation batch.
       from alias-unsound overwrite elimination, and retains function
       relocations rooted by generic local-static instances; owner regressions
       and an optimized defer LLVM consumer test cover these boundaries.
+- [x] Phase B function optimization now documents its valid-IR/effect
+      preservation contract and debug-validates the body before optimization
+      and after every enabled pass, attributing structural invariant failures
+      to their introducing pass without adding release-build overhead.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
