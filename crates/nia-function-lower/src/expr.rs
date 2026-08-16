@@ -480,7 +480,7 @@ impl FunctionLowerer<'_> {
             FunctionTerminator::Try {
                 value,
                 kind,
-                error_conversion,
+                error_conversion: error_conversion.map(Box::new),
                 success_local: local,
                 success_target,
                 span: expr.span,

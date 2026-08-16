@@ -142,7 +142,7 @@ impl<'a> ModuleLowerer<'a> {
                 value: self.instantiate_expr(value, substitutions),
                 kind,
                 error_conversion: error_conversion
-                    .map(|conversion| self.instantiate_expr(conversion, substitutions)),
+                    .map(|conversion| Box::new(self.instantiate_expr(*conversion, substitutions))),
                 success_local,
                 success_target,
                 span,

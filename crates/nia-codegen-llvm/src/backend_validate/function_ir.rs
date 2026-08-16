@@ -126,7 +126,7 @@ impl BackendValidator<'_> {
                 self.validate_try_contract(
                     value,
                     *kind,
-                    error_conversion.as_ref(),
+                    error_conversion.as_deref(),
                     *success_local,
                     *span,
                 );

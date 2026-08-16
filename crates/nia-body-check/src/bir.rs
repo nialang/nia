@@ -373,7 +373,9 @@ impl<'a> BodyChecker<'a> {
                         .map(|pattern| self.lower_pattern(pattern, target_ty))
                         .collect(),
                     body: match &arm.body {
-                        MatchArmBody::Expr(expr) => TypedMatchArmBody::Expr(self.lower_expr(expr)),
+                        MatchArmBody::Expr(expr) => {
+                            TypedMatchArmBody::Expr(Box::new(self.lower_expr(expr)))
+                        }
                         MatchArmBody::Stmt(stmt) => {
                             TypedMatchArmBody::Stmt(Box::new(self.lower_stmt(stmt)))
                         }

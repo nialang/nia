@@ -174,8 +174,9 @@ impl<'a> ModuleLowerer<'a> {
             } => FunctionTerminator::Try {
                 value: self.resolve_builtin_operator_calls_in_expr(value),
                 kind,
-                error_conversion: error_conversion
-                    .map(|conversion| self.resolve_builtin_operator_calls_in_expr(conversion)),
+                error_conversion: error_conversion.map(|conversion| {
+                    Box::new(self.resolve_builtin_operator_calls_in_expr(*conversion))
+                }),
                 success_local,
                 success_target,
                 span,

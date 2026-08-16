@@ -302,6 +302,15 @@ commit as the corresponding implementation batch.
       pass after obligation-identity hardening.
 - [x] Resource-pool owner evidence: `nia-test-support` 17 libtest cases and
       strict Clippy pass.
+- [x] Strict `-D warnings` dependency gate is clean for `nia-test-support` and
+      `nia-build`; removed the `FunctionTerminator` and `TypedMatchArmBody`
+      large-enum variants by boxing their uncommon/larger payloads.
+- [x] Build lock acquisition now waits through the create/reclaimer inode-lock
+      race; the full `nia-build` suite (189 passed, 1 ignored) covers concurrent
+      publishers and stale-owner recovery.
+- [x] Reachability trait-method expansion groups the concrete trait instance
+      inputs into a named context, keeping the helper interface narrow without
+      suppressing `too_many_arguments` diagnostics.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
