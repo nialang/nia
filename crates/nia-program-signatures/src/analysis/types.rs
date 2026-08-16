@@ -944,23 +944,8 @@ fn substitute_array_len(
     match len {
         nia_ty::ArrayLenTy::GenericParam(name) => const_substitutions
             .get(&name)
-            .and_then(array_len_from_const_arg)
+            .and_then(nia_ty::array_len_from_const_arg)
             .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
         len => len,
-    }
-}
-
-fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::ArrayLenTy> {
-    match &arg.value {
-        nia_ty::ConstGenericValue::Int(value) => value
-            .bits()
-            .try_into()
-            .ok()
-            .map(nia_ty::ArrayLenTy::ConstValue),
-        nia_ty::ConstGenericValue::GenericParam(name) => {
-            Some(nia_ty::ArrayLenTy::GenericParam(*name))
-        }
-        nia_ty::ConstGenericValue::ConstExpr(id) => Some(nia_ty::ArrayLenTy::ConstExpr(*id)),
-        nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,
     }
 }
