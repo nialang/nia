@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Concurrent text storage for Nia's stable content-addressed symbols.
+//!
+//! [`SymbolId`] is derived from the stable hash of its text, so independently
+//! created tables agree on identity. A table retains the reverse mapping used
+//! by diagnostics and persistence decoding, and rejects the otherwise-unsound
+//! case where distinct strings produce the same ID. Both [`SymbolTable::new`]
+//! and [`Default`] install every [`known`] symbol.
+
 use std::{
     collections::{HashMap, hash_map::Entry},
     fmt,
@@ -30,7 +38,12 @@ impl fmt::Display for SymbolCollision {
 
 impl std::error::Error for SymbolCollision {}
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
+/// A shareable symbol text registry for one compiler session.
+///
+/// Clones share the same registry. Equality intentionally tests that shared
+/// ownership, rather than comparing accumulated text, because symbol tables
+/// are mutable session services rather than immutable semantic products.
 pub struct SymbolTable {
     inner: Arc<RwLock<SymbolTableInner>>,
 }
@@ -42,7 +55,9 @@ struct SymbolTableInner {
 
 impl SymbolTable {
     pub fn new() -> Self {
-        let table = Self::default();
+        let table = Self {
+            inner: Arc::new(RwLock::new(SymbolTableInner::default())),
+        };
         table.install_known_symbols();
         table
     }
@@ -88,6 +103,12 @@ impl SymbolTable {
                 .entry(*symbol)
                 .or_insert_with(|| Arc::<str>::from(*text));
         }
+    }
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -156,5 +177,21 @@ mod tests {
         let table = SymbolTable::new();
 
         assert_eq!(table.resolve(known::std()).as_deref(), Some("std"));
+    }
+
+    #[test]
+    fn default_installs_the_same_well_known_symbol_registry() {
+        let table = SymbolTable::default();
+        let mut by_id = HashMap::new();
+
+        for &(symbol, text) in known::WELL_KNOWN {
+            assert_eq!(symbol, SymbolId::from_stable_hash(stable_hash(text)));
+            assert_eq!(table.resolve(symbol).as_deref(), Some(text));
+            assert_eq!(
+                by_id.insert(symbol, text),
+                None,
+                "well-known symbols must not contain duplicate IDs"
+            );
+        }
     }
 }
