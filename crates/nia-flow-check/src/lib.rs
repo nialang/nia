@@ -83,6 +83,13 @@ enum ExprFingerprint {
     Qualified(Box<ExprFingerprint>, SymbolId),
 }
 
+/// Conservative syntactic facts used only for control-flow joins.
+///
+/// This tracker intentionally proves only shapes that are independent of
+/// semantic type information (wildcards, bindings, tuples, optionals, and
+/// error-union constructors). Nominal constructors, literal intervals, and
+/// enum coverage belong to `nia-body-check::patterns`, whose typed matrix has
+/// the constructor universe needed for a sound exhaustiveness decision.
 #[derive(Default)]
 struct SyntacticPatternCoverage {
     catch_all: bool,
@@ -327,6 +334,10 @@ impl FlowChecker<'_> {
     }
 
     fn match_tail_covers_all_paths(&mut self, matched: &nia_ast::MatchExpr) -> bool {
+        // Body checking owns typed exhaustiveness. Flow checking only needs to
+        // validate that every arm which can be selected produces a value or
+        // terminates; treating the syntactically visible arms as a complete
+        // constructor universe here would produce unsound return acceptance.
         self.check_match_patterns(matched);
         let mut all_arms_produce = !matched.arms.is_empty();
         for arm in &matched.arms {
