@@ -988,33 +988,92 @@ pub(crate) fn read_visibility(cursor: &mut Cursor<&[u8]>) -> Option<Visibility> 
 }
 
 pub(crate) fn builtin_function_tag(value: BuiltinFunction) -> u8 {
-    BuiltinFunction::ALL
-        .iter()
-        .position(|candidate| *candidate == value)
-        .expect("all builtin functions have stable tags") as u8
+    // These numbers are persistent format tags, not enum/ALL-list ordinals.
+    // Never renumber an existing case; append a new tag or bump the owning
+    // compatibility format when the serialized meaning changes.
+    match value {
+        BuiltinFunction::ConstError => 0,
+        BuiltinFunction::Trap => 1,
+        BuiltinFunction::SizeOf => 2,
+        BuiltinFunction::AlignOf => 3,
+        BuiltinFunction::Offset => 4,
+        BuiltinFunction::Asm => 5,
+        BuiltinFunction::MemCopy => 6,
+        BuiltinFunction::MemMove => 7,
+        BuiltinFunction::MemSet => 8,
+        BuiltinFunction::LoadUnaligned => 9,
+        BuiltinFunction::Splat => 10,
+        BuiltinFunction::Extract => 11,
+        BuiltinFunction::Insert => 12,
+        BuiltinFunction::Bitmask => 13,
+        BuiltinFunction::Ctz => 14,
+        BuiltinFunction::Clz => 15,
+        BuiltinFunction::Popcount => 16,
+        BuiltinFunction::AtomicLoad => 17,
+        BuiltinFunction::AtomicStore => 18,
+        BuiltinFunction::AtomicRmw => 19,
+        BuiltinFunction::CmpxchgStrong => 20,
+        BuiltinFunction::CmpxchgWeak => 21,
+        BuiltinFunction::Fence => 22,
+        BuiltinFunction::Embed => 23,
+        BuiltinFunction::CharFromU32 => 24,
+        BuiltinFunction::SliceLen => 25,
+    }
 }
 
 pub(crate) fn read_builtin_function(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinFunction> {
-    BuiltinFunction::ALL.get(read_u8(cursor)? as usize).copied()
+    Some(match read_u8(cursor)? {
+        0 => BuiltinFunction::ConstError,
+        1 => BuiltinFunction::Trap,
+        2 => BuiltinFunction::SizeOf,
+        3 => BuiltinFunction::AlignOf,
+        4 => BuiltinFunction::Offset,
+        5 => BuiltinFunction::Asm,
+        6 => BuiltinFunction::MemCopy,
+        7 => BuiltinFunction::MemMove,
+        8 => BuiltinFunction::MemSet,
+        9 => BuiltinFunction::LoadUnaligned,
+        10 => BuiltinFunction::Splat,
+        11 => BuiltinFunction::Extract,
+        12 => BuiltinFunction::Insert,
+        13 => BuiltinFunction::Bitmask,
+        14 => BuiltinFunction::Ctz,
+        15 => BuiltinFunction::Clz,
+        16 => BuiltinFunction::Popcount,
+        17 => BuiltinFunction::AtomicLoad,
+        18 => BuiltinFunction::AtomicStore,
+        19 => BuiltinFunction::AtomicRmw,
+        20 => BuiltinFunction::CmpxchgStrong,
+        21 => BuiltinFunction::CmpxchgWeak,
+        22 => BuiltinFunction::Fence,
+        23 => BuiltinFunction::Embed,
+        24 => BuiltinFunction::CharFromU32,
+        25 => BuiltinFunction::SliceLen,
+        _ => return None,
+    })
 }
 
-const BUILTIN_CONSTS: [BuiltinConstValue; 7] = [
-    BuiltinConstValue::TargetArch,
-    BuiltinConstValue::TargetVendor,
-    BuiltinConstValue::TargetOs,
-    BuiltinConstValue::TargetEnv,
-    BuiltinConstValue::TargetAbi,
-    BuiltinConstValue::TargetEndian,
-    BuiltinConstValue::TargetPointerWidth,
-];
-
 pub(crate) fn builtin_const_tag(value: BuiltinConstValue) -> u8 {
-    BUILTIN_CONSTS
-        .iter()
-        .position(|candidate| *candidate == value)
-        .expect("all builtin consts have stable tags") as u8
+    match value {
+        BuiltinConstValue::TargetArch => 0,
+        BuiltinConstValue::TargetVendor => 1,
+        BuiltinConstValue::TargetOs => 2,
+        BuiltinConstValue::TargetEnv => 3,
+        BuiltinConstValue::TargetAbi => 4,
+        BuiltinConstValue::TargetEndian => 5,
+        BuiltinConstValue::TargetPointerWidth => 6,
+    }
 }
 
 pub(crate) fn read_builtin_const(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinConstValue> {
-    BUILTIN_CONSTS.get(read_u8(cursor)? as usize).copied()
+    Some(match read_u8(cursor)? {
+        0 => BuiltinConstValue::TargetArch,
+        1 => BuiltinConstValue::TargetVendor,
+        2 => BuiltinConstValue::TargetOs,
+        3 => BuiltinConstValue::TargetEnv,
+        4 => BuiltinConstValue::TargetAbi,
+        5 => BuiltinConstValue::TargetEndian,
+        6 => BuiltinConstValue::TargetPointerWidth,
+        _ => return None,
+    })
 }

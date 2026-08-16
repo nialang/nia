@@ -335,6 +335,9 @@ commit as the corresponding implementation batch.
 - [x] Phase E lexer error recovery consumes unsupported Unicode by scalar, so
       every byte span remains a UTF-8 boundary and lossless syntax trees retain
       the exact source even though language identifiers remain ASCII.
+- [x] Builtin registries now expose exhaustive variant sets with bidirectional
+      name/descriptor coverage tests; persisted builtin function and const tags
+      use explicit append-only numbers rather than mutable `ALL` ordering.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
