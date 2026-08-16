@@ -21,7 +21,7 @@ use nia_backend_ir::{
     CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::PromotedAllocationId;
+use nia_function_ir::{FunctionInstanceKey, PromotedAllocationId};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagged_union_layout};
 use nia_llvm::{
@@ -60,13 +60,6 @@ type FunctionInstancesByDef<'ctx> = HashMap<
         FunctionValue<'ctx>,
     )>,
 >;
-type FunctionInstanceKey = (
-    GlobalDefId,
-    ModuleId,
-    Option<InternedTyId>,
-    Vec<InternedTyId>,
-    Vec<ConstGenericArg>,
-);
 type GlobalInstanceKey = (
     GlobalDefId,
     ModuleId,

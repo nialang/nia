@@ -421,6 +421,10 @@ commit as the corresponding implementation batch.
 - [x] Phase B LLVM function-instance reference validation now uses the canonical
       `nia-function-ir::FunctionInstanceKey` for its cache, avoiding a second
       backend-only identity representation.
+- [x] Phase B backend lowering and LLVM value lookup now use the canonical
+      `FunctionInstanceKey` for function-instance deduplication and negative
+      lookup caching; tuple aliases remain only where the identity has a
+      deliberately different shape (aggregate layout or LLVM value context).
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
