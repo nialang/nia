@@ -141,11 +141,10 @@ enum InferShape {
 /// `rank` keeps trees shallow, and `find` additionally performs path
 /// compression.
 ///
-/// This solver has no general occurs-check. Current construction sites create
-/// acyclic shapes from the finite AST and canonical type components. Any new
-/// constraint form that can embed an existing term inside itself must either
-/// preserve that DAG invariant or add an occurs-check before recursive
-/// `unify`/`resolve` traversal.
+/// Shapes are required to remain a DAG. The occurs-check in `unify` rejects a
+/// constraint that would embed one inference representative in its own
+/// structural shape before the union is committed; without it, `resolve`
+/// could recurse forever on a self-referential pointer or callable term.
 #[derive(Clone, Debug)]
 struct InferNode {
     parent: InferId,
@@ -331,6 +330,22 @@ impl FunctionInference {
     /// type. This is HM-style equality solving extended with Nia's nominal
     /// types and callable/closure shapes, not a standalone generalization pass.
     fn unify(&mut self, checker: &BodyChecker<'_>, left: InferId, right: InferId) -> bool {
+        // Child unification may discover a late mismatch after earlier
+        // children have merged. Roll back the equality graph and the concrete
+        // term cache as one transaction so a rejected tuple/callable
+        // constraint cannot poison later inference.
+        let nodes = self.nodes.clone();
+        let concrete_terms = self.concrete_terms.clone();
+        if self.unify_inner(checker, left, right) {
+            true
+        } else {
+            self.nodes = nodes;
+            self.concrete_terms = concrete_terms;
+            false
+        }
+    }
+
+    fn unify_inner(&mut self, checker: &BodyChecker<'_>, left: InferId, right: InferId) -> bool {
         let left = self.find(left);
         let right = self.find(right);
         if left == right {
@@ -339,6 +354,13 @@ impl FunctionInference {
         let left_shape = self.expanded_shape(checker, left);
         let right_shape = self.expanded_shape(checker, right);
         if !self.shapes_compatible(checker, left_shape.as_ref(), right_shape.as_ref()) {
+            return false;
+        }
+
+        // Unknown terms may adopt structural shapes only when the shape does
+        // not already contain that representative. The check is symmetric
+        // because either side may carry a partially known shape.
+        if self.occurs_in(checker, left, right) || self.occurs_in(checker, right, left) {
             return false;
         }
 
@@ -351,15 +373,15 @@ impl FunctionInference {
             (Some(InferShape::Tuple(left)), Some(InferShape::Tuple(right))) => left
                 .iter()
                 .zip(right)
-                .all(|(left, right)| self.unify(checker, *left, *right)),
+                .all(|(left, right)| self.unify_inner(checker, *left, *right)),
             (
                 Some(InferShape::Pointer { elem: left, .. }),
                 Some(InferShape::Pointer { elem: right, .. }),
-            ) => self.unify(checker, *left, *right),
+            ) => self.unify_inner(checker, *left, *right),
             (
                 Some(InferShape::Optional { elem: left }),
                 Some(InferShape::Optional { elem: right }),
-            ) => self.unify(checker, *left, *right),
+            ) => self.unify_inner(checker, *left, *right),
             (
                 Some(InferShape::ErrorUnion {
                     error: left_error,
@@ -370,8 +392,8 @@ impl FunctionInference {
                     value: right_value,
                 }),
             ) => {
-                self.unify(checker, *left_error, *right_error)
-                    && self.unify(checker, *left_value, *right_value)
+                self.unify_inner(checker, *left_error, *right_error)
+                    && self.unify_inner(checker, *left_value, *right_value)
             }
             (
                 Some(InferShape::Callable {
@@ -386,8 +408,8 @@ impl FunctionInference {
                 left_params
                     .iter()
                     .zip(right_params)
-                    .all(|(left, right)| self.unify(checker, *left, *right))
-                    && self.unify(checker, *left_return, *right_return)
+                    .all(|(left, right)| self.unify_inner(checker, *left, *right))
+                    && self.unify_inner(checker, *left_return, *right_return)
             }
             _ => true,
         };
@@ -414,6 +436,61 @@ impl FunctionInference {
         self.nodes[root].shape = left_shape.clone().or(right_shape.clone());
 
         true
+    }
+
+    /// Return whether `needle` occurs in `candidate`'s structural expansion.
+    ///
+    /// The visiting set is defensive: a graph produced by an earlier failed
+    /// constraint must not make diagnostics recurse forever while a later
+    /// constraint is being rejected.
+    fn occurs_in(
+        &mut self,
+        checker: &BodyChecker<'_>,
+        needle: InferId,
+        candidate: InferId,
+    ) -> bool {
+        fn visit(
+            inference: &mut FunctionInference,
+            checker: &BodyChecker<'_>,
+            needle: InferId,
+            candidate: InferId,
+            visiting: &mut Vec<InferId>,
+        ) -> bool {
+            let candidate = inference.find(candidate);
+            if candidate == needle {
+                return true;
+            }
+            if visiting.contains(&candidate) {
+                return false;
+            }
+            visiting.push(candidate);
+            let result = match inference.expanded_shape(checker, candidate) {
+                Some(InferShape::Tuple(elements)) => elements
+                    .into_iter()
+                    .any(|element| visit(inference, checker, needle, element, visiting)),
+                Some(InferShape::Pointer { elem, .. }) | Some(InferShape::Optional { elem }) => {
+                    visit(inference, checker, needle, elem, visiting)
+                }
+                Some(InferShape::ErrorUnion { error, value }) => {
+                    visit(inference, checker, needle, error, visiting)
+                        || visit(inference, checker, needle, value, visiting)
+                }
+                Some(InferShape::Callable {
+                    params,
+                    return_type,
+                }) => {
+                    params
+                        .into_iter()
+                        .any(|param| visit(inference, checker, needle, param, visiting))
+                        || visit(inference, checker, needle, return_type, visiting)
+                }
+                Some(InferShape::Known(_)) | None => false,
+            };
+            visiting.pop();
+            result
+        }
+
+        visit(self, checker, needle, candidate, &mut Vec::new())
     }
 
     /// Check only outer-shape compatibility before a union is committed.
