@@ -228,7 +228,7 @@ impl Parser {
     }
 
     fn parse_using_group_item(&mut self) -> Option<UsingGroupItem> {
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let mut host = Vec::new();
         while self.at_namespace_segment()
@@ -267,7 +267,7 @@ impl Parser {
                 selector: Box::new(selector),
             });
         }
-        self.tokens.rewind(checkpoint);
+        self.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_using_name().map(UsingGroupItem::Name)
     }
@@ -356,10 +356,11 @@ impl Parser {
                 self.recover_to_member_boundary_with_progress(checkpoint);
                 continue;
             }
+            let checkpoint = self.checkpoint();
             if let Some(field) = self.parse_field() {
                 fields.push(field);
             } else {
-                let checkpoint = self.checkpoint();
+                self.origins.rollback(checkpoint.origin);
                 self.recover_to_member_boundary_with_progress(checkpoint);
             }
         }
@@ -388,10 +389,11 @@ impl Parser {
                 self.recover_to_member_boundary_with_progress(checkpoint);
                 continue;
             }
+            let checkpoint = self.checkpoint();
             if let Some(field) = self.parse_field() {
                 fields.push(field);
             } else {
-                let checkpoint = self.checkpoint();
+                self.origins.rollback(checkpoint.origin);
                 self.recover_to_member_boundary_with_progress(checkpoint);
             }
         }
@@ -420,16 +422,25 @@ impl Parser {
                 self.error_here("trait members cannot be marked `pub`");
             }
             if self.at(TokenKind::Type) {
+                let checkpoint = self.checkpoint();
                 if let Some(associated_type) = self.parse_trait_associated_type() {
                     associated_types.push(associated_type);
+                } else {
+                    self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Fn) || self.at_const_fn() {
+                let checkpoint = self.checkpoint();
                 if let Some(function) = self.parse_function(false, self.at_const_fn()) {
                     methods.push(TraitMethod { function });
+                } else {
+                    self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Const) {
+                let checkpoint = self.checkpoint();
                 if let Some(associated_value) = self.parse_trait_associated_value() {
                     associated_values.push(associated_value);
+                } else {
+                    self.origins.rollback(checkpoint.origin);
                 }
             } else {
                 self.error_here(
@@ -529,19 +540,28 @@ impl Parser {
                 if vis == Visibility::Public {
                     self.error_here("trait associated type definitions cannot be marked `pub`");
                 }
+                let checkpoint = self.checkpoint();
                 if let Some(associated_type) = self.parse_extend_associated_type() {
                     associated_types.push(associated_type);
+                } else {
+                    self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Fn) || self.at_const_fn() {
+                let checkpoint = self.checkpoint();
                 if let Some(function) = self.parse_function(false, self.at_const_fn()) {
                     methods.push(ExtendMethod { vis, function });
+                } else {
+                    self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Const) {
                 let start = self.peek().span.start;
+                let checkpoint = self.checkpoint();
                 if let Some(binding) = self.parse_extend_associated_value_binding(is_builtin_extend)
                 {
                     let span = Span::new(start, self.previous_end());
                     associated_values.push(nia_ast::ExtendAssociatedValue { vis, binding, span });
+                } else {
+                    self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Let) {
                 self.error_here("extend value members must be declared as `const` values");
@@ -591,18 +611,18 @@ impl Parser {
     }
 
     fn parse_extend_generic_params(&mut self) -> Vec<nia_ast::GenericParam> {
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let generics = self.parse_generic_params();
         if generics.is_empty() {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return Vec::new();
         }
         if self.type_can_start() {
             return generics;
         }
-        self.tokens.rewind(checkpoint);
+        self.rewind(checkpoint);
         self.errors.truncate(errors_len);
         Vec::new()
     }
@@ -685,10 +705,11 @@ impl Parser {
             } else if self.eat(TokenKind::LBrace).is_some() {
                 let mut fields = Vec::new();
                 while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                    let checkpoint = self.checkpoint();
                     if let Some(field) = self.parse_field() {
                         fields.push(field);
                     } else {
-                        let checkpoint = self.checkpoint();
+                        self.origins.rollback(checkpoint.origin);
                         self.recover_to_member_boundary_with_progress(checkpoint);
                     }
                 }
@@ -814,8 +835,11 @@ impl Parser {
                 is_variadic = true;
                 break;
             }
+            let checkpoint = self.checkpoint();
             if let Some(param) = self.parse_param() {
                 params.push(param);
+            } else {
+                self.origins.rollback(checkpoint.origin);
             }
             if self.eat(TokenKind::Comma).is_none() {
                 break;
@@ -826,7 +850,7 @@ impl Parser {
 
     pub(super) fn parse_param(&mut self) -> Option<Param> {
         let start = self.peek().span.start;
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         if self.eat(TokenKind::Amp).is_some() {
             let receiver = if self.eat(TokenKind::Mut).is_some() {
                 ReceiverKind::Ref
@@ -842,7 +866,7 @@ impl Parser {
                     None,
                 ));
             }
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
             return Some(self.make_param(Span::new(start, ty.span.end), None, None, Some(ty)));
         }

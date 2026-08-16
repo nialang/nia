@@ -1,4 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Session-local node handles and revision-stable syntax locators.
+//!
+//! [`NodeId`] is a compact handle owned by one [`NodeStore`], while
+//! [`VersionedNodeKey`] carries the source revision and lossless syntax path
+//! needed to remap semantic facts across compiler layers. [`NodeOriginTable`]
+//! bridges AST `(kind, span)` lookups to those handles. Builders support
+//! transactional origin-map rollback because parsers may intern several
+//! candidates before accepting one ambiguous syntax interpretation.
+
 use std::{
     collections::{HashMap, hash_map},
     sync::{
@@ -643,6 +652,7 @@ impl<'a, V> IntoIterator for &'a NodeMap<V> {
 }
 
 #[derive(Debug, Clone)]
+/// The accepted AST origin mapping for one parsed source product.
 pub struct NodeOriginTable {
     store: NodeStore,
     revisions: NodeRevisionSet,
@@ -650,9 +660,17 @@ pub struct NodeOriginTable {
 }
 
 #[derive(Debug)]
+/// Incrementally builds an origin table against a shared node store.
 pub struct NodeOriginTableBuilder {
     append: NodeStoreAppend,
     nodes: HashMap<(SyntaxKind, Span), NodeId>,
+    changes: Vec<OriginChange>,
+}
+
+#[derive(Debug)]
+struct OriginChange {
+    origin: (SyntaxKind, Span),
+    previous: Option<NodeId>,
 }
 
 impl Default for NodeOriginTable {
@@ -690,6 +708,7 @@ impl NodeOriginTable {
         NodeOriginTableBuilder {
             append: store.append(),
             nodes: HashMap::new(),
+            changes: Vec::new(),
         }
     }
 
@@ -720,9 +739,39 @@ impl NodeOriginTable {
 }
 
 impl NodeOriginTableBuilder {
+    /// Marks the current origin map so speculative parser work can be undone.
+    ///
+    /// Interned node locators remain reusable in the shared [`NodeStore`], but
+    /// the published origin map is transactional: a rollback removes entries
+    /// that were created after this mark and restores overwritten entries.
+    pub fn checkpoint(&self) -> usize {
+        self.changes.len()
+    }
+
+    /// Rolls the origin map back to a prior [`Self::checkpoint`] mark.
+    pub fn rollback(&mut self, checkpoint: usize) {
+        assert!(
+            checkpoint <= self.changes.len(),
+            "origin checkpoint cannot be ahead of the current builder state"
+        );
+        while self.changes.len() > checkpoint {
+            let change = self
+                .changes
+                .pop()
+                .expect("origin change exists while rolling back");
+            if let Some(previous) = change.previous {
+                self.nodes.insert(change.origin, previous);
+            } else {
+                self.nodes.remove(&change.origin);
+            }
+        }
+    }
+
     pub fn insert(&mut self, kind: SyntaxKind, span: Span, locator: VersionedNodeKey) -> NodeId {
         let node_id = self.append.intern(locator);
-        self.nodes.insert((kind, span), node_id);
+        let origin = (kind, span);
+        let previous = self.nodes.insert(origin, node_id);
+        self.changes.push(OriginChange { origin, previous });
         node_id
     }
 
@@ -801,6 +850,37 @@ mod tests {
         assert_eq!(origins.node_id(SyntaxKind::Expr, span), Some(node_id));
         assert_eq!(origins.locator(SyntaxKind::Expr, span), Some(key));
         assert_eq!(origins.store_id(), store.id());
+    }
+
+    #[test]
+    fn origin_builder_rollback_restores_overwritten_entries() {
+        let version = SourceVersion {
+            id: SourceId(4),
+            revision: SourceRevision(2),
+        };
+        let span = Span::new(1, 3);
+        let original = VersionedNodeKey::span(version, SyntaxKind::Expr, span);
+        let replacement = VersionedNodeKey::child_path(
+            version,
+            SyntaxKind::Expr,
+            NodeChildPath::from_steps([0, 1]),
+        );
+        let store = NodeStore::new();
+        let mut origins = NodeOriginTable::builder(&store);
+        origins.insert(SyntaxKind::Expr, span, original.clone());
+        let checkpoint = origins.checkpoint();
+        origins.insert(
+            SyntaxKind::Type,
+            Span::new(4, 6),
+            VersionedNodeKey::span(version, SyntaxKind::Type, Span::new(4, 6)),
+        );
+        origins.insert(SyntaxKind::Expr, span, replacement);
+
+        origins.rollback(checkpoint);
+        let origins = origins.finish();
+
+        assert_eq!(origins.locator(SyntaxKind::Expr, span), Some(original));
+        assert!(origins.locator(SyntaxKind::Type, Span::new(4, 6)).is_none());
     }
 
     #[test]

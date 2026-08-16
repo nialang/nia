@@ -527,13 +527,13 @@ impl Parser {
     }
 
     pub(super) fn parse_expr_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Expr> {
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let expr = self.parse_assignment_until(stops)?;
         if stops.iter().any(|kind| self.at(kind.clone())) {
             return Some(expr);
         }
-        self.tokens.rewind(checkpoint);
+        self.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_binary_until(0, stops)
     }
@@ -564,7 +564,7 @@ impl Parser {
             }));
         }
 
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let expr_errors_len = self.errors.len();
         let first = self.parse_binary_until(
             0,
@@ -600,7 +600,7 @@ impl Parser {
                 inclusive: true,
             }))
         } else {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(expr_errors_len);
             Some(BracketSuffix::Args(self.parse_bracket_args_after_open()?))
         }
@@ -610,14 +610,14 @@ impl Parser {
         let mut args = Vec::new();
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let type_checkpoint = self.tokens.checkpoint();
+            let type_checkpoint = self.checkpoint();
             let type_errors_len = self.errors.len();
             let ty = self.parse_type();
             let type_end = ty.as_ref().map(|ty| ty.span.end);
-            self.tokens.rewind(type_checkpoint);
+            self.rewind(type_checkpoint);
             self.errors.truncate(type_errors_len);
 
-            let expr_checkpoint = self.tokens.checkpoint();
+            let expr_checkpoint = self.checkpoint();
             let expr_errors_len = self.errors.len();
             let mut expr = if type_end.is_some()
                 && !matches!(
@@ -650,7 +650,7 @@ impl Parser {
             };
             let expr_end = expr.as_ref().map(|expr| expr.span.end);
             if expr.is_none() || expr_end.is_some_and(|expr_end| Some(expr_end) < type_end) {
-                self.tokens.rewind(expr_checkpoint);
+                self.rewind(expr_checkpoint);
                 self.errors.truncate(expr_errors_len);
                 expr = None;
             }
@@ -665,7 +665,7 @@ impl Parser {
                 }
             };
             if expr_end.is_none() || expr_end.is_some_and(|expr_end| expr_end < end) {
-                self.tokens.rewind(type_checkpoint);
+                self.rewind(type_checkpoint);
                 while !self.at(TokenKind::Comma)
                     && !self.at(TokenKind::RBracket)
                     && !self.at(TokenKind::Eof)
@@ -775,15 +775,15 @@ impl Parser {
     }
 
     fn parse_qualified_struct_literal(&mut self) -> Option<Expr> {
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let Some(target) = self.parse_qualified_value_path() else {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
         };
         if self.eat(TokenKind::LBrace).is_none() {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
         }
@@ -829,11 +829,11 @@ impl Parser {
         if !self.type_can_start() {
             return None;
         }
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
         let Some(ty) = self.parse_type_before_aggregate_literal() else {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
         };
@@ -848,7 +848,7 @@ impl Parser {
                 ExprKind::TypedStructLiteral { ty, fields },
             ));
         }
-        self.tokens.rewind(checkpoint);
+        self.rewind(checkpoint);
         self.errors.truncate(errors_len);
         None
     }
@@ -912,7 +912,7 @@ impl Parser {
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
         self.expect(TokenKind::LBracket, "expected `[` before type target")?;
@@ -925,7 +925,7 @@ impl Parser {
                 ExprKind::TraitTarget { ty, trait_ref },
             ));
         }
-        self.tokens.rewind(checkpoint);
+        self.rewind(checkpoint);
         self.errors.truncate(errors_len);
 
         self.expect(TokenKind::LBracket, "expected `[` before type target")?;
@@ -935,7 +935,7 @@ impl Parser {
             let end = self.previous_end();
             return Some(self.make_expr(Span::new(start, end), ExprKind::TypeTarget { ty }));
         }
-        self.tokens.rewind(checkpoint);
+        self.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_bracket_array_literal()
     }

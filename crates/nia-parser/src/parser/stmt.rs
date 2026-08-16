@@ -589,13 +589,13 @@ impl Parser {
     }
 
     fn parse_nominal_pattern(&mut self, stops: &[TokenKind]) -> Option<Pattern> {
-        let checkpoint = self.tokens.checkpoint();
+        let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let (constructor, is_qualified) =
             if let Some(constructor) = self.parse_qualified_value_path() {
                 (constructor, true)
             } else {
-                self.tokens.rewind(checkpoint);
+                self.rewind(checkpoint);
                 self.errors.truncate(errors_len);
                 let token = self.peek().clone();
                 if token.kind != TokenKind::Ident {
@@ -608,7 +608,7 @@ impl Parser {
             || (self.at(TokenKind::LBrace)
                 && !self.nominal_brace_is_followed_by_pattern_boundary(stops))
         {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
         }
@@ -672,7 +672,7 @@ impl Parser {
             self.expect(TokenKind::RBrace, "expected `}` after enum variant pattern")?;
             NominalPatternFields::Named { fields, rest }
         } else {
-            self.tokens.rewind(checkpoint);
+            self.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
         };
@@ -818,10 +818,11 @@ impl Parser {
                 || (self.at(TokenKind::At)
                     && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket)))
             {
+                let checkpoint = self.checkpoint();
                 if let Some(stmt) = self.parse_stmt() {
                     stmts.push(stmt);
                 } else {
-                    let checkpoint = self.checkpoint();
+                    self.origins.rollback(checkpoint.origin);
                     self.recover_to_stmt_boundary_with_progress(checkpoint);
                 }
                 continue;
