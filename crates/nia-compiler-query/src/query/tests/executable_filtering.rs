@@ -427,6 +427,51 @@ fn main() i32 {
 }
 
 #[test]
+fn executable_checked_modules_do_not_retain_rejected_static_initializers() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+static used: i32 = { 1 };
+
+fn main() i32 {
+    used
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry module should be executable-reachable");
+    let used = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Global && def.name == sym("used"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("used global");
+
+    let diagnostics = resolve_diagnostic_bundle(db.context(), &module.body_diagnostics);
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("global initializer is not representable as static data")),
+        "rejected static initializer must retain its diagnostic: {diagnostics:?}"
+    );
+    assert!(
+        !module.body_ir.global_inits.contains_key(&used),
+        "a rejected static initializer must not enter executable Body IR"
+    );
+}
+
+#[test]
 fn executable_checked_modules_keep_type_owner_modules_type_only() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

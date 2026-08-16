@@ -15,6 +15,12 @@ pub struct StaticInitRefs {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StaticInit {
+    /// Zero-filled fallback emitted while lowering an already-diagnosed value.
+    ///
+    /// `StaticInit` is not a validation result: callers must gate code
+    /// generation on the owning checker diagnostics. In particular, this
+    /// fallback must never turn an unsupported initializer into a silently
+    /// accepted zero-valued static.
     Zero,
     Int(IntConst),
     Float(String),
