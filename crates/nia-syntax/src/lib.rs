@@ -837,6 +837,20 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_unicode_remains_lossless_during_error_recovery() {
+        let source = "fn 中() {}";
+        let tree = SyntaxTree::parse(source, None);
+
+        assert_eq!(tree.full_text(), source);
+        assert!(SyntaxTokenCursor::new(&tree).tokens().iter().any(|token| {
+            matches!(
+                token.kind,
+                TokenKind::Error(nia_lexer::LexError::UnexpectedByte(_))
+            ) && token.text == "中"
+        }));
+    }
+
+    #[test]
     fn red_root_has_child_path_node_identity() {
         let version = SourceVersion {
             id: SourceId(2),

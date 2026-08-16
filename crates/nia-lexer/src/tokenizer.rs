@@ -197,11 +197,19 @@ impl<'a> Tokenizer<'a> {
                     self.token(TokenKind::Pipe, start, self.pos)
                 }
             }
-            other => self.token(
-                TokenKind::Error(LexError::UnexpectedByte(other)),
-                start,
-                self.pos,
-            ),
+            other => {
+                if !other.is_ascii() {
+                    // `Tokenizer` accepts `&str`, so a non-ASCII leading byte
+                    // begins one valid UTF-8 scalar. Consume its tail to keep
+                    // the error span sliceable by every downstream layer.
+                    self.pos = start + utf8_width(other);
+                }
+                self.token(
+                    TokenKind::Error(LexError::UnexpectedByte(other)),
+                    start,
+                    self.pos,
+                )
+            }
         }
     }
 
@@ -918,5 +926,29 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn unsupported_unicode_is_one_lossless_char_boundary_token() {
+        let source = "left 中 right";
+        let tokens = tokenize_lossless(source);
+        let error = tokens
+            .iter()
+            .find(|token| matches!(token.kind, LosslessTokenKind::Token(TokenKind::Error(_))))
+            .expect("unsupported Unicode token");
+
+        assert_eq!(&source[error.span.start..error.span.end], "中");
+        assert!(
+            tokens
+                .iter()
+                .all(|token| source.is_char_boundary(token.span.start)
+                    && source.is_char_boundary(token.span.end))
+        );
+        let reconstructed = tokens
+            .iter()
+            .filter(|token| !matches!(token.kind, LosslessTokenKind::Token(TokenKind::Eof)))
+            .map(|token| &source[token.span.start..token.span.end])
+            .collect::<String>();
+        assert_eq!(reconstructed, source);
     }
 }
