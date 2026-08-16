@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Session-local semantic handles and the canonical builtin registry.
+//!
+//! Module and type handles carry an owner so values from independent compiler
+//! sessions cannot alias. They are not persistence identities: persisted
+//! products remap stable module/source keys into fresh handles. Builtin enums,
+//! names, descriptors, and exhaustive `ALL` lists live here as one registry so
+//! resolution, checking, const evaluation, and cache codecs share one domain.
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleId {
     owner: u32,
@@ -493,6 +501,8 @@ impl BuiltinFunction {
 }
 
 impl ValueBuiltin {
+    pub const ALL: [Self; 1] = [Self::Error];
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "error" => Some(Self::Error),
@@ -563,6 +573,8 @@ pub enum LayoutBuiltin {
 }
 
 impl LayoutBuiltin {
+    pub const ALL: [Self; 2] = [Self::Size, Self::Align];
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "size" => Some(Self::Size),
@@ -627,6 +639,14 @@ pub enum BuiltinAssociatedType {
 }
 
 impl BuiltinAssociatedType {
+    pub const ALL: [Self; 5] = [
+        Self::Output,
+        Self::Target,
+        Self::Item,
+        Self::Iter,
+        Self::Lane,
+    ];
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "Output" => Some(Self::Output),
@@ -655,6 +675,8 @@ pub enum BuiltinAssociatedConst {
 }
 
 impl BuiltinAssociatedConst {
+    pub const ALL: [Self; 1] = [Self::Lanes];
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "Lanes" => Some(Self::Lanes),
@@ -687,6 +709,36 @@ pub struct BuiltinTraitMethodDescriptor {
 }
 
 impl BuiltinTraitMethod {
+    pub const ALL: [Self; 27] = [
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Div,
+        Self::Rem,
+        Self::Neg,
+        Self::Not,
+        Self::BitNot,
+        Self::BitAnd,
+        Self::BitOr,
+        Self::BitXor,
+        Self::Shl,
+        Self::Shr,
+        Self::Eq,
+        Self::Ne,
+        Self::Lt,
+        Self::Le,
+        Self::Gt,
+        Self::Ge,
+        Self::Deref,
+        Self::DerefMut,
+        Self::Index,
+        Self::IndexMut,
+        Self::Slice,
+        Self::SliceMut,
+        Self::IterableIter,
+        Self::IteratorNext,
+    ];
+
     const DESCRIPTORS: &'static [(Self, BuiltinTraitMethodDescriptor)] = &[
         (
             Self::Add,
