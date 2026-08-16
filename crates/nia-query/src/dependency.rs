@@ -295,6 +295,15 @@ pub(super) fn current_query_stack() -> Vec<QueryStackEntry> {
     QUERY_STACK.with(|stack| stack.borrow().clone())
 }
 
+pub(super) fn current_query_entry() -> Option<(QueryNodeId, QueryFrame)> {
+    QUERY_STACK.with(|stack| {
+        stack
+            .borrow()
+            .last()
+            .map(|entry| (entry.node_id, entry.frame.clone()))
+    })
+}
+
 pub(super) fn query_executor_is_active(executor: usize) -> bool {
     QUERY_EXECUTOR_STACK.with(|stack| stack.borrow().contains(&executor))
 }

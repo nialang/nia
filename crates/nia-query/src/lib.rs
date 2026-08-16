@@ -41,14 +41,28 @@ use nia_hash::{FastHashMap, FastHashSet};
 
 const DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM: usize = 4;
 
+/// Typed memoization database for one compiler context.
+///
+/// Databases created in the same [`QuerySession`] share dependency tracking and
+/// execution resources, which allows invalidation to cross database boundaries.
 pub struct QueryDb<C> {
     inner: Arc<QueryDbInner<C>>,
 }
 
+/// Quiescent capability exposed during a cache-retirement transaction.
+///
+/// While this value exists, the session admits no new outer query activity, so
+/// invalidation and slot removal can update typed caches and dependency identity
+/// atomically.
 pub struct QueryRetirement<'a, C> {
     db: &'a QueryDb<C>,
 }
 
+/// Shared execution, dependency, and retirement domain for query databases.
+///
+/// Cloning a session preserves identity. Constructing a new session deliberately
+/// isolates invalidation dependencies, while the process execution budget still
+/// limits aggregate worker pressure across sessions.
 #[derive(Clone)]
 pub struct QuerySession {
     inner: Arc<QuerySessionInner>,
@@ -71,6 +85,85 @@ struct QueryActivityState {
 
 struct QueryActivityGuard<'a> {
     session: &'a QuerySessionInner,
+}
+
+/// Process-wide wait-for edges between queries that are currently blocked.
+///
+/// A thread-local query stack detects direct recursion, but two executor workers
+/// can otherwise wait on each other through disjoint stacks. The graph is
+/// process-wide because providers may call databases belonging to different
+/// sessions. It is only live while a caller is blocked on a slot and remains
+/// separate from the persistent dependency graph used for invalidation.
+#[derive(Debug, Default)]
+struct QueryWaitGraph {
+    edges: FastHashMap<QueryNodeId, QueryNodeId>,
+    frames: FastHashMap<QueryNodeId, QueryFrame>,
+}
+
+impl QueryWaitGraph {
+    fn begin(
+        &mut self,
+        from: QueryNodeId,
+        from_frame: QueryFrame,
+        to: QueryNodeId,
+        to_frame: QueryFrame,
+    ) -> Option<Vec<QueryFrame>> {
+        let mut path = vec![from];
+        let mut current = to;
+        let mut seen = FastHashSet::default();
+        while seen.insert(current) {
+            path.push(current);
+            if current == from {
+                return Some(
+                    path.into_iter()
+                        .map(|node_id| {
+                            self.frames
+                                .get(&node_id)
+                                .cloned()
+                                .expect("active query wait node must retain its frame")
+                        })
+                        .collect(),
+                );
+            }
+            let Some(next) = self.edges.get(&current).copied() else {
+                break;
+            };
+            current = next;
+        }
+        assert!(
+            !self.edges.contains_key(&from),
+            "query cannot wait on multiple slots simultaneously"
+        );
+        self.frames.entry(from).or_insert(from_frame);
+        self.frames.entry(to).or_insert(to_frame);
+        self.edges.insert(from, to);
+        None
+    }
+
+    fn end(&mut self, from: QueryNodeId, to: QueryNodeId) {
+        let target = self.edges.remove(&from);
+        assert_eq!(
+            target,
+            Some(to),
+            "query wait-for edge was released out of order"
+        );
+        if !self.edges.contains_key(&from) && !self.edges.values().any(|target| *target == from) {
+            self.frames.remove(&from);
+        }
+        if !self.edges.contains_key(&to) && !self.edges.values().any(|target| *target == to) {
+            self.frames.remove(&to);
+        }
+    }
+}
+
+struct QueryWaitGuard {
+    from: QueryNodeId,
+    to: QueryNodeId,
+}
+
+fn query_wait_graph() -> &'static Mutex<QueryWaitGraph> {
+    static GRAPH: OnceLock<Mutex<QueryWaitGraph>> = OnceLock::new();
+    GRAPH.get_or_init(|| Mutex::new(QueryWaitGraph::default()))
 }
 
 struct QueryRetirementGuard<'a> {
@@ -172,6 +265,11 @@ struct SpawnedQueryTask<O> {
     batch_id: usize,
 }
 
+/// Incrementally submitted task set with a fixed in-flight capacity.
+///
+/// Submission applies backpressure once `capacity` tasks are pending. [`finish`](Self::finish)
+/// drains every accepted task and restores submission order even when workers complete out of
+/// order or one task panics.
 pub struct QueryTaskPool<'session, O: Send + 'static> {
     session: &'session QuerySession,
     _activity: QueryActivityGuard<'session>,
@@ -181,6 +279,11 @@ pub struct QueryTaskPool<'session, O: Send + 'static> {
     completed: Vec<(usize, O)>,
 }
 
+/// Completion-order view over a batch of owned query results.
+///
+/// Dependency facts from each completed worker are merged into the logical parent query before
+/// the item is yielded, so streaming consumption preserves the same invalidation graph as
+/// [`QueryDb::get_many_owned`].
 pub struct QueryCompletionStream<'stream, 'executor, O> {
     tasks: &'stream mut TaskCompletionStream<'executor, (O, RecordedDependencies)>,
     dependencies: RecordedDependencies,
@@ -595,6 +698,7 @@ pub struct QueryTraceQuery {
 struct QueryStackEntry {
     session_id: QuerySessionId,
     node_id: QueryNodeId,
+    frame: QueryFrame,
     dependencies: FastHashSet<QueryNodeId>,
     dependency_fingerprints: Option<DependencyFingerprints>,
 }

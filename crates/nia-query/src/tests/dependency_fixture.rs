@@ -100,6 +100,77 @@ impl QueryKey<TestContext> for ParallelRecursiveChild {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ParallelCycle {
+    Left,
+    Right,
+}
+
+impl QueryKey<TestContext> for ParallelCycle {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "parallel_cycle"
+    }
+
+    fn description(&self) -> String {
+        format!("parallel_cycle::{self:?}")
+    }
+
+    fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        let dependency = match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        };
+        Ok(*db.get(dependency)?)
+    }
+}
+
+struct CrossSessionCycleContext {
+    other: Arc<Mutex<Option<QueryDb<Self>>>>,
+    barrier: Arc<Barrier>,
+    executions: AtomicUsize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CrossSessionCycle {
+    Left,
+    Right,
+}
+
+impl QueryKey<CrossSessionCycleContext> for CrossSessionCycle {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "cross_session_cycle"
+    }
+
+    fn description(&self) -> String {
+        format!("cross_session_cycle::{self:?}")
+    }
+
+    fn execute_result(
+        &self,
+        db: &QueryDb<CrossSessionCycleContext>,
+    ) -> QueryResult<Self::Value> {
+        if db.context().executions.fetch_add(1, Ordering::SeqCst) == 0 {
+            db.context().barrier.wait();
+        }
+        let other = db
+            .context()
+            .other
+            .lock()
+            .expect("cross-session cycle link lock poisoned")
+            .clone()
+            .expect("cross-session cycle link must be installed");
+        let dependency = match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        };
+        Ok(*other.get(dependency)?)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct PanicsOnce;
 
 impl QueryKey<TestContext> for PanicsOnce {
