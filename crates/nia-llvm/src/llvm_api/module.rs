@@ -65,7 +65,18 @@ impl<'ctx> Module<'ctx> {
         let bytes = unsafe {
             let start = LLVMGetBufferStart(buffer);
             let len = LLVMGetBufferSize(buffer);
-            slice::from_raw_parts(start as *const u8, len).to_vec()
+            if len == 0 {
+                Vec::new()
+            } else if start.is_null() {
+                LLVMDisposeMemoryBuffer(buffer);
+                return Err(LlvmError::error(
+                    "LLVM returned bitcode with a null buffer start",
+                ));
+            } else {
+                // SAFETY: LLVM owns a live buffer with a non-null start and
+                // reports its initialized byte length above.
+                slice::from_raw_parts(start as *const u8, len).to_vec()
+            }
         };
         unsafe { LLVMDisposeMemoryBuffer(buffer) };
         Ok(bytes)
@@ -164,10 +175,19 @@ impl<'ctx> Module<'ctx> {
             )
         } != 0;
         if failed {
-            let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
-            unsafe { LLVMDisposeMessage(message) };
+            let text = if message.is_null() {
+                "LLVM verifier failed without an error message".to_string()
+            } else {
+                // SAFETY: LLVM returned a NUL-terminated diagnostic buffer.
+                let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
+                unsafe { LLVMDisposeMessage(message) };
+                text
+            };
             Err(LlvmError::error(text))
         } else {
+            if !message.is_null() {
+                unsafe { LLVMDisposeMessage(message) };
+            }
             Ok(())
         }
     }

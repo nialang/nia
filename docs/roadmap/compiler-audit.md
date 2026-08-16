@@ -374,6 +374,11 @@ commit as the corresponding implementation batch.
       use checked conversions for array lengths and GEP indices; oversized
       entry/slot counts and slot-plus-one overflow now become diagnostics rather
       than truncating host `usize` values, with boundary tests at `u32::MAX`.
+- [x] Phase B LLVM wrappers now validate serialized/object buffer starts before
+      forming slices, handle verifier failures without dereferencing null error
+      messages, reclaim partial bitcode modules and failed emission buffers, and
+      propagate null target-machine triples instead of silently accepting an
+      unconfigured module.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
