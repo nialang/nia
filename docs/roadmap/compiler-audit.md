@@ -298,6 +298,10 @@ commit as the corresponding implementation batch.
       non-Unix fallback and broader build/cache state audit remain open.
 - [x] Unix `nia-test-support` process-slot reclamation now retains owner-file
       locks, preventing stale slot cleanup from deleting a successor permit.
+- [x] Phase A owner regression evidence: `nia-body-check` 228 libtest cases
+      pass after obligation-identity hardening.
+- [x] Resource-pool owner evidence: `nia-test-support` 17 libtest cases and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
