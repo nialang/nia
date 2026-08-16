@@ -4,6 +4,10 @@ mod static_init;
 mod trait_objects;
 mod types;
 
+pub(crate) use trait_objects::{
+    checked_vtable_array_len, checked_vtable_index, checked_vtable_slot_array_len,
+};
+
 pub(crate) use types::{AbiParam, AbiReturn};
 
 use std::{cell::RefCell, collections::HashMap};

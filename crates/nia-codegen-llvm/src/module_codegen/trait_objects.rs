@@ -89,6 +89,22 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 }
 
+/// Converts a vtable entry count to LLVM's array-length representation.
+pub(crate) fn checked_vtable_array_len(entries: usize) -> Option<u32> {
+    u32::try_from(entries).ok()
+}
+
+/// Converts an inclusive vtable slot into the LLVM array length needed by GEP.
+pub(crate) fn checked_vtable_slot_array_len(slot: usize) -> Option<u32> {
+    slot.checked_add(1)
+        .and_then(|length| u32::try_from(length).ok())
+}
+
+/// Converts a host slot index to the width used by LLVM's integer index.
+pub(crate) fn checked_vtable_index(slot: usize) -> Option<u64> {
+    u64::try_from(slot).ok()
+}
+
 fn vtable_slot(
     vtable: &BackendTraitObjectVtable,
     trait_id: TraitId,
@@ -111,4 +127,21 @@ fn first_vtable_slot_for_trait(
         .filter(|entry| entry.trait_id == trait_id)
         .map(|entry| entry.slot)
         .min()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vtable_index_conversions_reject_llvm_width_overflow() {
+        assert_eq!(checked_vtable_array_len(u32::MAX as usize), Some(u32::MAX));
+        assert_eq!(checked_vtable_array_len(u32::MAX as usize + 1), None);
+        assert_eq!(
+            checked_vtable_slot_array_len(u32::MAX as usize - 1),
+            Some(u32::MAX)
+        );
+        assert_eq!(checked_vtable_slot_array_len(u32::MAX as usize), None);
+        assert_eq!(checked_vtable_index(42), Some(42));
+    }
 }
