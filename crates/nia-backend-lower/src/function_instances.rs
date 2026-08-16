@@ -128,12 +128,17 @@ impl<'a> ModuleLowerer<'a> {
                 self.report_backend_instance_type_depth_limit(instance.span, instance.def_id);
                 continue;
             }
-            if instances.len() >= MAX_BACKEND_FUNCTION_INSTANCES {
+            // Materialization runs repeatedly as functions, globals, and
+            // vtables discover each other. The limit is module-wide, not a
+            // fresh allowance for each fixed-point iteration.
+            let known_instances =
+                known_backend_function_instance_count(existing.len(), instances.len());
+            if known_instances >= MAX_BACKEND_FUNCTION_INSTANCES {
                 self.report_backend_instance_limit(
                     instance.span,
                     instance.def_id,
                     &args,
-                    instances.len(),
+                    known_instances,
                 );
                 continue;
             }
@@ -1109,11 +1114,31 @@ pub(crate) fn contains_error(
     contains
 }
 
+fn known_backend_function_instance_count(existing: usize, newly_materialized: usize) -> usize {
+    existing.saturating_add(newly_materialized)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use nia_ids::TypeStoreIndex;
     use nia_ty::PrimitiveTy;
+
+    #[test]
+    fn backend_instance_limit_counts_existing_and_new_instances() {
+        assert_eq!(
+            known_backend_function_instance_count(MAX_BACKEND_FUNCTION_INSTANCES - 1, 0),
+            MAX_BACKEND_FUNCTION_INSTANCES - 1
+        );
+        assert_eq!(
+            known_backend_function_instance_count(MAX_BACKEND_FUNCTION_INSTANCES - 1, 1),
+            MAX_BACKEND_FUNCTION_INSTANCES
+        );
+        assert_eq!(
+            known_backend_function_instance_count(usize::MAX, 1),
+            usize::MAX
+        );
+    }
 
     #[test]
     fn generic_param_presence_cache_reuses_recursive_results() {
