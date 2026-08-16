@@ -222,11 +222,13 @@ fn extend_reachable_traits_from_generic_instantiation(
                 program_signatures,
                 type_store,
                 traits,
-                use_module_id,
-                trait_id,
-                self_ty,
-                &trait_args,
-                &trait_const_args,
+                TraitMethodExpansionInput {
+                    module_id: use_module_id,
+                    trait_id,
+                    self_ty,
+                    trait_args: &trait_args,
+                    trait_const_args: &trait_const_args,
+                },
             );
         }
     }
@@ -248,11 +250,13 @@ fn extend_reachable_traits_from_generic_instantiation(
                     program_signatures,
                     type_store,
                     traits,
-                    use_module_id,
-                    trait_id,
-                    self_ty,
-                    &trait_args,
-                    &trait_const_args,
+                    TraitMethodExpansionInput {
+                        module_id: use_module_id,
+                        trait_id,
+                        self_ty,
+                        trait_args: &trait_args,
+                        trait_const_args: &trait_const_args,
+                    },
                 );
             }
         }
@@ -335,17 +339,21 @@ fn extend_reachable_traits_from_trait_default_instantiation(
     );
 }
 
+struct TraitMethodExpansionInput<'a> {
+    module_id: ModuleId,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: &'a [InternedTyId],
+    trait_const_args: &'a [nia_ty::ConstGenericArg],
+}
+
 fn insert_trait_and_supertrait_methods(
     program_signatures: ExecutableSignatureIndex<'_>,
     type_store: &TypeStore,
     traits: &mut ReachableTraitRefs,
-    module_id: ModuleId,
-    trait_id: TraitId,
-    self_ty: InternedTyId,
-    trait_args: &[InternedTyId],
-    trait_const_args: &[nia_ty::ConstGenericArg],
+    input: TraitMethodExpansionInput<'_>,
 ) {
-    let append = type_store.append_for_module(module_id);
+    let append = type_store.append_for_module(input.module_id);
     TraitMethodExpansion {
         program_signatures,
         types: ReachabilityTypeCx {
@@ -353,10 +361,15 @@ fn insert_trait_and_supertrait_methods(
             append: &append,
         },
         traits,
-        module_id,
+        module_id: input.module_id,
         active_traits: HashSet::new(),
     }
-    .insert(trait_id, self_ty, trait_args, trait_const_args);
+    .insert(
+        input.trait_id,
+        input.self_ty,
+        input.trait_args,
+        input.trait_const_args,
+    );
 }
 
 struct TraitMethodExpansion<'a, 'b> {
@@ -868,11 +881,13 @@ pub(super) fn extend_reachable_functions_from_traits(
             program_signatures,
             type_store,
             reachable_traits,
-            vtable.module_id,
-            vtable.trait_id,
-            vtable.self_ty,
-            &vtable.trait_args,
-            &vtable.trait_const_args,
+            TraitMethodExpansionInput {
+                module_id: vtable.module_id,
+                trait_id: vtable.trait_id,
+                self_ty: vtable.self_ty,
+                trait_args: &vtable.trait_args,
+                trait_const_args: &vtable.trait_const_args,
+            },
         );
     }
     let reachable_modules = &reachability.modules;
@@ -1003,11 +1018,13 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
             program_signatures,
             type_store,
             &mut state.reachable_traits,
-            vtable.module_id,
-            vtable.trait_id,
-            vtable.self_ty,
-            &vtable.trait_args,
-            &vtable.trait_const_args,
+            TraitMethodExpansionInput {
+                module_id: vtable.module_id,
+                trait_id: vtable.trait_id,
+                self_ty: vtable.self_ty,
+                trait_args: &vtable.trait_args,
+                trait_const_args: &vtable.trait_const_args,
+            },
         );
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,

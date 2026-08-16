@@ -5,8 +5,8 @@ use super::common::*;
 fn lowers_statement_match_into_match_terminator() {
     let ty = test_ty();
     let body = match_stmt_body(vec![
-        match_expr_arm(1, TypedMatchArmBody::Expr(int_expr(10))),
-        match_default_arm(TypedMatchArmBody::Expr(int_expr(20))),
+        match_expr_arm(1, TypedMatchArmBody::Expr(Box::new(int_expr(10)))),
+        match_default_arm(TypedMatchArmBody::Expr(Box::new(int_expr(20)))),
     ]);
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");
@@ -53,7 +53,7 @@ fn lowers_statement_match_into_match_terminator() {
 fn statement_match_without_default_falls_back_to_merge() {
     let body = match_stmt_body(vec![match_expr_arm(
         1,
-        TypedMatchArmBody::Expr(int_expr(10)),
+        TypedMatchArmBody::Expr(Box::new(int_expr(10))),
     )]);
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");
@@ -78,9 +78,9 @@ fn statement_match_without_default_falls_back_to_merge() {
 #[test]
 fn statement_match_with_range_patterns_lowers_to_condition_chain() {
     let body = match_stmt_body(vec![
-        match_range_arm(0, 3, false, TypedMatchArmBody::Expr(int_expr(10))),
-        match_expr_arm(7, TypedMatchArmBody::Expr(int_expr(20))),
-        match_default_arm(TypedMatchArmBody::Expr(int_expr(30))),
+        match_range_arm(0, 3, false, TypedMatchArmBody::Expr(Box::new(int_expr(10)))),
+        match_expr_arm(7, TypedMatchArmBody::Expr(Box::new(int_expr(20)))),
+        match_default_arm(TypedMatchArmBody::Expr(Box::new(int_expr(30)))),
     ]);
 
     let function_body = lower_test_function_body(&body).expect("valid typed body");

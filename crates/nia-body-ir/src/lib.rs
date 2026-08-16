@@ -186,7 +186,9 @@ pub enum TypedNominalPatternConstructor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedMatchArmBody {
-    Expr(TypedExpr),
+    // Match bodies are stored per arm. Box the full expression so statement
+    // and block arms do not inherit `TypedExpr`'s substantially larger size.
+    Expr(Box<TypedExpr>),
     Stmt(Box<TypedStmt>),
     Block(Box<TypedBody>),
 }

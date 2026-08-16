@@ -797,7 +797,7 @@ fn validates_backend_ir_propagation_contract_before_llvm() {
                                 kind: FunctionExprKind::Local(LocalId(0)),
                             },
                             kind,
-                            error_conversion,
+                            error_conversion: error_conversion.map(Box::new),
                             success_local: LocalId(1),
                             success_target: FunctionBlockId(1),
                             span,
@@ -2293,6 +2293,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
                                 method_name: known::VALUE,
                                 self_ty: i32_ty,
                                 trait_args: Vec::new(),
+                                trait_const_args: Vec::new(),
                                 args: Vec::new(),
                                 receiver_kind: nia_ids::ReceiverKind::Value,
                                 receiver: Box::new(FunctionExpr {

@@ -594,7 +594,7 @@ impl<'a> Encoder<'a> {
                 self.tag(5);
                 self.expr(value);
                 self.tag(*kind as u8);
-                self.optional_expr(error_conversion.as_ref());
+                self.optional_expr(error_conversion.as_deref());
                 self.local(*success_local);
                 self.block_id(*success_target);
             }

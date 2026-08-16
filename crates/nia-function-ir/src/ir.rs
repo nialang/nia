@@ -158,7 +158,10 @@ pub enum FunctionTerminator {
     Try {
         value: FunctionExpr,
         kind: FunctionTryKind,
-        error_conversion: Option<FunctionExpr>,
+        // Error conversion is absent for optionals and for identical error
+        // payloads. Keep the uncommon second expression out-of-line so every
+        // basic block does not inherit the size of two full expression trees.
+        error_conversion: Option<Box<FunctionExpr>>,
         success_local: LocalId,
         success_target: FunctionBlockId,
         span: Span,

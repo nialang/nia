@@ -145,11 +145,11 @@ fn write_lock_owner(mut file: fs::File) -> io::Result<(String, fs::File)> {
     writeln!(file, "{token}")?;
     file.sync_all()?;
     #[cfg(unix)]
-    if !try_lock_file(&file)? {
-        return Err(io::Error::other(
-            "new lock file could not be exclusively locked",
-        ));
-    }
+    // A reclaimer may briefly hold the inode lock between `create_new` and
+    // this point. Wait for it instead of treating that harmless race as a
+    // publication failure; the owner token is already visible and proves the
+    // creator is alive, so the reclaimer will leave the path in place.
+    lock_file(&file)?;
     Ok((token, file))
 }
 
@@ -172,7 +172,6 @@ fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
         if stale {
             let _ = fs::remove_file(path);
         }
-        return;
     }
 
     #[cfg(not(unix))]
@@ -184,6 +183,18 @@ fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
             return;
         }
         let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(unix)]
+fn lock_file(file: &fs::File) -> io::Result<()> {
+    // SAFETY: `file` owns a live descriptor for the duration of the call, and
+    // `flock` neither takes ownership nor retains the descriptor pointer.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 
