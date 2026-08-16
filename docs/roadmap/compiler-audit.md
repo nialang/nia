@@ -294,6 +294,8 @@ commit as the corresponding implementation batch.
       trait-obligation deduplication; supertrait audit remains open.
 - [x] Phase B LLVM target-layout and object-buffer null/empty boundaries
       hardened; broader backend audit remains open.
+- [x] Unix build stale-lock reclamation made race-resistant with inode locks;
+      non-Unix fallback and broader build/cache state audit remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

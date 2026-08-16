@@ -4,6 +4,8 @@
 //! Owner PID, process start time, and acquisition sequence prevent stale or
 //! older same-process guards from removing a live successor's lock.
 
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::{
     fs, io,
     io::Write as _,
@@ -69,6 +71,7 @@ pub(crate) fn output_lock_path(cache_dir: &Path, output: &LogicalPath) -> PathBu
 pub(crate) struct ScopedFileLock {
     path: PathBuf,
     token: String,
+    _file: fs::File,
 }
 
 impl ScopedFileLock {
@@ -97,14 +100,18 @@ impl ScopedFileLock {
                 .open(&path)
             {
                 Ok(file) => {
-                    let token = match write_lock_owner(file) {
-                        Ok(token) => token,
+                    let (token, file) = match write_lock_owner(file) {
+                        Ok(owner) => owner,
                         Err(error) => {
                             let _ = fs::remove_file(&path);
                             return Err(error);
                         }
                     };
-                    return Ok(Some(Self { path, token }));
+                    return Ok(Some(Self {
+                        path,
+                        token,
+                        _file: file,
+                    }));
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     reclaim_stale_lock(&path, STALE_AFTER);
@@ -131,23 +138,69 @@ impl Drop for ScopedFileLock {
     }
 }
 
-fn write_lock_owner(mut file: fs::File) -> io::Result<String> {
+fn write_lock_owner(mut file: fs::File) -> io::Result<(String, fs::File)> {
     let identity = ProcessIdentity::current();
     let sequence = LOCK_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let token = format!("{}:{}:{sequence}", identity.pid, identity.start_time);
     writeln!(file, "{token}")?;
     file.sync_all()?;
-    Ok(token)
+    #[cfg(unix)]
+    if !try_lock_file(&file)? {
+        return Err(io::Error::other(
+            "new lock file could not be exclusively locked",
+        ));
+    }
+    Ok((token, file))
 }
 
 fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
-    if lock_owner_is_alive(path) {
+    #[cfg(unix)]
+    {
+        // The owner keeps an advisory lock on the inode for its whole scope.
+        // A stale reclaimer must acquire that same lock before unlinking, so a
+        // live owner or a competing reclaimer can never be mistaken for stale.
+        let Ok(file) = fs::OpenOptions::new().read(true).write(true).open(path) else {
+            return;
+        };
+        let Ok(true) = try_lock_file(&file) else {
+            return;
+        };
+        let stale = match read_lock_owner(path) {
+            Some(_) => !lock_owner_is_alive(path),
+            None => lock_is_stale_by_age(path, stale_after),
+        };
+        if stale {
+            let _ = fs::remove_file(path);
+        }
         return;
     }
-    if read_lock_owner(path).is_none() && !lock_is_stale_by_age(path, stale_after) {
-        return;
+
+    #[cfg(not(unix))]
+    {
+        if lock_owner_is_alive(path) {
+            return;
+        }
+        if read_lock_owner(path).is_none() && !lock_is_stale_by_age(path, stale_after) {
+            return;
+        }
+        let _ = fs::remove_file(path);
     }
-    let _ = fs::remove_file(path);
+}
+
+#[cfg(unix)]
+fn try_lock_file(file: &fs::File) -> io::Result<bool> {
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if matches!(
+        error.raw_os_error(),
+        Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN
+    ) {
+        return Ok(false);
+    }
+    Err(error)
 }
 
 fn lock_is_stale_by_age(path: &Path, stale_after: Duration) -> bool {
@@ -300,6 +353,20 @@ mod tests {
         let lock = ScopedFileLock::acquire(path.clone()).unwrap();
 
         assert!(path.is_file());
+        drop(lock);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn reclaiming_a_live_lock_preserves_the_canonical_path() {
+        let path = test_root("live-reclaim").join("output.lock");
+        let lock = ScopedFileLock::acquire(path.clone()).unwrap();
+        let token = lock.token.clone();
+
+        reclaim_stale_lock(&path, Duration::ZERO);
+
+        assert_eq!(fs::read_to_string(&path).unwrap().trim(), token);
         drop(lock);
         assert!(!path.exists());
     }
