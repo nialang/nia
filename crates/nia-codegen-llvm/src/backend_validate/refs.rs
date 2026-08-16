@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::FunctionInstanceKey;
 use nia_ids::GlobalDefId;
 use nia_span::Span;
 
@@ -41,13 +42,13 @@ impl BackendValidator<'_> {
         for arg in args {
             self.validate_type(*arg, span);
         }
-        let key = (
+        let key = FunctionInstanceKey {
             def_id,
             arg_module_id,
             self_arg,
-            args.to_vec(),
-            const_args.to_vec(),
-        );
+            args: args.to_vec(),
+            const_args: const_args.to_vec(),
+        };
         let exists = if let Some(exists) = self.function_instance_ref_cache.borrow().get(&key) {
             *exists
         } else {
