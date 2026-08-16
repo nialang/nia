@@ -2,26 +2,16 @@
 use std::collections::HashMap;
 
 use crate::{BackendOptimizationChange, ModuleLowerer};
-use nia_backend_ir::{BackendFunction, BackendFunctionInstance};
+use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendParam};
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody,
-    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionLocalKind,
+    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionInstanceKey,
     FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_ids::{GlobalDefId, LocalId};
 use nia_opt::{InlineThreshold, SpecializationPolicy};
-use nia_ty::ConstGenericArg;
 
 pub(crate) const INLINE_LEAF_FUNCTIONS_PASS: &str = "inline-leaf-functions";
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FunctionInstanceKey {
-    def_id: GlobalDefId,
-    arg_module_id: ModuleId,
-    self_arg: Option<InternedTyId>,
-    args: Vec<InternedTyId>,
-    const_args: Vec<ConstGenericArg>,
-}
 
 #[derive(Debug, Clone)]
 enum InlineCandidate {
@@ -111,6 +101,7 @@ impl<'a> ModuleLowerer<'a> {
             .filter_map(|function| {
                 leaf_inline_return(
                     &function.function_body,
+                    &function.params,
                     inline_threshold,
                     allow_forwarding_wrapper,
                 )
@@ -132,6 +123,7 @@ impl<'a> ModuleLowerer<'a> {
             .filter_map(|instance| {
                 leaf_inline_return(
                     &instance.function_body,
+                    &instance.params,
                     instance_inline_threshold,
                     allow_forwarding_wrapper,
                 )
@@ -677,17 +669,20 @@ fn generic_instance_inline_threshold(
 
 fn leaf_inline_return(
     body: &Option<FunctionBody>,
+    backend_params: &[BackendParam],
     threshold: InlineThreshold,
     allow_forwarding_wrapper: bool,
 ) -> Option<LeafInlineBody> {
     let body = body.as_ref()?;
-    let (block, value) = leaf_return_shape(body, threshold)?;
-    let params = body
-        .locals
+    // BackendParam is the ABI/source parameter order. The locals table also
+    // contains nested bindings and is intentionally transformable, so using
+    // it as the substitution order would make an otherwise valid inline
+    // candidate depend on incidental local-table layout.
+    let params = backend_params
         .iter()
-        .filter(|local| local.kind == FunctionLocalKind::Param)
-        .map(|local| local.id)
-        .collect::<Vec<_>>();
+        .map(|param| param.local_id)
+        .collect::<Option<Vec<_>>>()?;
+    let (block, value) = leaf_return_shape(body, threshold)?;
 
     if !block.ops.is_empty() {
         return matches!(threshold, InlineThreshold::Aggressive)

@@ -405,6 +405,11 @@ commit as the corresponding implementation batch.
       preservation contract and debug-validates the body before optimization
       and after every enabled pass, attributing structural invariant failures
       to their introducing pass without adding release-build overhead.
+- [x] Phase B cross-function optimization now preserves dynamic receiver ABI
+      metadata during trait-call devirtualization, derives inline substitution
+      order from the backend parameter contract rather than incidental local
+      table order, and shares the canonical `FunctionInstanceKey`; const-generic
+      instance propagation has a two-key regression test.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

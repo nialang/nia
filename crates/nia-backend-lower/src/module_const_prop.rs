@@ -5,24 +5,15 @@ use crate::{BackendOptimizationChange, ModuleLowerer};
 use nia_backend_ir::{BackendFunction, BackendFunctionInstance};
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody,
-    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionLocalKind,
-    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
+    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionInstanceKey,
+    FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::GlobalDefId;
 use nia_opt::OptimizationDepth;
-use nia_ty::ConstGenericArg;
 
 pub(crate) const PROPAGATE_CROSS_FUNCTION_CONSTANTS_PASS: &str =
     "propagate-cross-function-constants";
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FunctionInstanceKey {
-    def_id: GlobalDefId,
-    arg_module_id: ModuleId,
-    self_arg: Option<InternedTyId>,
-    args: Vec<InternedTyId>,
-    const_args: Vec<ConstGenericArg>,
-}
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn propagate_cross_function_constants(
