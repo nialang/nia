@@ -314,6 +314,9 @@ commit as the corresponding implementation batch.
 - [x] Persistent signature-cache publication enforces the same bounded entry
       size used by decoders, preventing oversized type/signature products from
       being written only to become guaranteed cache misses on the next load.
+- [x] Loader frontend-cache publication now enforces its read-side size bound
+      and only treats `AlreadyExists` as a benign concurrent-writer outcome;
+      permission, I/O, and other rename failures remain visible to callers.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
