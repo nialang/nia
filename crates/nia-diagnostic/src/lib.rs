@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Structured compiler diagnostics, stable persistence, and report rendering.
+//!
+//! Producers emit registered codes with source, generated, or explicitly
+//! marked fallback spans. Reports impose deterministic presentation order and
+//! deduplicate only byte-for-byte equivalent diagnostic structure; secondary
+//! labels, notes, help, related locations, and internal debug fields are part
+//! of a diagnostic's identity.
+
 use nia_span::Span;
 
 mod stable_bundle;
@@ -8,6 +16,7 @@ pub use stable_bundle::{
     StableDiagnosticBundleError, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
 };
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::fmt;
 pub use store::{DiagnosticBundle, DiagnosticBundleId, DiagnosticStore};
 
@@ -305,7 +314,7 @@ pub mod codes {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Diagnostic {
     pub severity: Severity,
     pub category: DiagnosticCategory,
@@ -336,7 +345,7 @@ pub struct DiagnosticCode {
     registered: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DiagnosticLabel {
     pub span: Span,
     pub span_source: SpanSource,
@@ -344,26 +353,26 @@ pub struct DiagnosticLabel {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpanSource {
     Source,
     Fallback,
     Generated,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LabelStyle {
     Primary,
     Secondary,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelatedDiagnostic {
     pub span: Span,
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DebugField {
     pub key: String,
     pub value: String,
@@ -685,6 +694,12 @@ impl DiagnosticBuilder {
     }
 }
 
+/// Sorts diagnostics for presentation, removes exact duplicates, and applies
+/// the configured display limit.
+///
+/// Deduplication happens before limiting so suppression counts remain stable.
+/// The full diagnostic participates in equality: sharing a primary location
+/// does not make two different candidate explanations interchangeable.
 pub fn build_diagnostic_report<T: DiagnosticReportItem>(
     diagnostics: &[T],
     config: DiagnosticReportConfig,
@@ -693,16 +708,15 @@ pub fn build_diagnostic_report<T: DiagnosticReportItem>(
     entries.sort_by(|left, right| compare_report_items(*left, *right));
 
     let mut selected = Vec::new();
-    let mut seen = Vec::<DiagnosticDedupeKey>::new();
+    let mut seen = HashSet::new();
     let mut suppressed_duplicates = 0;
     let mut suppressed_by_limit = 0;
     for entry in entries {
         let key = DiagnosticDedupeKey::from_item(entry);
-        if seen.iter().any(|seen| seen == &key) {
+        if !seen.insert(key) {
             suppressed_duplicates += 1;
             continue;
         }
-        seen.push(key);
         if selected.len() >= config.max_diagnostics {
             suppressed_by_limit += 1;
             continue;
@@ -773,30 +787,17 @@ fn span_source_rank(diagnostic: &Diagnostic) -> u8 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DiagnosticDedupeKey {
-    path: Option<String>,
-    category: DiagnosticCategory,
-    severity: Severity,
-    code: String,
-    registered: bool,
-    span: Option<Span>,
-    span_source: Option<SpanSource>,
-    summary: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DiagnosticDedupeKey<'a> {
+    path: Option<&'a str>,
+    diagnostic: &'a Diagnostic,
 }
 
-impl DiagnosticDedupeKey {
-    fn from_item<T: DiagnosticReportItem>(item: &T) -> Self {
-        let diagnostic = item.report_diagnostic();
+impl<'a> DiagnosticDedupeKey<'a> {
+    fn from_item<T: DiagnosticReportItem>(item: &'a T) -> Self {
         Self {
-            path: item.report_path().map(str::to_string),
-            category: diagnostic.category,
-            severity: diagnostic.severity,
-            code: diagnostic.code.as_str().to_string(),
-            registered: diagnostic.code.is_registered(),
-            span: diagnostic.primary_span(),
-            span_source: diagnostic.primary_span_source(),
-            summary: diagnostic.summary.clone(),
+            path: item.report_path(),
+            diagnostic: item.report_diagnostic(),
         }
     }
 }
@@ -1065,6 +1066,25 @@ mod tests {
 
         assert_eq!(report.entries().len(), 1);
         assert_eq!(report.suppressed_duplicates(), 1);
+    }
+
+    #[test]
+    fn report_preserves_distinct_secondary_context() {
+        let diagnostics = vec![
+            Diagnostic::user_error(codes::TYPE_CHECK, "ambiguous candidate")
+                .primary(Span::new(10, 11), "ambiguous here")
+                .secondary(Span::new(20, 21), "first candidate")
+                .finish(),
+            Diagnostic::user_error(codes::TYPE_CHECK, "ambiguous candidate")
+                .primary(Span::new(10, 11), "ambiguous here")
+                .secondary(Span::new(30, 31), "second candidate")
+                .finish(),
+        ];
+
+        let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+
+        assert_eq!(report.entries().len(), 2);
+        assert_eq!(report.suppressed_duplicates(), 0);
     }
 
     #[test]
