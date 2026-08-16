@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Structural validation for function IR producer/consumer boundaries.
+//!
+//! Validation rejects recovery nodes, dangling ids, malformed scope graphs,
+//! effect-only expressions in value positions, and invalid closure ABI local
+//! metadata.
+//! Nominal type and definition lookup remains the backend validator's job,
+//! because this crate intentionally has no program/type-store dependency.
+
 use std::collections::HashSet;
 
 use nia_ids::LocalId;
@@ -6,9 +14,10 @@ use nia_span::Span;
 
 use crate::{
     FunctionArrayElements, FunctionAtomic, FunctionBinding, FunctionBlock, FunctionBlockId,
-    FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
-    FunctionForHeader, FunctionLocal, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace,
-    FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionTerminator,
+    FunctionBody, FunctionCallee, FunctionClosureEntry, FunctionDeferBody, FunctionExpr,
+    FunctionExprKind, FunctionForHeader, FunctionLocal, FunctionLocalKind,
+    FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionScope, FunctionScopeId, FunctionTerminator,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +35,7 @@ impl FunctionIrError {
     }
 }
 
+/// Validates a complete function body, including recursively nested defers.
 pub fn validate_function_body(body: &FunctionBody) -> Result<(), FunctionIrError> {
     FunctionIrValidator::new(&body.locals, &body.scopes, &body.blocks, body.entry)
         .validate_body(body.span)?;
@@ -48,6 +58,64 @@ pub fn validate_function_body(body: &FunctionBody) -> Result<(), FunctionIrError
     Ok(())
 }
 
+/// Validates a generated closure entry body and its ABI-facing local metadata.
+///
+/// Pointer shape and nominal closure-state identity require a [`nia_ty::TypeStore`]
+/// and remain backend validation responsibilities. This check covers the
+/// self-contained invariants required to keep backend lowering from indexing
+/// missing or contradictory locals.
+pub fn validate_function_closure_entry(
+    entry: &FunctionClosureEntry,
+) -> Result<(), FunctionIrError> {
+    validate_function_body(&entry.body)?;
+    let state = require_closure_param_local(&entry.body, entry.state_param, "state parameter")?;
+    if state.kind != FunctionLocalKind::Param {
+        return Err(FunctionIrError::new(
+            state.span,
+            "closure entry state local is not a parameter",
+        ));
+    }
+
+    let mut seen = HashSet::from([entry.state_param]);
+    for param in &entry.params {
+        if !seen.insert(*param) {
+            return Err(FunctionIrError::new(
+                entry.body.span,
+                "closure entry parameter list contains a duplicate local",
+            ));
+        }
+        let local = require_closure_param_local(&entry.body, *param, "parameter")?;
+        if local.kind != FunctionLocalKind::Param {
+            return Err(FunctionIrError::new(
+                local.span,
+                "closure entry parameter local is not a parameter",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn require_closure_param_local<'a>(
+    body: &'a FunctionBody,
+    id: LocalId,
+    what: &str,
+) -> Result<&'a FunctionLocal, FunctionIrError> {
+    body.locals
+        .iter()
+        .find(|local| local.id == id)
+        .ok_or_else(|| {
+            FunctionIrError::new(
+                body.span,
+                format!("closure entry {what} references missing local `{}`", id.0),
+            )
+        })
+}
+
+/// Validates a standalone defer mini-CFG against its enclosing local table.
+///
+/// Standalone validation has no outer block namespace. Nested defer bodies in
+/// a full function are validated by [`validate_function_body`], which supplies
+/// the enclosing block ids needed by already-lowered non-local exits.
 pub fn validate_function_defer_body(
     enclosing_locals: &[FunctionLocal],
     body: &FunctionDeferBody,
@@ -248,8 +316,8 @@ impl<'a> FunctionIrValidator<'a> {
     }
 
     fn validate_terminator(&self, terminator: &FunctionTerminator) -> Result<(), FunctionIrError> {
-        for successor in terminator.successors() {
-            self.require_block(successor, terminator.span(), "terminator successor")?;
+        for target in terminator.referenced_blocks() {
+            self.require_block(target, terminator.span(), "terminator")?;
         }
         match terminator {
             FunctionTerminator::If { cond, .. } => self.validate_value_expr(cond)?,
@@ -296,14 +364,11 @@ impl<'a> FunctionIrValidator<'a> {
         terminator: &FunctionTerminator,
         outer_block_ids: &HashSet<FunctionBlockId>,
     ) -> Result<(), FunctionIrError> {
-        for successor in terminator.successors() {
-            if !self.block_ids.contains(&successor) && !outer_block_ids.contains(&successor) {
+        for target in terminator.referenced_blocks() {
+            if !self.block_ids.contains(&target) && !outer_block_ids.contains(&target) {
                 return Err(FunctionIrError::new(
                     terminator.span(),
-                    format!(
-                        "terminator successor references missing block `{}`",
-                        successor.0
-                    ),
+                    format!("terminator references missing block `{}`", target.0),
                 ));
             }
         }
@@ -745,19 +810,65 @@ mod tests {
     }
 
     fn test_ty() -> nia_ids::InternedTyId {
-        static TYPE_STORE: std::sync::OnceLock<(nia_ty::TypeStore, nia_ids::ModuleId)> =
-            std::sync::OnceLock::new();
-        let (type_store, module_id) = TYPE_STORE.get_or_init(|| {
-            let mut module_ids = nia_ids::ModuleIdAllocator::new();
-            (nia_ty::TypeStore::new(), module_ids.allocate())
-        });
+        let (type_store, module_id) = test_type_fixture();
         type_store
             .append_for_module(*module_id)
             .intern(nia_ty::TyKind::Tuple(Vec::new()))
     }
 
+    fn test_type_fixture() -> &'static (nia_ty::TypeStore, nia_ids::ModuleId) {
+        static TYPE_STORE: std::sync::OnceLock<(nia_ty::TypeStore, nia_ids::ModuleId)> =
+            std::sync::OnceLock::new();
+        TYPE_STORE.get_or_init(|| {
+            let mut module_ids = nia_ids::ModuleIdAllocator::new();
+            (nia_ty::TypeStore::new(), module_ids.allocate())
+        })
+    }
+
     fn sym(text: &str) -> nia_symbol::SymbolId {
         nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
+    }
+
+    fn closure_entry() -> FunctionClosureEntry {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let mut body = empty_body(vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }]);
+        body.locals = vec![
+            FunctionLocal {
+                id: LocalId(0),
+                name: crate::LocalName::named(sym("state")),
+                kind: FunctionLocalKind::Param,
+                ty,
+                span,
+            },
+            FunctionLocal {
+                id: LocalId(1),
+                name: crate::LocalName::named(sym("value")),
+                kind: FunctionLocalKind::Param,
+                ty,
+                span,
+            },
+        ];
+        FunctionClosureEntry {
+            closure_id: nia_ids::ClosureId {
+                owner: nia_ids::GlobalDefId {
+                    module_id,
+                    def_id: nia_ids::DefId(1),
+                },
+                ordinal: 0,
+            },
+            state_ty: ty,
+            state_param: LocalId(0),
+            params: vec![LocalId(1)],
+            return_type: ty,
+            body,
+        }
     }
 
     #[test]
@@ -783,6 +894,66 @@ mod tests {
                 .contains("scope parent chain contains a cycle"),
             "{error:?}"
         );
+    }
+
+    #[test]
+    fn rejects_dangling_structural_terminator_targets() {
+        let span = Span::default();
+        let scope = FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        };
+        let mut loop_body = empty_body(vec![scope.clone()]);
+        loop_body.blocks[0].terminator = FunctionTerminator::Loop {
+            header: FunctionForHeader::Infinite,
+            body: FunctionBlockId(0),
+            continue_target: FunctionBlockId(99),
+            break_target: FunctionBlockId(0),
+            span,
+        };
+        let loop_error = validate_function_body(&loop_body)
+            .expect_err("loop continue metadata must reference a real block");
+        assert!(loop_error.message.contains("missing block `99`"));
+
+        let mut switch_body = empty_body(vec![scope]);
+        switch_body.blocks[0].terminator = FunctionTerminator::Switch {
+            target: FunctionExpr {
+                span,
+                ty: test_ty(),
+                kind: FunctionExprKind::Integer("0".to_string()),
+            },
+            arms: Vec::new(),
+            default: Some(FunctionBlockId(0)),
+            fallback: FunctionBlockId(99),
+            span,
+        };
+        let switch_error = validate_function_body(&switch_body)
+            .expect_err("inactive switch fallback must remain structurally valid");
+        assert!(switch_error.message.contains("missing block `99`"));
+    }
+
+    #[test]
+    fn validates_closure_entry_local_contract() {
+        validate_function_closure_entry(&closure_entry()).expect("well-formed closure entry");
+
+        let mut missing = closure_entry();
+        missing.params = vec![LocalId(9)];
+        let error = validate_function_closure_entry(&missing)
+            .expect_err("closure ABI parameter must name a body local");
+        assert!(error.message.contains("missing local `9`"));
+
+        let mut duplicate = closure_entry();
+        duplicate.params = vec![LocalId(1), LocalId(1)];
+        let error = validate_function_closure_entry(&duplicate)
+            .expect_err("closure ABI parameters must be unique");
+        assert!(error.message.contains("duplicate local"));
+
+        let mut wrong_kind = closure_entry();
+        wrong_kind.body.locals[0].kind = FunctionLocalKind::ImmutableBinding;
+        let error = validate_function_closure_entry(&wrong_kind)
+            .expect_err("closure state local must be an ABI parameter");
+        assert!(error.message.contains("state local is not a parameter"));
     }
 
     #[test]

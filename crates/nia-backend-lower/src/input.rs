@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 use nia_diagnostic::{Diagnostic, codes};
-use nia_function_ir::validate_function_body;
+use nia_function_ir::{validate_function_body, validate_function_closure_entry};
 use nia_ids::{ClosureId, GlobalDefId};
 
 use crate::BackendLowerModuleInput;
@@ -65,7 +65,7 @@ fn validate_closure_entries(
                     .finish(),
                 );
             }
-            if let Err(error) = validate_function_body(&entry.body) {
+            if let Err(error) = validate_function_closure_entry(entry) {
                 diagnostics.push(
                     Diagnostic::internal_error(
                         codes::INVALID_FUNCTION_IR,

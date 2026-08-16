@@ -25,6 +25,7 @@ use nia_function_ir::{
     FunctionOptionalTag, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange,
     FunctionScope, FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
     FunctionTryKind, GeneratedLocalName, LocalName, validate_function_body,
+    validate_function_closure_entry,
 };
 
 mod expr;
@@ -89,7 +90,7 @@ pub fn lower_function_body(
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
     for entry in &lowerer.closure_entries {
-        validate_function_body(&entry.body).map_err(FunctionLoweringDiagnostic::from)?;
+        validate_function_closure_entry(entry).map_err(FunctionLoweringDiagnostic::from)?;
     }
     Ok(LoweredFunctionBody {
         body,

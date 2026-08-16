@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Function-level control-flow IR shared by lowering, optimization, and codegen.
+//!
+//! A [`FunctionBody`] owns flat tables of locals, lexical scopes, and basic
+//! blocks. References use stable ids rather than vector indices so optimization
+//! passes may remove or reorder blocks without rewriting unrelated data. Use
+//! [`crate::validate_function_body`] at every producer/consumer boundary: the
+//! structs deliberately remain easy to transform, so their cross-table
+//! invariants are enforced by validation rather than private constructors.
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, ClosureId, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
 pub use nia_ir_names::{GeneratedLocalName, LocalName, PromotedAllocationId};
@@ -234,6 +242,12 @@ pub enum FunctionExprKind {
     ByteChar(String),
     Bool(bool),
     Null,
+    /// A use of local storage through the expression's current typed view.
+    ///
+    /// `FunctionExpr::ty` need not equal the local table type: address-taking
+    /// and coercion lowering can reinterpret the same storage through a pointer
+    /// or slice view. Operations that write a local (`Binding` and `StoreLocal`)
+    /// retain the stronger storage-type contract.
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
     ConstGeneric(ConstGenericArg),
@@ -714,6 +728,12 @@ pub enum FunctionPlaceElem {
 }
 
 impl FunctionTerminator {
+    /// Returns blocks that control can enter immediately after this terminator.
+    ///
+    /// This is a CFG operation, not a complete reference walk. In particular,
+    /// `Loop::continue_target` is metadata used by lowered `continue` edges, and
+    /// a `Switch` fallback is inactive when an explicit default exists. Use
+    /// [`Self::referenced_blocks`] when validating or rewriting stored block ids.
     pub fn successors(&self) -> Vec<FunctionBlockId> {
         match self {
             FunctionTerminator::Error { .. } => Vec::new(),
@@ -740,6 +760,46 @@ impl FunctionTerminator {
                 body, break_target, ..
             } => vec![*body, *break_target],
             FunctionTerminator::Return { .. } | FunctionTerminator::Tail { .. } => Vec::new(),
+        }
+    }
+
+    /// Returns every block id stored by this terminator.
+    ///
+    /// Unlike [`Self::successors`], this includes inactive structural metadata:
+    /// the switch fallback even when a default is present, and a loop's
+    /// `continue_target`. Optimizers must keep these references valid because a
+    /// later transformation can make them operational again.
+    pub fn referenced_blocks(&self) -> Vec<FunctionBlockId> {
+        match self {
+            FunctionTerminator::Error { .. }
+            | FunctionTerminator::Return { .. }
+            | FunctionTerminator::Tail { .. } => Vec::new(),
+            FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
+                vec![*target]
+            }
+            FunctionTerminator::Try { success_target, .. } => vec![*success_target],
+            FunctionTerminator::If {
+                then_target,
+                else_target,
+                ..
+            } => vec![*then_target, *else_target],
+            FunctionTerminator::Switch {
+                arms,
+                default,
+                fallback,
+                ..
+            } => {
+                let mut targets = arms.iter().map(|arm| arm.target).collect::<Vec<_>>();
+                targets.extend(default.iter().copied());
+                targets.push(*fallback);
+                targets
+            }
+            FunctionTerminator::Loop {
+                body,
+                continue_target,
+                break_target,
+                ..
+            } => vec![*body, *continue_target, *break_target],
         }
     }
 }
@@ -810,6 +870,12 @@ impl FunctionDeferBody {
     }
 }
 
+/// Computes the lexical scopes unwound by a control-flow edge.
+///
+/// Scope chains are stored child-to-root. Their first common element is the
+/// lowest common ancestor, so the prefix before it is exactly the sequence of
+/// scopes whose defers must run, innermost first. A return has no destination
+/// scope and therefore unwinds the complete source chain.
 fn exited_scopes_between(
     scopes: &[FunctionScope],
     from: FunctionScopeId,
@@ -824,8 +890,6 @@ fn exited_scopes_between(
         .iter()
         .find(|scope| to_chain.contains(scope))
         .copied();
-    // Defer emission treats scope exit as stack unwinding: leave the source scope first,
-    // then its parents, stopping before the lowest common ancestor shared with the target.
     Some(
         from_chain
             .into_iter()

@@ -15,7 +15,7 @@ impl FunctionCfg {
         let mut predecessors: HashMap<FunctionBlockId, Vec<FunctionBlockId>> = HashMap::new();
         for block in blocks {
             predecessors.entry(block.id).or_default();
-            for target in terminator_referenced_blocks(&block.terminator) {
+            for target in block.terminator.referenced_blocks() {
                 if blocks_by_id.contains_key(&target) {
                     predecessors.entry(target).or_default().push(block.id);
                 }
@@ -39,7 +39,8 @@ impl FunctionCfg {
         &self,
         terminator: &FunctionTerminator,
     ) -> Vec<FunctionBlockId> {
-        terminator_referenced_blocks(terminator)
+        terminator
+            .referenced_blocks()
             .into_iter()
             .filter(|id| self.blocks_by_id.contains_key(id))
             .collect()
@@ -89,7 +90,8 @@ impl DeferCfg {
         &self,
         terminator: &FunctionTerminator,
     ) -> Vec<FunctionBlockId> {
-        terminator_referenced_blocks(terminator)
+        terminator
+            .referenced_blocks()
             .into_iter()
             .filter(|id| self.blocks_by_id.contains_key(id))
             .collect()
