@@ -28,6 +28,16 @@ struct DynamicTraitMethodCall<'a, 'ctx> {
     out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
 }
 
+/// Checks source arity against the ABI's fixed prefix.
+///
+/// A variadic call may append arguments, but it may never omit a fixed
+/// argument. Keeping this check separate from ABI omission is important: a
+/// zero-sized fixed argument is absent from LLVM's argument vector but remains
+/// present (and may remain effectful) in the source argument sequence.
+fn call_arity_is_valid(actual: usize, fixed: usize, is_variadic: bool) -> bool {
+    actual >= fixed && (is_variadic || actual == fixed)
+}
+
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_function_pointer(
         &mut self,
@@ -274,6 +284,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     std::iter::once(state.as_ref()).chain(args.iter()),
                     std::iter::once(state_pointer_type).chain(param_types),
                     out_ptr,
+                    false,
                 )?;
                 self.builder
                     .build_call(function, &llvm_args, "closure.call")
@@ -290,7 +301,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     self.emit_c_call_args(args)?
                 } else {
                     let param_tys = function_item.params.iter().map(|param| param.passing_ty);
-                    self.emit_call_args(expr.span, args, param_tys, out_ptr)?
+                    self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
                 };
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
@@ -316,7 +327,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     self.emit_c_call_args(args)?
                 } else {
                     let param_tys = instance.params.iter().map(|param| param.passing_ty);
-                    self.emit_call_args(expr.span, args, param_tys, out_ptr)?
+                    self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
                 };
                 self.builder
                     .build_call(
@@ -441,6 +452,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         args,
                         param_tys.into_iter().skip(1),
                         None,
+                        false,
                     )?);
                     llvm_args
                 };
@@ -516,7 +528,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     return_type,
                     receiver.span,
                 )?;
-                let mut llvm_args = self.emit_call_args(expr.span, args, params, None)?;
+                let mut llvm_args = self.emit_call_args(expr.span, args, params, None, false)?;
                 let state_index = usize::from(out_ptr.is_some());
                 if let Some(out_ptr) = out_ptr {
                     llvm_args.insert(0, out_ptr.into());
@@ -542,8 +554,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     callee.span,
                 )?;
                 let function_pointer = self.emit_expr(callee)?.into_pointer_value()?;
-                let llvm_args =
-                    self.emit_call_args(expr.span, args, params.iter().copied(), out_ptr)?;
+                let llvm_args = self.emit_call_args(
+                    expr.span,
+                    args,
+                    params.iter().copied(),
+                    out_ptr,
+                    *is_variadic,
+                )?;
                 self.builder
                     .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build indirect call"))
@@ -625,6 +642,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             call.args,
             call.params.iter().copied(),
             None,
+            false,
         )?);
         self.builder
             .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
@@ -637,8 +655,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         args: &[FunctionExpr],
         param_tys: impl IntoIterator<Item = InternedTyId>,
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+        is_variadic: bool,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
-        self.emit_call_args_iter(span, args.iter(), param_tys, out_ptr)
+        self.emit_call_args_iter(span, args.iter(), param_tys, out_ptr, is_variadic)
     }
 
     fn emit_call_args_iter<'expr>(
@@ -647,15 +666,31 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         args: impl IntoIterator<Item = &'expr FunctionExpr>,
         param_tys: impl IntoIterator<Item = InternedTyId>,
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+        is_variadic: bool,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
+        let args = args.into_iter().collect::<Vec<_>>();
+        let classifications = self.module.classify_function_params(param_tys);
+        let fixed_arg_count = classifications.len();
+        if !call_arity_is_valid(args.len(), fixed_arg_count, is_variadic) {
+            return Err(self.error(
+                span,
+                format!(
+                    "call has {} arguments but its ABI requires {}{}",
+                    args.len(),
+                    fixed_arg_count,
+                    if is_variadic {
+                        " fixed arguments"
+                    } else {
+                        " arguments"
+                    }
+                ),
+            ));
+        }
         let mut llvm_args = Vec::new();
         if let Some(out_ptr) = out_ptr {
             llvm_args.push(out_ptr.into());
         }
-        for (arg, classification) in args
-            .into_iter()
-            .zip(self.module.classify_function_params(param_tys))
-        {
+        for (arg, classification) in args.iter().copied().zip(classifications) {
             match classification {
                 AbiParam::Direct(ty)
                     if matches!(self.module.ty_kind(ty), Some(TyKind::Pointer { .. }))
@@ -669,6 +704,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
                 AbiParam::Omit => self.emit_effect_expr(arg)?,
             }
+        }
+        // Variadic arguments have no declared Nia ABI classification. Their
+        // types were fixed by body checking, so preserve them directly and in
+        // source order after all fixed arguments.
+        for arg in args.iter().skip(fixed_arg_count) {
+            llvm_args.push(self.emit_expr(arg)?);
         }
         Ok(llvm_args)
     }
@@ -880,4 +921,19 @@ fn is_addressable_receiver(receiver: &FunctionExpr) -> bool {
             | FunctionExprKind::Index { .. }
             | FunctionExprKind::StaticArrayPointer { .. }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::call_arity_is_valid;
+
+    #[test]
+    fn call_arity_preserves_fixed_and_variadic_contracts() {
+        assert!(call_arity_is_valid(2, 2, false));
+        assert!(!call_arity_is_valid(1, 2, false));
+        assert!(!call_arity_is_valid(3, 2, false));
+        assert!(call_arity_is_valid(2, 2, true));
+        assert!(call_arity_is_valid(4, 2, true));
+        assert!(!call_arity_is_valid(1, 2, true));
+    }
 }

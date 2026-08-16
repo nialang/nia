@@ -65,6 +65,34 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_variadic_function_pointer_tail_arguments() {
+    let root = temp_dir("emits_variadic_function_pointer_tail_arguments");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(first: i32, ...);
+
+fn main() i32 {
+    let callback: &fn(i32, ...) () = &log;
+    callback(1, 2i32, 3i64);
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call void (i32, ...)"), "{ir}");
+    assert!(ir.contains("i32 1, i32 2, i64 3"), "{ir}");
+}
+
+#[test]
 fn emits_extern_function_definitions_with_unmangled_symbols() {
     let root = temp_dir("emits_extern_function_definitions_with_unmangled_symbols");
     let main = root.join("main.nia");

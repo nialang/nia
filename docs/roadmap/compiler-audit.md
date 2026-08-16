@@ -438,6 +438,10 @@ commit as the corresponding implementation batch.
       slice lengths, and memory-loop counters from the target pointer width
       rather than an LP64 constant; a 32-bit function ABI regression verifies
       both the signature and returned value width.
+- [x] Phase B LLVM call argument materialization now rejects fixed-arity
+      mismatches instead of silently truncating through iterator `zip`, while
+      variadic function pointers preserve and emit all tail arguments in source
+      order; an indirect variadic call regression covers the ABI path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
