@@ -350,6 +350,10 @@ commit as the corresponding implementation batch.
 - [x] Phase E caller-supplied syntax token streams normalize a terminal EOF's
       span to the actual source boundary, preserving root/cursor offsets even
       when external lexers provide a stale EOF location.
+- [x] Phase C flow audit documented the ownership boundary between conservative
+      syntactic return joins and typed pattern-matrix exhaustiveness; nominal
+      constructors and literal/range coverage remain intentionally delegated
+      to `nia-body-check::patterns`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
