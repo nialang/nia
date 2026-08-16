@@ -223,6 +223,12 @@ impl SyntaxTree {
             .position(|token| matches!(token.kind, LosslessTokenKind::Token(TokenKind::Eof)))
         {
             tokens.truncate(eof + 1);
+            // EOF is a stream boundary, not a caller-owned source span. A
+            // stale `0..0` (or out-of-range) EOF would otherwise shorten or
+            // extend the root span and break offset-based consumers.
+            if let Some(eof) = tokens.last_mut() {
+                eof.span = Span::new(source.len(), source.len());
+            }
         } else {
             tokens.push(LosslessToken {
                 kind: LosslessTokenKind::Token(TokenKind::Eof),
@@ -834,6 +840,28 @@ mod tests {
         ];
         let tree = SyntaxTree::from_lossless_tokens("", None, tokens);
         assert_eq!(SyntaxTokenCursor::new(&tree).tokens().len(), 1);
+    }
+
+    #[test]
+    fn caller_supplied_eof_is_relocated_to_source_end() {
+        let tokens = vec![
+            LosslessToken {
+                kind: LosslessTokenKind::Token(TokenKind::Ident),
+                span: Span::new(0, 3),
+            },
+            LosslessToken {
+                kind: LosslessTokenKind::Token(TokenKind::Eof),
+                span: Span::new(0, 0),
+            },
+        ];
+        let tree = SyntaxTree::from_lossless_tokens("foo", None, tokens);
+
+        assert_eq!(tree.green_root().span(), Span::new(0, 3));
+        assert_eq!(
+            tree.tokens().last().expect("terminal EOF").span,
+            Span::new(3, 3)
+        );
+        assert_eq!(tree.full_text(), "foo");
     }
 
     #[test]
