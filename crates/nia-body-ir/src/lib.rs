@@ -569,6 +569,8 @@ pub enum TypedCallee {
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        /// Forwarded to backend dispatch together with the type arguments.
+        trait_const_args: Vec<ConstGenericArg>,
         args: Vec<InternedTyId>,
         receiver_kind: ReceiverKind,
         receiver: Box<TypedExpr>,
@@ -579,6 +581,8 @@ pub enum TypedCallee {
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        /// Forwarded to backend dispatch together with the type arguments.
+        trait_const_args: Vec<ConstGenericArg>,
         args: Vec<InternedTyId>,
     },
     DynamicTraitMethod {
@@ -587,6 +591,8 @@ pub enum TypedCallee {
         method_id: GlobalDefId,
         method_name: SymbolId,
         trait_args: Vec<InternedTyId>,
+        /// Identifies the concrete trait-object instantiation.
+        trait_const_args: Vec<ConstGenericArg>,
         slot: usize,
         params: Vec<InternedTyId>,
         return_type: InternedTyId,

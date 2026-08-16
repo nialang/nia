@@ -206,6 +206,7 @@ impl<'a> BodyChecker<'a> {
             method_name: method.symbol_id(),
             self_ty,
             trait_args,
+            trait_const_args: Vec::new(),
         });
     }
 

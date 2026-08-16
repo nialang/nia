@@ -642,16 +642,23 @@ impl<'a> ModuleLowerer<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
                 receiver_kind,
                 receiver,
             } => {
                 let receiver = Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver));
-                if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                if self.trait_method_call_is_concrete(
+                    self_ty,
+                    &trait_args,
+                    &trait_const_args,
+                    &args,
+                ) {
                     if let Some((def_id, target_args, target_const_args)) = self
                         .resolve_trait_method_impl(
                             trait_id,
                             &trait_args,
+                            &trait_const_args,
                             method_id,
                             &method_name,
                             self_ty,
@@ -706,6 +713,7 @@ impl<'a> ModuleLowerer<'a> {
                             method_name,
                             self_ty,
                             trait_args,
+                            trait_const_args,
                             args,
                             receiver_kind,
                             receiver,
@@ -718,6 +726,7 @@ impl<'a> ModuleLowerer<'a> {
                         method_name,
                         self_ty,
                         trait_args,
+                        trait_const_args,
                         args,
                         receiver_kind,
                         receiver,
@@ -730,13 +739,20 @@ impl<'a> ModuleLowerer<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
             } => {
-                if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                if self.trait_method_call_is_concrete(
+                    self_ty,
+                    &trait_args,
+                    &trait_const_args,
+                    &args,
+                ) {
                     if let Some((def_id, target_args, target_const_args)) = self
                         .resolve_trait_method_impl(
                             trait_id,
                             &trait_args,
+                            &trait_const_args,
                             method_id,
                             &method_name,
                             self_ty,
@@ -787,6 +803,7 @@ impl<'a> ModuleLowerer<'a> {
                             method_name,
                             self_ty,
                             trait_args,
+                            trait_const_args,
                             args,
                         }
                     }
@@ -797,6 +814,7 @@ impl<'a> ModuleLowerer<'a> {
                         method_name,
                         self_ty,
                         trait_args,
+                        trait_const_args,
                         args,
                     }
                 }
@@ -829,6 +847,7 @@ impl<'a> ModuleLowerer<'a> {
                 method_id,
                 method_name,
                 trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,
@@ -840,6 +859,7 @@ impl<'a> ModuleLowerer<'a> {
                 method_id,
                 method_name,
                 trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,
@@ -1160,6 +1180,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_id: TraitId::Builtin(trait_id),
             method_name,
             trait_arg_count: trait_args.len(),
+            trait_const_arg_count: 0,
         };
         let candidates = self.program_extension_trait_method_candidates(&key);
         let mut candidate = None;
@@ -1199,7 +1220,7 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let substitutions =
-            self.match_extension_trait_impl_candidate(candidate, trait_args, self_ty)?;
+            self.match_extension_trait_impl_candidate(candidate, trait_args, &[], self_ty)?;
         let args = self
             .candidate_impl_generics(candidate)
             .iter()

@@ -164,6 +164,7 @@ impl<'a> BodyChecker<'a> {
             method_name: known::ITER_METHOD,
             self_ty: iterable_ty,
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
         });
         self.record_trait_method_ref(SemanticTraitMethodRef {
             module_id: self.timing_module_id,
@@ -171,6 +172,7 @@ impl<'a> BodyChecker<'a> {
             method_name: known::NEXT,
             self_ty: iterator_ty,
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
         });
         self.check_for_iterator(iter.span, iterator_ty, item_ty);
         if self.body_filter.checks_const_declarations() {

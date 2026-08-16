@@ -477,6 +477,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> Option<SymbolMap<InternedTyId>> {
         let mut substitutions = SymbolMap::default();
@@ -485,6 +486,9 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         if candidate.trait_args.len() != trait_args.len() {
+            return None;
+        }
+        if !self.const_trait_args_match(&candidate.trait_const_args, trait_const_args) {
             return None;
         }
         let candidate_trait_args = candidate
@@ -505,6 +509,20 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         Some(substitutions)
+    }
+
+    /// Matches concrete const arguments against an impl pattern. Generic
+    /// pattern values remain open; the trait solver resolves their bindings.
+    pub(crate) fn const_trait_args_match(
+        &self,
+        pattern: &[nia_ty::ConstGenericArg],
+        actual: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        pattern.len() == actual.len()
+            && pattern.iter().zip(actual).all(|(pattern, actual)| {
+                matches!(pattern.value, nia_ty::ConstGenericValue::GenericParam(_))
+                    || pattern.value == actual.value
+            })
     }
 
     pub(crate) fn normalize_where_predicates(
@@ -581,6 +599,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         method_args: &[InternedTyId],
     ) -> bool {
         !self.ty_contains_generic_param(self_ty)
@@ -588,6 +607,10 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .chain(method_args)
                 .any(|arg| self.ty_contains_generic_param(*arg))
+            && !trait_const_args.iter().any(|arg| {
+                self.ty_contains_generic_param(arg.ty)
+                    || matches!(arg.value, nia_ty::ConstGenericValue::GenericParam(_))
+            })
     }
 
     pub(crate) fn trait_method_call_requires_concrete_impl(
@@ -600,7 +623,7 @@ impl<'a> ModuleLowerer<'a> {
         if self.instantiation.defer_concrete_trait_diagnostics {
             return false;
         }
-        self.trait_method_call_is_concrete(self_ty, trait_args, method_args)
+        self.trait_method_call_is_concrete(self_ty, trait_args, &[], method_args)
             && !self.source_trait_goal_is_satisfied(trait_id, trait_args, self_ty)
     }
 
@@ -614,7 +637,7 @@ impl<'a> ModuleLowerer<'a> {
         if self.instantiation.defer_concrete_trait_diagnostics {
             return false;
         }
-        self.trait_method_call_is_concrete(self_ty, trait_args, method_args)
+        self.trait_method_call_is_concrete(self_ty, trait_args, &[], method_args)
             && !self.builtin_trait_goal_is_satisfied(trait_id, trait_args, self_ty)
     }
 

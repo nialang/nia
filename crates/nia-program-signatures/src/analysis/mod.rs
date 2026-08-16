@@ -262,6 +262,11 @@ pub fn collect_extension_method_index_for_module(
         let trait_id = impl_trait_id_for_index(module, impl_signature, trait_defs);
         let trait_args =
             impl_trait_args_for_index(module, impl_signature, trait_id).unwrap_or_default();
+        let trait_const_args = impl_signature
+            .trait_ty
+            .and_then(|trait_ty| trait_id_and_args(module.type_store, trait_ty))
+            .map(|(_, _, const_args)| const_args)
+            .unwrap_or_default();
         let where_predicates =
             normalize_where_predicates(module.normalization, &impl_signature.where_predicates);
         for method in &impl_signature.methods {
@@ -292,6 +297,7 @@ pub fn collect_extension_method_index_for_module(
                     target_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
                     where_predicates: where_predicates.clone(),
                     visibility: method.visibility,
                 },

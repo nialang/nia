@@ -485,6 +485,7 @@ dependencies = [
  "nia-parser",
  "nia-span",
  "nia-symbol",
+ "nia-ty",
 ]
 
 [[package]]

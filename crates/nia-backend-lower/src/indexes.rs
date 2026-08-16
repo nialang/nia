@@ -135,6 +135,7 @@ pub(crate) fn index_extension_trait_method_candidates(
                     trait_id,
                     method_name: method.name,
                     trait_arg_count: method.trait_args.len(),
+                    trait_const_arg_count: method.trait_const_args.len(),
                 })
                 .or_default()
                 .push(ExtensionTraitMethodCandidate {
@@ -142,6 +143,7 @@ pub(crate) fn index_extension_trait_method_candidates(
                     target_ty: target.target_ty,
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
+                    trait_const_args: method.trait_const_args.clone(),
                     where_predicates: method.where_predicates.clone(),
                     effective_generics: method.effective_generics.clone(),
                 });
@@ -181,6 +183,7 @@ pub(crate) fn index_program_extension_trait_method_candidates(
             target_ty: impl_signature.target_ty,
             method_def_id: method.def_id,
             trait_args: impl_signature.trait_args.clone(),
+            trait_const_args: impl_signature.trait_const_args.clone(),
             where_predicates: impl_signature.where_predicates.clone(),
             effective_generics: impl_signature.generics.clone(),
         };
@@ -189,6 +192,7 @@ pub(crate) fn index_program_extension_trait_method_candidates(
                 trait_id,
                 method_name: method.name,
                 trait_arg_count: method.trait_args.len(),
+                trait_const_arg_count: impl_signature.trait_const_args.len(),
             })
             .or_default()
             .push(candidate);

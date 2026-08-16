@@ -266,6 +266,7 @@ impl<'a> BodyChecker<'a> {
                 Some(self.substituted_call_param_tys(
                     &signature.params,
                     &mut substitutions,
+                    &SymbolMap::default(),
                     receiver_ty,
                     receiver_ty,
                 ))
@@ -276,16 +277,19 @@ impl<'a> BodyChecker<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
                 receiver_kind,
             } => {
                 let signature = self.trait_method_signature(trait_id, &method_name)?;
-                let mut substitutions = self.generic_substitutions_for_trait_call(
-                    trait_id,
-                    &signature.generics,
-                    &trait_args,
-                    &args,
-                );
+                let (mut substitutions, const_substitutions) = self
+                    .generic_substitutions_for_trait_call(
+                        trait_id,
+                        &signature.generics,
+                        &trait_args,
+                        &trait_const_args,
+                        &args,
+                    );
                 let receiver_ty = signature
                     .params
                     .first()
@@ -301,6 +305,7 @@ impl<'a> BodyChecker<'a> {
                 Some(self.substituted_call_param_tys(
                     &signature.params,
                     &mut substitutions,
+                    &const_substitutions,
                     receiver_ty,
                     Some(self_ty),
                 ))
@@ -311,18 +316,22 @@ impl<'a> BodyChecker<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
             } => {
                 let signature = self.trait_method_signature(trait_id, &method_name)?;
-                let mut substitutions = self.generic_substitutions_for_trait_call(
-                    trait_id,
-                    &signature.generics,
-                    &trait_args,
-                    &args,
-                );
+                let (mut substitutions, const_substitutions) = self
+                    .generic_substitutions_for_trait_call(
+                        trait_id,
+                        &signature.generics,
+                        &trait_args,
+                        &trait_const_args,
+                        &args,
+                    );
                 Some(self.substituted_call_param_tys(
                     &signature.params,
                     &mut substitutions,
+                    &const_substitutions,
                     None,
                     Some(self_ty),
                 ))
@@ -372,15 +381,22 @@ impl<'a> BodyChecker<'a> {
         trait_id: nia_ids::GlobalDefId,
         method_generics: &[SymbolId],
         trait_args: &[nia_ids::InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         method_args: &[nia_ids::InternedTyId],
-    ) -> SymbolMap<nia_ids::InternedTyId> {
-        let trait_generics = self
-            .resolved_trait_signature(trait_id)
-            .map(|signature| signature.generics)
+    ) -> (
+        SymbolMap<nia_ids::InternedTyId>,
+        SymbolMap<nia_ty::ConstGenericArg>,
+    ) {
+        let trait_signature = self.resolved_trait_signature(trait_id);
+        let trait_generics = trait_signature
+            .as_ref()
+            .map(|signature| signature.generics.clone())
             .unwrap_or_default();
         let mut substitutions = self.generic_substitutions(&trait_generics, trait_args);
         substitutions.extend(self.generic_substitutions(method_generics, method_args));
-        substitutions
+        let (_, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args);
+        (substitutions, const_substitutions)
     }
 
     fn trait_method_signature(
@@ -399,6 +415,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         params: &[nia_item_signatures::ParamSignature],
         substitutions: &mut SymbolMap<nia_ids::InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
         receiver_ty: Option<nia_ids::InternedTyId>,
         self_ty: Option<nia_ids::InternedTyId>,
     ) -> Vec<nia_ids::InternedTyId> {
@@ -408,17 +425,31 @@ impl<'a> BodyChecker<'a> {
             .map(|(index, param)| {
                 let ty = if index == 0 {
                     receiver_ty.unwrap_or_else(|| match self_ty {
-                        Some(self_ty) => {
-                            self.substitute_generics_with_self(param.ty, substitutions, self_ty)
-                        }
-                        None => self.substitute_generics(param.ty, substitutions),
+                        Some(self_ty) => self.substitute_generics_and_consts_with_self(
+                            param.ty,
+                            substitutions,
+                            const_substitutions,
+                            self_ty,
+                        ),
+                        None => self.substitute_generics_and_consts(
+                            param.ty,
+                            substitutions,
+                            const_substitutions,
+                        ),
                     })
                 } else {
                     match self_ty {
-                        Some(self_ty) => {
-                            self.substitute_generics_with_self(param.ty, substitutions, self_ty)
-                        }
-                        None => self.substitute_generics(param.ty, substitutions),
+                        Some(self_ty) => self.substitute_generics_and_consts_with_self(
+                            param.ty,
+                            substitutions,
+                            const_substitutions,
+                            self_ty,
+                        ),
+                        None => self.substitute_generics_and_consts(
+                            param.ty,
+                            substitutions,
+                            const_substitutions,
+                        ),
                     }
                 };
                 let ty = self.normalize_projection(ty);
@@ -479,6 +510,7 @@ impl<'a> BodyChecker<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
                 receiver_kind,
             } => {
@@ -489,6 +521,7 @@ impl<'a> BodyChecker<'a> {
                         method_name,
                         self_ty,
                         trait_args: trait_args.clone(),
+                        trait_const_args: trait_const_args.clone(),
                         args: args.clone(),
                         receiver_kind,
                     })
@@ -499,6 +532,7 @@ impl<'a> BodyChecker<'a> {
                     method_name,
                     self_ty,
                     trait_args,
+                    trait_const_args,
                     args,
                     receiver_kind,
                     receiver: Box::new(self.lower_method_receiver_expr(
@@ -515,6 +549,7 @@ impl<'a> BodyChecker<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
             } => TypedCallee::TraitAssociatedFunction {
                 trait_id,
@@ -522,6 +557,7 @@ impl<'a> BodyChecker<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
             },
             ResolvedCall::DynamicTraitMethod {
@@ -530,6 +566,7 @@ impl<'a> BodyChecker<'a> {
                 method_id,
                 method_name,
                 trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,
@@ -540,6 +577,7 @@ impl<'a> BodyChecker<'a> {
                 method_id,
                 method_name,
                 trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,

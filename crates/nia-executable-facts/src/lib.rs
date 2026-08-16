@@ -389,6 +389,7 @@ fn collect_resolved_call_refs(
             self_ty,
             trait_args,
             args,
+            ..
         } => {
             refs.functions.insert(*method_id);
             refs.trait_refs.insert_method(

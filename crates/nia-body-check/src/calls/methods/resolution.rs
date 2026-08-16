@@ -174,6 +174,7 @@ impl<'a> BodyChecker<'a> {
                     effective_const_generics: lookup.effective_const_generics.clone(),
                     trait_id: method.trait_id,
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     where_predicates: lookup.where_predicates.clone(),
                     is_callable: true,
                     is_trait_witness: false,

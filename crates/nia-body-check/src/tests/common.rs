@@ -493,6 +493,7 @@ pub(super) fn visible_extension_methods(
                     effective_const_generics,
                     trait_id: None,
                     trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     where_predicates: Vec::new(),
                     is_callable: true,
                     is_trait_witness: false,

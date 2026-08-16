@@ -196,6 +196,7 @@ pub fn visible_extensions_for_module(
                         .iter()
                         .map(|arg| method_normalization.normalize(*arg))
                         .collect(),
+                    trait_const_args: method.trait_const_args.clone(),
                     where_predicates: method.where_predicates.clone(),
                     is_callable: visible_modules.contains(&method.def_id.module_id)
                         && extension_visibility_allows(method.visibility, method.def_id.module_id),

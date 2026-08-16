@@ -1136,6 +1136,7 @@ impl<'a> Encoder<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
                 receiver_kind,
                 receiver,
@@ -1146,6 +1147,7 @@ impl<'a> Encoder<'a> {
                 self.symbol(*method_name);
                 self.ty(*self_ty);
                 self.types(trait_args);
+                self.const_args(trait_const_args);
                 self.types(args);
                 self.receiver(*receiver_kind);
                 self.expr(receiver);
@@ -1156,6 +1158,7 @@ impl<'a> Encoder<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
             } => {
                 self.tag(4);
@@ -1164,6 +1167,7 @@ impl<'a> Encoder<'a> {
                 self.symbol(*method_name);
                 self.ty(*self_ty);
                 self.types(trait_args);
+                self.const_args(trait_const_args);
                 self.types(args);
             }
             FunctionCallee::DynamicTraitMethod {
@@ -1172,6 +1176,7 @@ impl<'a> Encoder<'a> {
                 method_id,
                 method_name,
                 trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,
@@ -1184,6 +1189,7 @@ impl<'a> Encoder<'a> {
                 self.global_def(*method_id);
                 self.symbol(*method_name);
                 self.types(trait_args);
+                self.const_args(trait_const_args);
                 self.usize(*slot);
                 self.types(params);
                 self.ty(*return_type);

@@ -810,6 +810,7 @@ impl<'a> ModuleLowerer<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
                 receiver_kind,
                 receiver,
@@ -818,6 +819,16 @@ impl<'a> ModuleLowerer<'a> {
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                    .collect::<Vec<_>>();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            arg,
+                            substitutions,
+                            &mut HashSet::new(),
+                        )
+                    })
                     .collect::<Vec<_>>();
                 let args = args
                     .into_iter()
@@ -828,6 +839,7 @@ impl<'a> ModuleLowerer<'a> {
                     .resolve_trait_method_impl(
                         trait_id,
                         &trait_args,
+                        &trait_const_args,
                         method_id,
                         &method_name,
                         self_ty,
@@ -845,7 +857,12 @@ impl<'a> ModuleLowerer<'a> {
                         receiver,
                     }
                 } else if self.trait_method_has_default(method_id)
-                    && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
+                    && self.trait_method_call_is_concrete(
+                        self_ty,
+                        &trait_args,
+                        &trait_const_args,
+                        &args,
+                    )
                 {
                     let default_self_ty =
                         self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
@@ -884,6 +901,7 @@ impl<'a> ModuleLowerer<'a> {
                         method_name,
                         self_ty,
                         trait_args,
+                        trait_const_args,
                         args,
                         receiver_kind,
                         receiver,
@@ -896,12 +914,23 @@ impl<'a> ModuleLowerer<'a> {
                 method_name,
                 self_ty,
                 trait_args,
+                trait_const_args,
                 args,
             } => {
                 let self_ty = self.instantiate_ty_with_id(self_ty, substitutions);
                 let trait_args = trait_args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                    .collect::<Vec<_>>();
+                let trait_const_args = trait_const_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            arg,
+                            substitutions,
+                            &mut HashSet::new(),
+                        )
+                    })
                     .collect::<Vec<_>>();
                 let args = args
                     .into_iter()
@@ -911,6 +940,7 @@ impl<'a> ModuleLowerer<'a> {
                     .resolve_trait_method_impl(
                         trait_id,
                         &trait_args,
+                        &trait_const_args,
                         method_id,
                         &method_name,
                         self_ty,
@@ -930,7 +960,12 @@ impl<'a> ModuleLowerer<'a> {
                         }
                     }
                 } else if self.trait_method_has_default(method_id)
-                    && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
+                    && self.trait_method_call_is_concrete(
+                        self_ty,
+                        &trait_args,
+                        &trait_const_args,
+                        &args,
+                    )
                 {
                     let default_self_ty =
                         self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
@@ -965,6 +1000,7 @@ impl<'a> ModuleLowerer<'a> {
                         method_name,
                         self_ty,
                         trait_args,
+                        trait_const_args,
                         args,
                     }
                 }
@@ -1005,6 +1041,7 @@ impl<'a> ModuleLowerer<'a> {
                 method_id,
                 method_name,
                 trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,
@@ -1018,6 +1055,16 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args: trait_args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                    .collect(),
+                trait_const_args: trait_const_args
+                    .into_iter()
+                    .map(|arg| {
+                        self.instantiate_const_generic_arg_with_id(
+                            &arg,
+                            substitutions,
+                            &mut HashSet::new(),
+                        )
+                    })
                     .collect(),
                 slot,
                 params: params
@@ -1087,12 +1134,17 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         trait_method_id: GlobalDefId,
         trait_method_name: &SymbolId,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let self_ty = self.canonicalize_instance_arg(self_ty);
         let trait_args = self.canonicalize_instance_args(trait_args);
+        let trait_const_args = trait_const_args
+            .iter()
+            .map(|arg| self.canonicalize_instance_const_arg(arg))
+            .collect::<Vec<_>>();
         let trait_method_name = self
             .method_symbol_for_def(trait_method_id)
             .unwrap_or(*trait_method_name);
@@ -1100,26 +1152,36 @@ impl<'a> ModuleLowerer<'a> {
             trait_id: TraitId::Source(trait_id),
             method_name: trait_method_name,
             trait_arg_count: trait_args.len(),
+            trait_const_arg_count: trait_const_args.len(),
         };
-        if let Some(candidate) = self.current_impl_trait_method(&key, &trait_args, self_ty) {
+        if let Some(candidate) =
+            self.current_impl_trait_method(&key, &trait_args, &trait_const_args, self_ty)
+        {
             return Some((candidate.0, candidate.1, Vec::new()));
         }
-        if let Some(candidate) = self.selected_user_trait_method_impl(&key, &trait_args, self_ty) {
+        if let Some(candidate) =
+            self.selected_user_trait_method_impl(&key, &trait_args, &trait_const_args, self_ty)
+        {
             return Some(candidate);
         }
         if let Some(pointee) = self.pointer_elem_ty(self_ty)
             && let Some(candidate) =
-                self.selected_user_trait_method_impl(&key, &trait_args, pointee)
+                self.selected_user_trait_method_impl(&key, &trait_args, &trait_const_args, pointee)
         {
             return Some(candidate);
         }
-        if let Some(candidate) = self.global_trait_method_impl_candidate(&key, &trait_args, self_ty)
+        if let Some(candidate) =
+            self.global_trait_method_impl_candidate(&key, &trait_args, &trait_const_args, self_ty)
         {
             return Some((candidate.0, candidate.1, Vec::new()));
         }
         if let Some(pointee) = self.pointer_elem_ty(self_ty)
-            && let Some(candidate) =
-                self.global_trait_method_impl_candidate(&key, &trait_args, pointee)
+            && let Some(candidate) = self.global_trait_method_impl_candidate(
+                &key,
+                &trait_args,
+                &trait_const_args,
+                pointee,
+            )
         {
             return Some((candidate.0, candidate.1, Vec::new()));
         }
@@ -1127,8 +1189,13 @@ impl<'a> ModuleLowerer<'a> {
         let candidates = candidates
             .iter()
             .filter_map(|candidate| {
-                self.trait_impl_method_for_candidate(candidate, &trait_args, self_ty)
-                    .map(|resolved| (candidate, resolved))
+                self.trait_impl_method_for_candidate(
+                    candidate,
+                    &trait_args,
+                    &trait_const_args,
+                    self_ty,
+                )
+                .map(|resolved| (candidate, resolved))
             })
             .collect::<Vec<_>>();
         let candidates = self.unique_trait_impl_method_candidates(candidates);
@@ -1141,8 +1208,13 @@ impl<'a> ModuleLowerer<'a> {
                 let candidates = candidates
                     .iter()
                     .filter_map(|candidate| {
-                        self.trait_impl_method_for_candidate(candidate, &trait_args, pointee)
-                            .map(|resolved| (candidate, resolved))
+                        self.trait_impl_method_for_candidate(
+                            candidate,
+                            &trait_args,
+                            &trait_const_args,
+                            pointee,
+                        )
+                        .map(|resolved| (candidate, resolved))
                     })
                     .collect::<Vec<_>>();
                 let candidates = self.unique_trait_impl_method_candidates(candidates);
@@ -1223,7 +1295,24 @@ impl<'a> ModuleLowerer<'a> {
                 self.extension_pattern_subsumes(general_arg, specific_arg)
             },
         );
-        target_subsumes && args_subsume && any_strict
+        let const_args_subsume = specific.trait_const_args.len() == general.trait_const_args.len()
+            && specific
+                .trait_const_args
+                .iter()
+                .zip(&general.trait_const_args)
+                .all(|(specific, general)| {
+                    matches!(general.value, nia_ty::ConstGenericValue::GenericParam(_))
+                        || specific.value == general.value
+                });
+        let const_strict = specific
+            .trait_const_args
+            .iter()
+            .zip(&general.trait_const_args)
+            .any(|(specific, general)| {
+                matches!(general.value, nia_ty::ConstGenericValue::GenericParam(_))
+                    && !matches!(specific.value, nia_ty::ConstGenericValue::GenericParam(_))
+            });
+        target_subsumes && args_subsume && const_args_subsume && (any_strict || const_strict)
     }
 
     fn extension_pattern_strictly_more_specific(

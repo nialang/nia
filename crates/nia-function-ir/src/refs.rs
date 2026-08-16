@@ -498,28 +498,33 @@ fn collect_function_refs_from_callee(
         FunctionCallee::TraitMethod {
             self_ty,
             trait_args,
+            trait_const_args,
             args,
             receiver,
             ..
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
+            refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
             refs.types.extend(args.iter().copied());
             collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::TraitAssociatedFunction {
             self_ty,
             trait_args,
+            trait_const_args,
             args,
             ..
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
+            refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
             refs.types.extend(args.iter().copied());
         }
         FunctionCallee::DynamicTraitMethod {
             object_ty,
             trait_args,
+            trait_const_args,
             params,
             return_type,
             receiver,
@@ -527,6 +532,7 @@ fn collect_function_refs_from_callee(
         } => {
             refs.types.extend([*object_ty, *return_type]);
             refs.types.extend(trait_args.iter().copied());
+            refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
             refs.types.extend(params.iter().copied());
             collect_function_refs_from_expr(receiver, types, refs);
         }

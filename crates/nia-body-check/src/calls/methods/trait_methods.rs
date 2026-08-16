@@ -118,6 +118,19 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect::<Vec<_>>();
+        let trait_const_args = candidate
+            .trait_const_args
+            .iter()
+            .cloned()
+            .map(|arg| {
+                self.substitute_const_generic_arg_with_self(
+                    arg,
+                    &substitutions,
+                    &const_substitutions,
+                    candidate.self_ty,
+                )
+            })
+            .collect();
         if candidate.has_default {
             let default_self_ty = self
                 .trait_receiver_self_ty(call.receiver_ty)
@@ -162,6 +175,7 @@ impl<'a> BodyChecker<'a> {
                 method_name: *call.name,
                 self_ty: candidate.self_ty,
                 trait_args,
+                trait_const_args,
                 args: method_instantiation_args,
                 receiver_kind,
             },
@@ -264,6 +278,19 @@ impl<'a> BodyChecker<'a> {
             self_ty,
         );
         let return_type = self.normalize_dynamic_trait_object_projection(candidate, return_type);
+        let trait_const_args = candidate
+            .trait_const_args
+            .iter()
+            .cloned()
+            .map(|arg| {
+                self.substitute_const_generic_arg_with_self(
+                    arg,
+                    &substitutions,
+                    &const_substitutions,
+                    self_ty,
+                )
+            })
+            .collect();
         self.record_resolved_node_call(
             call.span,
             call.node_key,
@@ -273,6 +300,7 @@ impl<'a> BodyChecker<'a> {
                 method_id: candidate.method_id,
                 method_name: *call.name,
                 trait_args: candidate.trait_args.clone(),
+                trait_const_args,
                 slot: candidate.slot,
                 params,
                 return_type,
@@ -585,7 +613,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn trait_const_substitutions_for_candidate(
+    pub(super) fn trait_const_substitutions_for_candidate(
         &mut self,
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],

@@ -594,6 +594,8 @@ pub enum FunctionCallee {
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        /// Required to select the correct const-generic extension impl.
+        trait_const_args: Vec<ConstGenericArg>,
         args: Vec<InternedTyId>,
         receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
@@ -604,6 +606,8 @@ pub enum FunctionCallee {
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        /// Required to select the correct const-generic extension impl.
+        trait_const_args: Vec<ConstGenericArg>,
         args: Vec<InternedTyId>,
     },
     DynamicTraitMethod {
@@ -612,6 +616,8 @@ pub enum FunctionCallee {
         method_id: nia_ids::GlobalDefId,
         method_name: SymbolId,
         trait_args: Vec<InternedTyId>,
+        /// Retains the complete trait-object identity for vtable dispatch.
+        trait_const_args: Vec<ConstGenericArg>,
         slot: usize,
         params: Vec<InternedTyId>,
         return_type: InternedTyId,
