@@ -354,6 +354,10 @@ commit as the corresponding implementation batch.
       syntactic return joins and typed pattern-matrix exhaustiveness; nominal
       constructors and literal/range coverage remain intentionally delegated
       to `nia-body-check::patterns`.
+- [x] Phase C pattern analysis now validates non-empty queries before applying
+      the empty-matrix witness shortcut, so uninhabited domains and invalid
+      scalar/constructor combinations cannot be silently accepted; stable
+      witness shape is preserved and matrix boundary tests cover the contract.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

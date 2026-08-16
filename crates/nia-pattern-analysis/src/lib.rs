@@ -327,7 +327,7 @@ where
     F: FnMut(&T) -> Domain<T, C>,
 {
     if matrix.is_empty() {
-        return Ok(Some(query.to_vec()));
+        return Ok(validate_empty_query(query, types, domain)?.then(|| query.to_vec()));
     }
     if query.is_empty() {
         return Ok(None);
@@ -402,6 +402,69 @@ where
             let default = default_matrix(matrix);
             Ok(useful_inner(&default, tail, tail_types, domain)?
                 .map(|witness| std::iter::once(Pattern::Opaque).chain(witness).collect()))
+        }
+    }
+}
+
+/// Validate an otherwise-uncovered query without specializing it into a more
+/// concrete witness. The old empty-matrix shortcut returned the query verbatim,
+/// which is useful for stable diagnostics, but it also skipped constructor and
+/// scalar-domain validation. This pass preserves the witness shape while
+/// checking that the queried product has at least one inhabitant.
+fn validate_empty_query<T, C, F>(
+    query: &[Pattern<C>],
+    types: &[T],
+    domain: &mut F,
+) -> Result<bool, AnalysisError>
+where
+    T: Clone,
+    C: Clone + Eq,
+    F: FnMut(&T) -> Domain<T, C>,
+{
+    if query.is_empty() {
+        return Ok(true);
+    }
+    let head_domain = domain(&types[0]);
+    let tail = &query[1..];
+    let tail_types = &types[1..];
+    match &query[0] {
+        Pattern::Wildcard => match head_domain {
+            Domain::Finite(constructors) => {
+                for constructor in constructors {
+                    let mut next = vec![Pattern::Wildcard; constructor.fields.len()];
+                    next.extend_from_slice(tail);
+                    if validate_empty_query(&next, &constructor.fields, domain)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+            Domain::Open(_) | Domain::Opaque => validate_empty_query(tail, tail_types, domain),
+            Domain::Scalar { min, max, .. } if min <= max => {
+                validate_empty_query(tail, tail_types, domain)
+            }
+            Domain::Scalar { .. } => Ok(false),
+        },
+        Pattern::Constructor { id, fields } => {
+            let constructor = find_constructor(&head_domain, id)?;
+            check_arity(fields.len(), constructor.fields.len())?;
+            let mut next = fields.clone();
+            next.extend_from_slice(tail);
+            let mut next_types = constructor.fields.clone();
+            next_types.extend_from_slice(tail_types);
+            validate_empty_query(&next, &next_types, domain)
+        }
+        Pattern::ScalarRange { start, end } => {
+            let Domain::Scalar { min, max, .. } = head_domain else {
+                return Err(AnalysisError::ScalarPatternOutsideScalarDomain);
+            };
+            Ok(clip_range(*start, *end, min, max).is_some()
+                && validate_empty_query(tail, tail_types, domain)?)
+        }
+        Pattern::Opaque => {
+            let mut wildcard = vec![Pattern::Wildcard];
+            wildcard.extend_from_slice(tail);
+            validate_empty_query(&wildcard, types, domain)
         }
     }
 }
@@ -773,6 +836,49 @@ mod tests {
         assert_eq!(
             missing_witness(&matrix, Ty::Byte, unsigned_128),
             Ok(Some(Pattern::Wildcard))
+        );
+    }
+
+    #[test]
+    fn empty_finite_domains_are_exhaustive_without_a_pattern() {
+        let uninhabited = |_: &Ty| Domain::<Ty, Ctor>::Finite(Vec::new());
+        assert_eq!(missing_witness(&[], Ty::Opaque, uninhabited), Ok(None));
+    }
+
+    #[test]
+    fn rejects_matrix_and_query_width_mismatches() {
+        let matrix = vec![vec![Pattern::Wildcard, Pattern::Wildcard]];
+        assert_eq!(
+            useful_witness(&matrix, &[Pattern::Wildcard], &[Ty::Bool], domain),
+            Err(AnalysisError::MatrixWidth {
+                expected: 1,
+                found: 2,
+            })
+        );
+        assert_eq!(
+            useful_witness(
+                &[],
+                &[Pattern::Wildcard, Pattern::Wildcard],
+                &[Ty::Bool],
+                domain
+            ),
+            Err(AnalysisError::QueryWidth {
+                expected: 1,
+                found: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_scalar_patterns_for_constructor_domains() {
+        assert_eq!(
+            useful_witness(
+                &[],
+                &[Pattern::ScalarRange { start: 0, end: 0 }],
+                &[Ty::OptionBool],
+                domain,
+            ),
+            Err(AnalysisError::ScalarPatternOutsideScalarDomain)
         );
     }
 }
