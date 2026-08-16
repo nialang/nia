@@ -163,6 +163,7 @@ fn main() i32 {
             effective_const_generics: Vec::new(),
             trait_id: None,
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             where_predicates: Vec::new(),
             is_callable: true,
             is_trait_witness: false,

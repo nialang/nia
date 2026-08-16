@@ -375,6 +375,24 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(|arg| self.substitute_generics_with_self(*arg, &substitutions, target_ty))
             .collect::<Vec<_>>();
+        let const_substitutions = self.trait_const_substitutions_for_candidate(
+            candidate.trait_id,
+            &candidate.trait_args,
+            &candidate.trait_const_args,
+        );
+        let trait_const_args = candidate
+            .trait_const_args
+            .iter()
+            .cloned()
+            .map(|arg| {
+                self.substitute_const_generic_arg_with_self(
+                    arg,
+                    &substitutions,
+                    &const_substitutions,
+                    target_ty,
+                )
+            })
+            .collect();
         if candidate.has_default {
             let mut instance_args = trait_args.clone();
             instance_args.extend(method_instantiation_args.iter().copied());
@@ -394,6 +412,7 @@ impl<'a> BodyChecker<'a> {
                 method_name: *name,
                 self_ty: target_ty,
                 trait_args,
+                trait_const_args,
                 args: method_instantiation_args,
             },
         );

@@ -381,6 +381,7 @@ impl<'a> ModuleLowerer<'a> {
             method_id,
             method_name,
             trait_args,
+            trait_const_args,
             receiver,
             ..
         } = callee
@@ -398,6 +399,7 @@ impl<'a> ModuleLowerer<'a> {
         let (def_id, args, const_args) = self.resolve_trait_method_impl(
             *trait_def_id,
             trait_args,
+            trait_const_args,
             *method_id,
             method_name,
             *self_ty,

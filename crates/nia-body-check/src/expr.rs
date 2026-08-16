@@ -1071,6 +1071,7 @@ impl<'a> BodyChecker<'a> {
                         method_name: method.name,
                         self_ty: source_ty,
                         trait_args,
+                        trait_const_args: Vec::new(),
                         args: Vec::new(),
                         receiver_kind,
                     });

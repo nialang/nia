@@ -10,6 +10,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         key: &ExtensionTraitMethodKey,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let current = self.instantiation.function?;
@@ -28,6 +29,9 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         if impl_signature.trait_args.len() != trait_args.len() {
+            return None;
+        }
+        if !self.const_trait_args_match(&impl_signature.trait_const_args, trait_const_args) {
             return None;
         }
         let impl_trait_args = impl_signature
@@ -68,10 +72,15 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let substitutions =
-            self.match_extension_trait_impl_candidate(candidate, trait_args, self_ty)?;
+        let substitutions = self.match_extension_trait_impl_candidate(
+            candidate,
+            trait_args,
+            trait_const_args,
+            self_ty,
+        )?;
         let args = self
             .candidate_impl_generics(candidate)
             .iter()
@@ -84,6 +93,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         key: &ExtensionTraitMethodKey,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let mut matches = Vec::new();
@@ -111,12 +121,16 @@ impl<'a> ModuleLowerer<'a> {
                 target_ty: impl_signature.target_ty,
                 method_def_id: method.def_id,
                 trait_args: impl_signature.trait_args.clone(),
+                trait_const_args: impl_signature.trait_const_args.clone(),
                 where_predicates: impl_signature.where_predicates.clone(),
                 effective_generics: impl_signature.generics.clone(),
             };
-            if let Some(resolved) =
-                self.trait_impl_method_for_candidate(&candidate, trait_args, self_ty)
-            {
+            if let Some(resolved) = self.trait_impl_method_for_candidate(
+                &candidate,
+                trait_args,
+                trait_const_args,
+                self_ty,
+            ) {
                 matches.push((candidate, resolved));
             }
         }
@@ -132,6 +146,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         key: &ExtensionTraitMethodKey,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
@@ -152,7 +167,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty,
             trait_id: key.trait_id,
             trait_args: trait_args.to_vec(),
-            trait_const_args: Vec::new(),
+            trait_const_args: trait_const_args.to_vec(),
         }) else {
             return None;
         };
@@ -163,6 +178,7 @@ impl<'a> ModuleLowerer<'a> {
                 || method.trait_id != Some(key.trait_id)
                 || method.name != key.method_name
                 || method.trait_args.len() != key.trait_arg_count
+                || method.effective_const_generics.len() != key.trait_const_arg_count
             {
                 continue;
             }
@@ -529,6 +545,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_id: TraitId::Builtin(trait_id),
             method_name: method.symbol_id(),
             trait_arg_count: trait_args.len(),
+            trait_const_arg_count: 0,
         };
         let candidates = self.program_extension_trait_method_candidates(&key);
         let candidates = candidates
@@ -550,7 +567,7 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let substitutions =
-            self.match_extension_trait_impl_candidate(candidate, trait_args, self_ty)?;
+            self.match_extension_trait_impl_candidate(candidate, trait_args, &[], self_ty)?;
         let args = self
             .candidate_impl_generics(candidate)
             .iter()

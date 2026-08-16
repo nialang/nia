@@ -875,6 +875,9 @@ pub(crate) struct ExtensionTraitMethodKey {
     trait_id: TraitId,
     method_name: SymbolId,
     trait_arg_count: usize,
+    /// Const-argument count is part of the lookup bucket; values are checked
+    /// by trait selection after the cheap arity filter.
+    trait_const_arg_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -883,6 +886,8 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     target_ty: InternedTyId,
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
+    /// Concrete or generic const arguments of the implemented trait.
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
     where_predicates: Vec<WherePredicateSignature>,
     effective_generics: Vec<SymbolId>,
 }

@@ -469,6 +469,7 @@ impl<'a> ModuleLowerer<'a> {
                 .resolve_trait_method_impl(
                     source_trait_id,
                     trait_args,
+                    &[],
                     method_id,
                     &method.name,
                     self_ty,

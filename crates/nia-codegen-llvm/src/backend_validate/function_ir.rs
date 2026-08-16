@@ -742,6 +742,7 @@ impl BackendValidator<'_> {
                 self_ty,
                 trait_args,
                 args,
+                ..
             } => {
                 self.validate_type(*self_ty, span);
                 for arg in trait_args.iter().chain(args) {

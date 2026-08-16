@@ -820,6 +820,7 @@ pub struct SemanticTraitMethodRef {
     pub method_name: SymbolId,
     pub self_ty: InternedTyId,
     pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -907,6 +908,8 @@ pub enum ResolvedCall {
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        /// Part of the dispatch identity; never discard when lowering calls.
+        trait_const_args: Vec<ConstGenericArg>,
         args: Vec<InternedTyId>,
         receiver_kind: ReceiverKind,
     },
@@ -916,6 +919,8 @@ pub enum ResolvedCall {
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        /// Part of the dispatch identity; never discard when lowering calls.
+        trait_const_args: Vec<ConstGenericArg>,
         args: Vec<InternedTyId>,
     },
     DynamicTraitMethod {
@@ -924,6 +929,8 @@ pub enum ResolvedCall {
         method_id: GlobalDefId,
         method_name: SymbolId,
         trait_args: Vec<InternedTyId>,
+        /// Identifies the concrete trait-object instantiation.
+        trait_const_args: Vec<ConstGenericArg>,
         slot: usize,
         params: Vec<InternedTyId>,
         return_type: InternedTyId,

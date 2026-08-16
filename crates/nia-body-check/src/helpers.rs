@@ -8,6 +8,33 @@ use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TyKind};
 
 impl<'a> BodyChecker<'a> {
+    /// Applies both type and const substitutions to a trait reference argument.
+    ///
+    /// The argument's type may itself mention generic parameters, while its
+    /// value can be a generic const parameter. Keeping these parts in sync is
+    /// required because trait dispatch identity includes the complete const
+    /// argument, not just its value.
+    pub(crate) fn substitute_const_generic_arg_with_self(
+        &mut self,
+        mut arg: ConstGenericArg,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+        self_ty: InternedTyId,
+    ) -> ConstGenericArg {
+        if let ConstGenericValue::GenericParam(name) = arg.value
+            && let Some(resolved) = const_substitutions.get(&name)
+        {
+            arg = resolved.clone();
+        }
+        arg.ty = self.substitute_generics_and_consts_with_self(
+            arg.ty,
+            substitutions,
+            const_substitutions,
+            self_ty,
+        );
+        arg
+    }
+
     pub(crate) fn method_self_type(
         &mut self,
         def_id: DefId,

@@ -68,6 +68,8 @@ pub struct ExtensionMethod {
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments of the implemented trait instance.
+    pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub visibility: Visibility,
 }
@@ -90,6 +92,8 @@ pub struct VisibleExtensionMethod {
     pub effective_const_generics: Vec<SymbolId>,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments of the implemented trait instance.
+    pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub is_callable: bool,
     pub is_trait_witness: bool,

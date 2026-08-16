@@ -169,6 +169,10 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    // Checking alone exercises trait selection in sema; codegen ensures the
+    // selected const-generic trait instance survives backend dispatch too.
+    let codegen = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 }
 
 #[test]
