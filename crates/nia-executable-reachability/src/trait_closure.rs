@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Trait and generic-instance closure for executable reachability.
+//!
+//! Direct body references seed this closure. It then substitutes concrete
+//! generic instances into function/impl predicates, adds the required trait
+//! methods and supertraits, and activates their implementation bodies. Both the
+//! batch and incremental paths use the same helpers so a body discovered in a
+//! later query round receives the same transitive witnesses as an initial root.
+
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -164,13 +172,39 @@ fn extend_reachable_traits_from_generic_instantiation(
     } else {
         &instantiation.generics
     };
+    let mut const_generics = signature
+        .signature
+        .generic_params
+        .iter()
+        .filter_map(|param| match param.kind {
+            nia_item_signatures::GenericParamSignatureKind::Const { .. } => Some(param.name),
+            nia_item_signatures::GenericParamSignatureKind::Type => None,
+        })
+        .collect::<Vec<_>>();
+    extension_index.with_const_generics_for_def(instantiation.def_id, &mut |extension_generics| {
+        if !extension_generics.is_empty() {
+            const_generics = extension_generics.to_vec();
+        }
+    });
+    let const_generic_set = const_generics.iter().copied().collect::<HashSet<_>>();
+    // `GenericInstantiation` stores type and const arguments in separate
+    // vectors. Filter the effective declaration-order names by kind before
+    // zipping, otherwise an interleaved `N: usize, T` list binds `N` to `T`'s
+    // type argument and drops the actual const value.
     let generic_substitutions = generics
         .iter()
-        .cloned()
+        .copied()
+        .filter(|name| !const_generic_set.contains(name))
         .zip(instantiation.args.iter().copied())
         .collect::<SymbolMap<_>>();
+    let const_substitutions = const_generics
+        .iter()
+        .copied()
+        .zip(instantiation.const_args.iter().cloned())
+        .collect::<SymbolMap<_>>();
     let self_ty = instantiation.self_arg;
-    let substitutions = TypeSubstitutions::local(self_ty, &generic_substitutions);
+    let substitutions =
+        TypeSubstitutions::local_with_consts(self_ty, &generic_substitutions, &const_substitutions);
     for predicate in &signature.signature.where_predicates {
         let Some(self_ty) = substitute_ty(types, predicate.ty, &substitutions) else {
             continue;
@@ -434,11 +468,7 @@ fn instantiate_nested_generic_instantiation(
     let const_args = instantiation
         .const_args
         .iter()
-        .cloned()
-        .map(|mut arg| {
-            arg.ty = substitute_ty(types, arg.ty, substitutions)?;
-            Some(arg)
-        })
+        .map(|arg| substitute_const_arg(types, arg, substitutions))
         .collect::<Option<Vec<_>>>()?;
     Some(nia_sema_ir::GenericInstantiation {
         def_id: instantiation.def_id,

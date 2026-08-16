@@ -312,3 +312,76 @@ pub fn as_target_error(self) Target!T {
         "generic wrapper bodies checked after incremental reachability must still expand their trait witnesses"
     );
 }
+
+#[test]
+fn executable_reachability_substitutes_const_generic_impl_where_predicates() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+trait Marker {
+    fn mark(& self) i32;
+}
+
+trait Summary {
+    fn summarize(& self) i32;
+}
+
+struct Buffer[T, N: usize] {
+    values: [T; N],
+}
+
+extend Buffer[i32, 3] : Marker {
+    fn mark(& self) i32 {
+        self.values[0]
+    }
+}
+
+extend[T, N: usize] Buffer[T, N] : Summary
+where Buffer[T, N]: Marker
+{
+    fn summarize(& self) i32 {
+        _ = self;
+        0
+    }
+}
+
+fn main() i32 {
+    let buffer = Buffer[i32, 3] { values: [1, 2, 3] };
+    buffer.summarize()
+}
+"#,
+    );
+    let entry_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == entry_id)
+        .expect("trait implementation module should be executable-reachable");
+    assert!(
+        module.body_diagnostics.is_empty(),
+        "const-generic trait reachability should preserve body checking: {:?}",
+        module.body_diagnostics
+    );
+    let mark = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.name == sym("mark") && def.kind == nia_defs::DefKind::Method).then_some(
+                GlobalDefId {
+                    module_id: entry_id,
+                    def_id,
+                },
+            )
+        })
+        .expect("marker implementation method should be defined");
+
+    assert!(
+        module.body_ir.function_bodies.contains_key(&mark),
+        "const substitutions recovered from an impl target must reach its where-predicate witnesses"
+    );
+}
