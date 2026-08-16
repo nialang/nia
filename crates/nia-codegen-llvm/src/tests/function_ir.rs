@@ -1752,10 +1752,128 @@ fn validates_function_ir_missing_successor_before_llvm() {
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("terminator successor references missing block")),
+            .contains("terminator references missing block")),
         "{:?}",
         output.diagnostics
     );
+}
+
+#[test]
+fn validates_function_ir_local_storage_type_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let span = Span::default();
+    let bool_expr = || FunctionExpr {
+        span,
+        ty: bool_ty,
+        kind: FunctionExprKind::Bool(true),
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: vec![FunctionLocal {
+                id: LocalId(0),
+                name: local_name("value"),
+                kind: FunctionLocalKind::MutableBinding,
+                ty: i32_ty,
+                span,
+            }],
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![
+                    FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                        local_id: LocalId(0),
+                        name: local_name("value"),
+                        ty: bool_ty,
+                        value: Some(bool_expr()),
+                        is_let: false,
+                    }),
+                    FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                        local_id: LocalId(0),
+                        name: local_name("value"),
+                        ty: i32_ty,
+                        value: Some(bool_expr()),
+                        is_let: false,
+                    }),
+                    FunctionOp::StoreLocal {
+                        local_id: LocalId(0),
+                        value: bool_expr(),
+                        span,
+                    },
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Integer("0".to_string()),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for message in [
+        "binding type does not match its body local",
+        "binding initializer type does not match its binding",
+        "stored value type does not match its body local",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
 }
 
 #[test]

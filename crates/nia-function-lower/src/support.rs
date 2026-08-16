@@ -774,74 +774,9 @@ impl FunctionLowerer<'_> {
     }
 
     pub(super) fn collect_body_locals(&self, body: &TypedBody, locals: &mut Vec<FunctionLocal>) {
-        self.extend_unique_locals(&body.locals, locals);
-        self.collect_nested_body_locals(body, locals);
-    }
-
-    pub(super) fn collect_nested_body_locals(
-        &self,
-        body: &TypedBody,
-        locals: &mut Vec<FunctionLocal>,
-    ) {
-        for stmt in &body.stmts {
-            match &stmt.kind {
-                TypedStmtKind::ForIn(for_stmt) => self.collect_body_locals(&for_stmt.body, locals),
-                TypedStmtKind::While(while_stmt) => {
-                    self.collect_body_locals(&while_stmt.body, locals)
-                }
-                TypedStmtKind::Loop(loop_stmt) => self.collect_body_locals(&loop_stmt.body, locals),
-                TypedStmtKind::Expr(expr) => self.collect_expr_locals(expr, locals),
-                TypedStmtKind::Return(Some(expr)) | TypedStmtKind::Defer(expr) => {
-                    self.collect_expr_locals(expr, locals)
-                }
-                TypedStmtKind::PatternBinding(binding) => {
-                    self.collect_expr_locals(&binding.value, locals)
-                }
-                TypedStmtKind::Binding(_)
-                | TypedStmtKind::Return(None)
-                | TypedStmtKind::Break
-                | TypedStmtKind::Continue => {}
-            }
-        }
-        if let Some(tail) = &body.tail {
-            self.collect_expr_locals(tail, locals);
-        }
-    }
-
-    pub(super) fn collect_expr_locals(&self, expr: &TypedExpr, locals: &mut Vec<FunctionLocal>) {
-        match &expr.kind {
-            TypedExprKind::Block(body) => self.collect_body_locals(body, locals),
-            TypedExprKind::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                self.collect_body_locals(then_branch, locals);
-                if let Some(else_branch) = else_branch {
-                    self.collect_expr_locals(else_branch, locals);
-                }
-            }
-            TypedExprKind::IfPattern(if_pattern) => {
-                self.collect_body_locals(&if_pattern.then_branch, locals);
-                if let Some(else_branch) = &if_pattern.else_branch {
-                    self.collect_expr_locals(else_branch, locals);
-                }
-            }
-            TypedExprKind::Match(matched) => {
-                for arm in &matched.arms {
-                    match &arm.body {
-                        TypedMatchArmBody::Expr(expr) => self.collect_expr_locals(expr, locals),
-                        TypedMatchArmBody::Stmt(stmt) => {
-                            if let TypedStmtKind::Expr(expr) = &stmt.kind {
-                                self.collect_expr_locals(expr, locals);
-                            }
-                        }
-                        TypedMatchArmBody::Block(body) => self.collect_body_locals(body, locals),
-                    }
-                }
-            }
-            _ => {}
-        }
+        nia_body_ir::walk_typed_function_bodies(body, &mut |nested| {
+            self.extend_unique_locals(&nested.locals, locals);
+        });
     }
 
     pub(super) fn extend_unique_locals(

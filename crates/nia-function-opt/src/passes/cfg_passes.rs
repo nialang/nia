@@ -380,44 +380,6 @@ pub(crate) fn reachable_defer_blocks(body: &FunctionDeferBody) -> HashSet<Functi
     DeferCfg::new(&body.blocks).reachable_from(&body.blocks, body.entry)
 }
 
-pub(crate) fn terminator_referenced_blocks(
-    terminator: &FunctionTerminator,
-) -> Vec<FunctionBlockId> {
-    match terminator {
-        FunctionTerminator::Error { .. }
-        | FunctionTerminator::Return { .. }
-        | FunctionTerminator::Tail { .. } => Vec::new(),
-        FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
-            vec![*target]
-        }
-        FunctionTerminator::Try { success_target, .. } => vec![*success_target],
-        FunctionTerminator::If {
-            then_target,
-            else_target,
-            ..
-        } => vec![*then_target, *else_target],
-        FunctionTerminator::Switch {
-            arms,
-            default,
-            fallback,
-            ..
-        } => {
-            let mut targets = arms.iter().map(|arm| arm.target).collect::<Vec<_>>();
-            if let Some(default) = default {
-                targets.push(*default);
-            }
-            targets.push(*fallback);
-            targets
-        }
-        FunctionTerminator::Loop {
-            body,
-            continue_target,
-            break_target,
-            ..
-        } => vec![*body, *continue_target, *break_target],
-    }
-}
-
 pub(crate) fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) -> bool {
     let mut changed = false;
     for block in blocks {

@@ -59,16 +59,36 @@ impl BackendValidator<'_> {
                 self.current_subject = Some("binding");
                 self.validate_runtime_type(binding.ty, Span::default());
                 self.current_subject = None;
-                if let Some(local_tys) = self.local_tys.last_mut() {
-                    local_tys.insert(binding.local_id, binding.ty);
-                }
+                self.validate_local_type(
+                    binding.local_id,
+                    binding.ty,
+                    Span::default(),
+                    "binding type does not match its body local",
+                );
                 if let Some(value) = &binding.value {
                     self.validate_expr(value);
+                    if !self.same_type(binding.ty, value.ty) {
+                        self.invalid_local_type(
+                            value.span,
+                            "binding initializer type does not match its binding",
+                        );
+                    }
                 }
             }
-            FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+            FunctionOp::StoreLocal {
+                local_id,
+                value,
+                span,
+            } => {
                 self.validate_expr(value);
+                self.validate_local_type(
+                    *local_id,
+                    value.ty,
+                    *span,
+                    "stored value type does not match its body local",
+                );
             }
+            FunctionOp::Expr(value) => self.validate_expr(value),
             FunctionOp::MemoryIntrinsic(memory) => {
                 self.validate_expr(&memory.dest);
                 match &memory.source {
@@ -540,6 +560,34 @@ impl BackendValidator<'_> {
                 );
             }
         }
+    }
+
+    fn validate_local_type(
+        &mut self,
+        local_id: nia_ids::LocalId,
+        actual_ty: nia_ids::InternedTyId,
+        span: Span,
+        message: &'static str,
+    ) {
+        let Some(expected_ty) = self
+            .local_tys
+            .last()
+            .and_then(|locals| locals.get(&local_id))
+            .copied()
+        else {
+            return;
+        };
+        if !self.same_type(expected_ty, actual_ty) {
+            self.invalid_local_type(span, message);
+        }
+    }
+
+    fn invalid_local_type(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR contains an invalid local type contract: {message}"),
+        ));
     }
 
     fn validate_atomic(&mut self, atomic: &nia_function_ir::FunctionAtomic) {

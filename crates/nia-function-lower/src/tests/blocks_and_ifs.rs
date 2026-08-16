@@ -156,6 +156,83 @@ fn collects_unique_locals_from_statement_block_expressions() {
 }
 
 #[test]
+fn collects_locals_from_blocks_nested_inside_binding_values() {
+    let span = Span::default();
+    let ty = test_ty();
+    let outer_id = LocalId(1);
+    let inner_id = LocalId(4);
+    let outer_local = TypedLocal {
+        id: outer_id,
+        name: local_name("outer"),
+        kind: TypedLocalKind::ImmutableBinding,
+        ty,
+        span,
+    };
+    let inner_local = TypedLocal {
+        id: inner_id,
+        name: local_name("inner"),
+        kind: TypedLocalKind::ImmutableBinding,
+        ty,
+        span,
+    };
+    let nested_block = TypedExpr {
+        span,
+        ty,
+        kind: TypedExprKind::Block(TypedBody {
+            span,
+            locals: vec![inner_local],
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Binding(TypedBinding {
+                    local_id: inner_id,
+                    name: local_name("inner"),
+                    ty,
+                    value: Some(int_expr(1)),
+                    is_mutable: false,
+                }),
+            }],
+            tail: Some(Box::new(TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Local(inner_id),
+            })),
+            ty,
+        }),
+    };
+    let body = TypedBody {
+        span,
+        locals: vec![outer_local],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Binding(TypedBinding {
+                local_id: outer_id,
+                name: local_name("outer"),
+                ty,
+                value: Some(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Tuple(vec![nested_block]),
+                }),
+                is_mutable: false,
+            }),
+        }],
+        tail: None,
+        ty,
+    };
+
+    let function_body = lower_test_function_body(&body).expect("valid nested binding body");
+
+    assert!(
+        function_body
+            .locals
+            .iter()
+            .any(|local| local.id == inner_id),
+        "nested block local must be present in the flat function table: {function_body:#?}"
+    );
+    validate_function_body(&function_body).expect("nested local table should remain valid");
+}
+
+#[test]
 fn collects_locals_from_deferred_block_expressions() {
     let span = Span::default();
     let ty = test_ty();

@@ -17,6 +17,10 @@ use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId};
 
+mod walk;
+
+pub use walk::walk_typed_function_bodies;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
     pub function_bodies: HashMap<GlobalDefId, Arc<TypedBody>>,
