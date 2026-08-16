@@ -470,6 +470,7 @@ impl PersistentSignatureCache {
 }
 
 fn atomic_publish(path: &Path, encoded: &[u8]) -> io::Result<()> {
+    validate_entry_size(encoded.len())?;
     let stage_id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
     let staged = path.with_extension(format!("tmp-{}-{stage_id}", std::process::id()));
     let mut file = OpenOptions::new()
@@ -493,6 +494,28 @@ fn atomic_publish(path: &Path, encoded: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+fn validate_entry_size(len: usize) -> io::Result<()> {
+    if len > MAX_ENTRY_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "signature cache entry exceeds its size limit",
+        ));
+    }
+    Ok(())
+}
+
 fn remove_corrupt(path: &Path) {
     let _ = fs::remove_file(path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entry_size_limit_is_shared_by_all_publishers() {
+        validate_entry_size(MAX_ENTRY_BYTES).expect("limit itself is valid");
+        let error = validate_entry_size(MAX_ENTRY_BYTES + 1).expect_err("oversized entry");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 }
