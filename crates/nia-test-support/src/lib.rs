@@ -11,11 +11,13 @@ mod cases;
 
 pub use cases::{CaseManifest, case_directories, copy_case_tree, fixture_relative_path};
 
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::{
     cell::Cell,
     ffi::OsStr,
     fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     marker::PhantomData,
     ops::Deref,
     path::{Path, PathBuf},
@@ -667,13 +669,21 @@ impl ResourcePool {
 struct ResourceReservation<'a> {
     pool: &'a ResourcePool,
     reserved_slots: usize,
-    slots: Vec<PathBuf>,
+    slots: Vec<ProcessSlot>,
+}
+
+struct ProcessSlot {
+    path: PathBuf,
+    // Keeping the owner file open retains the cross-process inode lock for the
+    // whole reservation; the path alone cannot protect against stale-reclaim
+    // races after a directory has been removed and recreated.
+    _owner: fs::File,
 }
 
 impl Drop for ResourceReservation<'_> {
     fn drop(&mut self) {
         for slot in self.slots.drain(..) {
-            let _ = fs::remove_dir_all(slot);
+            let _ = fs::remove_dir_all(slot.path);
         }
         self.pool.release(self.reserved_slots);
     }
@@ -753,7 +763,7 @@ fn acquire_process_slots(
     capacity: usize,
     requested: usize,
     minimum_available_memory: Option<usize>,
-) -> io::Result<Vec<PathBuf>> {
+) -> io::Result<Vec<ProcessSlot>> {
     fs::create_dir_all(root)?;
     let start = Instant::now();
     let mut delay = Duration::from_millis(10);
@@ -763,12 +773,18 @@ fn acquire_process_slots(
             let slot = root.join(index.to_string());
             match fs::create_dir(&slot) {
                 Ok(()) => {
-                    if let Err(error) = write_process_owner(&slot) {
-                        let _ = fs::remove_dir_all(&slot);
-                        release_process_slots(acquired);
-                        return Err(error);
-                    }
-                    acquired.push(slot);
+                    let owner = match write_process_owner(&slot) {
+                        Ok(owner) => owner,
+                        Err(error) => {
+                            let _ = fs::remove_dir_all(&slot);
+                            release_process_slots(acquired);
+                            return Err(error);
+                        }
+                    };
+                    acquired.push(ProcessSlot {
+                        path: slot,
+                        _owner: owner,
+                    });
                     if acquired.len() == requested {
                         if memory_pressure_allows(minimum_available_memory) {
                             if resource_trace_enabled()
@@ -818,9 +834,9 @@ fn memory_pressure_allows(minimum_available_memory: Option<usize>) -> bool {
     })
 }
 
-fn release_process_slots(slots: Vec<PathBuf>) {
+fn release_process_slots(slots: Vec<ProcessSlot>) {
     for slot in slots {
-        let _ = fs::remove_dir_all(slot);
+        let _ = fs::remove_dir_all(slot.path);
     }
 }
 
@@ -828,10 +844,22 @@ fn process_backoff_jitter() -> Duration {
     Duration::from_millis(u64::from(std::process::id() % 17))
 }
 
-fn write_process_owner(slot: &Path) -> io::Result<()> {
+fn write_process_owner(slot: &Path) -> io::Result<fs::File> {
     let pid = std::process::id();
     let start_time = process_start_time(pid).unwrap_or(0);
-    fs::write(slot.join("owner"), format!("{pid} {start_time}"))
+    let mut owner = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(slot.join("owner"))?;
+    write!(owner, "{pid} {start_time}")?;
+    owner.sync_all()?;
+    #[cfg(unix)]
+    if !try_lock_owner_file(&owner)? {
+        return Err(io::Error::other(
+            "new process slot owner could not be exclusively locked",
+        ));
+    }
+    Ok(owner)
 }
 
 fn read_process_owner(slot: &Path) -> Option<(u32, u64)> {
@@ -841,19 +869,70 @@ fn read_process_owner(slot: &Path) -> Option<(u32, u64)> {
 }
 
 fn reclaim_stale_process_slot(slot: &Path) {
-    if let Some((pid, start_time)) = read_process_owner(slot) {
-        match process_is_alive(pid, start_time) {
-            Some(true) => return,
-            Some(false) => {
+    #[cfg(unix)]
+    {
+        let Ok(owner) = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(slot.join("owner"))
+        else {
+            if slot_age(slot).is_some_and(|age| age >= UNKNOWN_OWNER_STALE_AFTER) {
                 let _ = fs::remove_dir_all(slot);
-                return;
             }
-            None => {}
+            return;
+        };
+        let Ok(true) = try_lock_owner_file(&owner) else {
+            return;
+        };
+        if let Some((pid, start_time)) = read_process_owner(slot) {
+            match process_is_alive(pid, start_time) {
+                Some(true) => return,
+                Some(false) => {
+                    let _ = fs::remove_dir_all(slot);
+                    return;
+                }
+                None => {}
+            }
+        }
+        if slot_age(slot).is_some_and(|age| age >= UNKNOWN_OWNER_STALE_AFTER) {
+            let _ = fs::remove_dir_all(slot);
         }
     }
-    if slot_age(slot).is_some_and(|age| age >= UNKNOWN_OWNER_STALE_AFTER) {
-        let _ = fs::remove_dir_all(slot);
+
+    #[cfg(not(unix))]
+    {
+        if let Some((pid, start_time)) = read_process_owner(slot) {
+            match process_is_alive(pid, start_time) {
+                Some(true) => return,
+                Some(false) => {
+                    let _ = fs::remove_dir_all(slot);
+                    return;
+                }
+                None => {}
+            }
+        }
+        if slot_age(slot).is_some_and(|age| age >= UNKNOWN_OWNER_STALE_AFTER) {
+            let _ = fs::remove_dir_all(slot);
+        }
     }
+}
+
+#[cfg(unix)]
+fn try_lock_owner_file(file: &fs::File) -> io::Result<bool> {
+    // SAFETY: `file` owns a live descriptor for the duration of the call, and
+    // `flock` neither takes ownership nor retains the descriptor pointer.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if matches!(
+        error.raw_os_error(),
+        Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN
+    ) {
+        return Ok(false);
+    }
+    Err(error)
 }
 
 fn slot_age(slot: &Path) -> Option<Duration> {
