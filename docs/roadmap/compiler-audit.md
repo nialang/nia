@@ -296,6 +296,8 @@ commit as the corresponding implementation batch.
       hardened; broader backend audit remains open.
 - [x] Unix build stale-lock reclamation made race-resistant with inode locks;
       non-Unix fallback and broader build/cache state audit remain open.
+- [x] Unix `nia-test-support` process-slot reclamation now retains owner-file
+      locks, preventing stale slot cleanup from deleting a successor permit.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

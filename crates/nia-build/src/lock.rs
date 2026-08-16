@@ -189,6 +189,8 @@ fn reclaim_stale_lock(path: &Path, stale_after: Duration) {
 
 #[cfg(unix)]
 fn try_lock_file(file: &fs::File) -> io::Result<bool> {
+    // SAFETY: `file` owns a live descriptor for the duration of the call, and
+    // `flock` neither takes ownership nor retains the descriptor pointer.
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if result == 0 {
         return Ok(true);
