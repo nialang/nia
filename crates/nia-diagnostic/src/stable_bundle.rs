@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Bounded persistence for source-version-independent diagnostics.
+//!
+//! The outer compatibility magic owns format evolution. Payloads encode only
+//! registered diagnostic codes and source-relative spans, then reconstruct
+//! severity/category from the current registry. Lengths are untrusted cache
+//! input: decoding grows collections as elements validate instead of honoring
+//! attacker-controlled capacities up front.
+
 use std::{fmt, io::Cursor};
 
 use nia_compat::formats::STABLE_DIAGNOSTIC_BUNDLE;
@@ -11,6 +19,7 @@ use crate::{
 
 const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
+const MAX_INITIAL_SEQUENCE_CAPACITY: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StableDiagnosticBundleError {
@@ -56,15 +65,21 @@ pub fn encode_stable_diagnostic_bundle(
         write_len(&mut encoded, diagnostic.labels.len())?;
         for label in diagnostic.labels.iter() {
             write_span(&mut encoded, label.span, source_len)?;
-            encoded.push(match label.span_source {
-                SpanSource::Source => 0,
-                SpanSource::Fallback => 1,
-                SpanSource::Generated => 2,
-            });
-            encoded.push(match label.style {
-                LabelStyle::Primary => 0,
-                LabelStyle::Secondary => 1,
-            });
+            write_u8(
+                &mut encoded,
+                match label.span_source {
+                    SpanSource::Source => 0,
+                    SpanSource::Fallback => 1,
+                    SpanSource::Generated => 2,
+                },
+            )?;
+            write_u8(
+                &mut encoded,
+                match label.style {
+                    LabelStyle::Primary => 0,
+                    LabelStyle::Secondary => 1,
+                },
+            )?;
             write_optional_string(&mut encoded, label.message.as_deref())?;
         }
         write_strings(&mut encoded, &diagnostic.notes)?;
@@ -95,13 +110,13 @@ pub fn decode_stable_diagnostic_bundle(
     }
     let mut cursor = Cursor::new(&encoded[STABLE_DIAGNOSTIC_BUNDLE.magic.len()..]);
     let diagnostics_len = read_len(&mut cursor)?;
-    let mut diagnostics = Vec::with_capacity(diagnostics_len);
+    let mut diagnostics = decode_vec(diagnostics_len);
     for _ in 0..diagnostics_len {
         let code_text = read_string(&mut cursor)?;
         let code = codes::ALL.iter().find(|code| code.code == code_text)?;
         let summary = read_string(&mut cursor)?;
         let labels_len = read_len(&mut cursor)?;
-        let mut labels = Vec::with_capacity(labels_len);
+        let mut labels = decode_vec(labels_len);
         for _ in 0..labels_len {
             let span = read_span(&mut cursor, source_len)?;
             let span_source = match read_u8(&mut cursor)? {
@@ -125,7 +140,7 @@ pub fn decode_stable_diagnostic_bundle(
         let notes = read_strings(&mut cursor)?;
         let help = read_strings(&mut cursor)?;
         let related_len = read_len(&mut cursor)?;
-        let mut related = Vec::with_capacity(related_len);
+        let mut related = decode_vec(related_len);
         for _ in 0..related_len {
             related.push(RelatedDiagnostic {
                 span: read_span(&mut cursor, source_len)?,
@@ -133,7 +148,7 @@ pub fn decode_stable_diagnostic_bundle(
             });
         }
         let debug_len = read_len(&mut cursor)?;
-        let mut debug = Vec::with_capacity(debug_len);
+        let mut debug = decode_vec(debug_len);
         for _ in 0..debug_len {
             debug.push(DebugField {
                 key: read_string(&mut cursor)?,
@@ -165,8 +180,8 @@ fn write_span(
     if span.start > span.end || span.end > source_len {
         return Err(StableDiagnosticBundleError::InvalidSpan);
     }
-    write_u64(encoded, span.start as u64);
-    write_u64(encoded, span.end as u64);
+    write_u64(encoded, span.start as u64)?;
+    write_u64(encoded, span.end as u64)?;
     Ok(())
 }
 
@@ -189,14 +204,18 @@ fn write_strings(
 
 fn read_strings(cursor: &mut Cursor<&[u8]>) -> Option<Vec<String>> {
     let len = read_len(cursor)?;
-    (0..len).map(|_| read_string(cursor)).collect()
+    let mut strings = decode_vec(len);
+    for _ in 0..len {
+        strings.push(read_string(cursor)?);
+    }
+    Some(strings)
 }
 
 fn write_optional_string(
     encoded: &mut Vec<u8>,
     value: Option<&str>,
 ) -> Result<(), StableDiagnosticBundleError> {
-    encoded.push(u8::from(value.is_some()));
+    write_u8(encoded, u8::from(value.is_some()))?;
     if let Some(value) = value {
         write_string(encoded, value)?;
     }
@@ -213,6 +232,7 @@ fn read_optional_string(cursor: &mut Cursor<&[u8]>) -> Option<Option<String>> {
 
 fn write_string(encoded: &mut Vec<u8>, value: &str) -> Result<(), StableDiagnosticBundleError> {
     write_len(encoded, value.len())?;
+    ensure_room(encoded.len(), value.len())?;
     encoded.extend_from_slice(value.as_bytes());
     Ok(())
 }
@@ -230,8 +250,7 @@ fn write_len(encoded: &mut Vec<u8>, len: usize) -> Result<(), StableDiagnosticBu
     if len > MAX_SEQUENCE_LEN {
         return Err(StableDiagnosticBundleError::TooLarge);
     }
-    write_u64(encoded, len as u64);
-    Ok(())
+    write_u64(encoded, len as u64)
 }
 
 fn read_len(cursor: &mut Cursor<&[u8]>) -> Option<usize> {
@@ -241,8 +260,31 @@ fn read_len(cursor: &mut Cursor<&[u8]>) -> Option<usize> {
     (len <= MAX_SEQUENCE_LEN && len <= remaining).then_some(len)
 }
 
-fn write_u64(encoded: &mut Vec<u8>, value: u64) {
+fn write_u64(encoded: &mut Vec<u8>, value: u64) -> Result<(), StableDiagnosticBundleError> {
+    ensure_room(encoded.len(), std::mem::size_of::<u64>())?;
     encoded.extend_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
+fn write_u8(encoded: &mut Vec<u8>, value: u8) -> Result<(), StableDiagnosticBundleError> {
+    ensure_room(encoded.len(), 1)?;
+    encoded.push(value);
+    Ok(())
+}
+
+fn ensure_room(current: usize, additional: usize) -> Result<(), StableDiagnosticBundleError> {
+    current
+        .checked_add(additional)
+        .filter(|&len| len <= MAX_BUNDLE_BYTES)
+        .map(|_| ())
+        .ok_or(StableDiagnosticBundleError::TooLarge)
+}
+
+fn decode_vec<T>(declared_len: usize) -> Vec<T> {
+    // Successful elements may still grow this vector to the declared length.
+    // The cap only prevents a truncated/corrupt prefix from causing a large
+    // allocation before the first element has been validated.
+    Vec::with_capacity(declared_len.min(MAX_INITIAL_SEQUENCE_CAPACITY))
 }
 
 fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
@@ -295,5 +337,21 @@ mod tests {
         let mut encoded = encode_stable_diagnostic_bundle(&[], 0).expect("encode empty bundle");
         encoded.push(0);
         assert_eq!(decode_stable_diagnostic_bundle(&encoded, 0), None);
+    }
+
+    #[test]
+    fn codec_resource_guards_do_not_require_limit_sized_fixtures() {
+        assert_eq!(ensure_room(MAX_BUNDLE_BYTES, 0), Ok(()));
+        assert_eq!(
+            ensure_room(MAX_BUNDLE_BYTES, 1),
+            Err(StableDiagnosticBundleError::TooLarge)
+        );
+        assert_eq!(
+            ensure_room(usize::MAX, 1),
+            Err(StableDiagnosticBundleError::TooLarge)
+        );
+
+        let diagnostics = decode_vec::<Diagnostic>(MAX_SEQUENCE_LEN);
+        assert!(diagnostics.capacity() <= MAX_INITIAL_SEQUENCE_CAPACITY);
     }
 }

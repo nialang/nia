@@ -326,6 +326,9 @@ commit as the corresponding implementation batch.
 - [x] Phase E symbol-table construction now has one initialization contract:
       `Default` and `new` both install the verified collision-free well-known
       symbol registry used by parsing, diagnostics, and persistence.
+- [x] Stable diagnostic bundles enforce their 64 MiB budget incrementally and
+      cap initial allocations derived from untrusted sequence lengths; all 222
+      compiler-query persistence and incremental consumer tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
