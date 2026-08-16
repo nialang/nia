@@ -122,6 +122,127 @@ fn emits_function_body_from_function_ir_when_available() {
 }
 
 #[test]
+fn validates_terminator_type_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let span = Span::default();
+    let int_expr = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Integer("1".to_string()),
+    };
+    let layouts = BackendLayouts {
+        target: nia_layout::TargetDataLayout::LP64,
+        types: vec![
+            (i32_ty, TypeLayout { size: 4, align: 4 }),
+            (bool_ty, TypeLayout { size: 1, align: 1 }),
+        ],
+        structs: Vec::new(),
+        unions: Vec::new(),
+        enums: Vec::new(),
+        struct_instances: Vec::new(),
+        union_instances: Vec::new(),
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![
+                FunctionBlock {
+                    id: FunctionBlockId(0),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::If {
+                        cond: int_expr(i32_ty),
+                        then_target: FunctionBlockId(1),
+                        else_target: FunctionBlockId(2),
+                        span,
+                    },
+                },
+                FunctionBlock {
+                    id: FunctionBlockId(1),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Tail {
+                        value: Some(int_expr(i32_ty)),
+                        span,
+                    },
+                },
+                FunctionBlock {
+                    id: FunctionBlockId(2),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Tail {
+                        value: Some(FunctionExpr {
+                            span,
+                            ty: bool_ty,
+                            kind: FunctionExprKind::Bool(true),
+                        }),
+                        span,
+                    },
+                },
+            ],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(
+        single_module_program(
+            module_id,
+            layouts,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![function],
+        ),
+        type_store,
+    );
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("control-flow condition must have type bool")),
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("return value type does not match")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
 fn emits_statement_if_from_function_ir_with_defer_cleanup() {
     let root = temp_dir("emits_statement_if_from_function_ir_with_defer_cleanup");
     let main = root.join("main.nia");

@@ -277,7 +277,7 @@ impl BackendValidator<'_> {
         self.validate_function_signature(&function.params, function.return_type, function.span);
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
-            self.validate_function_body(body);
+            self.validate_function_body(body, function.return_type);
         }
         self.current_item = None;
     }
@@ -298,7 +298,7 @@ impl BackendValidator<'_> {
         self.validate_function_signature(&function.params, function.return_type, function.span);
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
-            self.validate_function_body(body);
+            self.validate_function_body(body, function.return_type);
         }
         self.current_item = None;
     }
@@ -343,7 +343,7 @@ impl BackendValidator<'_> {
         }
         if body {
             self.validate_closure_entry_param_locals(entry);
-            self.validate_function_body(&entry.function_body);
+            self.validate_function_body(&entry.function_body, entry.abi.return_type);
             if !self.same_type(entry.function_body.ty, entry.abi.return_type) {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,

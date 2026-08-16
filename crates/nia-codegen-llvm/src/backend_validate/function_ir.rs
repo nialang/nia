@@ -7,12 +7,16 @@ use nia_function_ir::{
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{ConstGenericValue, TyKind};
+use nia_ty::{ConstGenericValue, PrimitiveTy, TyKind};
 
 use super::{BackendValidator, FunctionInstanceRef};
 
 impl BackendValidator<'_> {
-    pub(super) fn validate_function_body(&mut self, body: &FunctionBody) {
+    pub(super) fn validate_function_body(
+        &mut self,
+        body: &FunctionBody,
+        expected_return_ty: nia_ids::InternedTyId,
+    ) {
         if let Err(error) = validate_function_body(body) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -28,7 +32,11 @@ impl BackendValidator<'_> {
                 .map(|local| (local.id, local.ty))
                 .collect(),
         );
-        self.body_tys.push(body.ty);
+        // `FunctionBody::ty` describes the lowered block expression and may be
+        // `Never` for a terminating builtin even when the declared function
+        // return type is a concrete value. Propagation contracts use the
+        // enclosing function signature, not that intermediate expression type.
+        self.body_tys.push(expected_return_ty);
         for local in &body.locals {
             self.current_subject = Some("local");
             self.validate_runtime_type(local.ty, local.span);
@@ -39,17 +47,27 @@ impl BackendValidator<'_> {
                 self.validate_op(op);
             }
             self.validate_terminator(&block.terminator);
+            self.validate_body_return_contract(
+                &block.terminator,
+                body.ty,
+                expected_return_ty,
+                false,
+            );
         }
         self.body_tys.pop();
         self.local_tys.pop();
     }
 
     fn validate_defer_body(&mut self, body: &FunctionDeferBody) {
+        let Some(body_ty) = self.body_tys.last().copied() else {
+            return;
+        };
         for block in &body.blocks {
             for op in &block.ops {
                 self.validate_op(op);
             }
             self.validate_terminator(&block.terminator);
+            self.validate_body_return_contract(&block.terminator, body_ty, body_ty, true);
         }
     }
 
@@ -104,11 +122,23 @@ impl BackendValidator<'_> {
 
     fn validate_terminator(&mut self, terminator: &FunctionTerminator) {
         match terminator {
-            FunctionTerminator::If { cond, .. } => self.validate_expr(cond),
+            FunctionTerminator::If { cond, span, .. } => {
+                self.validate_expr(cond);
+                self.validate_bool_condition(cond.ty, *span);
+            }
             FunctionTerminator::Switch { target, arms, .. } => {
                 self.validate_expr(target);
                 for arm in arms {
                     self.validate_expr(&arm.pattern);
+                    if !self.same_type(target.ty, arm.pattern.ty) {
+                        self.invalid_terminator(
+                            arm.pattern.span,
+                            "switch arm pattern type does not match its target",
+                        );
+                    }
+                }
+                if !self.is_integer_type(target.ty) {
+                    self.invalid_terminator(target.span, "switch target must have an integer type");
                 }
             }
             FunctionTerminator::Try {
@@ -131,9 +161,12 @@ impl BackendValidator<'_> {
                     *span,
                 );
             }
-            FunctionTerminator::Loop { header, .. } => match header {
+            FunctionTerminator::Loop { header, span, .. } => match header {
                 nia_function_ir::FunctionForHeader::Infinite => {}
-                nia_function_ir::FunctionForHeader::Condition(expr) => self.validate_expr(expr),
+                nia_function_ir::FunctionForHeader::Condition(expr) => {
+                    self.validate_expr(expr);
+                    self.validate_bool_condition(expr.ty, *span);
+                }
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
@@ -144,6 +177,96 @@ impl BackendValidator<'_> {
             | FunctionTerminator::Branch { .. }
             | FunctionTerminator::Next { .. } => {}
         }
+    }
+
+    fn validate_body_return_contract(
+        &mut self,
+        terminator: &FunctionTerminator,
+        body_ty: nia_ids::InternedTyId,
+        expected_return_ty: nia_ids::InternedTyId,
+        in_defer: bool,
+    ) {
+        let (value, span, is_tail) = match terminator {
+            FunctionTerminator::Return { value, span } => (value.as_ref(), *span, false),
+            FunctionTerminator::Tail { value, span } => (value.as_ref(), *span, true),
+            _ => return,
+        };
+        // A defer Tail exits only the mini-CFG; it does not return the enclosing
+        // function. Its optional value is therefore intentionally unchecked here.
+        if in_defer && is_tail {
+            return;
+        }
+        match value {
+            Some(value)
+                if !self.same_type(value.ty, expected_return_ty)
+                    && !matches!(
+                        self.ty_kind(value.ty),
+                        Some(TyKind::Primitive(PrimitiveTy::Never))
+                    ) =>
+            {
+                self.invalid_terminator(
+                    value.span,
+                    "return value type does not match the function body return type",
+                )
+            }
+            Some(_) => {}
+            None if !self.is_unit_or_never(expected_return_ty)
+                && !matches!(
+                    self.ty_kind(body_ty),
+                    Some(TyKind::Primitive(PrimitiveTy::Never))
+                ) =>
+            {
+                self.invalid_terminator(
+                    span,
+                    "empty return terminator requires a unit or never return type",
+                )
+            }
+            None => {}
+        }
+    }
+
+    fn validate_bool_condition(&mut self, ty: nia_ids::InternedTyId, span: Span) {
+        if !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Bool))) {
+            self.invalid_terminator(span, "control-flow condition must have type bool");
+        }
+    }
+
+    fn is_integer_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Primitive(
+                PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize
+                    | PrimitiveTy::U8
+                    | PrimitiveTy::U16
+                    | PrimitiveTy::U32
+                    | PrimitiveTy::U64
+                    | PrimitiveTy::U128
+                    | PrimitiveTy::Usize
+                    | PrimitiveTy::Bool
+                    | PrimitiveTy::Char
+            ))
+        )
+    }
+
+    fn is_unit_or_never(&self, ty: nia_ids::InternedTyId) -> bool {
+        match self.ty_kind(ty) {
+            Some(TyKind::Primitive(PrimitiveTy::Never)) => true,
+            Some(TyKind::Tuple(fields)) => fields.is_empty(),
+            _ => false,
+        }
+    }
+
+    fn invalid_terminator(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR contains an invalid terminator contract: {message}"),
+        ));
     }
 
     fn validate_try_contract(

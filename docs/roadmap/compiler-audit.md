@@ -379,6 +379,11 @@ commit as the corresponding implementation batch.
       messages, reclaim partial bitcode modules and failed emission buffers, and
       propagate null target-machine triples instead of silently accepting an
       unconfigured module.
+- [x] Phase B backend function validation now checks boolean control-flow
+      conditions, integer switch targets and arm type equality, declared return
+      values against the enclosing function signature, and `Never`-terminating
+      bodies without rejecting valid defer-tail or trap lowering; malformed
+      terminator contracts have a pre-LLVM regression test.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
