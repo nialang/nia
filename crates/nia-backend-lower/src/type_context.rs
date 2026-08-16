@@ -46,13 +46,20 @@ impl<'input> BackendTypeContext<'input> {
         if let Some(layout) = self.input.layouts.types.get(&ty).cloned() {
             return Some(layout);
         }
-        let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(ty) else {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.ty_kind(ty)
+        else {
             return None;
         };
         if def_id.module_id != self.input.module_id {
             return None;
         }
-        self.input.layouts.nominal_type_layout(*def_id, args)
+        self.input
+            .layouts
+            .nominal_type_layout_with_const_args(*def_id, args, const_args)
     }
 
     pub(crate) fn field_offset(
@@ -61,13 +68,20 @@ impl<'input> BackendTypeContext<'input> {
         field: nia_ids::GlobalDefId,
     ) -> Option<u64> {
         let ty = self.input.type_normalization.normalize(ty);
-        let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(ty) else {
+        let Some(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        }) = self.ty_kind(ty)
+        else {
             return None;
         };
         if def_id.module_id != self.input.module_id {
             return None;
         }
-        self.input.layouts.field_offset(*def_id, args, field)
+        self.input
+            .layouts
+            .field_offset_with_const_args(*def_id, args, const_args, field)
     }
 
     pub(crate) fn type_instantiation(&self, key: &TypeInstantiationKey) -> Option<InternedTyId> {

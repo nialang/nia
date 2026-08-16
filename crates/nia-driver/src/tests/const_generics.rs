@@ -1041,3 +1041,43 @@ fn main() i32 {
         program.diagnostics
     );
 }
+
+#[test]
+fn imported_const_generic_layout_builtins_resolve_after_instantiation() {
+    let root = temp_dir("imported_const_generic_layout_builtins_resolve_after_instantiation");
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Packet[N: usize] {
+    marker: u8,
+    values: [u32; N],
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module types;
+using entry::types;
+
+const fn packet_size[N: usize]() usize
+where types::Packet[N]: Sized {
+    std::builtin::size[types::Packet[N]]()
+}
+
+const fn marker_offset[N: usize]() usize {
+    std::builtin::offset[types::Packet[N]]("marker")
+}
+
+const SIZE: usize = packet_size[3]();
+const OFFSET: usize = marker_offset[3]();
+
+fn main() usize {
+    SIZE + OFFSET
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

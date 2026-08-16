@@ -952,6 +952,49 @@ impl Analyzer<'_> {
         (self.input.program.signatures?)(module_id).map(ModuleSignatures::Shared)
     }
 
+    // A module's base layout product contains only instances rooted in that
+    // module. Const evaluation may request a new foreign generic instance, so
+    // the layout computer also needs declaration signatures as a fallback.
+    fn program_struct_signature_for_layout(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::ProgramStructSignature> {
+        self.struct_signature_for(def_id)
+            .map(|signature| nia_item_signatures::ProgramStructSignature { signature })
+    }
+
+    fn program_union_signature_for_layout(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::ProgramUnionSignature> {
+        self.union_signature_for(def_id)
+            .map(|signature| nia_item_signatures::ProgramUnionSignature { signature })
+    }
+
+    fn program_enum_signature_for_layout(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::ProgramEnumSignature> {
+        self.signatures_for_module(def_id.module_id)
+            .and_then(|signatures| signatures.as_ref().enums.get(&def_id.def_id).cloned())
+            .map(|signature| nia_item_signatures::ProgramEnumSignature { signature })
+    }
+
+    fn program_type_alias_signature_for_layout(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::ProgramTypeAliasSignature> {
+        self.signatures_for_module(def_id.module_id)
+            .and_then(|signatures| {
+                signatures
+                    .as_ref()
+                    .type_aliases
+                    .get(&def_id.def_id)
+                    .cloned()
+            })
+            .map(|signature| nia_item_signatures::ProgramTypeAliasSignature { signature })
+    }
+
     pub(super) fn type_normalization_for_module(
         &self,
         module_id: ModuleId,
@@ -1046,6 +1089,10 @@ impl Analyzer<'_> {
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
+        let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
+        let program_union = |def_id| self.program_union_signature_for_layout(def_id);
+        let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
         let target =
             nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
                 .ok_or_else(|| ConstError {
@@ -1066,6 +1113,10 @@ impl Analyzer<'_> {
                     symbols: Some(self.input.symbols),
                     layouts: Some(&layout_query),
                     array_lengths: Some(&array_lengths),
+                    struct_: Some(&program_struct),
+                    union: Some(&program_union),
+                    enum_: Some(&program_enum),
+                    type_alias: Some(&program_type_alias),
                     ..Default::default()
                 },
             });
@@ -1075,21 +1126,6 @@ impl Analyzer<'_> {
             .get(&ty)
             .copied()
             .unwrap_or(ty);
-        if let Some(TyKind::Nominal {
-            def_id,
-            args,
-            const_args,
-        }) = self.ty_kind(ty)
-            && def_id.module_id != module_id
-            && const_args.is_empty()
-            && let Some(layouts) =
-                self.compute_program_layout(def_id.module_id, &layout_array_lengths)
-            && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
-        {
-            return Ok(ConstValue::Int(IntConst::unsigned(
-                layout.builtin_value(builtin) as u128,
-            )));
-        }
         let Some(layout) = layouts.types.get(&ty) else {
             return Err(ConstError {
                 span,
@@ -1149,34 +1185,6 @@ impl Analyzer<'_> {
                 message: "cannot compute field offset without normalized module types".to_string(),
             });
         };
-        let mut root_types = signatures.as_ref().type_roots();
-        root_types.push(ty);
-        let array_lengths = |id| layout_array_lengths.get(&id).copied();
-        let layout_query =
-            |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
-        let target =
-            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: "cannot compute field offset for unsupported target pointer width"
-                        .to_string(),
-                })?;
-        let layouts =
-            nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
-                type_store: self.input.type_store,
-                defs: defs.as_ref(),
-                signatures: signatures.as_ref(),
-                root_types: &root_types,
-                normalized: &normalization.as_ref().normalized,
-                array_lengths: &array_lengths,
-                target,
-                program: nia_layout::ProgramLayoutContext {
-                    symbols: Some(self.input.symbols),
-                    layouts: Some(&layout_query),
-                    array_lengths: Some(&array_lengths),
-                    ..Default::default()
-                },
-            });
         let ty = normalization
             .as_ref()
             .normalized
@@ -1194,13 +1202,6 @@ impl Analyzer<'_> {
                 message: "builtin `offset` requires a struct or union type argument".to_string(),
             });
         };
-        if !const_args.is_empty() {
-            return Err(ConstError {
-                span,
-                message: "builtin `offset` does not support const generic nominal types yet"
-                    .to_string(),
-            });
-        }
         let Some(field_def) = self.field_def_for_nominal(def_id, field) else {
             let field = self.symbol_name(*field);
             return Err(ConstError {
@@ -1208,12 +1209,59 @@ impl Analyzer<'_> {
                 message: format!("type has no field `{field}` for builtin `offset`"),
             });
         };
-        let offset = if def_id.module_id != module_id {
-            self.compute_program_layout(def_id.module_id, &layout_array_lengths)
-                .and_then(|layouts| layouts.field_offset(def_id, &args, field_def))
-        } else {
-            layouts.field_offset(def_id, &args, field_def)
+        let array_lengths = |id| layout_array_lengths.get(&id).copied();
+        let layout_query =
+            |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
+        let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
+        let program_union = |def_id| self.program_union_signature_for_layout(def_id);
+        let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
+        let target =
+            nia_layout::TargetDataLayout::from_pointer_width(self.input.target.pointer_width)
+                .ok_or_else(|| ConstError {
+                    span,
+                    message: "cannot compute field offset for unsupported target pointer width"
+                        .to_string(),
+                })?;
+        let input = nia_layout::LayoutComputationInput {
+            type_store: self.input.type_store,
+            defs: defs.as_ref(),
+            signatures: signatures.as_ref(),
+            root_types: &[],
+            normalized: &normalization.as_ref().normalized,
+            array_lengths: &array_lengths,
+            target,
+            program: nia_layout::ProgramLayoutContext {
+                symbols: Some(self.input.symbols),
+                layouts: Some(&layout_query),
+                array_lengths: Some(&array_lengths),
+                struct_: Some(&program_struct),
+                union: Some(&program_union),
+                enum_: Some(&program_enum),
+                type_alias: Some(&program_type_alias),
+                ..Default::default()
+            },
         };
+        // Field details for foreign generic instances are not part of the
+        // owner module's base `Layouts` product. Compute the requested
+        // instantiation directly so `const_args` remain part of the cache key.
+        let request = nia_layout::InstanceLayoutRequest {
+            def_id,
+            args: &args,
+            const_args: &const_args,
+        };
+        let offset =
+            nia_layout::compute_struct_instance_layout_with_program_context(&input, request)
+                .or_else(|| {
+                    nia_layout::compute_union_instance_layout_with_program_context(&input, request)
+                })
+                .and_then(|layout| {
+                    layout
+                        .fields
+                        .iter()
+                        .find(|candidate| candidate.def_id == field_def.def_id)
+                        .map(|field| field.offset)
+                });
         let Some(offset) = offset else {
             return Err(ConstError {
                 span,
@@ -1455,6 +1503,10 @@ impl Analyzer<'_> {
         let normalization = self.type_normalization_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
+        let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
+        let program_union = |def_id| self.program_union_signature_for_layout(def_id);
+        let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature_for_layout(def_id);
         Some(Arc::new(nia_layout::compute_layouts_with_program_context(
             nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
@@ -1468,6 +1520,10 @@ impl Analyzer<'_> {
                     symbols: Some(self.input.symbols),
                     layouts: Some(&layout_query),
                     array_lengths: Some(&array_lengths_for_layout),
+                    struct_: Some(&program_struct),
+                    union: Some(&program_union),
+                    enum_: Some(&program_enum),
+                    type_alias: Some(&program_type_alias),
                     ..Default::default()
                 },
             },

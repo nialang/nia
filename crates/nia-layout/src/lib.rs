@@ -1,4 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Computes concrete storage layouts for Nia types and nominal aggregates.
+//!
+//! This crate is the representation boundary between semantic types and
+//! consumers such as const evaluation, backend lowering, and ABI validation.
+//! Layout computation is demand-driven and memoized by the complete nominal
+//! identity: definition, type arguments, and const arguments. Open generic and
+//! inferred-length roots are deliberately skipped until a consumer provides a
+//! concrete instantiation.
+//!
+//! Native Nia structs may reorder fields by alignment and size. `extern`
+//! structs preserve declaration order, unions overlap every field at offset
+//! zero, and payload enums use a tag followed by an aligned union payload.
+//! Arithmetic helpers return `None` on overflow so malformed or target-sized
+//! inputs become diagnostics rather than wrapped layouts.
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -30,18 +45,26 @@ use aggregate::{
     PendingEnumFieldLayout, PendingFieldLayout, place_enum_fields, place_struct_fields,
 };
 
+/// Pointer representation parameters used by target-dependent layouts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetDataLayout {
+    /// Pointer storage width in bytes.
     pub pointer_size: u64,
+    /// Required pointer alignment in bytes.
     pub pointer_align: u64,
 }
 
 impl TargetDataLayout {
+    /// The conventional 64-bit pointer layout used by LP64 targets.
     pub const LP64: Self = Self {
         pointer_size: 8,
         pointer_align: 8,
     };
 
+    /// Derives the supported pointer layout from a target width in bits.
+    ///
+    /// Nia currently accepts byte-addressable power-of-two widths from 8 to
+    /// 128 bits and uses the pointer width as its alignment.
     pub fn from_pointer_width(pointer_width: u32) -> Option<Self> {
         if !pointer_width.is_multiple_of(8) {
             return None;
@@ -54,13 +77,18 @@ impl TargetDataLayout {
     }
 }
 
+/// Size and ABI alignment of one concrete type, measured in bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeLayout {
+    /// Storage occupied by the type, including tail padding.
     pub size: u64,
+    /// Required starting alignment. Valid computed layouts always use a
+    /// positive value.
     pub align: u64,
 }
 
 impl TypeLayout {
+    /// Selects the numeric value exposed by a layout builtin.
     pub fn builtin_value(&self, builtin: LayoutBuiltin) -> u64 {
         match builtin {
             LayoutBuiltin::Size => self.size,
@@ -69,12 +97,20 @@ impl TypeLayout {
     }
 }
 
+/// Concrete aggregate layout and the physical placement of its fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructLayout {
+    /// Overall size and alignment.
     pub layout: TypeLayout,
+    /// Fields in physical order. For native structs this may differ from source
+    /// order; use each field's `def_id` rather than its vector position.
     pub fields: Vec<FieldLayout>,
 }
 
+/// Cache key for a local struct or union instantiation.
+///
+/// Const arguments are representation evidence just like type arguments and
+/// must never be omitted when querying this key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructLayoutKey {
     pub def_id: DefId,
@@ -89,6 +125,7 @@ struct GlobalStructLayoutKey {
     const_args: Vec<ConstGenericArg>,
 }
 
+/// Physical placement of one nominal aggregate field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldLayout {
     pub def_id: DefId,
@@ -96,6 +133,7 @@ pub struct FieldLayout {
     pub layout: TypeLayout,
 }
 
+/// Concrete representation of a payload or fieldless enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumLayout {
     pub layout: TypeLayout,
@@ -104,6 +142,7 @@ pub struct EnumLayout {
     pub variants: Vec<EnumVariantLayout>,
 }
 
+/// Layout of one enum variant's payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumVariantLayout {
     pub def_id: DefId,
@@ -111,6 +150,7 @@ pub struct EnumVariantLayout {
     pub fields: Vec<EnumFieldLayout>,
 }
 
+/// Physical placement of one tuple or named enum payload field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumFieldLayout {
     pub def_id: Option<DefId>,
@@ -118,6 +158,10 @@ pub struct EnumFieldLayout {
     pub layout: TypeLayout,
 }
 
+/// Module-local layout product consumed by semantic and backend queries.
+///
+/// The nominal maps use local `DefId`s. Callers resolving a foreign
+/// `GlobalDefId` must first obtain the `Layouts` product for its owner module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layouts {
     pub target: TargetDataLayout,
@@ -130,10 +174,16 @@ pub struct Layouts {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Supplies evaluated values for array lengths backed by const expressions.
+///
+/// The global expression identity prevents equal local indices in different
+/// modules from sharing a value accidentally.
 pub trait ArrayLengthValues {
+    /// Returns the non-negative array length computed for `id`.
     fn array_len(&self, id: GlobalConstExprId) -> Option<u64>;
 }
 
+/// Array-length provider used when no const evaluation product is available.
 #[derive(Clone, Copy, Default)]
 pub struct NoArrayLengthValues;
 
@@ -153,6 +203,7 @@ where
 }
 
 impl Layouts {
+    /// Looks up a nominal layout with no const-generic arguments.
     pub fn nominal_type_layout(
         &self,
         def_id: GlobalDefId,
@@ -161,6 +212,10 @@ impl Layouts {
         self.nominal_type_layout_with_const_args(def_id, args, &[])
     }
 
+    /// Looks up a nominal layout by its complete concrete instantiation.
+    ///
+    /// This returns `None` for an open generic or for an instance that was not
+    /// among this module product's roots.
     pub fn nominal_type_layout_with_const_args(
         &self,
         def_id: GlobalDefId,
@@ -198,6 +253,7 @@ impl Layouts {
         }
     }
 
+    /// Looks up a field offset for a nominal type with no const arguments.
     pub fn field_offset(
         &self,
         def_id: GlobalDefId,
@@ -207,6 +263,7 @@ impl Layouts {
         self.field_offset_with_const_args(def_id, args, &[], field)
     }
 
+    /// Looks up a field offset using the complete nominal instantiation key.
     pub fn field_offset_with_const_args(
         &self,
         def_id: GlobalDefId,
@@ -224,6 +281,7 @@ impl Layouts {
             })
     }
 
+    /// Returns detailed struct or union layout without const arguments.
     pub fn nominal_struct_layout(
         &self,
         def_id: GlobalDefId,
@@ -232,6 +290,7 @@ impl Layouts {
         self.nominal_struct_layout_with_const_args(def_id, args, &[])
     }
 
+    /// Returns detailed struct or union layout for a concrete instantiation.
     pub fn nominal_struct_layout_with_const_args(
         &self,
         def_id: GlobalDefId,
@@ -254,11 +313,13 @@ impl Layouts {
         }
     }
 
+    /// Returns the local enum layout for `def_id`.
     pub fn nominal_enum_layout(&self, def_id: GlobalDefId) -> Option<&EnumLayout> {
         self.enums.get(&def_id.def_id)
     }
 }
 
+/// Computes all layouts reachable from a module's signature roots.
 pub fn compute_layouts(
     type_store: &nia_ty::TypeStore,
     defs: &DefCollection,
@@ -280,6 +341,11 @@ pub fn compute_layouts(
     })
 }
 
+/// Cross-module facts and lazy queries used while laying out foreign types.
+///
+/// Eager maps and lazy callbacks are alternatives. Query-driven clients use
+/// callbacks to avoid collecting a duplicate program snapshot, while tests and
+/// batch clients can provide maps.
 #[derive(Clone, Copy, Default)]
 pub struct ProgramLayoutContext<'a> {
     pub symbols: Option<&'a dyn SymbolText>,
@@ -295,6 +361,7 @@ pub struct ProgramLayoutContext<'a> {
     pub type_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>>,
 }
 
+/// Request for the detailed layout of one struct or union instantiation.
 #[derive(Clone, Copy)]
 pub struct InstanceLayoutRequest<'a> {
     pub def_id: GlobalDefId,
@@ -302,6 +369,7 @@ pub struct InstanceLayoutRequest<'a> {
     pub const_args: &'a [ConstGenericArg],
 }
 
+/// Complete input required for one module-local layout computation.
 pub struct LayoutComputationInput<'a> {
     pub type_store: &'a nia_ty::TypeStore,
     pub defs: &'a DefCollection,
@@ -328,6 +396,7 @@ impl LayoutComputationInput<'_> {
     }
 }
 
+/// Explicit roots for a demand-driven partial layout product.
 #[derive(Clone, Copy, Default)]
 pub struct LayoutRoots<'a> {
     pub types: &'a [InternedTyId],
@@ -335,10 +404,12 @@ pub struct LayoutRoots<'a> {
     pub unions: &'a [DefId],
 }
 
+/// Computes layouts for every root carried by `input`.
 pub fn compute_layouts_with_program_context(input: LayoutComputationInput<'_>) -> Layouts {
     LayoutComputer::new(input).compute()
 }
 
+/// Computes only the explicitly requested type and aggregate roots.
 pub fn compute_layouts_for_roots_with_program_context(
     input: LayoutComputationInput<'_>,
     roots: LayoutRoots<'_>,
@@ -346,6 +417,7 @@ pub fn compute_layouts_for_roots_with_program_context(
     LayoutComputer::new(input).compute_roots(roots)
 }
 
+/// Computes detailed layout for one local or foreign struct instantiation.
 pub fn compute_struct_instance_layout_with_program_context(
     input: &LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
@@ -378,6 +450,7 @@ pub fn compute_struct_instance_layout_with_program_context(
         .cloned()
 }
 
+/// Computes detailed layout for one local or foreign union instantiation.
 pub fn compute_union_instance_layout_with_program_context(
     input: &LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
