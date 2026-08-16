@@ -133,14 +133,19 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in args {
                     changed |= self.devirtualize_direct_trait_calls_in_expr(arg);
                 }
-                if let Some((receiver, def_id)) = self.direct_trait_call_target(callee) {
+                if let Some((receiver, def_id, receiver_kind)) =
+                    self.direct_trait_call_target(callee)
+                {
                     *callee = FunctionCallee::Method {
                         def_id,
                         arg_module_id: self.input.module_id,
                         self_arg: None,
                         args: Vec::new(),
                         const_args: Vec::new(),
-                        receiver_kind: nia_ids::ReceiverKind::Ref,
+                        // The dynamic call already carries the ABI receiver mode selected
+                        // by body checking. Devirtualization changes only the dispatch target;
+                        // rewriting this metadata would change `&self`/value ABI lowering.
+                        receiver_kind,
                         receiver,
                     };
                     changed = true;
@@ -375,13 +380,14 @@ impl<'a> ModuleLowerer<'a> {
     fn direct_trait_call_target(
         &mut self,
         callee: &FunctionCallee,
-    ) -> Option<(Box<FunctionExpr>, GlobalDefId)> {
+    ) -> Option<(Box<FunctionExpr>, GlobalDefId, nia_ids::ReceiverKind)> {
         let FunctionCallee::DynamicTraitMethod {
             trait_id: TraitId::Source(trait_def_id),
             method_id,
             method_name,
             trait_args,
             trait_const_args,
+            receiver_kind,
             receiver,
             ..
         } = callee
@@ -404,7 +410,7 @@ impl<'a> ModuleLowerer<'a> {
             method_name,
             *self_ty,
         )?;
-        (args.is_empty() && const_args.is_empty()).then(|| (expr.clone(), def_id))
+        (args.is_empty() && const_args.is_empty()).then(|| (expr.clone(), def_id, *receiver_kind))
     }
 
     fn record_devirtualization(

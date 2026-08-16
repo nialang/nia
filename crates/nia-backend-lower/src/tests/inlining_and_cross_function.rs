@@ -774,6 +774,59 @@ fn main() i32 {
 }
 
 #[test]
+fn o3_matches_cross_function_constant_returns_by_const_instance_arguments() {
+    let source = r#"
+fn answer[N: usize]() usize {
+    N
+}
+
+fn main() [usize; 2] {
+    [answer[3](), answer[4]()]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == sym("main"))
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    let FunctionExprKind::ArrayLiteral {
+        elems: FunctionArrayElements::List(elems),
+    } = &value.kind
+    else {
+        panic!("expected propagated array literal, got {value:?}");
+    };
+    assert_eq!(elems.len(), 2);
+    assert!(matches!(
+        elems[0].kind,
+        FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Usize(3))
+    ));
+    assert!(matches!(
+        elems[1].kind,
+        FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Usize(4))
+    ));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-cross-function-constants",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o3_inlines_pure_leaf_function_calls_through_bindings() {
     let source = r#"
 fn values() [i32; 5] {
@@ -889,7 +942,10 @@ fn main() i32 {
                 slot: 0,
                 params: vec![i32_ty],
                 return_type: i32_ty,
-                receiver_kind: nia_ids::ReceiverKind::Ref,
+                // Keep this synthetic call read-only to ensure devirtualization
+                // preserves the dispatch ABI metadata instead of defaulting to
+                // `Ref` when it reconstructs a direct method callee.
+                receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
                 receiver: Box::new(FunctionExpr {
                     span,
                     ty: source_object_ty,
@@ -992,7 +1048,10 @@ fn main() i32 {
     assert!(matches!(
         o3_value.kind,
         FunctionExprKind::Call {
-            callee: nia_function_ir::FunctionCallee::Method { .. },
+            callee: nia_function_ir::FunctionCallee::Method {
+                receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
+                ..
+            },
             ..
         }
     ));
