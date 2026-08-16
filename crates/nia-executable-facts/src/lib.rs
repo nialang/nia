@@ -106,6 +106,8 @@ pub struct ExecutableTraitMethodRef {
     pub method_name: SymbolId,
     pub self_ty: InternedTyId,
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments are part of the trait instance identity used by reachability.
+    pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +116,8 @@ pub struct ExecutableTraitVtableRef {
     pub trait_id: TraitId,
     pub self_ty: InternedTyId,
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments are part of the trait-object instance identity.
+    pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 impl ExecutableTraitRefs {
@@ -141,6 +145,25 @@ impl ExecutableTraitRefs {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
     ) {
+        self.insert_method_with_const_args(
+            module_id,
+            trait_id,
+            method_name,
+            self_ty,
+            trait_args,
+            Vec::new(),
+        );
+    }
+
+    fn insert_method_with_const_args(
+        &mut self,
+        module_id: ModuleId,
+        trait_id: TraitId,
+        method_name: SymbolId,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<nia_ty::ConstGenericArg>,
+    ) {
         self.traits.insert(trait_id);
         self.methods.push(ExecutableTraitMethodRef {
             module_id,
@@ -148,15 +171,17 @@ impl ExecutableTraitRefs {
             method_name,
             self_ty,
             trait_args,
+            trait_const_args,
         });
     }
 
-    fn insert_vtable(
+    fn insert_vtable_with_const_args(
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<nia_ty::ConstGenericArg>,
     ) {
         self.traits.insert(trait_id);
         self.vtables.push(ExecutableTraitVtableRef {
@@ -164,6 +189,7 @@ impl ExecutableTraitRefs {
             trait_id,
             self_ty,
             trait_args,
+            trait_const_args,
         });
     }
 }
@@ -293,12 +319,13 @@ pub fn executable_module_refs_from_semantic_facts(
             }
         }
         for reference in &facts.trait_method_refs {
-            function_refs.trait_refs.insert_method(
+            function_refs.trait_refs.insert_method_with_const_args(
                 reference.module_id,
                 reference.trait_id,
                 reference.method_name,
                 reference.self_ty,
                 reference.trait_args.clone(),
+                reference.trait_const_args.clone(),
             );
         }
         for coercion in facts.node_trait_object_coercions.values().copied() {
@@ -359,16 +386,18 @@ fn collect_resolved_call_refs(
             method_name,
             self_ty,
             trait_args,
+            trait_const_args,
             args,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.trait_refs.insert_method(
+            refs.trait_refs.insert_method_with_const_args(
                 module.module_id,
                 TraitId::Source(*trait_id),
                 *method_name,
                 *self_ty,
                 trait_args.clone(),
+                trait_const_args.clone(),
             );
             if !args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
@@ -388,16 +417,18 @@ fn collect_resolved_call_refs(
             method_name,
             self_ty,
             trait_args,
+            trait_const_args,
             args,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.trait_refs.insert_method(
+            refs.trait_refs.insert_method_with_const_args(
                 module.module_id,
                 TraitId::Source(*trait_id),
                 *method_name,
                 *self_ty,
                 trait_args.clone(),
+                trait_const_args.clone(),
             );
             if !args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
@@ -417,15 +448,17 @@ fn collect_resolved_call_refs(
             method_name,
             trait_args,
             object_ty,
+            trait_const_args,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.trait_refs.insert_method(
+            refs.trait_refs.insert_method_with_const_args(
                 module.module_id,
                 *trait_id,
                 *method_name,
                 *object_ty,
                 trait_args.clone(),
+                trait_const_args.clone(),
             );
         }
         ResolvedCall::BuiltinTraitMethod {
@@ -804,16 +837,18 @@ fn collect_typed_callee_refs(
             method_name,
             self_ty,
             trait_args,
+            trait_const_args,
             receiver,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.trait_refs.insert_method(
+            refs.trait_refs.insert_method_with_const_args(
                 module.module_id,
                 TraitId::Source(*trait_id),
                 *method_name,
                 *self_ty,
                 trait_args.clone(),
+                trait_const_args.clone(),
             );
             collect_typed_expr_refs(module, receiver, refs);
         }
@@ -823,25 +858,38 @@ fn collect_typed_callee_refs(
             method_name,
             self_ty,
             trait_args,
+            trait_const_args,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.trait_refs.insert_method(
+            refs.trait_refs.insert_method_with_const_args(
                 module.module_id,
                 TraitId::Source(*trait_id),
                 *method_name,
                 *self_ty,
                 trait_args.clone(),
+                trait_const_args.clone(),
             );
         }
         TypedCallee::DynamicTraitMethod {
             trait_id,
             method_id,
+            method_name,
+            object_ty,
+            trait_args,
+            trait_const_args,
             receiver,
             ..
         } => {
             refs.functions.insert(*method_id);
-            refs.trait_refs.insert_trait(*trait_id);
+            refs.trait_refs.insert_method_with_const_args(
+                module.module_id,
+                *trait_id,
+                *method_name,
+                *object_ty,
+                trait_args.clone(),
+                trait_const_args.clone(),
+            );
             collect_typed_expr_refs(module, receiver, refs);
         }
         TypedCallee::BuiltinMethod {
@@ -908,15 +956,22 @@ fn collect_trait_object_vtable_ref(
         nia_ty::TyKind::TraitObject {
             trait_id,
             trait_args,
+            trait_const_args,
             ..
         }
         | nia_ty::TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
+            trait_const_args,
             ..
         } => {
-            refs.trait_refs
-                .insert_vtable(module.module_id, *trait_id, self_ty, trait_args.clone());
+            refs.trait_refs.insert_vtable_with_const_args(
+                module.module_id,
+                *trait_id,
+                self_ty,
+                trait_args.clone(),
+                trait_const_args.clone(),
+            );
         }
         _ => {}
     }

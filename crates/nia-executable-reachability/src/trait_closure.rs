@@ -213,7 +213,9 @@ fn extend_reachable_traits_from_generic_instantiation(
             let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions) else {
                 continue;
             };
-            let Some((trait_id, trait_args)) = trait_id_and_args(type_store, trait_ty) else {
+            let Some((trait_id, trait_args, trait_const_args)) =
+                trait_id_and_args(type_store, trait_ty)
+            else {
                 continue;
             };
             insert_trait_and_supertrait_methods(
@@ -224,6 +226,7 @@ fn extend_reachable_traits_from_generic_instantiation(
                 trait_id,
                 self_ty,
                 &trait_args,
+                &trait_const_args,
             );
         }
     }
@@ -236,7 +239,9 @@ fn extend_reachable_traits_from_generic_instantiation(
                 let Some(trait_ty) = substitute_ty(types, bound.trait_ty, &substitutions) else {
                     continue;
                 };
-                let Some((trait_id, trait_args)) = trait_id_and_args(type_store, trait_ty) else {
+                let Some((trait_id, trait_args, trait_const_args)) =
+                    trait_id_and_args(type_store, trait_ty)
+                else {
                     continue;
                 };
                 insert_trait_and_supertrait_methods(
@@ -247,6 +252,7 @@ fn extend_reachable_traits_from_generic_instantiation(
                     trait_id,
                     self_ty,
                     &trait_args,
+                    &trait_const_args,
                 );
             }
         }
@@ -310,13 +316,12 @@ fn extend_reachable_traits_from_trait_default_instantiation(
     let Some(self_ty) = instantiation.self_arg else {
         return;
     };
-    let trait_args = instantiation
-        .args
-        .iter()
-        .take(trait_signature.signature.generics.len())
-        .copied()
-        .collect::<Vec<_>>();
-    traits.insert_methods(
+    let (trait_args, trait_const_args) = split_trait_generic_args(
+        &trait_signature.signature.generic_params,
+        &instantiation.args,
+        &instantiation.const_args,
+    );
+    traits.insert_methods_with_const_args(
         use_module_id,
         trait_id,
         trait_signature
@@ -326,6 +331,7 @@ fn extend_reachable_traits_from_trait_default_instantiation(
             .map(|method| ReachableTraitMethodName { name: method.name }),
         self_ty,
         &trait_args,
+        &trait_const_args,
     );
 }
 
@@ -337,6 +343,7 @@ fn insert_trait_and_supertrait_methods(
     trait_id: TraitId,
     self_ty: InternedTyId,
     trait_args: &[InternedTyId],
+    trait_const_args: &[nia_ty::ConstGenericArg],
 ) {
     let append = type_store.append_for_module(module_id);
     TraitMethodExpansion {
@@ -349,7 +356,7 @@ fn insert_trait_and_supertrait_methods(
         module_id,
         active_traits: HashSet::new(),
     }
-    .insert(trait_id, self_ty, trait_args);
+    .insert(trait_id, self_ty, trait_args, trait_const_args);
 }
 
 struct TraitMethodExpansion<'a, 'b> {
@@ -357,17 +364,26 @@ struct TraitMethodExpansion<'a, 'b> {
     types: ReachabilityTypeCx<'b>,
     traits: &'b mut ReachableTraitRefs,
     module_id: ModuleId,
-    active_traits: HashSet<TraitId>,
+    active_traits: HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
 }
 
 impl TraitMethodExpansion<'_, '_> {
-    fn insert(&mut self, trait_id: TraitId, self_ty: InternedTyId, trait_args: &[InternedTyId]) {
-        if !self.active_traits.insert(trait_id) {
+    fn insert(
+        &mut self,
+        trait_id: TraitId,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
+    ) {
+        if !self
+            .active_traits
+            .insert((trait_id, trait_args.to_vec(), trait_const_args.to_vec()))
+        {
             return;
         }
         match trait_id {
             TraitId::Builtin(builtin_trait) => {
-                self.traits.insert_methods(
+                self.traits.insert_methods_with_const_args(
                     self.module_id,
                     trait_id,
                     builtin_trait
@@ -377,6 +393,7 @@ impl TraitMethodExpansion<'_, '_> {
                         .map(|name| ReachableTraitMethodName { name }),
                     self_ty,
                     trait_args,
+                    trait_const_args,
                 );
                 for supertrait in builtin_trait.supertraits() {
                     let supertrait_args = if supertrait.preserves_trait_args {
@@ -388,15 +405,20 @@ impl TraitMethodExpansion<'_, '_> {
                         TraitId::Builtin(supertrait.trait_id),
                         self_ty,
                         supertrait_args,
+                        &[],
                     );
                 }
             }
             TraitId::Source(trait_def) => {
                 let Some(trait_signature) = (self.program_signatures.trait_)(trait_def) else {
-                    self.active_traits.remove(&trait_id);
+                    self.active_traits.remove(&(
+                        trait_id,
+                        trait_args.to_vec(),
+                        trait_const_args.to_vec(),
+                    ));
                     return;
                 };
-                self.traits.insert_methods(
+                self.traits.insert_methods_with_const_args(
                     self.module_id,
                     trait_id,
                     trait_signature
@@ -406,32 +428,90 @@ impl TraitMethodExpansion<'_, '_> {
                         .map(|method| ReachableTraitMethodName { name: method.name }),
                     self_ty,
                     trait_args,
+                    trait_const_args,
                 );
                 for supertrait in &trait_signature.signature.supertraits {
-                    let substitutions = trait_signature
-                        .signature
-                        .generics
-                        .iter()
-                        .copied()
-                        .zip(trait_args.iter().copied())
-                        .collect::<SymbolMap<_>>();
-                    let substitutions = TypeSubstitutions::local(Some(self_ty), &substitutions);
+                    let (generic_substitutions, const_substitutions) = split_generic_substitutions(
+                        &trait_signature.signature.generic_params,
+                        trait_args,
+                        trait_const_args,
+                    );
+                    let substitutions = TypeSubstitutions::local_with_consts(
+                        Some(self_ty),
+                        &generic_substitutions,
+                        &const_substitutions,
+                    );
                     let Some(supertrait_ty) =
                         substitute_ty(self.types, supertrait.ty, &substitutions)
                     else {
                         continue;
                     };
-                    let Some((supertrait_id, supertrait_args)) =
+                    let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
                         trait_id_and_args(self.types.store, supertrait_ty)
                     else {
                         continue;
                     };
-                    self.insert(supertrait_id, self_ty, &supertrait_args);
+                    self.insert(
+                        supertrait_id,
+                        self_ty,
+                        &supertrait_args,
+                        &supertrait_const_args,
+                    );
                 }
             }
         }
-        self.active_traits.remove(&trait_id);
+        self.active_traits
+            .remove(&(trait_id, trait_args.to_vec(), trait_const_args.to_vec()));
     }
+}
+
+fn split_generic_substitutions(
+    generic_params: &[nia_item_signatures::GenericParamSignature],
+    type_args: &[InternedTyId],
+    const_args: &[nia_ty::ConstGenericArg],
+) -> (SymbolMap<InternedTyId>, SymbolMap<nia_ty::ConstGenericArg>) {
+    let mut types = SymbolMap::default();
+    let mut consts = SymbolMap::default();
+    let mut type_index = 0;
+    let mut const_index = 0;
+    for param in generic_params {
+        match param.kind {
+            nia_item_signatures::GenericParamSignatureKind::Type => {
+                if let Some(arg) = type_args.get(type_index).copied() {
+                    types.insert(param.name, arg);
+                }
+                type_index += 1;
+            }
+            nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
+                if let Some(arg) = const_args.get(const_index).cloned() {
+                    consts.insert(param.name, arg);
+                }
+                const_index += 1;
+            }
+        }
+    }
+    (types, consts)
+}
+
+fn split_trait_generic_args(
+    generic_params: &[nia_item_signatures::GenericParamSignature],
+    type_args: &[InternedTyId],
+    const_args: &[nia_ty::ConstGenericArg],
+) -> (Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>) {
+    let type_count = generic_params
+        .iter()
+        .filter(|param| {
+            matches!(
+                param.kind,
+                nia_item_signatures::GenericParamSignatureKind::Type
+            )
+        })
+        .count();
+    let const_count = generic_params.len() - type_count;
+    (
+        type_args.iter().take(type_count).copied().collect(),
+        const_args.iter().take(const_count).cloned().collect(),
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -522,20 +602,22 @@ fn typed_executable_refs_from_executable_refs(refs: ExecutableItemRefs) -> Typed
         traits.insert_trait(trait_id);
     }
     for method in refs.trait_refs.methods {
-        traits.insert_method(
+        traits.insert_method_with_const_args(
             method.module_id,
             method.trait_id,
             method.method_name,
             method.self_ty,
             method.trait_args,
+            method.trait_const_args,
         );
     }
     for vtable in refs.trait_refs.vtables {
-        traits.insert_vtable(
+        traits.insert_vtable_with_const_args(
             vtable.module_id,
             vtable.trait_id,
             vtable.self_ty,
             vtable.trait_args,
+            vtable.trait_const_args,
         );
     }
     TypedExecutableRefs {
@@ -570,6 +652,7 @@ struct ReachableTraitMethod {
     method_name: SymbolId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -579,6 +662,7 @@ struct ReachableTraitMethodKey {
     method_name: SymbolId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 #[derive(Debug, Clone)]
@@ -587,6 +671,7 @@ struct ReachableTraitVtable {
     trait_id: TraitId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -595,6 +680,7 @@ struct ReachableTraitVtableKey {
     trait_id: TraitId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 pub(super) struct ReachableTraitMethodName {
@@ -615,20 +701,22 @@ impl ReachableTraitRefs {
         } = refs;
         self.traits.extend(traits);
         for method in methods {
-            self.insert_method(
+            self.insert_method_with_const_args(
                 method.module_id,
                 method.trait_id,
                 method.method_name,
                 method.self_ty,
                 method.trait_args,
+                method.trait_const_args,
             );
         }
         for vtable in vtables {
-            self.insert_vtable(
+            self.insert_vtable_with_const_args(
                 vtable.module_id,
                 vtable.trait_id,
                 vtable.self_ty,
                 vtable.trait_args,
+                vtable.trait_const_args,
             );
         }
     }
@@ -637,13 +725,14 @@ impl ReachableTraitRefs {
         self.traits.insert(trait_id);
     }
 
-    pub(super) fn insert_method(
+    pub(super) fn insert_method_with_const_args(
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
         method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<nia_ty::ConstGenericArg>,
     ) {
         self.traits.insert(trait_id);
         if !self.method_keys.insert(ReachableTraitMethodKey {
@@ -652,6 +741,7 @@ impl ReachableTraitRefs {
             method_name,
             self_ty,
             trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
         }) {
             return;
         };
@@ -661,34 +751,38 @@ impl ReachableTraitRefs {
             method_name,
             self_ty,
             trait_args,
+            trait_const_args,
         });
     }
 
-    pub(super) fn insert_methods(
+    pub(super) fn insert_methods_with_const_args(
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
         methods: impl IntoIterator<Item = ReachableTraitMethodName>,
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
         for method in methods {
-            self.insert_method(
+            self.insert_method_with_const_args(
                 module_id,
                 trait_id,
                 method.name,
                 self_ty,
                 trait_args.to_vec(),
+                trait_const_args.to_vec(),
             );
         }
     }
 
-    fn insert_vtable(
+    fn insert_vtable_with_const_args(
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<nia_ty::ConstGenericArg>,
     ) {
         self.traits.insert(trait_id);
         if !self.vtable_keys.insert(ReachableTraitVtableKey {
@@ -696,6 +790,7 @@ impl ReachableTraitRefs {
             trait_id,
             self_ty,
             trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
         }) {
             return;
         }
@@ -704,6 +799,7 @@ impl ReachableTraitRefs {
             trait_id,
             self_ty,
             trait_args,
+            trait_const_args,
         });
     }
 
@@ -776,6 +872,7 @@ pub(super) fn extend_reachable_functions_from_traits(
             vtable.trait_id,
             vtable.self_ty,
             &vtable.trait_args,
+            &vtable.trait_const_args,
         );
     }
     let reachable_modules = &reachability.modules;
@@ -816,6 +913,7 @@ pub(super) fn extend_reachable_functions_from_traits(
                     trait_id: vtable.trait_id,
                     self_ty: vtable.self_ty,
                     trait_args: &vtable.trait_args,
+                    trait_const_args: &vtable.trait_const_args,
                     use_module_id: vtable.module_id,
                     type_store,
                     extension_index,
@@ -842,6 +940,7 @@ pub(super) fn extend_reachable_functions_from_traits(
                             trait_id: reachable.trait_id,
                             self_ty: reachable.self_ty,
                             trait_args: &reachable.trait_args,
+                            trait_const_args: &reachable.trait_const_args,
                             use_module_id: reachable.module_id,
                             type_store,
                             extension_index,
@@ -908,6 +1007,7 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
             vtable.trait_id,
             vtable.self_ty,
             &vtable.trait_args,
+            &vtable.trait_const_args,
         );
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,
@@ -921,6 +1021,7 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
                     trait_id: vtable.trait_id,
                     self_ty: vtable.self_ty,
                     trait_args: &vtable.trait_args,
+                    trait_const_args: &vtable.trait_const_args,
                     use_module_id: vtable.module_id,
                     type_store,
                     extension_index,
@@ -957,6 +1058,7 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
                             trait_id: reachable.trait_id,
                             self_ty: reachable.self_ty,
                             trait_args: &reachable.trait_args,
+                            trait_const_args: &reachable.trait_const_args,
                             use_module_id: reachable.module_id,
                             type_store,
                             extension_index,
@@ -1062,4 +1164,50 @@ fn reachable_function_has_runtime_body(
             })
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+    use nia_symbol::stable_hash;
+    use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TypeStore};
+
+    #[test]
+    fn trait_const_arguments_are_part_of_reachability_identity() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let store = TypeStore::new();
+        let bool_ty = store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Bool);
+        let trait_id = TraitId::Source(GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        });
+        let method_name = SymbolId::from_stable_hash(stable_hash("value"));
+        let const_arg = |value| ConstGenericArg {
+            ty: bool_ty,
+            value: ConstGenericValue::Bool(value),
+        };
+
+        let mut refs = ReachableTraitRefs::default();
+        refs.insert_method_with_const_args(
+            module_id,
+            trait_id,
+            method_name,
+            bool_ty,
+            Vec::new(),
+            vec![const_arg(true)],
+        );
+        refs.insert_method_with_const_args(
+            module_id,
+            trait_id,
+            method_name,
+            bool_ty,
+            Vec::new(),
+            vec![const_arg(false)],
+        );
+
+        assert_eq!(refs.methods.len(), 2);
+    }
 }

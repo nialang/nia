@@ -119,15 +119,17 @@ fn collect_function_fact_owner_modules(
         type_ids.extend(reference.const_args.iter().map(|arg| arg.ty));
     }
     for reference in &facts.trait_method_refs {
-        traits.insert_method(
+        traits.insert_method_with_const_args(
             reference.module_id,
             reference.trait_id,
             reference.method_name,
             reference.self_ty,
             reference.trait_args.clone(),
+            reference.trait_const_args.clone(),
         );
         type_ids.push(reference.self_ty);
         type_ids.extend(reference.trait_args.iter().copied());
+        type_ids.extend(reference.trait_const_args.iter().map(|arg| arg.ty));
     }
 }
 
@@ -152,39 +154,72 @@ fn collect_resolved_call_owner_modules(
         }
         nia_sema_ir::ResolvedCall::TraitMethod {
             trait_id,
+            method_name,
             self_ty,
             trait_args,
+            trait_const_args,
             args,
             ..
         } => {
             collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
+            traits.insert_method_with_const_args(
+                module_id,
+                TraitId::Source(*trait_id),
+                *method_name,
+                *self_ty,
+                trait_args.clone(),
+                trait_const_args.clone(),
+            );
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
+            type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
             type_ids.extend(args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::TraitAssociatedFunction {
             trait_id,
+            method_name,
             self_ty,
             trait_args,
+            trait_const_args,
             args,
             ..
         } => {
             collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
+            traits.insert_method_with_const_args(
+                module_id,
+                TraitId::Source(*trait_id),
+                *method_name,
+                *self_ty,
+                trait_args.clone(),
+                trait_const_args.clone(),
+            );
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
+            type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
             type_ids.extend(args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::DynamicTraitMethod {
             object_ty,
             trait_id,
+            method_name,
             trait_args,
+            trait_const_args,
             params,
             return_type,
             ..
         } => {
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
+            traits.insert_method_with_const_args(
+                module_id,
+                *trait_id,
+                *method_name,
+                *object_ty,
+                trait_args.clone(),
+                trait_const_args.clone(),
+            );
             type_ids.push(*object_ty);
             type_ids.extend(trait_args.iter().copied());
+            type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
             type_ids.extend(params.iter().copied());
             type_ids.push(*return_type);
         }
@@ -198,12 +233,13 @@ fn collect_resolved_call_owner_modules(
             if let Some(method) = op.method()
                 && let Some(method_name) = builtin_trait_method_symbol(method)
             {
-                traits.insert_method(
+                traits.insert_method_with_const_args(
                     module_id,
                     TraitId::Builtin(*trait_id),
                     method_name,
                     *self_ty,
                     trait_args.clone(),
+                    Vec::new(),
                 );
             }
             type_ids.push(*self_ty);
@@ -213,11 +249,12 @@ fn collect_resolved_call_owner_modules(
             if let Some((trait_id, trait_method)) = semantic_builtin_method_trait(*method)
                 && let Some(method_name) = builtin_trait_method_symbol(trait_method)
             {
-                traits.insert_method(
+                traits.insert_method_with_const_args(
                     module_id,
                     TraitId::Builtin(trait_id),
                     method_name,
                     *self_ty,
+                    Vec::new(),
                     Vec::new(),
                 );
             }
@@ -294,9 +331,14 @@ fn collect_ty_owner_modules<'a>(
     seen: &mut HashSet<InternedTyId>,
 ) {
     match ty {
-        TyKind::Nominal { def_id, args, .. } => {
+        TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } => {
             add_reachable_type_module(def_id.module_id, type_modules);
             type_ids.extend(args.iter().copied());
+            type_ids.extend(const_args.iter().map(|arg| arg.ty));
             collect_nominal_signature_owner_type_ids(
                 *def_id,
                 program_signatures,
