@@ -29,10 +29,16 @@ fn ordered_type_substitutions_reuse_existing_ids() {
     let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
     let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
 
-    let first = collector
-        .intern_ordered_type_substitutions(None, vec![(sym("T"), i32_ty), (sym("U"), bool_ty)]);
-    let second = collector
-        .intern_ordered_type_substitutions(None, vec![(sym("T"), i32_ty), (sym("U"), bool_ty)]);
+    let first = collector.intern_ordered_substitutions(
+        None,
+        vec![(sym("T"), i32_ty), (sym("U"), bool_ty)],
+        Vec::new(),
+    );
+    let second = collector.intern_ordered_substitutions(
+        None,
+        vec![(sym("T"), i32_ty), (sym("U"), bool_ty)],
+        Vec::new(),
+    );
 
     assert_eq!(first, second);
     assert_eq!(collector.type_substitutions.len(), 1);
@@ -42,6 +48,11 @@ fn ordered_type_substitutions_reuse_existing_ids() {
         [(sym("T"), i32_ty), (sym("U"), bool_ty)]
             .into_iter()
             .collect::<SymbolMap<_>>()
+    );
+    assert!(
+        collector.type_substitutions[first.0]
+            .const_substitutions
+            .is_empty()
     );
 }
 
@@ -78,6 +89,7 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
         type_substitutions: Vec::new(),
         type_substitution_ids: HashMap::new(),
         effective_generics: HashMap::new(),
+        effective_const_generics: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };

@@ -1,6 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Reachability-driven monomorphization planning.
+//!
+//! The collector starts from concrete generic roots and expands recorded body
+//! instantiation edges with the caller's type and const substitutions. A
+//! `MonoInstanceKey` is the identity of a concrete function instance; the
+//! `seen` set is updated before queueing so recursive calls reuse an existing
+//! instance instead of growing forever. Type-depth and instance-count limits
+//! turn genuinely non-converging generic recursion into diagnostics.
+//!
+//! Type and const arguments are stored in separate vectors throughout the
+//! semantic IR. Every substitution record therefore carries two maps, rebuilt
+//! from declaration-kind metadata, so an interleaved declaration such as
+//! `N: usize, T` cannot bind `N` to `T`'s type argument. The same substitution
+//! is applied to array lengths, nominal arguments, trait objects, and
+//! associated-type projections. Projection expansion has an independent
+//! active-set guard: a recursive projection remains symbolic rather than
+//! recursing indefinitely.
+#![warn(missing_docs)]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use nia_ast::GenericParamKind;
 use nia_const_check::ConstCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -20,44 +40,70 @@ use nia_trait_solve::TraitSolverContext;
 #[cfg(test)]
 use nia_ty::TypeStoreAppend;
 use nia_ty::{
-    AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue, TyKind,
-    TypeStore,
+    ArrayLenTy, AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue,
+    TyKind, TypeStore,
 };
 use nia_type_normalize::TypeNormalization;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Concrete generic instances and diagnostics produced for a program.
 pub struct Monomorphization {
+    /// Instances in deterministic discovery order.
     pub instances: Vec<MonoInstance>,
+    /// Errors such as non-converging recursive instantiation or unresolved
+    /// array lengths encountered while constructing symbols.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One concrete function or trait-method instance planned for lowering.
 pub struct MonoInstance {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Module whose type store owns `self_arg` and `args`.
     pub arg_module_id: ModuleId,
+    /// Concrete receiver type for an extension or trait method.
     pub self_arg: Option<InternedTyId>,
+    /// Concrete type arguments in declaration type-parameter order.
     pub args: Vec<InternedTyId>,
+    /// Concrete const arguments in declaration const-parameter order.
     pub const_args: Vec<ConstGenericArg>,
+    /// Mangled backend symbol for this instance.
     pub symbol: String,
+    /// Source span that requested the instance.
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Module-local facts required to collect program-wide generic instances.
 pub struct MonomorphizeModuleInput<'a> {
+    /// Module owning the semantic facts.
     pub module_id: ModuleId,
+    /// Stable source identity used by symbol mangling.
     pub source_identity: SourceIdentity,
+    /// Definitions used to recover generic parameter kinds and names.
     pub defs: &'a DefCollection,
+    /// Type normalization product for this module.
     pub normalization: &'a TypeNormalization,
+    /// Evaluated const expressions used by array-length symbol generation.
     pub const_eval: &'a ConstCheck,
+    /// Source summaries used to report unresolved array lengths.
     pub const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
+    /// Layout facts used by trait projection resolution.
     pub layouts: Option<&'a Layouts>,
+    /// Enums local to this module.
     pub local_enums: &'a HashMap<nia_ids::DefId, EnumSignature>,
+    /// Program-wide enum signatures.
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    /// All visible trait impl signatures.
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    /// Acceleration index for `trait_impls`.
     pub trait_impl_index: &'a ProgramTraitImplIndex,
+    /// Body-recorded generic calls and method instantiations.
     pub instantiations: &'a [GenericInstantiation],
 }
 
+/// Collects concrete instances reachable from all supplied module roots.
 pub fn collect_monomorphizations(
     inputs: &[MonomorphizeModuleInput<'_>],
     source_identities: impl IntoIterator<Item = (ModuleId, SourceIdentity)>,
@@ -112,6 +158,7 @@ pub fn collect_monomorphizations(
         type_substitutions: Vec::new(),
         type_substitution_ids: HashMap::new(),
         effective_generics: HashMap::new(),
+        effective_const_generics: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };
@@ -149,6 +196,7 @@ struct MonoCollector<'a> {
     type_substitutions: Vec<TypeSubstitution>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
+    effective_const_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -193,12 +241,20 @@ struct TypeSubstitutionId(usize);
 struct TypeSubstitutionKey {
     self_arg: Option<InternedTyId>,
     substitutions: Vec<(SymbolId, InternedTyId)>,
+    const_substitutions: Vec<(SymbolId, ConstGenericArg)>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct TypeSubstitution {
     self_arg: Option<InternedTyId>,
     substitutions: SymbolMap<InternedTyId>,
+    const_substitutions: SymbolMap<ConstGenericArg>,
+}
+
+#[derive(Debug, Default)]
+struct GenericSubstitutions {
+    types: Vec<(SymbolId, InternedTyId)>,
+    consts: Vec<(SymbolId, ConstGenericArg)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +273,8 @@ struct PendingMonoInstance {
     span: Span,
 }
 
+// These limits are compiler resource guards, not semantic restrictions: a
+// repeated concrete key is deduplicated before either limit is charged.
 const MAX_MONOMORPHIZED_INSTANCES: usize = 1024;
 const MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH: usize = 256;
 
@@ -230,7 +288,8 @@ impl MonoCollector<'_> {
             if instantiation
                 .source_def_id
                 .is_some_and(|source_def_id| self.is_generic_def(source_def_id))
-                && self.args_contain_generic_param(&instantiation.args)
+                && (self.args_contain_generic_param(&instantiation.args)
+                    || self.const_args_contain_generic_param(&instantiation.const_args))
             {
                 continue;
             }
@@ -304,6 +363,37 @@ impl MonoCollector<'_> {
             .unwrap_or(&[])
     }
 
+    fn compute_effective_const_generics(&self, def_id: GlobalDefId) -> Vec<SymbolId> {
+        let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
+            return Vec::new();
+        };
+        let Some(def) = defs.defs.get(def_id.def_id) else {
+            return Vec::new();
+        };
+        let inherited = def
+            .parent
+            .and_then(|parent| defs.defs.get(parent))
+            .into_iter()
+            .flat_map(|parent| &parent.generic_params);
+        inherited
+            .chain(&def.generic_params)
+            .filter_map(|param| {
+                matches!(param.kind, GenericParamKind::Const { .. }).then_some(param.name)
+            })
+            .collect()
+    }
+
+    fn effective_const_generics_for(&mut self, def_id: GlobalDefId) -> &[SymbolId] {
+        if !self.effective_const_generics.contains_key(&def_id) {
+            let generics = self.compute_effective_const_generics(def_id);
+            self.effective_const_generics.insert(def_id, generics);
+        }
+        self.effective_const_generics
+            .get(&def_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
     fn has_recorded_generics(&self, def_id: GlobalDefId) -> bool {
         self.recorded_generics_by_def.contains_key(&def_id)
     }
@@ -312,6 +402,13 @@ impl MonoCollector<'_> {
         args.iter()
             .copied()
             .any(|arg| self.ty_contains_generic_param(arg))
+    }
+
+    fn const_args_contain_generic_param(&self, args: &[ConstGenericArg]) -> bool {
+        args.iter().any(|arg| {
+            matches!(arg.value, ConstGenericValue::GenericParam(_))
+                || self.ty_contains_generic_param(arg.ty)
+        })
     }
 
     fn ty_contains_generic_param(&self, ty: InternedTyId) -> bool {
@@ -339,7 +436,11 @@ impl MonoCollector<'_> {
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => self.ty_contains_generic_param(elem),
-            TyKind::Array { elem, .. } => self.ty_contains_generic_param(elem),
+            TyKind::Array { len, elem } => {
+                matches!(len, ArrayLenTy::GenericParam(_))
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if self.ty_contains_generic_param(ty))
+                    || self.ty_contains_generic_param(elem)
+            }
             TyKind::Range { bound, .. } => {
                 bound.is_some_and(|bound| self.ty_contains_generic_param(bound))
             }
@@ -366,39 +467,51 @@ impl MonoCollector<'_> {
             TyKind::ErrorUnion { error, value } => {
                 self.ty_contains_generic_param(error) || self.ty_contains_generic_param(value)
             }
-            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => {
+            TyKind::Nominal {
+                args, const_args, ..
+            } => {
+                args.iter().any(|arg| self.ty_contains_generic_param(*arg))
+                    || self.const_args_contain_generic_param(&const_args)
+            }
+            TyKind::BuiltinTrait { args, .. } => {
                 args.iter().any(|arg| self.ty_contains_generic_param(*arg))
             }
             TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }
             | TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             } => {
                 trait_args
                     .iter()
                     .any(|arg| self.ty_contains_generic_param(*arg))
+                    || self.const_args_contain_generic_param(&trait_const_args)
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.ty_contains_generic_param(*arg))
+                            || self.const_args_contain_generic_param(&binding.trait_const_args)
                             || self.ty_contains_generic_param(binding.ty)
                     })
             }
             TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             } => {
                 self.ty_contains_generic_param(self_ty)
                     || trait_args
                         .iter()
                         .any(|arg| self.ty_contains_generic_param(*arg))
+                    || self.const_args_contain_generic_param(&trait_const_args)
             }
             TyKind::Primitive(_)
             | TyKind::Opaque
@@ -429,9 +542,16 @@ impl MonoCollector<'_> {
             else {
                 continue;
             };
+            // Edges were recorded in the generic source body. Instantiate both
+            // argument vectors with the current concrete caller before adding
+            // the callee key to the queue.
             let substitutions = self.generic_substitutions_for_instance(&pending_instance.key);
             let self_arg = pending_instance.key.self_arg;
-            let substitution_id = self.intern_ordered_type_substitutions(self_arg, substitutions);
+            let substitution_id = self.intern_ordered_substitutions(
+                self_arg,
+                substitutions.types,
+                substitutions.consts,
+            );
             for edge_index in edge_indices {
                 let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
                     continue;
@@ -449,12 +569,17 @@ impl MonoCollector<'_> {
                     self.instantiate_ty(source_module_id, self_arg, substitution_id)
                 });
                 let args = self.instantiate_args(source_module_id, &edge_args, substitution_id);
+                let const_args = self.instantiate_const_args(
+                    source_module_id,
+                    &edge_const_args,
+                    substitution_id,
+                );
                 let edge_key = MonoInstanceKey {
                     def_id: edge_def_id,
                     arg_module_id: source_module_id,
                     self_arg,
                     args,
-                    const_args: edge_const_args,
+                    const_args,
                 };
                 self.enqueue_instance(&mut pending, edge_key, edge_span);
             }
@@ -474,6 +599,7 @@ impl MonoCollector<'_> {
             .self_arg
             .is_some_and(|self_arg| self.ty_contains_generic_param(self_arg))
             || self.args_contain_generic_param(&key.args)
+            || self.const_args_contain_generic_param(&key.const_args)
         {
             return;
         }
@@ -662,9 +788,25 @@ impl MonoCollector<'_> {
     fn generic_substitutions_for_instance(
         &mut self,
         key: &MonoInstanceKey,
-    ) -> Vec<(SymbolId, InternedTyId)> {
+    ) -> GenericSubstitutions {
+        // Semantic IR stores type and const arguments separately, while the
+        // declaration list is mixed. Filter by kind before zipping each map.
         let generics = self.effective_generics_for(key.def_id).to_vec();
-        generics.into_iter().zip(key.args.iter().copied()).collect()
+        let const_generics = self.effective_const_generics_for(key.def_id).to_vec();
+        let const_generic_set = const_generics.iter().copied().collect::<HashSet<_>>();
+        let substitutions = generics
+            .into_iter()
+            .filter(|name| !const_generic_set.contains(name))
+            .zip(key.args.iter().copied())
+            .collect();
+        let const_substitutions = const_generics
+            .into_iter()
+            .zip(key.const_args.iter().cloned())
+            .collect();
+        GenericSubstitutions {
+            types: substitutions,
+            consts: const_substitutions,
+        }
     }
 
     fn instantiate_args(
@@ -676,6 +818,67 @@ impl MonoCollector<'_> {
         args.iter()
             .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
             .collect()
+    }
+
+    fn instantiate_const_args(
+        &mut self,
+        module_id: ModuleId,
+        args: &[ConstGenericArg],
+        substitutions: TypeSubstitutionId,
+    ) -> Vec<ConstGenericArg> {
+        args.iter()
+            .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
+            .collect()
+    }
+
+    fn instantiate_const_arg(
+        &mut self,
+        module_id: ModuleId,
+        arg: &ConstGenericArg,
+        substitutions: TypeSubstitutionId,
+    ) -> ConstGenericArg {
+        let mut arg = match &arg.value {
+            ConstGenericValue::GenericParam(name) => self
+                .type_substitutions
+                .get(substitutions.0)
+                .and_then(|substitutions| substitutions.const_substitutions.get(name))
+                .cloned()
+                .unwrap_or_else(|| arg.clone()),
+            ConstGenericValue::ConstExpr(_)
+            | ConstGenericValue::Int(_)
+            | ConstGenericValue::Bool(_)
+            | ConstGenericValue::Char(_) => arg.clone(),
+        };
+        arg.ty = self.instantiate_ty(module_id, arg.ty, substitutions);
+        arg
+    }
+
+    fn instantiate_array_len(
+        &mut self,
+        module_id: ModuleId,
+        len: &ArrayLenTy,
+        substitutions: TypeSubstitutionId,
+    ) -> ArrayLenTy {
+        match len {
+            ArrayLenTy::GenericParam(name) => self
+                .type_substitutions
+                .get(substitutions.0)
+                .and_then(|substitutions| substitutions.const_substitutions.get(name))
+                .and_then(|arg| match &arg.value {
+                    ConstGenericValue::Int(value) => {
+                        u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
+                    }
+                    ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
+                    ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
+                    ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
+                })
+                .unwrap_or_else(|| len.clone()),
+            ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+                builtin: *builtin,
+                ty: self.instantiate_ty(module_id, *ty, substitutions),
+            },
+            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len.clone(),
+        }
     }
 
     fn instantiate_ty(
@@ -788,6 +991,7 @@ impl MonoCollector<'_> {
                 self.intern_working_ty(module_id, TyKind::SlicePointee { elem })
             }
             TyKind::Array { len, elem } => {
+                let len = self.instantiate_array_len(module_id, &len, substitutions);
                 let elem =
                     self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);
                 self.intern_working_ty(module_id, TyKind::Array { len, elem })
@@ -809,16 +1013,8 @@ impl MonoCollector<'_> {
                     })
                     .collect();
                 let const_args = const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.instantiate_ty_inner(
-                            module_id,
-                            arg.ty,
-                            substitutions,
-                            active_projections,
-                        );
-                        arg
-                    })
+                    .iter()
+                    .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
                     .collect();
                 self.intern_working_ty(
                     module_id,
@@ -855,16 +1051,7 @@ impl MonoCollector<'_> {
                     .collect();
                 let trait_const_args: Vec<ConstGenericArg> = trait_const_args
                     .iter()
-                    .map(|arg| {
-                        let mut arg = arg.clone();
-                        arg.ty = self.instantiate_ty_inner(
-                            module_id,
-                            arg.ty,
-                            substitutions,
-                            active_projections,
-                        );
-                        arg
-                    })
+                    .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
                     .collect();
                 let projection_key = ProjectionInstantiationKey {
                     self_ty,
@@ -1050,16 +1237,7 @@ impl MonoCollector<'_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .iter()
-                    .map(|arg| {
-                        let mut arg = arg.clone();
-                        arg.ty = self.instantiate_ty_inner(
-                            module_id,
-                            arg.ty,
-                            substitutions,
-                            active_projections,
-                        );
-                        arg
-                    })
+                    .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .iter()
@@ -1080,16 +1258,7 @@ impl MonoCollector<'_> {
                         trait_const_args: binding
                             .trait_const_args
                             .iter()
-                            .map(|arg| {
-                                let mut arg = arg.clone();
-                                arg.ty = self.instantiate_ty_inner(
-                                    module_id,
-                                    arg.ty,
-                                    substitutions,
-                                    active_projections,
-                                );
-                                arg
-                            })
+                            .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
                             .collect(),
                         name: binding.name,
                         ty: self.instantiate_ty_inner(
@@ -1130,16 +1299,7 @@ impl MonoCollector<'_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .iter()
-                    .map(|arg| {
-                        let mut arg = arg.clone();
-                        arg.ty = self.instantiate_ty_inner(
-                            module_id,
-                            arg.ty,
-                            substitutions,
-                            active_projections,
-                        );
-                        arg
-                    })
+                    .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .iter()
@@ -1160,16 +1320,7 @@ impl MonoCollector<'_> {
                         trait_const_args: binding
                             .trait_const_args
                             .iter()
-                            .map(|arg| {
-                                let mut arg = arg.clone();
-                                arg.ty = self.instantiate_ty_inner(
-                                    module_id,
-                                    arg.ty,
-                                    substitutions,
-                                    active_projections,
-                                );
-                                arg
-                            })
+                            .map(|arg| self.instantiate_const_arg(module_id, arg, substitutions))
                             .collect(),
                         name: binding.name,
                         ty: self.instantiate_ty_inner(
@@ -1239,14 +1390,16 @@ impl MonoCollector<'_> {
         self.type_store.get(ty).cloned()
     }
 
-    fn intern_ordered_type_substitutions(
+    fn intern_ordered_substitutions(
         &mut self,
         self_arg: Option<InternedTyId>,
         substitutions: Vec<(SymbolId, InternedTyId)>,
+        const_substitutions: Vec<(SymbolId, ConstGenericArg)>,
     ) -> TypeSubstitutionId {
         self.intern_type_substitution_key(TypeSubstitutionKey {
             self_arg,
             substitutions,
+            const_substitutions,
         })
     }
 
@@ -1258,6 +1411,7 @@ impl MonoCollector<'_> {
         self.type_substitutions.push(TypeSubstitution {
             self_arg: key.self_arg,
             substitutions: key.substitutions.iter().cloned().collect(),
+            const_substitutions: key.const_substitutions.iter().cloned().collect(),
         });
         self.type_substitution_ids.insert(key, id);
         id

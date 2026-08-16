@@ -570,6 +570,30 @@ fn main() usize {
 }
 
 #[test]
+fn nested_const_generic_calls_preserve_the_caller_instance() {
+    let root = temp_dir("nested_const_generic_calls_preserve_the_caller_instance");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn inner[N: usize]() usize {
+    N
+}
+
+fn outer[N: usize]() usize {
+    inner[N]()
+}
+
+fn main() usize {
+    outer[3]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_generic_type_position_accepts_imported_const_expression_args() {
     let root = temp_dir("const_generic_type_position_accepts_imported_const_expression_args");
     write(
