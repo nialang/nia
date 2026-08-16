@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Validates the subset of Nia types that may cross a C ABI boundary.
+//!
+//! ABI checking runs on signature types before general type normalization, so
+//! aliases must be expanded here rather than treated as opaque nominal types.
+//! The checker is intentionally conservative for Nia-specific fat pointers,
+//! tagged values, closures, and aggregates whose representation is not a C
+//! contract.
+
 use std::collections::HashMap;
 
 use nia_defs::{DefCollection, DefId};
@@ -6,32 +14,44 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{
     EnumSignature, FunctionAttribute, FunctionSignature, GlobalSignature, ItemSignatures,
-    StructSignature, UnionSignature,
+    StructSignature, TypeAliasSignature, UnionSignature,
 };
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
 
+/// Program-wide nominal declarations needed to classify imported ABI types.
+///
+/// Type aliases are part of this index because a foreign alias remains nominal
+/// in the requesting module's signature store until this checker expands it.
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramAbiSignatures<'a> {
     pub structs: &'a HashMap<GlobalDefId, StructSignature>,
     pub unions: &'a HashMap<GlobalDefId, UnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+    pub type_aliases: &'a HashMap<GlobalDefId, TypeAliasSignature>,
 }
 
+/// Diagnostics produced while validating one module's foreign declarations.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbiCheck {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Per-item-family signature views for the module being checked.
+///
+/// Keeping these as borrowed maps lets query providers assemble independently
+/// cached function, type, and value signature products without cloning them.
 #[derive(Debug, Clone, Copy)]
 pub struct ModuleAbiSignatures<'a> {
     pub functions: &'a HashMap<DefId, FunctionSignature>,
     pub structs: &'a HashMap<DefId, StructSignature>,
     pub unions: &'a HashMap<DefId, UnionSignature>,
     pub enums: &'a HashMap<DefId, EnumSignature>,
+    pub type_aliases: &'a HashMap<DefId, TypeAliasSignature>,
     pub globals: &'a HashMap<DefId, GlobalSignature>,
 }
 
+/// Checks ABI declarations from a complete, eagerly collected module snapshot.
 pub fn check_module_abi(
     defs: &DefCollection,
     type_store: &TypeStore,
@@ -40,6 +60,7 @@ pub fn check_module_abi(
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
+    let empty_type_aliases = HashMap::new();
     check_module_abi_with_program_signatures(
         defs,
         type_store,
@@ -48,10 +69,12 @@ pub fn check_module_abi(
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
+            type_aliases: &empty_type_aliases,
         },
     )
 }
 
+/// Checks one module while resolving imported nominal types from `program_signatures`.
 pub fn check_module_abi_with_program_signatures(
     defs: &DefCollection,
     type_store: &TypeStore,
@@ -66,12 +89,14 @@ pub fn check_module_abi_with_program_signatures(
             structs: &signatures.structs,
             unions: &signatures.unions,
             enums: &signatures.enums,
+            type_aliases: &signatures.type_aliases,
             globals: &signatures.globals,
         },
         program_signatures,
     )
 }
 
+/// Checks independently cached signature families against one C ABI contract.
 pub fn check_module_abi_families_with_program_signatures(
     defs: &DefCollection,
     type_store: &TypeStore,
@@ -216,6 +241,23 @@ impl AbiChecker<'_> {
     }
 
     fn check_extern_ty(&mut self, span: Span, ty: nia_ids::InternedTyId, context: ExternTyContext) {
+        self.check_extern_ty_inner(span, ty, context, &mut Vec::new());
+    }
+
+    fn check_extern_ty_inner(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        context: ExternTyContext,
+        alias_stack: &mut Vec<GlobalDefId>,
+    ) {
+        if matches!(
+            context,
+            ExternTyContext::FunctionReturn | ExternTyContext::FunctionPointerReturn
+        ) && self.is_unit(ty)
+        {
+            return;
+        }
         let context_desc = context.description();
         match self.type_store.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Bool)) => {
@@ -304,13 +346,19 @@ impl AbiChecker<'_> {
                     ));
                 }
                 for param in params {
-                    self.check_extern_ty(span, *param, ExternTyContext::FunctionPointerParameter);
+                    self.check_extern_ty_inner(
+                        span,
+                        *param,
+                        ExternTyContext::FunctionPointerParameter,
+                        alias_stack,
+                    );
                 }
                 if !self.is_unit(*return_type) {
-                    self.check_extern_ty(
+                    self.check_extern_ty_inner(
                         span,
                         *return_type,
                         ExternTyContext::FunctionPointerReturn,
+                        alias_stack,
                     );
                 }
             }
@@ -323,7 +371,12 @@ impl AbiChecker<'_> {
                             "extern struct field cannot use inferred array length",
                         ));
                     }
-                    self.check_extern_ty(span, *elem, ExternTyContext::StructField);
+                    self.check_extern_ty_inner(
+                        span,
+                        *elem,
+                        ExternTyContext::StructField,
+                        alias_stack,
+                    );
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
@@ -352,7 +405,51 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use closure state directly"),
             )),
-            Some(TyKind::Nominal { def_id, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
+                if let Some(alias) = self.type_alias_signature(*def_id).cloned() {
+                    if alias_stack.contains(def_id) {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::STATIC_CHECK,
+                            span,
+                            format!("recursive type alias cannot be used as {context_desc}"),
+                        ));
+                        return;
+                    }
+                    if alias.generics.len() != args.len() || !const_args.is_empty() {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::STATIC_CHECK,
+                            span,
+                            format!("{context_desc} has invalid type alias arguments"),
+                        ));
+                        return;
+                    }
+                    // Signature ABI checks precede general normalization. Expand aliases here so
+                    // an alias to `bool`, a Nia aggregate, or another forbidden representation
+                    // cannot be mistaken for an ABI-safe nominal type.
+                    let append = self.type_store.append_for_module(self.defs.module_id);
+                    let target = nia_ty::substitute_ty(
+                        self.type_store,
+                        &append,
+                        alias.target,
+                        &|name| {
+                            alias
+                                .generics
+                                .iter()
+                                .position(|generic| generic == name)
+                                .and_then(|index| args.get(index).copied())
+                        },
+                        &|_| None,
+                        None,
+                    );
+                    alias_stack.push(*def_id);
+                    self.check_extern_ty_inner(span, target, context, alias_stack);
+                    alias_stack.pop();
+                    return;
+                }
                 if self.is_enum_def(*def_id) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
@@ -384,6 +481,12 @@ impl AbiChecker<'_> {
                             format!("{context_desc} cannot use normal Nia struct by value"),
                         ));
                     }
+                } else if !self.is_union_def(*def_id) && !self.is_enum_def(*def_id) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        codes::STATIC_CHECK,
+                        span,
+                        format!("{context_desc} nominal type {def_id:?} has no ABI classification"),
+                    ));
                 }
             }
             Some(TyKind::BuiltinTrait { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
@@ -434,6 +537,14 @@ impl AbiChecker<'_> {
             self.signatures.structs.get(&def_id.def_id)
         } else {
             self.program_signatures.structs.get(&def_id)
+        }
+    }
+
+    fn type_alias_signature(&self, def_id: GlobalDefId) -> Option<&TypeAliasSignature> {
+        if def_id.module_id == self.defs.module_id {
+            self.signatures.type_aliases.get(&def_id.def_id)
+        } else {
+            self.program_signatures.type_aliases.get(&def_id)
         }
     }
 
@@ -570,6 +681,56 @@ extern fn consume(header: Header);
         });
         let checked = check_module_abi(&defs, &type_store, &signatures);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn expands_type_aliases_before_classifying_extern_abi_types() {
+        let (module, errors) = parse_module(
+            r#"
+type Flag = bool;
+type Identity[T] = T;
+type HeaderAlias = Header;
+type Unit = ();
+
+extern struct Header { value: i32 }
+extern fn bad_flag(flag: Flag);
+extern fn bad_generic(flag: Identity[bool]);
+extern fn consume(header: HeaderAlias);
+extern fn effect() Unit;
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
+        let checked = check_module_abi(&defs, &type_store, &signatures);
+
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.summary.contains("cannot use `bool` directly"))
+                .count(),
+            2,
+            "{:?}",
+            checked.diagnostics
+        );
+        assert_eq!(checked.diagnostics.len(), 2, "{:?}", checked.diagnostics);
     }
 
     #[test]

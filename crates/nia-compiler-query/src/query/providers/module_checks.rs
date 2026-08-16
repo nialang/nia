@@ -86,12 +86,14 @@ pub(super) fn provide_abi_check(
             structs: &type_signatures.semantic.structs,
             unions: &type_signatures.semantic.unions,
             enums: &type_signatures.semantic.enums,
+            type_aliases: &type_signatures.semantic.type_aliases,
             globals: &value_signatures.semantic.globals,
         },
         nia_abi_check::ProgramAbiSignatures {
             structs: &program.structs,
             unions: &program.unions,
             enums: &program.enums,
+            type_aliases: &program.type_aliases,
         },
     );
     let diagnostics = std::mem::take(&mut abi_check.diagnostics);

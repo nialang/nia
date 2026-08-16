@@ -91,6 +91,20 @@ pub(super) fn provide_module_abi_signature_facts(
                 )
             })
             .collect(),
+        type_aliases: signatures
+            .semantic
+            .type_aliases
+            .iter()
+            .map(|(def_id, signature)| {
+                (
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                    signature.clone(),
+                )
+            })
+            .collect(),
     })
 }
 
@@ -343,6 +357,7 @@ pub(super) fn provide_program_abi_signatures(
         let mut structs = HashMap::new();
         let mut unions = HashMap::new();
         let mut enums = HashMap::new();
+        let mut type_aliases = HashMap::new();
         for facts in facts {
             structs.extend(
                 facts
@@ -362,11 +377,18 @@ pub(super) fn provide_program_abi_signatures(
                     .iter()
                     .map(|(def_id, signature)| (*def_id, signature.clone())),
             );
+            type_aliases.extend(
+                facts
+                    .type_aliases
+                    .iter()
+                    .map(|(def_id, signature)| (*def_id, signature.clone())),
+            );
         }
         Ok(ProgramAbiSignaturesValue {
             structs,
             unions,
             enums,
+            type_aliases,
         })
     })
 }

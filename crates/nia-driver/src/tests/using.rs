@@ -860,3 +860,40 @@ pub enum Color: u8 { Red }
         );
     }
 }
+
+#[test]
+fn rejects_cross_module_aliases_to_invalid_extern_abi_types() {
+    let root = temp_dir("rejects_cross_module_aliases_to_invalid_extern_abi_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+module types;
+using entry::types;
+
+extern fn bad_flag(flag: types::Flag);
+extern fn bad_generic(flag: types::Identity[bool]);
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"
+pub type Flag = bool;
+pub type Identity[T] = T;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("cannot use `bool` directly"))
+            .count(),
+        2,
+        "{:?}",
+        program.diagnostics
+    );
+}
