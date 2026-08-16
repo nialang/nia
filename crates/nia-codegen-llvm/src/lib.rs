@@ -582,7 +582,8 @@ fn emit_llvm_ir_partition(
         declarations,
     } = prepared;
     let module = index.module_for_partition(&partition);
-    let diagnostics = validate_backend_partition_declarations(&declarations, &index);
+    let diagnostics =
+        validate_backend_partition_declarations(&declarations, &index, module.layouts.target);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
@@ -628,7 +629,9 @@ fn emit_native_object_partition(
         TargetMachine::native_identity,
     )
     .map_err(|error| vec![error.diagnostic()])?;
-    let diagnostics = validate_backend_partition_declarations(&declarations, &index);
+    let module = index.module_for_partition(&partition);
+    let diagnostics =
+        validate_backend_partition_declarations(&declarations, &index, module.layouts.target);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
@@ -639,7 +642,6 @@ fn emit_native_object_partition(
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     );
-    let module = index.module_for_partition(&partition);
     let lookup = load_object_work_product(cache, &partition.key, fingerprints);
     if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((

@@ -429,6 +429,15 @@ commit as the corresponding implementation batch.
       from runtime slots and requires layouts for function/closure returns,
       expression and place values, body results, and callable signatures before
       LLVM classification; an opaque-return regression covers the boundary.
+- [x] Phase B backend validation now derives fallback pointer/fat-pointer/vector
+      layouts from the module target instead of LP64, rejects LLVM-inexpressible
+      array lengths, and verifies static array/string/repeat initializer counts
+      before allocation or constant construction; 32-bit and oversized-repeat
+      regressions cover the boundary.
+- [x] Phase B LLVM lowering now derives `usize`/`isize`, layout-builtin values,
+      slice lengths, and memory-loop counters from the target pointer width
+      rather than an LP64 constant; a 32-bit function ABI regression verifies
+      both the signature and returned value width.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -348,8 +348,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }),
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(value)) => Ok(self
                 .module
-                .context
-                .i64_type()
+                .usize_llvm_type(expr.span)?
                 .const_int(*value, false)
                 .into()),
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Layout { builtin, ty }) => {
@@ -362,8 +361,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 };
                 Ok(self
                     .module
-                    .context
-                    .i64_type()
+                    .usize_llvm_type(expr.span)?
                     .const_int(value, false)
                     .into())
             }
@@ -373,8 +371,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 };
                 Ok(self
                     .module
-                    .context
-                    .i64_type()
+                    .usize_llvm_type(expr.span)?
                     .const_int(offset, false)
                     .into())
             }
@@ -1232,7 +1229,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             PrimitiveTy::I8 | PrimitiveTy::U8 => 8,
             PrimitiveTy::I16 | PrimitiveTy::U16 => 16,
             PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => 32,
-            PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::Isize | PrimitiveTy::Usize => 64,
+            PrimitiveTy::I64 | PrimitiveTy::U64 => 64,
+            PrimitiveTy::Isize | PrimitiveTy::Usize => self
+                .module
+                .source
+                .layouts
+                .target
+                .pointer_size
+                .checked_mul(8)
+                .and_then(|bits| u32::try_from(bits).ok())
+                .filter(|bits| matches!(bits, 8 | 16 | 32 | 64 | 128))
+                .ok_or_else(|| {
+                    self.error(span, "target pointer width is not an LLVM integer width")
+                })?,
             PrimitiveTy::I128 | PrimitiveTy::U128 => 128,
             PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => {
                 return Err(self.error(span, "expected integer type"));
@@ -1251,9 +1260,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => {
                 Ok(self.module.context.i32_type())
             }
-            PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::Isize | PrimitiveTy::Usize => {
-                Ok(self.module.context.i64_type())
-            }
+            PrimitiveTy::I64 | PrimitiveTy::U64 => Ok(self.module.context.i64_type()),
+            PrimitiveTy::Isize | PrimitiveTy::Usize => self.module.usize_llvm_type(span),
             PrimitiveTy::I128 | PrimitiveTy::U128 => Ok(self.module.context.i128_type()),
             PrimitiveTy::Bool => Ok(self.module.context.bool_type()),
             PrimitiveTy::F32 | PrimitiveTy::F64 | PrimitiveTy::Never => {

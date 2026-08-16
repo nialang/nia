@@ -297,6 +297,16 @@ impl BackendValidator<'_> {
                 ));
             }
         }
+        if self
+            .array_len_value(len)
+            .is_some_and(|length| length > u64::from(u32::MAX))
+        {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "backend IR array length exceeds LLVM's element-count limit",
+            ));
+        }
     }
 
     fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
@@ -348,9 +358,12 @@ impl BackendValidator<'_> {
             TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
             TyKind::Pointer { .. }
             | TyKind::VolatilePointer { .. }
-            | TyKind::FunctionPointer { .. } => Some(TypeLayout { size: 8, align: 8 }),
+            | TyKind::FunctionPointer { .. } => Some(TypeLayout {
+                size: self.target.pointer_size,
+                align: self.target.pointer_align,
+            }),
             TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. } => {
-                Some(TypeLayout { size: 16, align: 8 })
+                nia_layout::fat_pointer_layout(self.target)
             }
             TyKind::Opaque
             | TyKind::SlicePointee { .. }
@@ -487,7 +500,7 @@ impl BackendValidator<'_> {
     }
 
     fn vector_layout(&self, elem: PrimitiveTy, lanes: u32) -> Option<TypeLayout> {
-        nia_layout::vector_layout(elem, lanes, nia_layout::TargetDataLayout::LP64)
+        nia_layout::vector_layout(elem, lanes, self.target)
     }
 
     fn zero_sized_aggregate_layout(
@@ -504,7 +517,7 @@ impl BackendValidator<'_> {
         Some(TypeLayout { size: 0, align: 1 })
     }
 
-    fn array_len_value(&self, len: &ArrayLenTy) -> Option<u64> {
+    pub(super) fn array_len_value(&self, len: &ArrayLenTy) -> Option<u64> {
         match len {
             ArrayLenTy::ConstValue(value) => Some(*value),
             ArrayLenTy::ConstExpr(id) => self
