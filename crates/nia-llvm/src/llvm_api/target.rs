@@ -110,13 +110,20 @@ impl TargetMachine {
         Ok(Self { raw: machine })
     }
 
+    /// Attach this machine's target layout and triple to `module`.
+    ///
+    /// A target data layout is part of the module/codegen contract, not an
+    /// optional optimization hint. LLVM can return a null layout handle for a
+    /// malformed or unusable target machine; surface that failure instead of
+    /// allowing later size/alignment queries to observe a stale layout.
     pub fn configure_module<'ctx>(&self, module: &Module<'ctx>) -> LlvmResult<()> {
         let target_data = unsafe { LLVMCreateTargetDataLayout(self.raw) };
-        if !target_data.is_null() {
-            unsafe {
-                module.set_data_layout_from_target(target_data);
-                LLVMDisposeTargetData(target_data);
-            }
+        if target_data.is_null() {
+            return Err(LlvmError::error("LLVM returned a null target data layout"));
+        }
+        unsafe {
+            module.set_data_layout_from_target(target_data);
+            LLVMDisposeTargetData(target_data);
         }
         let triple = unsafe { llvm_sys::target_machine::LLVMGetTargetMachineTriple(self.raw) };
         if let Ok(triple) = llvm_owned_string(triple) {
@@ -150,7 +157,19 @@ impl TargetMachine {
         let bytes = unsafe {
             let start = LLVMGetBufferStart(buffer);
             let len = LLVMGetBufferSize(buffer);
-            slice::from_raw_parts(start as *const u8, len).to_vec()
+            // `from_raw_parts` still requires a non-null, aligned pointer for
+            // a zero-length slice. LLVM normally emits a non-empty object, but
+            // keep the wrapper correct for empty/mocked buffers as well.
+            if len == 0 {
+                Vec::new()
+            } else if start.is_null() {
+                LLVMDisposeMemoryBuffer(buffer);
+                return Err(LlvmError::error(
+                    "LLVM returned an object buffer with a null start",
+                ));
+            } else {
+                slice::from_raw_parts(start as *const u8, len).to_vec()
+            }
         };
         unsafe { LLVMDisposeMemoryBuffer(buffer) };
         Ok(bytes)
