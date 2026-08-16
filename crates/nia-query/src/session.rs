@@ -311,6 +311,33 @@ impl QuerySession {
     pub(super) fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
         self.database(node_id.db_id).ensure(node_id)
     }
+
+    pub(super) fn begin_query_wait(
+        &self,
+        to: QueryNodeId,
+        to_frame: QueryFrame,
+    ) -> QueryResult<Option<QueryWaitGuard>> {
+        let Some((from, from_frame)) = current_query_entry() else {
+            return Ok(None);
+        };
+        let cycle = query_wait_graph()
+            .lock()
+            .expect("query wait-for graph lock poisoned")
+            .begin(from, from_frame, to, to_frame);
+        if let Some(cycle) = cycle {
+            return Err(QueryError::Cycle { cycle });
+        }
+        Ok(Some(QueryWaitGuard { from, to }))
+    }
+}
+
+impl Drop for QueryWaitGuard {
+    fn drop(&mut self) {
+        query_wait_graph()
+            .lock()
+            .expect("query wait-for graph lock poisoned")
+            .end(self.from, self.to);
+    }
 }
 
 impl Drop for QueryActivityGuard<'_> {

@@ -195,6 +195,7 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         session_id: self.inner.session.inner.id,
                         node_id,
+                        frame: self.frame(node_id),
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: None,
                     };
@@ -252,6 +253,13 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_wait", || {
                         slot.stats.record_wait()
                     });
+                    // Thread-local recursion catches a query asking for itself. The wait-for
+                    // graph covers the distinct-worker case (A waits for B while B waits for A)
+                    // before this condition-variable wait can deadlock the executor.
+                    let _wait = self
+                        .inner
+                        .session
+                        .begin_query_wait(node_id, self.frame(node_id))?;
                     drop(
                         slot.ready
                             .wait(state)
@@ -373,6 +381,7 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         session_id: self.inner.session.inner.id,
                         node_id,
+                        frame: self.frame(node_id),
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: Some(DependencyFingerprints::default()),
                     };
@@ -424,6 +433,10 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_wait", || {
                         slot.stats.record_wait()
                     });
+                    let _wait = self
+                        .inner
+                        .session
+                        .begin_query_wait(node_id, self.frame(node_id))?;
                     drop(
                         slot.ready
                             .wait(state)
@@ -444,6 +457,7 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         session_id: self.inner.session.inner.id,
                         node_id,
+                        frame: self.frame(node_id),
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: (K::FINGERPRINT != QueryFingerprintPolicy::None)
                             .then(DependencyFingerprints::default),
@@ -1006,7 +1020,7 @@ impl<C> QueryDb<C> {
             if let Some(position) = stack.iter().position(|entry| entry.node_id == node_id) {
                 let mut cycle = stack[position..]
                     .iter()
-                    .map(|entry| self.frame(entry.node_id))
+                    .map(|entry| entry.frame.clone())
                     .collect::<Vec<_>>();
                 cycle.push(self.frame(node_id));
                 return Err(QueryError::Cycle { cycle });
