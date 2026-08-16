@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::{AbiParam, AbiReturn, FunctionSignature, ModuleCodegen};
+use super::{AbiParam, AbiReturn, FunctionSignature, ModuleCodegen, checked_vtable_array_len};
 use nia_backend_ir::{
     BackendClosureEntryKey, BackendFunction, BackendFunctionInstance, BackendParam,
     BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction,
@@ -564,7 +564,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             {
                 continue;
             }
-            let array_ty = ptr_ty.array_type(vtable.entries.len() as u32);
+            let array_len = checked_vtable_array_len(vtable.entries.len()).ok_or_else(|| {
+                self.error(
+                    vtable.span,
+                    "trait-object vtable has too many entries for LLVM",
+                )
+            })?;
+            let array_ty = ptr_ty.array_type(array_len);
             let global = self
                 .module
                 .add_global(

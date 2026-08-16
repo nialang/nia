@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::module_codegen::{AbiParam, AbiReturn};
+use crate::module_codegen::{
+    AbiParam, AbiReturn, checked_vtable_index, checked_vtable_slot_array_len,
+};
 use nia_backend_ir::BackendClosureEntryKey;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
@@ -573,13 +575,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             call.method_id,
             call.slot,
         );
+        let array_len = checked_vtable_slot_array_len(slot).ok_or_else(|| {
+            self.error(
+                call.expr.span,
+                "trait-object vtable slot is too large for LLVM",
+            )
+        })?;
+        let slot_index = checked_vtable_index(slot).ok_or_else(|| {
+            self.error(
+                call.expr.span,
+                "trait-object vtable slot cannot be represented by LLVM",
+            )
+        })?;
         let ptr_ty = self.module.context.ptr_type(Default::default());
         let zero = self.module.context.i64_type().const_int(0, false);
-        let slot_index = self.module.context.i64_type().const_int(slot as u64, false);
+        let slot_index = self.module.context.i64_type().const_int(slot_index, false);
         let entry_ptr = unsafe {
             self.builder
                 .build_gep(
-                    ptr_ty.array_type((slot + 1) as u32),
+                    ptr_ty.array_type(array_len),
                     metadata,
                     &[zero, slot_index],
                     "vtable.slot",

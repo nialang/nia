@@ -12,7 +12,9 @@ mod place;
 
 use std::collections::HashMap;
 
-use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
+use crate::module_codegen::{
+    AbiParam, AbiReturn, ModuleCodegen, checked_vtable_index, checked_vtable_slot_array_len,
+};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
 use nia_backend_ir::{BackendClosureEntryOwner, BackendFunction, BackendParam};
@@ -929,17 +931,26 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .trait_object_upcast_slot_offset(source_ty, target_ty);
         if offset > 0 {
+            let array_len = checked_vtable_slot_array_len(offset).ok_or_else(|| {
+                self.error(span, "trait-object metadata offset is too large for LLVM")
+            })?;
+            let offset_index = checked_vtable_index(offset).ok_or_else(|| {
+                self.error(
+                    span,
+                    "trait-object metadata offset cannot be represented by LLVM",
+                )
+            })?;
             let ptr_ty = self.module.context.ptr_type(Default::default());
             let zero = self.module.context.i64_type().const_int(0, false);
             let offset_index = self
                 .module
                 .context
                 .i64_type()
-                .const_int(offset as u64, false);
+                .const_int(offset_index, false);
             metadata = unsafe {
                 self.builder
                     .build_gep(
-                        ptr_ty.array_type((offset + 1) as u32),
+                        ptr_ty.array_type(array_len),
                         metadata.into_pointer_value()?,
                         &[zero, offset_index],
                         "traitobj.upcast.metadata.offset",

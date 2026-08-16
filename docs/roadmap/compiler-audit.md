@@ -370,6 +370,10 @@ commit as the corresponding implementation batch.
       on missing source items as well as successful/recursive paths; the trait
       solver regression suite now checks this cleanup before resolving a valid
       sibling projection.
+- [x] Phase B LLVM vtable emission, dynamic dispatch, and trait-object upcasts
+      use checked conversions for array lengths and GEP indices; oversized
+      entry/slot counts and slot-plus-one overflow now become diagnostics rather
+      than truncating host `usize` values, with boundary tests at `u32::MAX`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
