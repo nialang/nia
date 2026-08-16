@@ -27,6 +27,37 @@ missing
 }
 
 #[test]
+fn binding_initializer_cannot_reference_binding_being_defined() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+fn main() i32 {
+    let f = f;
+    0
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+
+    assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+    assert!(
+        locals
+            .node_uses
+            .values()
+            .any(|use_kind| matches!(use_kind, LocalUse::Unresolved))
+    );
+    assert_eq!(
+        locals.node_local_defs.len(),
+        1,
+        "the binding itself is still allocated even though its initializer is unresolved"
+    );
+}
+
+#[test]
 fn reports_duplicates_in_same_scope() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
