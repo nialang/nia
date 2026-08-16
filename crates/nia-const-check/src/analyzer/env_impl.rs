@@ -335,6 +335,8 @@ impl ConstCommonEnv for Analyzer<'_> {
     }
 
     fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
+        // Charge call depth before mutating either parallel stack. If the
+        // budget rejects the call, the environment remains unchanged.
         self.const_eval_budget.enter_call(span)?;
         self.call_locals.push(ConstCallFrame {
             is_execution_frame: true,
@@ -346,6 +348,9 @@ impl ConstCommonEnv for Analyzer<'_> {
     }
 
     fn pop_function_frame(&mut self) {
+        // Function locals and their expression-type cache have identical
+        // lifetimes. Pop both before releasing the budget depth so an
+        // imbalance fails close to the frame operation that caused it.
         self.call_locals.pop();
         self.resolved_expr_types.pop();
         self.const_eval_budget.leave_call();

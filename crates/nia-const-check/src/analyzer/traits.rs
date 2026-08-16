@@ -239,7 +239,7 @@ impl Analyzer<'_> {
         &mut self,
         projection: &AssociatedConstProjection,
     ) -> Option<nia_trait_solve::AssociatedConstResolution> {
-        let (type_substitutions, const_substitutions) = self.current_substitution_maps();
+        let (type_substitutions, const_substitutions) = self.current_execution_substitutions();
         let self_ty = self.substitute_ty_generics_from_map(projection.self_ty, &type_substitutions);
         let trait_args = projection
             .trait_args
@@ -336,17 +336,6 @@ impl Analyzer<'_> {
                 )
             }
         }
-    }
-
-    fn current_substitution_maps(&self) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
-        let mut type_substitutions = SymbolMap::default();
-        let mut const_substitutions = SymbolMap::default();
-        let frames = self.active_execution_frames().collect::<Vec<_>>();
-        for frame in frames.into_iter().rev() {
-            type_substitutions.extend(frame.type_substitutions.clone());
-            const_substitutions.extend(frame.const_substitutions.clone());
-        }
-        (type_substitutions, const_substitutions)
     }
 
     fn primitive_ty_for_current_module(&mut self, primitive: PrimitiveTy) -> InternedTyId {

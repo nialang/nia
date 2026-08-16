@@ -116,6 +116,10 @@ fn eval_const_expr(
     }
 }
 
+/// Evaluates an early const expression as a root value.
+///
+/// Opens a budget session and rejects function-only control flow escaping the
+/// expression before validating the result through the environment.
 pub fn eval_early_const_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
@@ -127,6 +131,7 @@ pub fn eval_early_const_expr(
     })
 }
 
+/// Evaluates a resolved const expression as a root value.
 pub fn eval_resolved_const_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
@@ -980,6 +985,7 @@ fn const_error_message_from_value(
     Ok(const_error_message(value))
 }
 
+/// Implements the const-only value operation behind range `start`/`end` methods.
 pub fn eval_const_range_bound_value(
     span: Span,
     value: ConstValue,
@@ -1002,6 +1008,7 @@ pub fn eval_const_range_bound_value(
     Ok(ConstValue::Int(bound))
 }
 
+/// Projects the first element pointer used by const slice pointer methods.
 pub fn eval_const_slice_pointer_value(
     span: Span,
     value: ConstValue,
@@ -1298,6 +1305,7 @@ fn eval_const_int_expr(
     }
 }
 
+/// Evaluates early IR and requires an integer result.
 pub fn eval_early_const_int_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
@@ -1305,6 +1313,7 @@ pub fn eval_early_const_int_expr(
     with_const_eval_session(env, |env| eval_const_int_expr(expr, env))
 }
 
+/// Evaluates resolved IR and requires an integer result.
 pub fn eval_resolved_const_int_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
@@ -1338,6 +1347,7 @@ fn eval_const_bool_expr(
     }
 }
 
+/// Evaluates early IR and requires a boolean result.
 pub fn eval_early_const_bool_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
@@ -1345,6 +1355,7 @@ pub fn eval_early_const_bool_expr(
     with_const_eval_session(env, |env| eval_const_bool_expr(expr, env))
 }
 
+/// Evaluates resolved IR and requires a boolean result.
 pub fn eval_resolved_const_bool_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
@@ -1372,6 +1383,7 @@ fn eval_const_array_len_expr(
     int_to_array_len(expr.span, eval_const_int_expr(expr, env)?)
 }
 
+/// Evaluates early IR as a non-negative array length representable by `u64`.
 pub fn eval_early_const_array_len_expr(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
@@ -1379,6 +1391,7 @@ pub fn eval_early_const_array_len_expr(
     with_const_eval_session(env, |env| eval_const_array_len_expr(expr, env))
 }
 
+/// Evaluates resolved IR as a non-negative array length representable by `u64`.
 pub fn eval_resolved_const_array_len_expr(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,

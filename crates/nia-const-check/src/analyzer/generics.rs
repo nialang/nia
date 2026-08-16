@@ -1,3 +1,18 @@
+//! Structural generic inference for const execution.
+//!
+//! Const calls are instantiated after the ordinary body checker has produced
+//! resolved const IR, but the evaluator still needs concrete substitutions for
+//! the callee's signature. Inference therefore walks a *pattern* type from the
+//! signature beside the actual argument type. A constructor mismatch contributes
+//! no evidence; seeing the same parameter with two incompatible actual types is
+//! an error.
+//!
+//! Type and value parameters are collected by separate recursive walks. Keep the
+//! IR shape guards in those walks aligned: neither walk may descend through a
+//! different nominal/trait/projection identity or through incompatible concrete
+//! const arguments. Otherwise an unrelated type can supply a plausible-looking
+//! substitution before the evaluator has a chance to reject the call.
+
 use super::*;
 
 struct TraitTypeParts<'a> {
@@ -6,7 +21,79 @@ struct TraitTypeParts<'a> {
     bindings: &'a [nia_ty::AssociatedTypeBindingTy],
 }
 
+/// Whether an actual pointer can satisfy a pattern pointer during inference.
+///
+/// A mutable pointer can be viewed through a readonly parameter, but a readonly
+/// pointer cannot satisfy a mutable parameter. This must mirror the coercion
+/// accepted by ordinary call checking or const calls infer different generic
+/// arguments from otherwise identical source calls.
+fn readonly_pointer_accepts(pattern_readonly: bool, actual_readonly: bool) -> bool {
+    pattern_readonly == actual_readonly || (pattern_readonly && !actual_readonly)
+}
+
 impl Analyzer<'_> {
+    fn const_generic_args_allow_inference(
+        &mut self,
+        pattern: &[ConstGenericArg],
+        actual: &[ConstGenericArg],
+    ) -> bool {
+        pattern.len() == actual.len()
+            && pattern.iter().zip(actual).all(|(pattern, actual)| {
+                let types_compatible = self.type_contains_generic(pattern.ty)
+                    || self.const_function_types_match(pattern.ty, actual.ty);
+                let values_compatible = matches!(pattern.value, ConstGenericValue::GenericParam(_))
+                    || self.const_generic_values_match_for_execution(pattern, actual);
+                types_compatible && values_compatible
+            })
+    }
+
+    fn infer_type_generics_from_associated_bindings(
+        &mut self,
+        span: Span,
+        target_module_id: ModuleId,
+        pattern: &[nia_ty::AssociatedTypeBindingTy],
+        actual: &[nia_ty::AssociatedTypeBindingTy],
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> Result<(), ConstError> {
+        // Associated bindings are a set keyed by their defining trait and
+        // member name. Source order is not semantic, so a positional zip would
+        // make inference change when equivalent bounds are reordered.
+        for pattern_binding in pattern {
+            let Some(actual_binding) = actual.iter().find(|actual_binding| {
+                actual_binding.trait_id == pattern_binding.trait_id
+                    && actual_binding.name == pattern_binding.name
+                    && actual_binding.trait_args.len() == pattern_binding.trait_args.len()
+                    && self.const_generic_args_allow_inference(
+                        &pattern_binding.trait_const_args,
+                        &actual_binding.trait_const_args,
+                    )
+            }) else {
+                continue;
+            };
+            for (pattern_arg, actual_arg) in pattern_binding
+                .trait_args
+                .iter()
+                .zip(&actual_binding.trait_args)
+            {
+                self.infer_generics_from_tys(
+                    span,
+                    target_module_id,
+                    *pattern_arg,
+                    *actual_arg,
+                    substitutions,
+                )?;
+            }
+            self.infer_generics_from_tys(
+                span,
+                target_module_id,
+                pattern_binding.ty,
+                actual_binding.ty,
+                substitutions,
+            )?;
+        }
+        Ok(())
+    }
+
     pub(super) fn infer_generic_substitutions_from_tys(
         &mut self,
         span: Span,
@@ -123,7 +210,7 @@ impl Analyzer<'_> {
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 }) = self.ty_kind(actual_ty)
-                    && is_readonly == actual_readonly
+                    && readonly_pointer_accepts(is_readonly, actual_readonly)
                 {
                     self.infer_generics_from_tys(
                         span,
@@ -139,7 +226,7 @@ impl Analyzer<'_> {
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 }) = self.ty_kind(actual_ty)
-                    && is_readonly == actual_readonly
+                    && readonly_pointer_accepts(is_readonly, actual_readonly)
                 {
                     self.infer_generics_from_tys(
                         span,
@@ -155,7 +242,7 @@ impl Analyzer<'_> {
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 }) = self.ty_kind(actual_ty)
-                    && is_readonly == actual_readonly
+                    && readonly_pointer_accepts(is_readonly, actual_readonly)
                 {
                     self.infer_generics_from_tys(
                         span,
@@ -353,7 +440,7 @@ impl Analyzer<'_> {
                 }) = self.ty_kind(actual_ty)
                     && def_id == actual_def_id
                     && args.len() == actual_args.len()
-                    && const_args.len() == actual_const_args.len()
+                    && self.const_generic_args_allow_inference(&const_args, &actual_const_args)
                 {
                     for (arg, actual_arg) in args.into_iter().zip(actual_args) {
                         self.infer_generics_from_tys(
@@ -366,10 +453,12 @@ impl Analyzer<'_> {
                     }
                 }
             }
-            TyKind::BuiltinTrait { args, .. } => {
+            TyKind::BuiltinTrait { trait_id, args } => {
                 if let Some(TyKind::BuiltinTrait {
-                    args: actual_args, ..
+                    trait_id: actual_trait_id,
+                    args: actual_args,
                 }) = self.ty_kind(actual_ty)
+                    && trait_id == actual_trait_id
                     && args.len() == actual_args.len()
                 {
                     for (arg, actual_arg) in args.into_iter().zip(actual_args) {
@@ -384,28 +473,24 @@ impl Analyzer<'_> {
                 }
             }
             TyKind::TraitObject {
+                is_readonly,
+                trait_id,
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
-                ..
-            }
-            | TyKind::TraitObjectPointee {
-                trait_args,
-                associated_type_bindings,
-                ..
             } => {
-                if let Some(
-                    TyKind::TraitObject {
-                        trait_args: actual_trait_args,
-                        associated_type_bindings: actual_bindings,
-                        ..
-                    }
-                    | TyKind::TraitObjectPointee {
-                        trait_args: actual_trait_args,
-                        associated_type_bindings: actual_bindings,
-                        ..
-                    },
-                ) = self.ty_kind(actual_ty)
+                if let Some(TyKind::TraitObject {
+                    is_readonly: actual_readonly,
+                    trait_id: actual_trait_id,
+                    trait_args: actual_trait_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }) = self.ty_kind(actual_ty)
+                    && is_readonly == actual_readonly
+                    && trait_id == actual_trait_id
                     && trait_args.len() == actual_trait_args.len()
+                    && self
+                        .const_generic_args_allow_inference(&trait_const_args, &actual_const_args)
                     && associated_type_bindings.len() == actual_bindings.len()
                 {
                     for (arg, actual_arg) in trait_args.into_iter().zip(actual_trait_args) {
@@ -417,32 +502,70 @@ impl Analyzer<'_> {
                             substitutions,
                         )?;
                     }
-                    for (binding, actual_binding) in
-                        associated_type_bindings.into_iter().zip(actual_bindings)
-                    {
-                        if binding.name == actual_binding.name {
-                            self.infer_generics_from_tys(
-                                span,
-                                target_module_id,
-                                binding.ty,
-                                actual_binding.ty,
-                                substitutions,
-                            )?;
-                        }
+                    self.infer_type_generics_from_associated_bindings(
+                        span,
+                        target_module_id,
+                        &associated_type_bindings,
+                        &actual_bindings,
+                        substitutions,
+                    )?;
+                }
+            }
+            TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+            } => {
+                if let Some(TyKind::TraitObjectPointee {
+                    trait_id: actual_trait_id,
+                    trait_args: actual_trait_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }) = self.ty_kind(actual_ty)
+                    && trait_id == actual_trait_id
+                    && trait_args.len() == actual_trait_args.len()
+                    && self
+                        .const_generic_args_allow_inference(&trait_const_args, &actual_const_args)
+                    && associated_type_bindings.len() == actual_bindings.len()
+                {
+                    for (arg, actual_arg) in trait_args.into_iter().zip(actual_trait_args) {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            arg,
+                            actual_arg,
+                            substitutions,
+                        )?;
                     }
+                    self.infer_type_generics_from_associated_bindings(
+                        span,
+                        target_module_id,
+                        &associated_type_bindings,
+                        &actual_bindings,
+                        substitutions,
+                    )?;
                 }
             }
             TyKind::Projection {
                 self_ty,
+                trait_id,
                 trait_args,
-                ..
+                trait_const_args,
+                name,
             } => {
                 if let Some(TyKind::Projection {
                     self_ty: actual_self_ty,
+                    trait_id: actual_trait_id,
                     trait_args: actual_trait_args,
-                    ..
+                    trait_const_args: actual_const_args,
+                    name: actual_name,
                 }) = self.ty_kind(actual_ty)
+                    && trait_id == actual_trait_id
+                    && name == actual_name
                     && trait_args.len() == actual_trait_args.len()
+                    && self
+                        .const_generic_args_allow_inference(&trait_const_args, &actual_const_args)
                 {
                     self.infer_generics_from_tys(
                         span,
@@ -540,7 +663,7 @@ impl Analyzer<'_> {
                     is_readonly: actual_readonly,
                     elem: actual_elem,
                 },
-            ) if pattern_readonly == actual_readonly => {
+            ) if readonly_pointer_accepts(pattern_readonly, actual_readonly) => {
                 self.infer_const_generics_from_tys(
                     span,
                     target_module_id,
@@ -707,7 +830,10 @@ impl Analyzer<'_> {
                 },
             ) if pattern_def == actual_def
                 && pattern_args.len() == actual_args.len()
-                && pattern_const_args.len() == actual_const_args.len() =>
+                && self.const_generic_args_allow_inference(
+                    &pattern_const_args,
+                    &actual_const_args,
+                ) =>
             {
                 self.infer_const_generics_from_type_args(
                     span,
@@ -757,7 +883,13 @@ impl Analyzer<'_> {
                     trait_const_args: actual_const_args,
                     associated_type_bindings: actual_bindings,
                 },
-            ) if pattern_readonly == actual_readonly && pattern_trait == actual_trait => {
+            ) if pattern_readonly == actual_readonly
+                && pattern_trait == actual_trait
+                && self.const_generic_args_allow_inference(
+                    &pattern_const_args,
+                    &actual_const_args,
+                ) =>
+            {
                 self.infer_const_generics_from_trait_type(
                     span,
                     target_module_id,
@@ -787,7 +919,12 @@ impl Analyzer<'_> {
                     trait_const_args: actual_const_args,
                     associated_type_bindings: actual_bindings,
                 },
-            ) if pattern_trait == actual_trait => {
+            ) if pattern_trait == actual_trait
+                && self.const_generic_args_allow_inference(
+                    &pattern_const_args,
+                    &actual_const_args,
+                ) =>
+            {
                 self.infer_const_generics_from_trait_type(
                     span,
                     target_module_id,
@@ -819,7 +956,14 @@ impl Analyzer<'_> {
                     trait_const_args: actual_const_args,
                     name: actual_name,
                 },
-            ) if pattern_trait == actual_trait && pattern_name == actual_name => {
+            ) if pattern_trait == actual_trait
+                && pattern_name == actual_name
+                && pattern_args.len() == actual_args.len()
+                && self.const_generic_args_allow_inference(
+                    &pattern_const_args,
+                    &actual_const_args,
+                ) =>
+            {
                 self.infer_const_generics_from_tys(
                     span,
                     target_module_id,
@@ -881,6 +1025,14 @@ impl Analyzer<'_> {
             }) else {
                 continue;
             };
+            if pattern_binding.trait_args.len() != actual_binding.trait_args.len()
+                || !self.const_generic_args_allow_inference(
+                    &pattern_binding.trait_const_args,
+                    &actual_binding.trait_const_args,
+                )
+            {
+                continue;
+            }
             self.infer_const_generics_from_tys(
                 span,
                 target_module_id,

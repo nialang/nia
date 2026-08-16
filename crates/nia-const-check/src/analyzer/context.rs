@@ -1,5 +1,34 @@
 use super::*;
 
+fn active_execution_frames(frames: &[ConstCallFrame]) -> impl Iterator<Item = &ConstCallFrame> {
+    // `module_id` marks a function-call boundary. Lexical scopes pushed above
+    // it belong to that function; frames below it belong to callers and may
+    // reuse the same module-local `LocalId` or generic symbol.
+    let start = frames
+        .iter()
+        .rposition(|frame| frame.module_id.is_some())
+        .unwrap_or(0);
+    frames[start..].iter().rev()
+}
+
+fn merged_execution_substitutions(
+    frames: &[ConstCallFrame],
+) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
+    let mut type_substitutions = SymbolMap::default();
+    let mut const_substitutions = SymbolMap::default();
+    // Merge from the function boundary towards the innermost scope. This gives
+    // a nearer frame precedence if scopes ever acquire their own substitutions.
+    for frame in active_execution_frames(frames)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        type_substitutions.extend(frame.type_substitutions.clone());
+        const_substitutions.extend(frame.const_substitutions.clone());
+    }
+    (type_substitutions, const_substitutions)
+}
+
 pub(super) enum ModuleDefs<'a> {
     Borrowed(&'a DefCollection),
     Shared(std::sync::Arc<DefCollection>),
@@ -48,6 +77,9 @@ impl Analyzer<'_> {
         module_id: ModuleId,
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
+        // Some queries inspect a foreign initializer without creating a call
+        // frame. The override selects that module's signatures, normalization,
+        // source path, and type context for precisely the duration of `f`.
         self.execution_module_overrides.push(module_id);
         let result = f(self);
         self.execution_module_overrides.pop();
@@ -327,18 +359,19 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn active_execution_frames(&self) -> impl Iterator<Item = &ConstCallFrame> {
-        self.call_locals
-            .iter()
-            .rev()
-            .scan(true, |inside_execution, frame| {
-                if !*inside_execution {
-                    return None;
-                }
-                if frame.module_id.is_some() {
-                    *inside_execution = false;
-                }
-                Some(frame)
-            })
+        active_execution_frames(&self.call_locals)
+    }
+
+    /// Returns substitutions visible to the currently executing const function.
+    ///
+    /// Caller frames are deliberately excluded. Generic symbols and local ids
+    /// are module-local identities, so allowing a caller substitution to leak
+    /// across the nearest function boundary could rewrite an unrelated callee
+    /// type that happens to carry the same symbol id.
+    pub(super) fn current_execution_substitutions(
+        &self,
+    ) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
+        merged_execution_substitutions(&self.call_locals)
     }
 
     pub(super) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
@@ -1439,5 +1472,64 @@ impl Analyzer<'_> {
                 },
             },
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execution_frames_stop_at_nearest_function_boundary() {
+        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let outer_module = modules.allocate();
+        let inner_module = modules.allocate();
+        let frames = vec![
+            ConstCallFrame {
+                module_id: Some(outer_module),
+                ..ConstCallFrame::default()
+            },
+            ConstCallFrame::default(),
+            ConstCallFrame {
+                module_id: Some(inner_module),
+                ..ConstCallFrame::default()
+            },
+            ConstCallFrame::default(),
+        ];
+
+        let active = active_execution_frames(&frames).collect::<Vec<_>>();
+
+        assert_eq!(active.len(), 2);
+        assert!(std::ptr::eq(active[0], &frames[3]));
+        assert!(std::ptr::eq(active[1], &frames[2]));
+    }
+
+    #[test]
+    fn innermost_execution_substitution_wins() {
+        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let store = nia_ty::TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let outer_ty = append.primitive(PrimitiveTy::I32);
+        let function_ty = append.primitive(PrimitiveTy::U32);
+        let scope_ty = append.primitive(PrimitiveTy::Bool);
+        let name = SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
+
+        let mut outer = ConstCallFrame {
+            module_id: Some(module_id),
+            ..ConstCallFrame::default()
+        };
+        outer.type_substitutions.insert(name, outer_ty);
+        let mut function = ConstCallFrame {
+            module_id: Some(module_id),
+            ..ConstCallFrame::default()
+        };
+        function.type_substitutions.insert(name, function_ty);
+        let mut scope = ConstCallFrame::default();
+        scope.type_substitutions.insert(name, scope_ty);
+
+        let (types, _) = merged_execution_substitutions(&[outer, function, scope]);
+
+        assert_eq!(types.get(&name), Some(&scope_ty));
     }
 }

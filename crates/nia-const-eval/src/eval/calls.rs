@@ -47,6 +47,11 @@ fn eval_const_function_call(
     result
 }
 
+/// Evaluates an early const function in a fresh function frame.
+///
+/// Arity is checked before the frame is pushed. After a successful push, every
+/// context/parameter/body/result failure passes through the shared cleanup
+/// boundary before it is returned.
 pub fn eval_early_const_function_call(
     span: Span,
     function_module_id: ModuleId,
@@ -71,6 +76,7 @@ pub fn eval_early_const_function_call(
     })
 }
 
+/// Fully resolved inputs needed to execute one const function invocation.
 pub struct ResolvedConstCallInput<'a> {
     pub span: Span,
     pub function_id: GlobalDefId,
@@ -81,6 +87,10 @@ pub struct ResolvedConstCallInput<'a> {
     pub args: Vec<ConstValue>,
 }
 
+/// Evaluates a resolved const function and returns its value plus receiver state.
+///
+/// A mutable receiver is returned separately so the caller can write it back to
+/// the original resolved place after the callee frame has been destroyed.
 pub fn eval_resolved_const_function_call(
     input: ResolvedConstCallInput<'_>,
     env: &mut impl ResolvedConstEnv,

@@ -88,6 +88,38 @@ fn main() usize {
 }
 
 #[test]
+fn const_function_restores_frame_and_session_after_parameter_error() {
+    let (module, errors) = nia_parser::parse_module(
+        r#"
+const fn identity(value: usize) usize {
+    value
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let function = nia_const_ir::lower_function_early(module.items[0].span, function).unwrap();
+    let mut env = LifecycleErrorEnv::default();
+    let module_id = ModuleIdAllocator::new().allocate();
+
+    let error = crate::eval_early_const_function_call(
+        module.items[0].span,
+        module_id,
+        &function,
+        Vec::new(),
+        vec![ConstValue::Int(IntConst::unsigned(1))],
+        &mut env,
+    )
+    .expect_err("parameter binding must fail in this environment");
+
+    assert_eq!(error.message, "intentional parameter binding failure");
+    assert_eq!(env.frame_depth, 0, "failed call must restore its frame");
+    assert_eq!(env.session_depth, 0, "failed call must end its session");
+}
+
+#[test]
 fn old_at_builtin_expr_syntax_is_rejected_by_parser() {
     let (_module, errors) = nia_parser::parse_module(
         r#"
@@ -215,6 +247,71 @@ impl EarlyConstEnv for ConfigEnv {
 #[derive(Default)]
 struct ScopeErrorEnv {
     scope_depth: usize,
+}
+
+#[derive(Default)]
+struct LifecycleErrorEnv {
+    frame_depth: usize,
+    session_depth: usize,
+}
+
+impl ConstCommonEnv for LifecycleErrorEnv {
+    fn begin_const_eval(&mut self) {
+        self.session_depth += 1;
+    }
+
+    fn end_const_eval(&mut self) {
+        self.session_depth -= 1;
+    }
+
+    fn push_function_frame(&mut self, _span: Span) -> Result<(), ConstError> {
+        self.frame_depth += 1;
+        Ok(())
+    }
+
+    fn pop_function_frame(&mut self) {
+        self.frame_depth -= 1;
+    }
+}
+
+impl EarlyConstEnv for LifecycleErrorEnv {
+    fn resolve_name(
+        &mut self,
+        span: Span,
+        name: &EarlyConstName,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
+            span,
+            message: format!(
+                "unexpected lookup for `{}`",
+                self.symbol_name(name.display())
+            ),
+        })
+    }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        _builtin: LayoutBuiltin,
+        _type_arg: &EarlyConstTypeArg,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
+            span,
+            message: "unexpected layout lookup".to_string(),
+        })
+    }
+
+    fn bind_function_param(
+        &mut self,
+        span: Span,
+        _param: &nia_const_ir::EarlyConstParam,
+        _value: ConstValue,
+    ) -> Result<(), ConstError> {
+        Err(ConstError {
+            span,
+            message: "intentional parameter binding failure".to_string(),
+        })
+    }
 }
 
 impl ConstCommonEnv for ScopeErrorEnv {
