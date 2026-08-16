@@ -696,7 +696,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .filter(|field| field.layout.size != 0)
                 .position(|candidate| candidate.def_id == field.def_id)
             {
-                return Ok(index as u32);
+                return u32::try_from(index)
+                    .map_err(|_| self.error(span, "aggregate field index is too large for LLVM"));
             }
             return Err(self.error(span, "missing struct field layout index"));
         }

@@ -473,9 +473,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     })?;
                     if !self.is_zero_sized(elem_ty) {
                         let base_ty = self.module.llvm_basic_type(current_ty, place.span)?;
+                        let index = u32::try_from(*index).map_err(|_| {
+                            self.error(place.span, "tuple field index is too large for LLVM")
+                        })?;
                         ptr = self
                             .builder
-                            .build_struct_gep(base_ty, ptr, *index as u32, "tuple.place.field.ptr")
+                            .build_struct_gep(base_ty, ptr, index, "tuple.place.field.ptr")
                             .map_err(|_| {
                                 self.error(place.span, "failed to build tuple field address")
                             })?;

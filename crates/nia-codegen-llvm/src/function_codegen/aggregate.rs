@@ -60,9 +60,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_effect_expr(elem)?;
                 continue;
             }
+            let index = u32::try_from(index)
+                .map_err(|_| self.error(elem.span, "tuple field index is too large for LLVM"))?;
             let field_ptr = self
                 .builder
-                .build_struct_gep(tuple_ty, ptr, index as u32, "tuple.field.ptr")
+                .build_struct_gep(tuple_ty, ptr, index, "tuple.field.ptr")
                 .map_err(|_| self.error(elem.span, "failed to address tuple field"))?;
             let value = self.emit_expr(elem)?;
             self.builder

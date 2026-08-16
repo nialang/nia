@@ -176,7 +176,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             };
             match classification {
                 AbiParam::Direct(_) => {
-                    let Some(value) = self.llvm_function.get_nth_param(llvm_index as u32) else {
+                    let index = u32::try_from(llvm_index)
+                        .map_err(|_| self.error(param.span, "LLVM parameter index is too large"))?;
+                    let Some(value) = self.llvm_function.get_nth_param(index) else {
                         return Err(self.error(param.span, "missing LLVM function parameter"));
                     };
                     let value = value?;
@@ -186,7 +188,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     llvm_index += 1;
                 }
                 AbiParam::IndirectReadonly(ty) => {
-                    let Some(value) = self.llvm_function.get_nth_param(llvm_index as u32) else {
+                    let index = u32::try_from(llvm_index)
+                        .map_err(|_| self.error(param.span, "LLVM parameter index is too large"))?;
+                    let Some(value) = self.llvm_function.get_nth_param(index) else {
                         return Err(self.error(param.span, "missing LLVM function parameter"));
                     };
                     let value = value?;

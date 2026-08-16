@@ -392,6 +392,10 @@ commit as the corresponding implementation batch.
       extern structs, closing the cross-module path that previously accepted a
       nominally extern aggregate without checking nested bool/Nia-only types;
       an imported-struct regression test covers the boundary.
+- [x] Phase B LLVM aggregate, inline-assembly, and parameter-slot lowering now
+      use checked `usize` to `u32` conversions for tuple/field indices and
+      extracted outputs, returning diagnostics instead of truncating malformed
+      backend metadata.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
