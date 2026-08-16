@@ -410,6 +410,9 @@ commit as the corresponding implementation batch.
       order from the backend parameter contract rather than incidental local
       table order, and shares the canonical `FunctionInstanceKey`; const-generic
       instance propagation has a two-key regression test.
+- [x] Phase B generic function materialization now enforces its 4096-instance
+      limit across the complete module fixed point, including instances from
+      earlier discovery rounds, with saturating boundary coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
