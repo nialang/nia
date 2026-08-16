@@ -288,6 +288,8 @@ commit as the corresponding implementation batch.
 - [x] Focused reachability identity regression test.
 - [x] Initial Phase A owner map: local-resolution ordering, inference DAG
       boundary, and trait/projection cycle guards reviewed.
+- [x] Phase B LLVM target-layout and object-buffer null/empty boundaries
+      hardened; broader backend audit remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
