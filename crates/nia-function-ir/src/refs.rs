@@ -22,6 +22,14 @@ pub struct FunctionInstanceRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Complete identity of a monomorphized function body.
+///
+/// Every field participates in reachability, caching, and backend instance
+/// lookup: `arg_module_id` identifies the module that owns the argument type
+/// store, `self_arg` identifies an implicit receiver type, and `const_args`
+/// distinguishes const-generic bodies that otherwise share the same
+/// definition and type arguments. Callers must use this key instead of a
+/// definition-only identity when preserving or deduplicating instances.
 pub struct FunctionInstanceKey {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,

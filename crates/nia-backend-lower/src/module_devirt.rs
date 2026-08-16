@@ -410,6 +410,10 @@ impl<'a> ModuleLowerer<'a> {
             method_name,
             *self_ty,
         )?;
+        // A direct `Method` callee can be emitted here only when resolution
+        // selected the non-generic definition itself. Generic impl results
+        // need their complete instance arguments and remain dynamic until
+        // the normal instantiation path materializes that identity.
         (args.is_empty() && const_args.is_empty()).then(|| (expr.clone(), def_id, *receiver_kind))
     }
 
