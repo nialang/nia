@@ -293,10 +293,14 @@ impl<'a> BodyChecker<'a> {
                             &mut target_const_substitutions,
                         )
                     });
-                if matches_receiver
-                    && self
-                        .extension_method_where_predicates_can_hold(&method, &target_substitutions)
-                {
+                if matches_receiver {
+                    if !self.extension_method_where_predicates_can_hold(
+                        &method,
+                        &target_substitutions,
+                        &target_const_substitutions,
+                    ) {
+                        continue;
+                    }
                     candidates.push(MethodCandidate {
                         target_ty,
                         self_ty: receiver_ty,
@@ -1123,8 +1127,13 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         method: &nia_defs::VisibleExtensionMethod,
         substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> bool {
-        self.where_predicates_can_hold(&method.where_predicates, substitutions)
+        self.where_predicates_can_hold_with_consts(
+            &method.where_predicates,
+            substitutions,
+            const_substitutions,
+        )
     }
 
     pub(in crate::calls) fn extension_target_instance_args(

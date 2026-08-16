@@ -1295,14 +1295,6 @@ impl<'a> BodyChecker<'a> {
         candidates.push((trait_args, trait_const_args));
     }
 
-    pub(crate) fn where_predicates_can_hold(
-        &mut self,
-        predicates: &[WherePredicateSignature],
-        substitutions: &SymbolMap<InternedTyId>,
-    ) -> bool {
-        self.where_predicates_can_hold_with_consts(predicates, substitutions, &SymbolMap::default())
-    }
-
     pub(crate) fn where_predicates_can_hold_with_consts(
         &mut self,
         predicates: &[WherePredicateSignature],

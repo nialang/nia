@@ -785,7 +785,7 @@ fn validate_trait_impl(
             module,
             type_store: input.type_store,
             signature: &required.signature,
-            trait_generics: &trait_signature.signature.generics,
+            trait_generic_params: &trait_signature.signature.generic_params,
             trait_args: &trait_args,
             trait_const_args: &trait_const_args,
             self_ty: target_ty,
@@ -857,15 +857,11 @@ struct TraitAssociatedConstTypeMatch<'a> {
 
 fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>) -> bool {
     let append = input.type_store.append_for_module(input.module.module_id);
-    let substitutions = input
-        .trait_signature
-        .signature
-        .generics
-        .iter()
-        .zip(input.trait_args)
-        .map(|(generic, arg)| (*generic, *arg))
-        .collect::<SymbolMap<_>>();
-    let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
+    let (substitutions, const_substitutions) = substitutions_from_generic_params(
+        &input.trait_signature.signature.generic_params,
+        input.trait_args,
+        input.trait_const_args,
+    );
     let projection_context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
         trait_args: input.trait_args,
@@ -1412,6 +1408,17 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         &mut assumptions,
         &mut associated_type_assumptions,
     );
+    let const_expr_value = |id, _ty| {
+        input
+            .module
+            .lowering
+            .const_expr_summaries
+            .get(&id)
+            .and_then(|summary| summary.literal_array_len)
+            .map(|value| {
+                nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(u128::from(value)))
+            })
+    };
     let context = TraitSolverContext {
         type_store: input.type_store,
         normalization: input.module.normalization,
@@ -1421,7 +1428,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         local_module_id: input.module.module_id,
         local_enums: &input.module.signatures.enums,
         program_is_enum: None,
-        const_expr_value: None,
+        const_expr_value: Some(&const_expr_value),
         impl_is_visible: None,
     };
     let mut solver =
@@ -1579,15 +1586,11 @@ fn push_trait_goal_assumption_with_supertraits_inner(
             else {
                 return;
             };
-            let substitutions = trait_signature
-                .signature
-                .generics
-                .iter()
-                .zip(&trait_args)
-                .map(|(generic, arg)| (*generic, *arg))
-                .collect::<SymbolMap<_>>();
-            let const_substitutions =
-                const_substitutions_from_self_describing_args(&trait_const_args);
+            let (substitutions, const_substitutions) = substitutions_from_generic_params(
+                &trait_signature.signature.generic_params,
+                &trait_args,
+                &trait_const_args,
+            );
             let append = context
                 .type_store
                 .append_for_module(context.module.module_id);

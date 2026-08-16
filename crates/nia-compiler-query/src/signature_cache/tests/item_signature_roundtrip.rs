@@ -126,6 +126,10 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             DefId(4),
             item_signatures::TraitSignature {
                 generics: vec![generic_name],
+                generic_params: vec![item_signatures::GenericParamSignature {
+                    name: generic_name,
+                    kind: item_signatures::GenericParamSignatureKind::Const { ty: primitive },
+                }],
                 where_predicates: where_predicates.clone(),
                 supertraits: vec![item_signatures::TraitSupertraitSignature { ty: trait_ty, span }],
                 associated_types: vec![item_signatures::TraitAssociatedTypeSignature {

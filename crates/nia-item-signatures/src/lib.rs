@@ -255,6 +255,10 @@ pub struct UnionSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSignature {
     pub generics: Vec<SymbolId>,
+    /// Declaration-order generic parameters, including whether each parameter
+    /// is a type or const. `generics` remains the compact name list used by
+    /// older consumers; instantiation must use this kind-aware representation.
+    pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub supertraits: Vec<TraitSupertraitSignature>,
     pub associated_types: Vec<TraitAssociatedTypeSignature>,

@@ -655,9 +655,15 @@ impl<'a> BodyChecker<'a> {
             .filter(|candidate| {
                 let substitutions =
                     self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
-                let return_type = self.substitute_generics_with_self(
+                let const_substitutions = self.trait_const_substitutions_for_candidate(
+                    candidate.trait_id,
+                    &candidate.trait_args,
+                    &candidate.trait_const_args,
+                );
+                let return_type = self.substitute_generics_and_consts_with_self(
                     candidate.signature.return_type,
                     &substitutions,
+                    &const_substitutions,
                     candidate.self_ty,
                 );
                 let return_type = self.normalize_projection(return_type);
@@ -711,6 +717,7 @@ impl<'a> BodyChecker<'a> {
         if specific.trait_id != general.trait_id
             || specific.trait_method_id != general.trait_method_id
             || specific.trait_args.len() != general.trait_args.len()
+            || specific.trait_const_args.len() != general.trait_const_args.len()
         {
             return false;
         }
@@ -726,6 +733,12 @@ impl<'a> BodyChecker<'a> {
             if self.strictly_more_specific(*specific_arg, *general_arg) {
                 specific_is_stricter = true;
             }
+        }
+        if !self.const_patterns_subsume(&general.trait_const_args, &specific.trait_const_args) {
+            return false;
+        }
+        if !self.const_patterns_subsume(&specific.trait_const_args, &general.trait_const_args) {
+            specific_is_stricter = true;
         }
         specific_is_stricter
     }

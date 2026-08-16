@@ -7,12 +7,17 @@
 
 use super::*;
 
+/// Conservative classifier used to reject source impls that may overlap an
+/// implementation supplied by the compiler.
 pub struct IntrinsicOverlap<'a, F>
 where
     F: Fn(InternedTyId) -> bool,
 {
+    /// Canonical store containing the impl's type pattern.
     pub type_store: &'a TypeStore,
+    /// Normalization product applied before structural classification.
     pub normalization: &'a TypeNormalization,
+    /// Program-wide nominal enum classifier.
     pub is_enum: F,
 }
 
@@ -20,6 +25,11 @@ impl<'a, F> IntrinsicOverlap<'a, F>
 where
     F: Fn(InternedTyId) -> bool,
 {
+    /// Returns whether a source pattern could match the builtin trait's domain.
+    ///
+    /// Generic parameters are treated as possible matches. A `true` result is
+    /// intentionally conservative and does not claim that a concrete witness
+    /// exists.
     pub fn overlaps_builtin_trait(
         &self,
         self_ty: InternedTyId,

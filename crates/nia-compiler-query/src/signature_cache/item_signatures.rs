@@ -360,6 +360,7 @@ pub(crate) fn write_trait_signature(
     graph: &mut TypeGraphEncoder<'_>,
 ) -> io::Result<()> {
     write_symbols(encoded, &signature.generics, graph)?;
+    write_generic_params(encoded, &signature.generic_params, graph)?;
     write_where_predicates(encoded, &signature.where_predicates, graph)?;
     write_u64(encoded, signature.supertraits.len() as u64);
     for supertrait in &signature.supertraits {
@@ -405,6 +406,7 @@ pub(crate) fn read_trait_signature(
     source_len: usize,
 ) -> Option<item_signatures::TraitSignature> {
     let generics = read_symbols(cursor, symbols)?;
+    let generic_params = read_generic_params(cursor, types, symbols)?;
     let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
     let supertrait_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
     let mut supertraits = Vec::with_capacity(supertrait_len);
@@ -466,6 +468,7 @@ pub(crate) fn read_trait_signature(
     };
     Some(item_signatures::TraitSignature {
         generics,
+        generic_params,
         where_predicates,
         supertraits,
         associated_types,

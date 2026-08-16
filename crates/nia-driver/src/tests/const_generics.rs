@@ -933,6 +933,40 @@ fn main() i32 {
 }
 
 #[test]
+fn repeated_const_parameter_impl_specializes_the_complete_trait_header() {
+    let root = temp_dir("repeated_const_parameter_impl_specializes_the_complete_trait_header");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Select[N: usize] {
+    type Item;
+}
+
+struct Buffer[N: usize] {}
+
+extend[A: usize, B: usize] Buffer[A] : Select[B] {
+    type Item = i32;
+}
+
+extend[N: usize] Buffer[N] : Select[N] {
+    type Item = i64;
+}
+
+fn selected(value: [Buffer[3] as Select[3]]::Item) i64 {
+    value
+}
+
+fn main() i64 {
+    selected(7i64)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_generic_u8_expression_rejects_out_of_range_value() {
     let root = temp_dir("const_generic_u8_expression_rejects_out_of_range_value");
     write(
@@ -1074,6 +1108,106 @@ const OFFSET: usize = marker_offset[3]();
 
 fn main() usize {
     SIZE + OFFSET
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_method_prefers_concrete_const_argument_impl() {
+    let root = temp_dir("trait_method_prefers_concrete_const_argument_impl");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Rank[N: usize] {
+    fn rank(&self) i32;
+}
+
+struct Box {}
+
+extend[N: usize] Box : Rank[N] {
+    fn rank(&self) i32 {
+        1
+    }
+}
+
+extend Box : Rank[3] {
+    fn rank(&self) i32 {
+        3
+    }
+}
+
+fn main(box: &Box) i32 {
+    box.rank()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn expected_return_selects_trait_method_const_instance() {
+    let root = temp_dir("expected_return_selects_trait_method_const_instance");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Make[N: usize] {
+    fn make(&self) [u8; N];
+}
+
+struct Box {}
+
+extend Box : Make[2] {
+    fn make(&self) [u8; 2] {
+        [1u8, 2u8]
+    }
+}
+
+extend Box : Make[3] {
+    fn make(&self) [u8; 3] {
+        [1u8, 2u8, 3u8]
+    }
+}
+
+fn main(box: &Box) [u8; 3] {
+    box.make()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn associated_type_substitutes_const_argument_inferred_from_impl_target() {
+    let root = temp_dir("associated_type_substitutes_const_argument_inferred_from_impl_target");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Storage {
+    type Bytes;
+}
+
+struct Box[N: usize] {
+    bytes: [u8; N],
+}
+
+extend[N: usize] Box[N] : Storage {
+    type Bytes = [u8; N];
+}
+
+fn third(bytes: [Box[3] as Storage]::Bytes) u8 {
+    bytes[2]
+}
+
+fn main() i32 {
+    third([1u8, 2u8, 3u8]) as i32
 }
 "#,
     );

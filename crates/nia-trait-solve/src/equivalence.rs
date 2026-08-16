@@ -4,6 +4,8 @@
 use super::*;
 
 impl TraitSolver<'_> {
+    /// Compares normalized types, resolving associated projections when they
+    /// have a finite, unambiguous definition.
     pub fn types_equivalent(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
         self.types_equivalent_resolving_projections(left, right, &mut HashSet::new())
     }
@@ -147,7 +149,7 @@ impl TraitSolver<'_> {
                     elem: right_elem,
                 }),
             ) => {
-                left_len == right_len
+                self.array_lens_equivalent(&left_len, &right_len)
                     && self.types_equivalent_resolving_projections(left_elem, right_elem, active)
             }
             (
