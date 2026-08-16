@@ -67,6 +67,60 @@ pub fn build() i32 {
 }
 
 #[test]
+fn query_loader_discovers_module_map_root_used_only_by_a_pattern() {
+    let root = temp_dir("query_loader_discovers_module_map_root_used_only_by_a_pattern");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn classify(value: i32) i32 {
+    match value {
+        dep::EXPECTED => 1,
+        _ => 0,
+    }
+}
+"#,
+    );
+    write(&root.join("dep.nia"), "pub const EXPECTED: i32 = 7;");
+    let mut module_map = ModuleMap::new();
+    module_map.insert(
+        "dep",
+        SourcePath::new(root.join("dep.nia").to_string_lossy()),
+    );
+
+    let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+
+    assert_no_error_diagnostics(&program);
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().ends_with("dep.nia"))
+    );
+}
+
+#[test]
+fn query_loader_discovers_module_map_root_in_const_generic_parameter_type() {
+    let root = temp_dir("query_loader_discovers_module_map_root_in_const_generic_parameter_type");
+    write(&root.join("main.nia"), "fn inspect[N: dep::Marker]() () {}");
+    write(&root.join("dep.nia"), "pub struct Marker {}");
+    let mut module_map = ModuleMap::new();
+    module_map.insert(
+        "dep",
+        SourcePath::new(root.join("dep.nia").to_string_lossy()),
+    );
+
+    let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+
+    assert_no_error_diagnostics(&program);
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().ends_with("dep.nia"))
+    );
+}
+
+#[test]
 fn query_loader_injects_std_from_explicit_toolchain_layout() {
     let root = temp_dir("query_loader_injects_std_from_explicit_toolchain_layout");
     let main_path = root.join("main.nia");

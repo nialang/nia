@@ -338,6 +338,11 @@ commit as the corresponding implementation batch.
 - [x] Builtin registries now expose exhaustive variant sets with bidirectional
       name/descriptor coverage tests; persisted builtin function and const tags
       use explicit append-only numbers rather than mutable `ALL` ordering.
+- [x] Phase E canonical AST traversal now exposes pattern and generic-parameter
+      callbacks, reaches binding/for patterns and every const generic type, and
+      makes embedded pattern expressions available to semantic/reachability
+      visitors while preserving const generic types in loader dependency
+      discovery and versioned type-use products.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -201,6 +201,11 @@ enum DirectMember<T> {
 }
 
 impl<'ast> Visitor<'ast> for TypeResolver<'_> {
+    fn visit_generic_param(&mut self, _generic: &'ast GenericParam) {
+        // `with_generics` resolves const parameter types exactly once before
+        // installing the declaration's generic-name scope.
+    }
+
     fn visit_item(&mut self, item: &'ast Item) {
         match &item.kind {
             ItemKind::Struct(item_struct) => {

@@ -150,6 +150,7 @@ name = "nia-ast-walk"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
+ "nia-parser",
 ]
 
 [[package]]
