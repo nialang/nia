@@ -76,8 +76,11 @@ pub mod formats {
         PersistedFormat::new("signature-type-resolution", b"NIASR003", 3);
     pub const SIGNATURE_TYPE_LOWERING: PersistedFormat =
         PersistedFormat::new("signature-type-lowering", b"NIASL003", 3);
+    // Schema 9 records declaration-kind metadata for trait generic parameters.
+    // Older payloads cannot be decoded positionally because their following
+    // where-predicate bytes would otherwise be mistaken for this new vector.
     pub const SIGNATURE_ITEM_SIGNATURES: PersistedFormat =
-        PersistedFormat::new("signature-item-signatures", b"NIASI008", 8);
+        PersistedFormat::new("signature-item-signatures", b"NIASI009", 9);
     pub const EXTENSION_VALIDATION_DIAGNOSTICS: PersistedFormat =
         PersistedFormat::new("extension-validation-diagnostics", b"NIAEV002", 2);
     pub const EXECUTABLE_VALUE_REF_EDGES: PersistedFormat =

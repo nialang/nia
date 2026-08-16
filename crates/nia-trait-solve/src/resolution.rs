@@ -16,6 +16,8 @@ impl TraitSolver<'_> {
             .is_some_and(|program_is_enum| program_is_enum(*def_id))
     }
 
+    /// Resolves a trait goal using assumptions, visible source impls, then
+    /// compiler intrinsics, in that order.
     pub fn resolve(&mut self, goal: TraitGoal) -> TraitResolution {
         let goal = self.normalize_goal(goal);
         // Explicit assumptions describe the current generic environment and therefore outrank
@@ -39,6 +41,7 @@ impl TraitSolver<'_> {
         TraitResolution::Unsatisfied
     }
 
+    /// Selects only among visible source impls for `goal`.
     pub fn select_user_impl(&mut self, goal: TraitGoal) -> TraitSelection {
         let goal = self.normalize_goal(goal);
         self.select_user_impl_for_normalized_goal(&goal)
@@ -48,16 +51,31 @@ impl TraitSolver<'_> {
         &mut self,
         goal: &TraitGoal,
     ) -> TraitSelection {
+        // Trait implication is interpreted as a least fixed point. Re-entering
+        // the same normalized goal through impl where-clauses is therefore not
+        // a proof; only an assumption or a finite impl chain may establish it.
+        if !self.active_goals.insert(goal.clone()) {
+            return TraitSelection::Unsatisfied;
+        }
         let user_impls = self.matching_user_impls(goal);
-        if user_impls.len() > 1 {
-            return TraitSelection::Ambiguous;
-        }
-        if let Some(user_impl) = user_impls.into_iter().next() {
-            return TraitSelection::User(user_impl);
-        }
-        TraitSelection::Unsatisfied
+        let selection = match user_impls.len() {
+            0 => TraitSelection::Unsatisfied,
+            1 => TraitSelection::User(
+                user_impls
+                    .into_iter()
+                    .next()
+                    .expect("one candidate was counted"),
+            ),
+            _ => TraitSelection::Ambiguous,
+        };
+        self.active_goals.remove(goal);
+        selection
     }
 
+    /// Returns whether `goal` has a unique finite proof.
+    ///
+    /// Ambiguity is not proof, even if every remaining candidate would imply
+    /// the same marker trait.
     pub fn proves(&mut self, goal: TraitGoal) -> bool {
         matches!(
             self.resolve(goal),
@@ -65,6 +83,10 @@ impl TraitSolver<'_> {
         )
     }
 
+    /// Resolves one associated type projection to its instantiated type.
+    ///
+    /// Returns `None` for missing items, ambiguous impls, assumption-only
+    /// goals without a projection equality, and recursive projections.
     pub fn resolve_associated_type(
         &mut self,
         self_ty: InternedTyId,
@@ -83,6 +105,8 @@ impl TraitSolver<'_> {
         )
     }
 
+    /// Resolves an associated const to either a source declaration instance or
+    /// a compiler-provided value.
     pub fn resolve_associated_const(
         &mut self,
         self_ty: InternedTyId,
@@ -185,7 +209,11 @@ impl TraitSolver<'_> {
                     .associated_types
                     .iter()
                     .find(|associated_type| &associated_type.name == name)?;
-                Some(self.substitute_ty(associated_type.ty, &user_impl.substitutions))
+                Some(self.substitute_ty_with_consts(
+                    associated_type.ty,
+                    &user_impl.substitutions,
+                    &user_impl.const_substitutions,
+                ))
             }
             TraitResolution::Intrinsic(intrinsic) => self.resolve_intrinsic_associated_type(
                 intrinsic.goal.self_ty,
@@ -241,6 +269,19 @@ impl TraitSolver<'_> {
             && self.const_generic_values_equivalent(left.ty, &left.value, &right.value)
     }
 
+    pub(crate) fn array_lens_equivalent(&mut self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        if left == right {
+            return true;
+        }
+        match (
+            self.const_arg_from_array_len(left),
+            self.const_arg_from_array_len(right),
+        ) {
+            (Some(left), Some(right)) => self.const_generic_args_equivalent(&left, &right),
+            _ => false,
+        }
+    }
+
     pub(crate) fn const_generic_values_equivalent(
         &self,
         ty: InternedTyId,
@@ -275,7 +316,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn intrinsic_trait_impl_exists(&mut self, goal: &TraitGoal) -> bool {
+    pub(crate) fn intrinsic_trait_impl_exists(&mut self, goal: &TraitGoal) -> bool {
         let TraitId::Builtin(trait_id) = goal.trait_id else {
             return false;
         };
@@ -397,7 +438,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn resolve_intrinsic_associated_type(
+    pub(crate) fn resolve_intrinsic_associated_type(
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
@@ -500,7 +541,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn resolve_intrinsic_associated_const(
+    pub(crate) fn resolve_intrinsic_associated_const(
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
@@ -525,7 +566,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn intrinsic_deref_target_ty(
+    pub(crate) fn intrinsic_deref_target_ty(
         &mut self,
         self_ty: InternedTyId,
         require_mutable: bool,
@@ -551,7 +592,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn intrinsic_index_output_ty(
+    pub(crate) fn intrinsic_index_output_ty(
         &mut self,
         self_ty: InternedTyId,
         index_ty: InternedTyId,
@@ -590,7 +631,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn intrinsic_slice_output_ty(
+    pub(crate) fn intrinsic_slice_output_ty(
         &mut self,
         self_ty: InternedTyId,
         require_mutable: bool,
@@ -634,7 +675,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn is_usize_range(&self, ty: InternedTyId) -> bool {
+    pub(crate) fn is_usize_range(&self, ty: InternedTyId) -> bool {
         let ty = self.normalize(ty);
         let Some(TyKind::Range { kind, bound }) = self.interner.get(ty) else {
             return false;

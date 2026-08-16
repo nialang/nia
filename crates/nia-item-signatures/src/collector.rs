@@ -386,6 +386,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TraitSignature {
                 generics: generic_signature_names(&item_trait.generics),
+                generic_params: self.generic_param_signatures(&item_trait.generics),
                 where_predicates: self.where_predicate_signatures(&item_trait.where_clause),
                 supertraits: item_trait
                     .supertraits

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::{FunctionSignature, ParamSignature, TraitImplSignature};
-use nia_symbol::{SymbolId, SymbolMap};
+use nia_symbol::SymbolMap;
 use nia_ty::{ArrayLenTy, ConstExprSummary, TyKind, TypeEquivalence, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 
@@ -97,13 +97,11 @@ impl SignatureTypeEquivalence<'_> {
 pub(super) fn lower_trait_method_signature(
     input: TraitMethodSubstitution<'_>,
 ) -> FunctionSignature {
-    let substitutions = input
-        .trait_generics
-        .iter()
-        .zip(input.trait_args)
-        .map(|(generic, arg)| (*generic, *arg))
-        .collect::<SymbolMap<_>>();
-    let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
+    let (substitutions, const_substitutions) = substitutions_from_generic_params(
+        input.trait_generic_params,
+        input.trait_args,
+        input.trait_const_args,
+    );
     let target = TypeSubstitutionTarget {
         projection: Some(ProjectionImplContext {
             trait_id: input.trait_id,
@@ -199,7 +197,7 @@ pub(super) struct TraitMethodSubstitution<'a> {
     // Required trait methods are authored in the trait module but are checked
     // against an impl in the current module. These fields keep
     // the substitution environment and projection-impl context in one place.
-    pub(super) trait_generics: &'a [SymbolId],
+    pub(super) trait_generic_params: &'a [nia_item_signatures::GenericParamSignature],
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
     pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
     pub(super) self_ty: nia_ids::InternedTyId,
@@ -878,16 +876,37 @@ pub(super) fn substitute_type(
     }
 }
 
-pub(super) fn const_substitutions_from_self_describing_args(
+pub(super) fn substitutions_from_generic_params(
+    params: &[nia_item_signatures::GenericParamSignature],
+    type_args: &[nia_ids::InternedTyId],
     const_args: &[nia_ty::ConstGenericArg],
-) -> SymbolMap<nia_ty::ConstGenericArg> {
-    const_args
-        .iter()
-        .filter_map(|arg| match &arg.value {
-            nia_ty::ConstGenericValue::GenericParam(name) => Some((*name, arg.clone())),
-            _ => None,
-        })
-        .collect()
+) -> (
+    SymbolMap<nia_ids::InternedTyId>,
+    SymbolMap<nia_ty::ConstGenericArg>,
+) {
+    // Type and const arguments are stored in separate lists on applied types.
+    // Walking the declaration-order parameter list with one cursor per kind
+    // reconstructs the original mixed parameter list without assuming that
+    // const arguments are self-describing or grouped in the declaration.
+    let mut type_args = type_args.iter().copied();
+    let mut const_args = const_args.iter().cloned();
+    let mut substitutions = SymbolMap::default();
+    let mut const_substitutions = SymbolMap::default();
+    for param in params {
+        match param.kind {
+            nia_item_signatures::GenericParamSignatureKind::Type => {
+                if let Some(arg) = type_args.next() {
+                    substitutions.insert(param.name, arg);
+                }
+            }
+            nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
+                if let Some(arg) = const_args.next() {
+                    const_substitutions.insert(param.name, arg);
+                }
+            }
+        }
+    }
+    (substitutions, const_substitutions)
 }
 
 fn substitute_const_arg(

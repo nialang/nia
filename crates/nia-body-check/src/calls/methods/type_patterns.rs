@@ -32,6 +32,14 @@ impl<'a> BodyChecker<'a> {
         self.pattern_subsumes_inner(general, specific, &mut PatternSubstitutions::default())
     }
 
+    pub(crate) fn const_patterns_subsume(
+        &mut self,
+        general: &[nia_ty::ConstGenericArg],
+        specific: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        self.const_pattern_args_subsume(general, specific, &mut PatternSubstitutions::default())
+    }
+
     fn pattern_subsumes_inner(
         &mut self,
         general: InternedTyId,
