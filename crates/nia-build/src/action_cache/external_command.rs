@@ -14,7 +14,9 @@ use std::{
 };
 
 use nia_compat::formats::{EXTERNAL_COMMAND_CACHE, EXTERNAL_COMMAND_ENTRY};
-use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{
+    FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
+};
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
@@ -63,7 +65,7 @@ const EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-input-contents.v2");
 const EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExternalCommandContentIdentity {
     length: u64,
     fingerprint: QueryFingerprint,
@@ -78,11 +80,26 @@ impl ExternalCommandContentIdentity {
         Self::from_reader(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN, reader, length)
     }
 
+    #[cfg(test)]
     pub(crate) fn input_from_bytes(bytes: &[u8]) -> Self {
         Self {
             length: bytes.len() as u64,
             fingerprint: bytes_fingerprint(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN, bytes),
         }
+    }
+
+    pub(crate) fn input_from_encoder(
+        length: u64,
+        encode: impl FnOnce(&mut QueryFingerprintBytesWriter<'_>) -> io::Result<()>,
+    ) -> io::Result<Self> {
+        let mut builder = QueryFingerprintBuilder::new(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN);
+        let mut writer = builder.bytes_writer(length);
+        encode(&mut writer)?;
+        writer.finish()?;
+        Ok(Self {
+            length,
+            fingerprint: builder.finish(),
+        })
     }
 
     /// Fingerprints exactly the size observed on the opened file handle. A
@@ -856,6 +873,18 @@ mod tests {
         )
         .expect_err("truncation must be rejected");
         assert_eq!(truncation.kind(), io::ErrorKind::UnexpectedEof);
+
+        let encoded = b"directory encoding";
+        let encoded_identity =
+            ExternalCommandContentIdentity::input_from_encoder(encoded.len() as u64, |writer| {
+                writer.write_chunk(&encoded[..9])?;
+                writer.write_chunk(&encoded[9..])
+            })
+            .expect("stream encoded identity");
+        assert_eq!(
+            encoded_identity,
+            ExternalCommandContentIdentity::input_from_bytes(encoded)
+        );
     }
 
     fn identity() -> ExternalCommandCacheIdentity {

@@ -2226,6 +2226,55 @@ fn external_command_cache_fingerprints_directory_inputs() {
     );
 }
 
+#[test]
+fn streamed_directory_identity_preserves_the_registered_encoding() {
+    fn legacy_encoding(path: &Path) -> Vec<u8> {
+        let mut entries = fs::read_dir(path)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        entries.sort_by(|left, right| {
+            left.file_name()
+                .as_encoded_bytes()
+                .cmp(right.file_name().as_encoded_bytes())
+        });
+        let mut encoded = b"NIA-DIR1\0".to_vec();
+        encoded.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+        for entry in entries {
+            let name = entry.file_name();
+            let name = name.as_encoded_bytes();
+            encoded.extend_from_slice(&(name.len() as u64).to_le_bytes());
+            encoded.extend_from_slice(name);
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            if metadata.is_file() {
+                let bytes = fs::read(path).unwrap();
+                encoded.push(0);
+                encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+                encoded.extend_from_slice(&bytes);
+            } else {
+                let nested = legacy_encoding(&path);
+                encoded.push(1);
+                encoded.extend_from_slice(&(nested.len() as u64).to_le_bytes());
+                encoded.extend_from_slice(&nested);
+            }
+        }
+        encoded
+    }
+
+    let invocation = test_invocation();
+    let input = invocation.package_root.join("input-dir");
+    fs::create_dir_all(input.join("nested")).unwrap();
+    fs::write(input.join("z.o"), b"last").unwrap();
+    fs::write(input.join("nested/a.o"), b"first").unwrap();
+    let expected = ExternalCommandContentIdentity::input_from_bytes(&legacy_encoding(&input));
+
+    let actual = read_external_identity_input(&external_action(), &input, "test directory")
+        .expect("stream directory identity");
+
+    assert_eq!(actual, expected);
+}
+
 #[cfg(unix)]
 #[test]
 fn external_command_cache_rejects_directory_symlink_inputs() {
