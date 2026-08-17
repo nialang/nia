@@ -541,6 +541,30 @@ fn main(external: &Fn(i32) i32, base: i32, stop: bool) () {
 }
 
 #[test]
+fn assignment_place_effects_precede_rhs_provenance_reads() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn main(destination: &mut &Fn(i32) i32, external: &Fn(i32) i32, base: i32) () {
+    let local = \[base] value: i32 -> { base + value };
+    let mut selected = external;
+    ({ selected = &local; destination }).* = selected;
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("stored outside its local frame")
+    );
+}
+
+#[test]
 fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry = fixture.entry_id();

@@ -537,6 +537,9 @@ commit as the corresponding implementation batch.
 - [x] Phase C closure return and error-propagation paths now replay all active
       lexical defers against an isolated exit environment before recording the
       exit, so later fallthrough overwrites cannot hide deferred escapes.
+- [x] Phase C closure assignment analysis now evaluates dereference/index place
+      effects before the RHS, matching Function IR and preventing destination
+      expressions from hiding the callable provenance actually stored.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.

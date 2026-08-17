@@ -654,6 +654,11 @@ impl<'a> Analyzer<'a> {
                 ))
             }
             TypedExprKind::Assign { place, rhs, .. } => {
+                // Function lowering materializes the destination, including
+                // dereference and index expressions, before evaluating the
+                // right-hand side. Those expressions may mutate locals read by
+                // the RHS, so preserve the same order in provenance transfer.
+                self.analyze_place(place, env);
                 let value = self.analyze_expr(rhs, env);
                 self.assign_place(place, &value, env, expr.span);
                 value
@@ -1048,7 +1053,6 @@ impl<'a> Analyzer<'a> {
         env: &mut Environment,
         span: Span,
     ) {
-        self.analyze_place(place, env);
         match &place.base {
             PlaceBase::Local(local_id) if place.elems.is_empty() => {
                 env.insert(*local_id, value.clone());
@@ -1897,5 +1901,83 @@ mod tests {
             stack_backed: true,
         }));
         assert_eq!(env.get(&selected), Some(&stack_backed));
+    }
+
+    #[test]
+    fn assignment_places_are_evaluated_before_the_rhs() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let callable_ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: unit_ty,
+        });
+        let selected = LocalId(0);
+        let stack_backed = LocalId(1);
+        let local = |local_id| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Local(local_id),
+        };
+        let place_effect = TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty: callable_ty,
+                    base: PlaceBase::Local(selected),
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(local(stack_backed)),
+            },
+        };
+        let assignment = TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty: callable_ty,
+                    base: PlaceBase::Deref(Box::new(place_effect)),
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(local(selected)),
+            },
+        };
+        let mut env = Environment::from([
+            (
+                selected,
+                ValueProvenance::from_value(Provenances::from([Provenance::Input(
+                    InputSource::Parameter(0),
+                )])),
+            ),
+            (
+                stack_backed,
+                ValueProvenance::from_value(Provenances::from([Provenance::CallableClosure {
+                    closure_id,
+                    stack_backed: true,
+                }])),
+            ),
+        ]);
+        let summaries = HashMap::new();
+        let mut analyzer = Analyzer::new(&types, &summaries, None);
+
+        analyzer.analyze_expr(&assignment, &mut env);
+
+        assert!(analyzer.escaped.contains(&Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        }));
     }
 }
