@@ -426,8 +426,8 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|arg| self.normalize_instance_arg_type(*arg))
             .collect::<Vec<_>>();
-        let substitutions = ModuleLowerer::generic_substitutions(&base.generics, &imported_args);
-        let const_substitutions = self.const_generic_substitutions_for_def(def_id, &const_args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &imported_args, &const_args);
         let substitution_id = self.intern_type_and_const_substitutions_with_self(
             self_arg,
             &substitutions,

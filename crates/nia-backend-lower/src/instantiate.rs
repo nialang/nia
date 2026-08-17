@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use crate::{
     ExtensionTraitMethodCandidate, ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId,
 };
-use nia_ast::generic_param_names;
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
@@ -100,20 +99,26 @@ impl<'a> ModuleLowerer<'a> {
         generics.iter().cloned().zip(args.iter().copied()).collect()
     }
 
+    /// Rebuilds type and const substitutions from declaration-kind metadata.
+    ///
+    /// Instance identities store type and const arguments in separate vectors,
+    /// while source declarations may interleave their parameters. Walking the
+    /// effective declaration order with independent cursors prevents a const
+    /// parameter from consuming the next type argument.
     pub(crate) fn generic_substitutions_and_consts_for_def(
         &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> (SymbolMap<InternedTyId>, SymbolMap<nia_ty::ConstGenericArg>) {
-        let Some(def) = crate::program_def(self.input, def_id) else {
+        let Some(generic_params) = self.effective_generic_params_for_def(def_id) else {
             return (SymbolMap::default(), SymbolMap::default());
         };
         let mut type_index = 0;
         let mut const_index = 0;
         let mut substitutions = SymbolMap::default();
         let mut const_substitutions = SymbolMap::default();
-        for generic in &def.generic_params {
+        for generic in &generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {
                     if let Some(arg) = args.get(type_index).copied() {
@@ -132,22 +137,11 @@ impl<'a> ModuleLowerer<'a> {
         (substitutions, const_substitutions)
     }
 
-    pub(crate) fn const_generic_substitutions_for_def(
-        &mut self,
+    fn effective_generic_params_for_def(
+        &self,
         def_id: GlobalDefId,
-        const_args: &[nia_ty::ConstGenericArg],
-    ) -> SymbolMap<nia_ty::ConstGenericArg> {
-        if let Some(method) = self.input.program.extension_methods().method_by_id(def_id) {
-            return method
-                .effective_const_generics
-                .iter()
-                .copied()
-                .zip(const_args.iter().cloned())
-                .collect();
-        }
-        let Some(def) = crate::program_def(self.input, def_id) else {
-            return SymbolMap::default();
-        };
+    ) -> Option<Vec<nia_ast::GenericParam>> {
+        let def = crate::program_def(self.input, def_id)?;
         let mut generic_params = def
             .parent
             .and_then(|parent| {
@@ -159,23 +153,10 @@ impl<'a> ModuleLowerer<'a> {
                     },
                 )
             })
-            .map(|parent| parent.generic_params.clone())
+            .map(|parent| parent.generic_params)
             .unwrap_or_default();
-        generic_params.extend(def.generic_params.iter().cloned());
-        let mut const_index = 0;
-        let mut const_substitutions = SymbolMap::default();
-        for generic in &generic_params {
-            match generic.kind {
-                nia_ast::GenericParamKind::Type => {}
-                nia_ast::GenericParamKind::Const { .. } => {
-                    if let Some(arg) = const_args.get(const_index).cloned() {
-                        const_substitutions.insert(generic.name, arg);
-                    }
-                    const_index += 1;
-                }
-            }
-        }
-        const_substitutions
+        generic_params.extend(def.generic_params);
+        Some(generic_params)
     }
 
     pub(crate) fn effective_generics(
@@ -1304,43 +1285,51 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(super) fn effective_instance_args_for_def(
+    /// Reads concrete type arguments for `def_id` in declaration type-parameter order.
+    ///
+    /// Generic parameter names include const parameters, but function-instance
+    /// identities store type and const arguments separately. Filtering by kind
+    /// here keeps implicit instance references aligned with that identity.
+    pub(super) fn effective_instance_type_args_for_def(
         &mut self,
         def_id: GlobalDefId,
         substitutions: TypeSubstitutionId,
     ) -> Option<Vec<InternedTyId>> {
-        let local_generic_names;
-        let own_generics = if def_id.module_id == self.input.module_id {
-            local_generic_names = self
-                .function_sources
-                .get(&def_id)
-                .map(|source| generic_param_names(&source.function.generics))
-                .unwrap_or_default();
-            local_generic_names.as_slice()
-        } else {
-            self.input
-                .program
-                .functions()
-                .get(&def_id)
-                .map(|signature| signature.signature.generics.as_slice())
-                .unwrap_or(&[])
-        };
-        let generics = self.effective_generics(def_id, own_generics).to_vec();
-        if generics.is_empty() {
+        let generic_params = self.effective_generic_params_for_def(def_id)?;
+        if generic_params.is_empty() {
             return Some(Vec::new());
         }
-        generics
+        generic_params
             .iter()
-            .map(|generic| self.type_substitution(substitutions, generic))
+            .filter(|generic| matches!(generic.kind, nia_ast::GenericParamKind::Type))
+            .map(|generic| self.type_substitution(substitutions, &generic.name))
             .collect::<Option<Vec<_>>>()
             .map(|args| self.canonicalize_instance_args(&args))
+    }
+
+    /// Reads concrete const arguments in declaration const-parameter order.
+    pub(super) fn effective_instance_const_args_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        substitutions: TypeSubstitutionId,
+    ) -> Option<Vec<nia_ty::ConstGenericArg>> {
+        self.effective_generic_params_for_def(def_id)?
+            .iter()
+            .filter(|generic| matches!(generic.kind, nia_ast::GenericParamKind::Const { .. }))
+            .map(|generic| self.const_substitution(substitutions, &generic.name))
+            .collect::<Option<Vec<_>>>()
+            .map(|args| {
+                args.iter()
+                    .map(|arg| self.canonicalize_instance_const_arg(arg))
+                    .collect()
+            })
     }
 
     pub(super) fn global_instance_args_for_def(
         &mut self,
         def_id: GlobalDefId,
         substitutions: TypeSubstitutionId,
-    ) -> Option<(ModuleId, Vec<InternedTyId>)> {
+    ) -> Option<(ModuleId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let def = self.input.defs.defs.get(def_id.def_id)?;
         if def.kind != nia_defs::DefKind::Global {
             return None;
@@ -1363,11 +1352,12 @@ impl<'a> ModuleLowerer<'a> {
         if self.instantiation.defer_concrete_trait_diagnostics {
             return None;
         }
-        let args = self.effective_instance_args_for_def(owner_def_id, substitutions)?;
-        if args.is_empty() {
+        let args = self.effective_instance_type_args_for_def(owner_def_id, substitutions)?;
+        let const_args = self.effective_instance_const_args_for_def(owner_def_id, substitutions)?;
+        if args.is_empty() && const_args.is_empty() {
             None
         } else {
-            Some((self.current_arg_module_id(), args))
+            Some((self.current_arg_module_id(), args, const_args))
         }
     }
 

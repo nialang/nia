@@ -560,6 +560,82 @@ fn main() usize {
 }
 
 #[test]
+fn instantiates_interleaved_type_and_const_function_generics_by_kind() {
+    let source = r#"
+fn choose[T, N: usize, U](left: T, right: U) U {
+    right
+}
+
+fn main() i64 {
+    choose[i32, 3, i64](1, 9i64)
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let interner = lowering.append(module.id);
+    let instance = module
+        .function_instances
+        .iter()
+        .find(|instance| instance.name == sym("choose"))
+        .expect("choose instance");
+    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i64_ty = interner.primitive(nia_ty::PrimitiveTy::I64);
+
+    assert_eq!(instance.args, vec![i32_ty, i64_ty]);
+    assert_eq!(instance.const_args.len(), 1);
+    assert_eq!(instance.params[0].local_ty, i32_ty);
+    assert_eq!(instance.params[1].local_ty, i64_ty);
+    assert_eq!(instance.return_type, i64_ty);
+    assert_eq!(
+        instance.function_body.as_ref().map(|body| body.ty),
+        Some(i64_ty)
+    );
+}
+
+#[test]
+fn instantiates_nested_const_generic_callee_identity() {
+    let source = r#"
+fn inner[N: usize]() usize {
+    N
+}
+
+fn outer[N: usize]() usize {
+    inner[N]()
+}
+
+fn main() usize {
+    outer[3]()
+}
+"#;
+    let lowering = lower_source(source);
+    let outer = lowering.program.modules[0]
+        .function_instances
+        .iter()
+        .find(|instance| instance.name == sym("outer"))
+        .expect("outer instance");
+    let value = first_terminal_value(outer.function_body.as_ref().expect("outer body"));
+    let FunctionExprKind::Call {
+        callee:
+            nia_function_ir::FunctionCallee::FunctionInstance {
+                const_args, args, ..
+            },
+        ..
+    } = &value.kind
+    else {
+        panic!("expected concrete inner function instance call: {value:?}");
+    };
+
+    assert!(args.is_empty());
+    assert!(matches!(
+        const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 3
+    ));
+}
+
+#[test]
 fn instantiates_nominal_const_generic_array_lengths() {
     let source = r#"
 struct Buffer[T, N: usize] {
@@ -665,6 +741,42 @@ fn main() i32 {
             .iter()
             .all(|global| global.args.len() == 1 && global.arg_module_id == lowering.module_id)
     );
+}
+
+#[test]
+fn instantiates_interleaved_generic_local_static_types_by_kind() {
+    let source = r#"
+fn slot[T, N: usize, U]() &mut [U; N] {
+    static mut item: [U; N];
+    &mut item
+}
+
+fn main() i32 {
+    let mut value = slot[i32, 3, i64]();
+    _ = value;
+    0
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let interner = lowering.append(module.id);
+    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i64_ty = interner.primitive(nia_ty::PrimitiveTy::I64);
+    let item = module
+        .global_instances
+        .iter()
+        .find(|global| global.name == sym("item"))
+        .unwrap_or_else(|| panic!("item global instance: {:?}", module.global_instances));
+
+    assert_eq!(item.args, vec![i32_ty, i64_ty]);
+    assert_eq!(item.const_args.len(), 1);
+    assert!(matches!(
+        lowering.type_store.get(item.ty),
+        Some(nia_ty::TyKind::Array {
+            len: nia_ty::ArrayLenTy::ConstValue(3),
+            elem,
+        }) if *elem == i64_ty
+    ));
 }
 
 #[test]
