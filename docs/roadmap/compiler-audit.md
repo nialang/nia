@@ -534,6 +534,9 @@ commit as the corresponding implementation batch.
 - [x] Phase C closure defer analysis now delays registered expressions until
       scope exit and applies them in LIFO order after the tail value, matching
       Function IR and exposing later callable-state updates to deferred escapes.
+- [x] Phase C closure return and error-propagation paths now replay all active
+      lexical defers against an isolated exit environment before recording the
+      exit, so later fallthrough overwrites cannot hide deferred escapes.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.
