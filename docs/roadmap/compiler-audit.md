@@ -296,6 +296,10 @@ commit as the corresponding implementation batch.
       hardened; broader backend audit remains open.
 - [x] Unix build stale-lock reclamation made race-resistant with inode locks;
       non-Unix fallback and broader build/cache state audit remain open.
+- [x] Build lock owner records and Linux process-start probes now use small
+      stream-enforced protocol budgets. Oversized cache lock files cannot drive
+      unbounded `read_to_string` allocations or smuggle a valid owner prefix,
+      and owner Drop will not remove an oversized replacement record.
 - [x] Unix `nia-test-support` process-slot reclamation now retains owner-file
       locks, preventing stale slot cleanup from deleting a successor permit.
 - [x] Phase A owner regression evidence: `nia-body-check` 228 libtest cases
