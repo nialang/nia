@@ -280,6 +280,7 @@ struct Analyzer<'a> {
     diagnostics: Option<DiagnosticSink<'a>>,
     scope_depth: usize,
     closure_scopes: HashMap<ClosureId, usize>,
+    defer_scopes: Vec<Vec<TypedExpr>>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -297,6 +298,7 @@ impl<'a> Analyzer<'a> {
             diagnostics,
             scope_depth: 0,
             closure_scopes: HashMap::new(),
+            defer_scopes: Vec::new(),
         }
     }
 
@@ -335,7 +337,7 @@ impl<'a> Analyzer<'a> {
         body: &TypedBody,
         env: &mut Environment,
     ) -> ValueProvenance {
-        let mut deferred = Vec::new();
+        self.defer_scopes.push(Vec::new());
         for stmt in &body.stmts {
             match &stmt.kind {
                 TypedStmtKind::Binding(binding) => {
@@ -353,12 +355,17 @@ impl<'a> Analyzer<'a> {
                 TypedStmtKind::Expr(expr) => {
                     self.analyze_expr(expr, env);
                 }
-                TypedStmtKind::Defer(expr) => deferred.push(expr),
+                TypedStmtKind::Defer(expr) => self
+                    .defer_scopes
+                    .last_mut()
+                    .expect("body analysis must retain its defer scope")
+                    .push(expr.clone()),
                 TypedStmtKind::Return(value) => {
                     let value = value
                         .as_ref()
                         .map(|value| self.analyze_expr(value, env))
                         .unwrap_or_default();
+                    self.analyze_active_defers(env);
                     self.record_return(&value, stmt.span);
                 }
                 TypedStmtKind::ForIn(for_in) => {
@@ -385,10 +392,35 @@ impl<'a> Analyzer<'a> {
             .as_deref()
             .map(|tail| self.analyze_expr(tail, env))
             .unwrap_or_default();
+        let deferred = self
+            .defer_scopes
+            .pop()
+            .expect("body analysis must pop its defer scope");
         for deferred in deferred.into_iter().rev() {
-            self.analyze_expr(deferred, env);
+            self.analyze_expr(&deferred, env);
         }
         tail
+    }
+
+    fn analyze_active_defers(&mut self, env: &Environment) {
+        // A return or error propagation evaluates its payload first, then
+        // unwinds every registered lexical defer from inner to outer. Analyze
+        // against a clone because the terminated path must not mutate the
+        // fallthrough environment that this path-insensitive pass also joins.
+        // Remove the scopes during replay so a `return` nested inside a defer
+        // cannot recursively schedule the same unwind a second time.
+        let active_scopes = std::mem::take(&mut self.defer_scopes);
+        let deferred = active_scopes
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev())
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut exit_env = env.clone();
+        for deferred in deferred {
+            self.analyze_expr(&deferred, &mut exit_env);
+        }
+        self.defer_scopes = active_scopes;
     }
 
     fn analyze_loop(&mut self, body: &TypedBody, outer: &mut Environment, mut head: Environment) {
@@ -611,6 +643,7 @@ impl<'a> Analyzer<'a> {
             ),
             TypedExprKind::Try { expr: inner, .. } => {
                 let value = self.analyze_expr(inner, env);
+                self.analyze_active_defers(env);
                 self.record_error_return(&value.error, expr.span);
                 ValueProvenance::from_value(value.value)
             }
@@ -1790,5 +1823,79 @@ mod tests {
             closure_id,
             stack_backed: true,
         }));
+    }
+
+    #[test]
+    fn active_return_defers_use_an_isolated_exit_environment() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let callable_ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: unit_ty,
+        });
+        let selected = LocalId(0);
+        let safe = LocalId(1);
+        let local = |local_id| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Local(local_id),
+        };
+        let assign = |base, rhs| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty: callable_ty,
+                    base,
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(rhs),
+            },
+        };
+        let stack_backed =
+            ValueProvenance::from_value(Provenances::from([Provenance::CallableClosure {
+                closure_id,
+                stack_backed: true,
+            }]));
+        let env = Environment::from([
+            (selected, stack_backed.clone()),
+            (
+                safe,
+                ValueProvenance::from_value(Provenances::from([Provenance::Input(
+                    InputSource::Parameter(0),
+                )])),
+            ),
+        ]);
+        let summaries = HashMap::new();
+        let mut analyzer = Analyzer::new(&types, &summaries, None);
+        analyzer.defer_scopes.push(vec![
+            assign(PlaceBase::Local(selected), local(safe)),
+            assign(
+                PlaceBase::Global(GlobalDefId {
+                    module_id,
+                    def_id: DefId(2),
+                }),
+                local(selected),
+            ),
+        ]);
+
+        analyzer.analyze_active_defers(&env);
+
+        assert!(analyzer.escaped.contains(&Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        }));
+        assert_eq!(env.get(&selected), Some(&stack_backed));
     }
 }
