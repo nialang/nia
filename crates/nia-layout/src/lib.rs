@@ -23,9 +23,9 @@ use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
-    EnumSignature, EnumVariantPayloadSignature, GenericParamSignature, GenericParamSignatureKind,
-    ItemSignatures, ProgramEnumSignature, ProgramStructSignature, ProgramTypeAliasSignature,
-    ProgramUnionSignature, StructSignature, TypeAliasSignature, UnionSignature,
+    EnumSignature, EnumVariantPayloadSignature, ItemSignatures, ProgramEnumSignature,
+    ProgramStructSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
+    TypeAliasSignature, UnionSignature, generic_argument_substitutions,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
@@ -1007,6 +1007,11 @@ impl<'a> LayoutComputer<'a> {
         if let Some(signature) = self.signatures.enums.get(&def_id.def_id).cloned() {
             return self.enum_layout(span, Some(def_id.def_id), &signature);
         }
+        if let Some(signature) = self.signatures.type_aliases.get(&def_id.def_id).cloned() {
+            // Layout may run on semantic roots before normalization has replaced
+            // aliases. Expand local aliases here just as the program path does.
+            return self.type_alias_layout(span, &signature, args, const_args);
+        }
         None
     }
 
@@ -1106,13 +1111,13 @@ impl<'a> LayoutComputer<'a> {
             && let Some(signature) = program_type_aliases.get(&def_id).cloned()
         {
             let signature = signature.signature;
-            return self.type_alias_layout(span, &signature, args);
+            return self.type_alias_layout(span, &signature, args, const_args);
         }
         if let Some(program_type_alias) = self.program.type_alias
             && let Some(signature) = program_type_alias(def_id)
         {
             let signature = signature.signature;
-            return self.type_alias_layout(span, &signature, args);
+            return self.type_alias_layout(span, &signature, args, const_args);
         }
         None
     }
@@ -1122,21 +1127,15 @@ impl<'a> LayoutComputer<'a> {
         span: Span,
         signature: &TypeAliasSignature,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
-        if signature.generics.len() != args.len() {
-            return None;
-        }
-        let substitutions: SymbolMap<InternedTyId> = signature
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect();
+        let (substitutions, const_substitutions) =
+            generic_argument_substitutions(&signature.generic_params, args, const_args)?;
         let target = substitute_layout_ty(
             &self.type_context,
             signature.target,
             &substitutions,
-            &SymbolMap::default(),
+            &const_substitutions,
         );
         self.layout_ty(target, span)
     }
@@ -1158,7 +1157,7 @@ impl<'a> LayoutComputer<'a> {
             return Some(existing.layout.clone());
         }
         let (substitutions, const_substitutions) =
-            aggregate_substitutions(&signature.generic_params, args, const_args)?;
+            generic_argument_substitutions(&signature.generic_params, args, const_args)?;
         let local_key = StructLayoutKey {
             def_id: def_id.def_id,
             args: args.to_vec(),
@@ -1191,7 +1190,7 @@ impl<'a> LayoutComputer<'a> {
             return Some(existing.layout.clone());
         }
         let (substitutions, const_substitutions) =
-            aggregate_substitutions(&signature.generic_params, args, const_args)?;
+            generic_argument_substitutions(&signature.generic_params, args, const_args)?;
         if signature.fields.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -1313,7 +1312,7 @@ impl<'a> LayoutComputer<'a> {
             return Some(existing.layout.clone());
         }
         let (substitutions, const_substitutions) =
-            aggregate_substitutions(&signature.generic_params, args, const_args)?;
+            generic_argument_substitutions(&signature.generic_params, args, const_args)?;
         if !self.visiting_structs.insert(key.clone()) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -1353,7 +1352,7 @@ impl<'a> LayoutComputer<'a> {
             return Some(existing.layout.clone());
         }
         let (substitutions, const_substitutions) =
-            aggregate_substitutions(&signature.generic_params, args, const_args)?;
+            generic_argument_substitutions(&signature.generic_params, args, const_args)?;
         if signature.fields.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
@@ -1534,31 +1533,6 @@ fn substitute_layout_ty(
         &|name| const_substitutions.get(name).cloned(),
         None,
     )
-}
-
-fn aggregate_substitutions(
-    params: &[GenericParamSignature],
-    args: &[InternedTyId],
-    const_args: &[ConstGenericArg],
-) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
-    let mut type_index = 0;
-    let mut const_index = 0;
-    let mut substitutions = SymbolMap::default();
-    let mut const_substitutions = SymbolMap::default();
-    for param in params {
-        match param.kind {
-            GenericParamSignatureKind::Type => {
-                substitutions.insert(param.name, *args.get(type_index)?);
-                type_index += 1;
-            }
-            GenericParamSignatureKind::Const { .. } => {
-                const_substitutions.insert(param.name, const_args.get(const_index)?.clone());
-                const_index += 1;
-            }
-        }
-    }
-    (type_index == args.len() && const_index == const_args.len())
-        .then_some((substitutions, const_substitutions))
 }
 
 #[cfg(test)]

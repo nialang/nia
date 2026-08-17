@@ -120,6 +120,24 @@ fn id(p: RawPtr[u8]) &u8 {
 }
 
 #[test]
+fn codegens_interleaved_type_and_const_generic_aliases() {
+    let root = temp_dir("codegens_interleaved_type_and_const_generic_aliases");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Mixed[T, N: usize, U] = ([T; N], U);
+
+fn id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] {
+    value
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn struct_where_clause_constrains_nominal_type_arguments() {
     let root = temp_dir("struct_where_clause_constrains_nominal_type_arguments");
     write(

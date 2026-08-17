@@ -203,6 +203,10 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
             DefId(6),
             item_signatures::TypeAliasSignature {
                 generics: vec![generic_name],
+                generic_params: vec![item_signatures::GenericParamSignature {
+                    name: generic_name,
+                    kind: item_signatures::GenericParamSignatureKind::Type,
+                }],
                 target: nominal,
                 span,
             },

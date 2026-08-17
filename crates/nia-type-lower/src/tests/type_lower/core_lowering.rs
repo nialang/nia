@@ -116,6 +116,55 @@ fn use_buffer(buf: Buffer[u8, 4]) () {}
 }
 
 #[test]
+fn lowers_interleaved_type_and_const_alias_arguments() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+type Mixed[T, N: usize, U] = ([T; N], U);
+fn consume(value: Mixed[u8, 4, u16]) () {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_types(&module, &defs);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let mixed_ty = function.params[0].ty.as_ref().expect("parameter type");
+    let lowered_mixed = lowered
+        .ty_for_key(&mixed_ty.node_key)
+        .expect("lowered Mixed type");
+    let Some(TyKind::Nominal {
+        args, const_args, ..
+    }) = type_store.get(lowered_mixed)
+    else {
+        panic!("expected nominal Mixed type");
+    };
+    assert!(matches!(
+        args.as_slice(),
+        [first, second]
+            if type_store.get(*first) == Some(&TyKind::Primitive(PrimitiveTy::U8))
+                && type_store.get(*second) == Some(&TyKind::Primitive(PrimitiveTy::U16))
+    ));
+    assert!(matches!(
+        const_args.as_slice(),
+        [ConstGenericArg {
+            value: ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 4
+    ));
+}
+
+#[test]
 fn lowers_external_const_generic_parameter_types_in_their_defining_module() {
     let mut module_ids = ModuleIdAllocator::new();
     let defining_module_id = module_ids.allocate();

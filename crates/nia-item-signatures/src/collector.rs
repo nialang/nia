@@ -504,6 +504,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TypeAliasSignature {
                 generics: generic_signature_names(&alias.generics),
+                generic_params: self.generic_param_signatures(&alias.generics),
                 target: self.type_alias_target(item, alias),
                 span: item.span,
             },

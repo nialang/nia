@@ -488,6 +488,10 @@ commit as the corresponding implementation batch.
       to equal physical entry order and validates every per-entry trait type and
       const-argument type, preventing malformed but otherwise unreferenced
       tables from reaching LLVM array emission.
+- [x] Phase A/B type aliases now retain declaration-order generic kinds in
+      signatures and persistent caches, then rebuild separate type/const
+      substitutions through one documented owner helper. Normalization and
+      layout regressions cover interleaved type/const aliases end to end.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

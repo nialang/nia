@@ -3,10 +3,10 @@ use std::collections::{HashMap, HashSet};
 
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, InternedTyId, ModuleId};
-use nia_item_signatures::{ItemSignatures, TypeAliasSignature};
+use nia_item_signatures::{ItemSignatures, TypeAliasSignature, generic_argument_substitutions};
 use nia_span::Span;
 use nia_symbol::SymbolMap;
-use nia_ty::{ArrayLenTy, TyKind, TypeStore, TypeStoreAppend};
+use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeNormalization {
@@ -183,7 +183,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect::<Vec<_>>();
                 if def_id.module_id == self.module_id {
                     if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
-                        self.normalize_alias(def_id.def_id, &alias, &args, stack)
+                        self.normalize_alias(def_id.def_id, &alias, &args, &const_args, stack)
                     } else {
                         self.interner.intern(TyKind::Nominal {
                             def_id,
@@ -344,32 +344,40 @@ impl<'a> TypeNormalizer<'a, '_> {
         alias_id: DefId,
         alias: &TypeAliasSignature,
         args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
         stack: &mut Vec<DefId>,
     ) -> InternedTyId {
         if stack.contains(&alias_id) {
             self.report_recursive_alias(alias.span, stack, alias_id);
             return self.interner.intern(TyKind::Error);
         }
-        if alias.generics.len() != args.len() {
+        let Some((substitutions, const_substitutions)) =
+            generic_argument_substitutions(&alias.generic_params, args, const_args)
+        else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_NORMALIZATION,
                 alias.span,
                 format!(
                     "type alias argument count mismatch: expected {}, got {}",
-                    alias.generics.len(),
-                    args.len()
+                    alias.generic_params.len(),
+                    args.len() + const_args.len()
                 ),
             ));
             return self.interner.intern(TyKind::Error);
-        }
-        let substitutions: SymbolMap<InternedTyId> = alias
-            .generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect();
+        };
+        // `TyKind::Nominal` stores type and const arguments separately. Use the
+        // canonical type substituter after rebuilding both maps from declaration
+        // kinds, then normalize the concrete graph without re-pairing arguments.
+        let target = nia_ty::substitute_ty(
+            self.type_store,
+            &self.interner,
+            alias.target,
+            &|name| substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        );
         stack.push(alias_id);
-        let normalized = self.normalize_ty_with_substitutions(alias.target, &substitutions, stack);
+        let normalized = self.normalize_ty_with_substitutions(target, &SymbolMap::default(), stack);
         stack.pop();
         normalized
     }
@@ -521,7 +529,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect::<Vec<_>>();
                 if def_id.module_id == self.module_id {
                     if let Some(alias) = self.aliases.get(&def_id.def_id).cloned() {
-                        self.normalize_alias(def_id.def_id, &alias, &args, stack)
+                        self.normalize_alias(def_id.def_id, &alias, &args, &const_args, stack)
                     } else {
                         self.interner.intern(TyKind::Nominal {
                             def_id,
@@ -747,7 +755,9 @@ mod tests {
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
-    use nia_type_lower::{TypeLowering, TypeLoweringContext, lower_module_types_with_context};
+    use nia_type_lower::{
+        ProgramDefsContext, TypeLowering, TypeLoweringContext, lower_module_types_with_context,
+    };
     use nia_type_resolve::resolve_module_types;
 
     fn normalize_lowered(
@@ -872,6 +882,66 @@ fn id(p: RawPtr[u8]) &u8 { p }
                             type_store.get(*elem),
                             Some(TyKind::Primitive(PrimitiveTy::U8))
                         )
+                )
+        }));
+    }
+
+    #[test]
+    fn expands_interleaved_type_and_const_generic_aliases() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let (module, errors) = parse_module(
+            r#"
+type Mixed[T, N: usize, U] = ([T; N], U);
+fn id(value: Mixed[u8, 4, u16]) Mixed[u8, 4, u16] { value }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let program_defs =
+            |requested| (requested == module_id).then(|| std::sync::Arc::new(defs.clone()));
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::from_program_defs(
+                &type_store,
+                ProgramDefsContext {
+                    defs: Some(&program_defs),
+                },
+            ),
+        );
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
+        assert!(
+            normalization.diagnostics.is_empty(),
+            "{:?}",
+            normalization.diagnostics
+        );
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
+            matches!(ty, TyKind::Nominal { .. })
+                && matches!(
+                    type_store.get(normalization.normalize(ty_id)),
+                    Some(TyKind::Tuple(elems)) if matches!(
+                        (type_store.get(elems[0]), type_store.get(elems[1])),
+                        (
+                            Some(TyKind::Array {
+                                elem,
+                                len: ArrayLenTy::ConstValue(4),
+                            }),
+                            Some(TyKind::Primitive(PrimitiveTy::U16)),
+                        ) if matches!(
+                            type_store.get(*elem),
+                            Some(TyKind::Primitive(PrimitiveTy::U8))
+                        )
+                    )
                 )
         }));
     }
