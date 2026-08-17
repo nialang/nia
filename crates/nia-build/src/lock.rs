@@ -7,8 +7,8 @@
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::{
-    fs, io,
-    io::Write as _,
+    fs,
+    io::{self, Read as _, Write as _},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     thread,
@@ -20,6 +20,11 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use crate::LogicalPath;
 
 const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
+// pid, process generation, acquisition sequence, separators, and newline fit
+// comfortably inside this protocol budget.
+const MAX_LOCK_OWNER_BYTES: usize = 128;
+#[cfg(target_os = "linux")]
+const MAX_PROC_STAT_BYTES: usize = 4096;
 const OUTPUT_LOCK_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.build.output-lock.v1");
 static LOCK_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[cfg(not(target_os = "linux"))]
@@ -132,7 +137,9 @@ impl ScopedFileLock {
 
 impl Drop for ScopedFileLock {
     fn drop(&mut self) {
-        if fs::read_to_string(&self.path).is_ok_and(|current| current.trim_end() == self.token) {
+        if read_bounded_utf8(&self.path, MAX_LOCK_OWNER_BYTES)
+            .is_some_and(|current| current.trim_end() == self.token)
+        {
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -248,7 +255,7 @@ fn lock_owner_is_alive(path: &Path) -> bool {
 }
 
 fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
-    let owner = fs::read_to_string(path).ok()?;
+    let owner = read_bounded_utf8(path, MAX_LOCK_OWNER_BYTES)?;
     let token = owner.split_whitespace().next()?;
     let mut parts = token.split(':');
     Some(ProcessIdentity {
@@ -257,9 +264,27 @@ fn read_lock_owner(path: &Path) -> Option<ProcessIdentity> {
     })
 }
 
+/// Reads small coordination records with a stream-enforced `max + 1` budget.
+/// Metadata is deliberately not trusted: a file that grows after opening is
+/// still rejected without allocating in proportion to its contents.
+fn read_bounded_utf8(path: &Path, max_bytes: usize) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(u64::try_from(max_bytes).ok()?.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > max_bytes {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
+}
+
 #[cfg(target_os = "linux")]
 fn process_start_time(pid: u32) -> Option<u64> {
-    let stat = fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
+    let stat = read_bounded_utf8(
+        &Path::new("/proc").join(pid.to_string()).join("stat"),
+        MAX_PROC_STAT_BYTES,
+    )?;
     stat.rsplit_once(") ")?
         .1
         .split_whitespace()
@@ -382,5 +407,31 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap().trim(), token);
         drop(lock);
         assert!(!path.exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn oversized_owner_record_is_never_parsed_from_its_valid_prefix() {
+        let path = test_root("oversized-owner").join("output.lock");
+        let identity = ProcessIdentity::current();
+        let mut owner = format!("{}:{}:0\n", identity.pid, identity.start_time).into_bytes();
+        owner.resize(MAX_LOCK_OWNER_BYTES + 1, b'x');
+        fs::write(&path, owner).unwrap();
+
+        assert_eq!(read_lock_owner(&path), None);
+        reclaim_stale_lock(&path, Duration::ZERO);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn drop_does_not_remove_an_oversized_replacement_record() {
+        let path = test_root("oversized-replacement").join("output.lock");
+        let lock = ScopedFileLock::acquire(path.clone()).unwrap();
+        fs::write(&path, vec![b'x'; MAX_LOCK_OWNER_BYTES + 1]).unwrap();
+
+        drop(lock);
+
+        assert!(path.exists());
+        fs::remove_file(path).unwrap();
     }
 }
