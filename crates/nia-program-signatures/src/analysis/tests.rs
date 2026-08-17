@@ -171,3 +171,84 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
     );
     assert_eq!(calls[0], vec![other, used]);
 }
+
+#[test]
+fn const_generic_supertrait_instances_require_exact_impl_arguments() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let target_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
+    let const_name = sym("N");
+    let base_id = GlobalDefId {
+        module_id,
+        def_id: nia_defs::DefId(1),
+    };
+    let symbolic_supertrait = append.intern(TyKind::Nominal {
+        def_id: base_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: usize_ty,
+            value: nia_ty::ConstGenericValue::GenericParam(const_name),
+        }],
+    });
+    let four = nia_ty::ConstGenericArg {
+        ty: usize_ty,
+        value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+    };
+    let eight = nia_ty::ConstGenericArg {
+        ty: usize_ty,
+        value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(8)),
+    };
+    let params = [nia_item_signatures::GenericParamSignature {
+        name: const_name,
+        kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
+    }];
+
+    let substituted = substitute_trait_bound(
+        &append,
+        &type_store,
+        symbolic_supertrait,
+        &params,
+        &[],
+        std::slice::from_ref(&four),
+    )
+    .expect("complete trait instance arguments");
+    assert!(matches!(
+        type_store.get(substituted),
+        Some(TyKind::Nominal { const_args, .. }) if const_args == std::slice::from_ref(&four)
+    ));
+
+    let mut base_impl = ProgramTraitImplSignature {
+        module_id,
+        impl_id: TraitImplId(0),
+        builtin: None,
+        generics: Vec::new(),
+        generic_params: Vec::new(),
+        target_ty,
+        trait_id: TraitId::Source(base_id),
+        trait_args: Vec::new(),
+        trait_const_args: vec![eight],
+        where_predicates: Vec::new(),
+        associated_types: Vec::new(),
+        associated_values: Vec::new(),
+    };
+    assert!(!has_matching_trait_impl(
+        &type_store,
+        target_ty,
+        TraitId::Source(base_id),
+        &[],
+        std::slice::from_ref(&four),
+        std::slice::from_ref(&base_impl),
+    ));
+    base_impl.trait_const_args = vec![four.clone()];
+    assert!(has_matching_trait_impl(
+        &type_store,
+        target_ty,
+        TraitId::Source(base_id),
+        &[],
+        std::slice::from_ref(&four),
+        std::slice::from_ref(&base_impl),
+    ));
+}

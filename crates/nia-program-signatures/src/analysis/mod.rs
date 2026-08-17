@@ -12,10 +12,11 @@ use nia_ids::{
     ReceiverKind, TraitImplId, Visibility,
 };
 use nia_item_signatures::{
-    FunctionSignature, GenericParamSignatureKind, ItemSignatures, ProgramConstSignature,
-    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
-    ProgramUnionSignature, TraitImplSignature, TraitSignature,
+    FunctionSignature, GenericParamSignature, GenericParamSignatureKind, ItemSignatures,
+    ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature,
+    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+    ProgramTypeAliasSignature, ProgramUnionSignature, TraitImplSignature, TraitSignature,
+    generic_argument_substitutions,
 };
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
@@ -757,12 +758,17 @@ fn validate_trait_impl(
             ));
         }
     }
+    let trait_goal = TraitGoal {
+        self_ty: target_ty,
+        trait_id: TraitId::Source(trait_id),
+        trait_args: trait_args.clone(),
+        trait_const_args: trait_const_args.clone(),
+    };
     validate_supertrait_impls(
         module,
         impl_signature,
-        target_ty,
         trait_signature,
-        &trait_args,
+        &trait_goal,
         input,
         diagnostics,
     );
@@ -814,12 +820,6 @@ fn validate_trait_impl(
             module,
             trait_signatures: input.trait_signatures,
         };
-        let trait_goal = TraitGoal {
-            self_ty: target_ty,
-            trait_id: TraitId::Source(trait_id),
-            trait_args: trait_args.clone(),
-            trait_const_args: trait_const_args.clone(),
-        };
         let validation_trait_impls = trait_impls_for_trait_goal_and_supertraits(
             goal_context,
             trait_goal.clone(),
@@ -829,7 +829,7 @@ fn validate_trait_impl(
             type_store: input.type_store,
             module,
             trait_impls: &validation_trait_impls,
-            trait_goal,
+            trait_goal: trait_goal.clone(),
             impl_signature,
             trait_signatures: input.trait_signatures,
             required: &required_signature,
@@ -1044,6 +1044,7 @@ fn validate_builtin_supertrait_impls(
             target_ty,
             supertrait_id,
             &supertrait_args,
+            &[],
             &trait_impls,
         ) {
             diagnostics.push(Diagnostic::user_error_at(
@@ -1253,26 +1254,32 @@ fn builtin_impl_trait_args(
 fn validate_supertrait_impls(
     module: &ExtensionModuleInput<'_>,
     impl_signature: &TraitImplSignature,
-    target_ty: nia_ids::InternedTyId,
     trait_signature: TraitSignatureRef<'_>,
-    trait_args: &[nia_ids::InternedTyId],
+    trait_goal: &TraitGoal,
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let append = input.type_store.append_for_module(module.module_id);
     for supertrait in &trait_signature.signature.supertraits {
-        let supertrait = substitute_trait_bound(
+        let Some(supertrait) = substitute_trait_bound(
             &append,
-            module,
             input.type_store,
             supertrait.ty,
-            &trait_signature.signature.generics,
-            trait_args,
-        );
+            &trait_signature.signature.generic_params,
+            &trait_goal.trait_args,
+            &trait_goal.trait_const_args,
+        ) else {
+            diagnostics.push(Diagnostic::internal_error_at(
+                codes::NAME_RESOLUTION,
+                impl_signature.span,
+                "trait instance arguments do not match declaration parameters",
+            ));
+            continue;
+        };
         let Some(TyKind::Nominal {
             def_id: supertrait_def_id,
             args: supertrait_args,
-            ..
+            const_args: supertrait_const_args,
         }) = input.type_store.get(supertrait).cloned()
         else {
             continue;
@@ -1281,9 +1288,10 @@ fn validate_supertrait_impls(
         let trait_impls = (input.trait_impls_for_trait)(supertrait_id);
         if !has_matching_trait_impl(
             input.type_store,
-            target_ty,
+            trait_goal.self_ty,
             supertrait_id,
             &supertrait_args,
+            &supertrait_const_args,
             &trait_impls,
         ) {
             diagnostics.push(Diagnostic::user_error_at(
@@ -1300,26 +1308,22 @@ fn validate_supertrait_impls(
 
 fn substitute_trait_bound(
     append: &TypeStoreAppend,
-    module: &ExtensionModuleInput<'_>,
     type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
-    trait_generics: &[SymbolId],
+    trait_generic_params: &[GenericParamSignature],
     trait_args: &[nia_ids::InternedTyId],
-) -> nia_ids::InternedTyId {
-    let substitutions = trait_generics
-        .iter()
-        .zip(trait_args)
-        .map(|(generic, arg)| (*generic, *arg))
-        .collect::<SymbolMap<_>>();
-    substitute_type(
-        append,
-        module,
+    trait_const_args: &[nia_ty::ConstGenericArg],
+) -> Option<nia_ids::InternedTyId> {
+    let (substitutions, const_substitutions) =
+        generic_argument_substitutions(trait_generic_params, trait_args, trait_const_args)?;
+    Some(nia_ty::substitute_ty(
         type_store,
+        append,
         ty,
-        &substitutions,
-        &SymbolMap::default(),
-        TypeSubstitutionTarget::default(),
-    )
+        &|name| substitutions.get(name).copied(),
+        &|name| const_substitutions.get(name).cloned(),
+        None,
+    ))
 }
 
 fn has_matching_trait_impl(
@@ -1327,6 +1331,7 @@ fn has_matching_trait_impl(
     target_ty: nia_ids::InternedTyId,
     trait_id: TraitId,
     trait_args: &[nia_ids::InternedTyId],
+    trait_const_args: &[nia_ty::ConstGenericArg],
     trait_impls: &[ProgramTraitImplSignature],
 ) -> bool {
     trait_impls.iter().any(|impl_signature| {
@@ -1335,11 +1340,20 @@ fn has_matching_trait_impl(
         }
         types_equivalent_in_store(interner, impl_signature.target_ty, target_ty)
             && impl_signature.trait_args.len() == trait_args.len()
+            && impl_signature.trait_const_args.len() == trait_const_args.len()
             && impl_signature
                 .trait_args
                 .iter()
                 .zip(trait_args)
                 .all(|(left, right)| types_equivalent_in_store(interner, *left, *right))
+            && impl_signature
+                .trait_const_args
+                .iter()
+                .zip(trait_const_args)
+                .all(|(left, right)| {
+                    left.value == right.value
+                        && types_equivalent_in_store(interner, left.ty, right.ty)
+                })
     })
 }
 
