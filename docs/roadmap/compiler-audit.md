@@ -323,9 +323,14 @@ commit as the corresponding implementation batch.
       only the same observed bytes (or a still-oversized record), while
       non-replacing publication rechecks ownership under the lock; stale
       readers cannot remove or overwrite a concurrent replacement.
-- [x] Loader frontend-cache publication now enforces its read-side size bound
-      and only treats `AlreadyExists` as a benign concurrent-writer outcome;
-      permission, I/O, and other rename failures remain visible to callers.
+- [x] Loader frontend-cache publication now enforces its read-side size bound,
+      and permission, I/O, and other publication failures remain visible to
+      callers rather than being treated as generic concurrent-writer success.
+- [x] Loader frontend-cache publication and retirement now share per-key OS
+      locks on every persisted product. Publication rechecks the winner before
+      rename on all platforms, while corrupt/invalidated observations are
+      deleted only if the same bounded bytes remain installed; concurrent
+      replacements are preserved.
 - [x] Phase E syntax trees normalize caller-supplied token streams to one
       terminal EOF, discard unreachable post-EOF tokens, and make arbitrary
       cursor lookahead overflow-safe; syntax and parser owner suites pass.

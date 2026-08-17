@@ -153,13 +153,13 @@ impl PersistentFrontendCache {
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
-                remove_corrupt(&path);
+                retire_oversized(&path);
                 return Ok(ProviderSummaryCacheLookup::Corrupt);
             }
             None => return Ok(ProviderSummaryCacheLookup::NotFound),
         };
         let Some(entry) = decode_provider_summary(&encoded) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderSummaryCacheLookup::Corrupt);
         };
         if entry.key != key.parts()
@@ -170,11 +170,11 @@ impl PersistentFrontendCache {
                 != self
                     .provider_summary_path(FrontendProviderSummaryCacheKey::from_parts(entry.key))
         {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderSummaryCacheLookup::Corrupt);
         }
         let Some(summary) = decode_provider_summary_payload(&entry.payload, symbols) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderSummaryCacheLookup::Corrupt);
         };
         Ok(ProviderSummaryCacheLookup::Hit(summary))
@@ -204,7 +204,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_provider_summary(&self, key: FrontendProviderSummaryCacheKey) {
-        remove_corrupt(&self.provider_summary_path(key));
+        remove_cache_entry(&self.provider_summary_path(key));
     }
 
     pub(crate) fn load_facade_facts(
@@ -220,13 +220,13 @@ impl PersistentFrontendCache {
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
-                remove_corrupt(&path);
+                retire_oversized(&path);
                 return Ok(FacadeFactsCacheLookup::Corrupt);
             }
             None => return Ok(FacadeFactsCacheLookup::NotFound),
         };
         let Some(entry) = decode_facade_facts(&encoded) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(FacadeFactsCacheLookup::Corrupt);
         };
         if entry.key != key.parts()
@@ -236,11 +236,11 @@ impl PersistentFrontendCache {
             || entry.module_map != module_map.parts()
             || path != self.facade_facts_path(FrontendFacadeFactsCacheKey::from_parts(entry.key))
         {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(FacadeFactsCacheLookup::Corrupt);
         }
         let Some(facts) = decode_facade_facts_payload(&entry.payload, symbols) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(FacadeFactsCacheLookup::Corrupt);
         };
         Ok(FacadeFactsCacheLookup::Hit(facts))
@@ -278,7 +278,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_facade_facts(&self, key: FrontendFacadeFactsCacheKey) {
-        remove_corrupt(&self.facade_facts_path(key));
+        remove_cache_entry(&self.facade_facts_path(key));
     }
 
     pub(crate) fn load_module_dependencies(
@@ -294,13 +294,13 @@ impl PersistentFrontendCache {
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
-                remove_corrupt(&path);
+                retire_oversized(&path);
                 return Ok(ModuleDependenciesCacheLookup::Corrupt);
             }
             None => return Ok(ModuleDependenciesCacheLookup::NotFound),
         };
         let Some(entry) = decode_module_dependencies(&encoded) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ModuleDependenciesCacheLookup::Corrupt);
         };
         if entry.key != key.parts()
@@ -314,13 +314,13 @@ impl PersistentFrontendCache {
                     entry.key,
                 ))
         {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ModuleDependenciesCacheLookup::Corrupt);
         }
         let Some(declarations) =
             decode_module_dependencies_payload(&entry.payload, source.len, symbols)
         else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ModuleDependenciesCacheLookup::Corrupt);
         };
         Ok(ModuleDependenciesCacheLookup::Hit(declarations))
@@ -363,7 +363,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_module_dependencies(&self, key: FrontendModuleDependenciesCacheKey) {
-        remove_corrupt(&self.module_dependencies_path(key));
+        remove_cache_entry(&self.module_dependencies_path(key));
     }
 
     pub(crate) fn load_public_surface_facts(
@@ -378,13 +378,13 @@ impl PersistentFrontendCache {
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
-                remove_corrupt(&path);
+                retire_oversized(&path);
                 return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
             }
             None => return Ok(PublicSurfaceFactsCacheLookup::NotFound),
         };
         let Some(entry) = decode_public_surface_facts(&encoded) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
         };
         if entry.key != key.parts()
@@ -397,12 +397,12 @@ impl PersistentFrontendCache {
                     entry.key,
                 ))
         {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
         }
         let Some(facts) = decode_public_surface_facts_payload(&entry.payload, source.len, symbols)
         else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
         };
         Ok(PublicSurfaceFactsCacheLookup::Hit(facts))
@@ -431,7 +431,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_public_surface_facts(&self, key: FrontendPublicSurfaceFactsCacheKey) {
-        remove_corrupt(&self.public_surface_facts_path(key));
+        remove_cache_entry(&self.public_surface_facts_path(key));
     }
 
     pub(crate) fn load_dependency_manifest(
@@ -445,13 +445,13 @@ impl PersistentFrontendCache {
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
-                remove_corrupt(&path);
+                retire_oversized(&path);
                 return Ok(DependencyManifestCacheLookup::Corrupt);
             }
             None => return Ok(DependencyManifestCacheLookup::NotFound),
         };
         let Some(entry) = decode_dependency_manifest(&encoded) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(DependencyManifestCacheLookup::Corrupt);
         };
         if entry.key != key.parts()
@@ -460,7 +460,7 @@ impl PersistentFrontendCache {
             || entry.source != source.parts()
             || path != self.dependency_manifest_path(FrontendSourceCacheKey::from_parts(entry.key))
         {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(DependencyManifestCacheLookup::Corrupt);
         }
         Ok(DependencyManifestCacheLookup::Hit(
@@ -490,7 +490,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_dependency_manifest(&self, key: FrontendSourceCacheKey) {
-        remove_corrupt(&self.dependency_manifest_path(key));
+        remove_cache_entry(&self.dependency_manifest_path(key));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -509,13 +509,13 @@ impl PersistentFrontendCache {
         let encoded = match read_cache_entry(&path)? {
             Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
             Some(_) => {
-                remove_corrupt(&path);
+                retire_oversized(&path);
                 return Ok(ProviderDemandPlanCacheLookup::Corrupt);
             }
             None => return Ok(ProviderDemandPlanCacheLookup::NotFound),
         };
         let Some(decoded) = decode_provider_demand_plan(&encoded) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderDemandPlanCacheLookup::Corrupt);
         };
         if decoded.key != key.parts()
@@ -529,33 +529,33 @@ impl PersistentFrontendCache {
                 ))
             || !provider_demand_plan_paths_are_closed(&decoded)
         {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderDemandPlanCacheLookup::Corrupt);
         }
         for source in &decoded.sources {
             let Some(source_path) =
                 resolve_cached_source_path(&source.path.identity(), source_roots)
             else {
-                remove_corrupt(&path);
+                retire_corrupt(&path, &encoded);
                 return Ok(ProviderDemandPlanCacheLookup::Invalidated);
             };
             let Ok(file) = sources.read_source(&source_path) else {
-                remove_corrupt(&path);
+                retire_corrupt(&path, &encoded);
                 return Ok(ProviderDemandPlanCacheLookup::Invalidated);
             };
             if file.text.len() != source.len
                 || source_content_fingerprint(&file.text) != source.fingerprint
             {
-                remove_corrupt(&path);
+                retire_corrupt(&path, &encoded);
                 return Ok(ProviderDemandPlanCacheLookup::Invalidated);
             }
         }
         if install_symbol_dictionary(&decoded.symbols, decoded.demand_symbols, symbols).is_none() {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderDemandPlanCacheLookup::Corrupt);
         }
         let Some(demands) = remap_provider_demands(decoded.demands, source_roots) else {
-            remove_corrupt(&path);
+            retire_corrupt(&path, &encoded);
             return Ok(ProviderDemandPlanCacheLookup::Invalidated);
         };
         Ok(ProviderDemandPlanCacheLookup::Hit(demands))
@@ -597,7 +597,7 @@ impl PersistentFrontendCache {
     }
 
     pub(crate) fn remove_provider_demand_plan(&self, key: FrontendProviderDemandPlanCacheKey) {
-        remove_corrupt(&self.provider_demand_plan_path(key));
+        remove_cache_entry(&self.provider_demand_plan_path(key));
     }
 
     pub(crate) fn provider_summary_path(&self, key: FrontendProviderSummaryCacheKey) -> PathBuf {
@@ -682,12 +682,53 @@ fn read_cache_entry(path: &Path) -> io::Result<Option<Vec<u8>>> {
     Ok(Some(encoded))
 }
 
-fn remove_corrupt(path: &Path) {
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(_) => {}
+struct FrontendCacheMutationLock {
+    _file: File,
+}
+
+impl FrontendCacheMutationLock {
+    fn acquire(path: &Path) -> io::Result<Self> {
+        let lock_path = path.with_extension("lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)?;
+        file.lock()?;
+        Ok(Self { _file: file })
     }
+}
+
+/// Rechecks the bounded observation under the same per-key lock used by
+/// publishers. A reader that decoded an old corrupt record cannot remove a
+/// valid record installed while it was doing semantic rehydration.
+fn retire_corrupt(path: &Path, observed: &[u8]) {
+    let Ok(_lock) = FrontendCacheMutationLock::acquire(path) else {
+        return;
+    };
+    if matches!(read_cache_entry(path), Ok(Some(current)) if current == observed) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn retire_oversized(path: &Path) {
+    let Ok(_lock) = FrontendCacheMutationLock::acquire(path) else {
+        return;
+    };
+    if matches!(
+        read_cache_entry(path),
+        Ok(Some(current)) if current.len() > MAX_CACHE_ENTRY_BYTES
+    ) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn remove_cache_entry(path: &Path) {
+    let Ok(_lock) = FrontendCacheMutationLock::acquire(path) else {
+        return;
+    };
+    let _ = fs::remove_file(path);
 }
 
 fn staged_path(path: &Path) -> PathBuf {
@@ -708,14 +749,11 @@ fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> 
         file.write_all(encoded)?;
         file.sync_all()?;
         drop(file);
-        match fs::rename(staged, path) {
-            Ok(()) => Ok(()),
-            // A concurrent publisher may have won the race on platforms where
-            // rename refuses to replace an existing file. Any other error is
-            // real publication failure and must remain observable.
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_file() => Ok(()),
-            Err(error) => Err(error),
+        let _lock = FrontendCacheMutationLock::acquire(path)?;
+        if path.is_file() {
+            return Ok(());
         }
+        fs::rename(staged, path)
     })();
     if result.is_err() || staged.exists() {
         let _ = fs::remove_file(staged);
@@ -1763,11 +1801,68 @@ fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
 mod tests {
     use super::*;
 
+    fn test_root(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "nia-frontend-cache-{name}-{}-{}",
+            std::process::id(),
+            FRONTEND_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
     #[test]
     fn cache_entry_size_limit_is_shared_by_all_publishers() {
         validate_cache_entry_size(MAX_CACHE_ENTRY_BYTES).expect("limit itself is valid");
         let error =
             validate_cache_entry_size(MAX_CACHE_ENTRY_BYTES + 1).expect_err("oversized entry");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn stale_corruption_retirement_preserves_replacement() {
+        let root = test_root("stale-retirement");
+        fs::create_dir_all(&root).expect("create cache root");
+        let path = root.join("entry.bin");
+        fs::write(&path, b"corrupt").expect("write corrupt entry");
+        let observed = read_cache_entry(&path)
+            .expect("read corrupt entry")
+            .expect("cache entry must exist");
+        fs::write(&path, b"replacement").expect("publish replacement");
+
+        retire_corrupt(&path, &observed);
+
+        assert_eq!(fs::read(&path).expect("read replacement"), b"replacement");
+        fs::remove_dir_all(root).expect("remove cache root");
+    }
+
+    #[test]
+    fn oversized_retirement_preserves_bounded_replacement() {
+        let root = test_root("oversized-retirement");
+        fs::create_dir_all(&root).expect("create cache root");
+        let path = root.join("entry.bin");
+        let file = File::create(&path).expect("create oversized entry");
+        file.set_len((MAX_CACHE_ENTRY_BYTES + 1) as u64)
+            .expect("extend oversized entry");
+        drop(file);
+        fs::write(&path, b"replacement").expect("publish replacement");
+
+        retire_oversized(&path);
+
+        assert_eq!(fs::read(&path).expect("read replacement"), b"replacement");
+        fs::remove_dir_all(root).expect("remove cache root");
+    }
+
+    #[test]
+    fn concurrent_publication_keeps_existing_winner() {
+        let root = test_root("publication-winner");
+        fs::create_dir_all(&root).expect("create cache root");
+        let path = root.join("entry.bin");
+        let staged = staged_path(&path);
+        fs::write(&path, b"winner").expect("write winning entry");
+
+        atomic_publish(&staged, &path, b"loser").expect("publish competing entry");
+
+        assert_eq!(fs::read(&path).expect("read winning entry"), b"winner");
+        assert!(!staged.exists());
+        fs::remove_dir_all(root).expect("remove cache root");
     }
 }
