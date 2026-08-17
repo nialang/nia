@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    fs::{self, OpenOptions},
-    io::{self, Cursor, Read, Write},
+    fs::{self, File, OpenOptions},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -17,6 +17,7 @@ const OBJECT_WORK_PRODUCT_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.object-work-product-key.v2");
 const OBJECT_WORK_PRODUCT_PAYLOAD_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.object-work-product-payload.v1");
+const OBJECT_CACHE_STREAM_BYTES: usize = 64 * 1024;
 static OBJECT_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -46,88 +47,6 @@ impl PersistentObjectWorkProductCache {
             .join(format!("{first:016x}{second:016x}.o"))
     }
 
-    fn remove_corrupt(path: &Path) {
-        match fs::remove_file(path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => {}
-        }
-    }
-}
-
-impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
-    fn load(
-        &self,
-        key: &CodegenUnitKey,
-        fingerprints: CodegenUnitFingerprintSet,
-    ) -> io::Result<ObjectWorkProductLookup> {
-        let path = self.path(key, fingerprints.fingerprint);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) => encoded,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return self.lookup_invalidation(key, fingerprints);
-            }
-            Err(error) => return Err(error),
-        };
-        let Some(entry) = decode_work_product(&encoded) else {
-            Self::remove_corrupt(&path);
-            return Ok(ObjectWorkProductLookup::Corrupt);
-        };
-        if entry.key != encode_unit_key(key)
-            || entry.fingerprints != fingerprints
-            || path != self.path(key, entry.fingerprints.fingerprint)
-        {
-            Self::remove_corrupt(&path);
-            return Ok(ObjectWorkProductLookup::Corrupt);
-        }
-        Ok(ObjectWorkProductLookup::Hit(entry.payload))
-    }
-
-    fn publish(
-        &self,
-        key: &CodegenUnitKey,
-        fingerprints: CodegenUnitFingerprintSet,
-        bytes: &[u8],
-    ) -> io::Result<()> {
-        if matches!(
-            self.load(key, fingerprints)?,
-            ObjectWorkProductLookup::Hit(_)
-        ) {
-            return Ok(());
-        }
-        let path = self.path(key, fingerprints.fingerprint);
-        let parent = path
-            .parent()
-            .ok_or_else(|| io::Error::other("invalid object work-product path"))?;
-        fs::create_dir_all(parent)?;
-        let staged = path.with_extension(format!(
-            "tmp.{}.{}",
-            std::process::id(),
-            OBJECT_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        let encoded = encode_work_product(key, fingerprints, bytes);
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&staged)?;
-            file.write_all(&encoded)?;
-            file.sync_all()?;
-            drop(file);
-            match fs::rename(&staged, &path) {
-                Ok(()) => Ok(()),
-                Err(_) if path.is_file() => Ok(()),
-                Err(error) => Err(error),
-            }
-        })();
-        if result.is_err() || staged.exists() {
-            let _ = fs::remove_file(&staged);
-        }
-        result
-    }
-}
-
-impl PersistentObjectWorkProductCache {
     fn lookup_invalidation(
         &self,
         key: &CodegenUnitKey,
@@ -149,22 +68,28 @@ impl PersistentObjectWorkProductCache {
             if path.extension().and_then(|value| value.to_str()) != Some("o") {
                 continue;
             }
-            let encoded = fs::read(&path)?;
-            let Some(entry) = decode_work_product(&encoded) else {
-                Self::remove_corrupt(&path);
+            let mut file = match File::open(&path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let Some(header) = read_work_product_header(&mut file, &expected_key)? else {
+                retire_corrupt(&path, &mut file);
                 corrupt = true;
                 continue;
             };
-            if entry.key != expected_key || path != self.path(key, entry.fingerprints.fingerprint) {
-                Self::remove_corrupt(&path);
+            if path != self.path(key, header.fingerprints.fingerprint)
+                || !validate_payload(&mut file, header.payload_len, header.checksum)?
+            {
+                retire_corrupt(&path, &mut file);
                 corrupt = true;
                 continue;
             }
             let reasons = ObjectWorkProductInvalidation::between(
-                entry.fingerprints.components,
+                header.fingerprints.components,
                 expected.components,
             );
-            let candidate = (reasons.count(), entry.fingerprints.fingerprint, reasons);
+            let candidate = (reasons.count(), header.fingerprints.fingerprint, reasons);
             if nearest
                 .as_ref()
                 .is_none_or(|current| (candidate.0, candidate.1) < (current.0, current.1))
@@ -182,86 +107,389 @@ impl PersistentObjectWorkProductCache {
     }
 }
 
-fn encode_work_product(
+impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
+    fn load(
+        &self,
+        key: &CodegenUnitKey,
+        fingerprints: CodegenUnitFingerprintSet,
+    ) -> io::Result<ObjectWorkProductLookup> {
+        let path = self.path(key, fingerprints.fingerprint);
+        let mut file = match File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return self.lookup_invalidation(key, fingerprints);
+            }
+            Err(error) => return Err(error),
+        };
+        let expected_key = encode_unit_key(key);
+        let Some(header) = read_work_product_header(&mut file, &expected_key)? else {
+            retire_corrupt(&path, &mut file);
+            return Ok(ObjectWorkProductLookup::Corrupt);
+        };
+        if header.fingerprints != fingerprints {
+            retire_corrupt(&path, &mut file);
+            return Ok(ObjectWorkProductLookup::Corrupt);
+        }
+        let Some(payload) = read_payload(&mut file, header.payload_len, header.checksum)? else {
+            retire_corrupt(&path, &mut file);
+            return Ok(ObjectWorkProductLookup::Corrupt);
+        };
+        Ok(ObjectWorkProductLookup::Hit(payload))
+    }
+
+    fn publish(
+        &self,
+        key: &CodegenUnitKey,
+        fingerprints: CodegenUnitFingerprintSet,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        let path = self.path(key, fingerprints.fingerprint);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid object work-product path"))?;
+        fs::create_dir_all(parent)?;
+        let staged = staged_path(&path);
+        let result = (|| {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&staged)?;
+            write_work_product(&mut file, key, fingerprints, bytes)?;
+            file.sync_all()?;
+            drop(file);
+
+            let _lock = ObjectCacheMutationLock::acquire(&path)?;
+            match compare_installed(&path, key, fingerprints, bytes)? {
+                InstalledEntry::NotFound => {}
+                InstalledEntry::Identical => return Ok(()),
+                InstalledEntry::Corrupt => {
+                    fs::remove_file(&path)?;
+                }
+                InstalledEntry::Collision => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "object work-product fingerprint collision",
+                    ));
+                }
+            }
+            fs::rename(&staged, &path)?;
+            if let Ok(directory) = File::open(parent) {
+                let _ = directory.sync_all();
+            }
+            Ok(())
+        })();
+        if result.is_err() || staged.exists() {
+            let _ = fs::remove_file(&staged);
+        }
+        result
+    }
+}
+
+#[derive(Clone, Copy)]
+struct WorkProductHeader {
+    fingerprints: CodegenUnitFingerprintSet,
+    payload_len: u64,
+    checksum: CodegenUnitFingerprint,
+}
+
+enum InstalledEntry {
+    NotFound,
+    Identical,
+    Corrupt,
+    Collision,
+}
+
+/// Parses only the bounded record header. The persisted key length must equal
+/// the already-known canonical key length, so corrupt metadata cannot request
+/// an attacker-sized allocation before payload validation begins.
+fn read_work_product_header(
+    file: &mut File,
+    expected_key: &[u8],
+) -> io::Result<Option<WorkProductHeader>> {
+    if !file.metadata()?.is_file() {
+        return Ok(None);
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let Some(magic) = read_array::<8>(file)? else {
+        return Ok(None);
+    };
+    if magic != *OBJECT_WORK_PRODUCT.magic {
+        return Ok(None);
+    }
+    let Some(fingerprint) = read_fingerprint(file)? else {
+        return Ok(None);
+    };
+    let Some(policy) = read_fingerprint(file)? else {
+        return Ok(None);
+    };
+    let Some(definition) = read_fingerprint(file)? else {
+        return Ok(None);
+    };
+    let Some(declarations) = read_fingerprint(file)? else {
+        return Ok(None);
+    };
+    let Some(target) = read_fingerprint(file)? else {
+        return Ok(None);
+    };
+    let fingerprints = CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
+        policy,
+        definition,
+        declarations,
+        target,
+    });
+    if fingerprints.fingerprint != fingerprint {
+        return Ok(None);
+    }
+    let Some(key_len) = read_u64(file)? else {
+        return Ok(None);
+    };
+    if key_len != u64::try_from(expected_key.len()).unwrap_or(u64::MAX) {
+        return Ok(None);
+    }
+    let mut key = vec![0; expected_key.len()];
+    if !read_exact_or_invalid(file, &mut key)? || key != expected_key {
+        return Ok(None);
+    }
+    let Some(payload_len) = read_u64(file)? else {
+        return Ok(None);
+    };
+    let Some(checksum) = read_fingerprint(file)? else {
+        return Ok(None);
+    };
+    let payload_offset = file.stream_position()?;
+    let Some(encoded_len) = payload_offset.checked_add(payload_len) else {
+        return Ok(None);
+    };
+    if file.metadata()?.len() != encoded_len {
+        return Ok(None);
+    }
+    Ok(Some(WorkProductHeader {
+        fingerprints,
+        payload_len,
+        checksum,
+    }))
+}
+
+fn read_payload(
+    file: &mut File,
+    payload_len: u64,
+    expected_checksum: CodegenUnitFingerprint,
+) -> io::Result<Option<Vec<u8>>> {
+    let Ok(payload_len) = usize::try_from(payload_len) else {
+        return Ok(None);
+    };
+    let mut payload = Vec::new();
+    payload.try_reserve_exact(payload_len).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::OutOfMemory,
+            "object work-product payload allocation failed",
+        )
+    })?;
+    payload.resize(payload_len, 0);
+    if !read_exact_or_invalid(file, &mut payload)? {
+        return Ok(None);
+    }
+    Ok((payload_checksum(&payload) == expected_checksum).then_some(payload))
+}
+
+fn validate_payload(
+    file: &mut File,
+    payload_len: u64,
+    expected_checksum: CodegenUnitFingerprint,
+) -> io::Result<bool> {
+    let mut builder = QueryFingerprintBuilder::new(OBJECT_WORK_PRODUCT_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(payload_len);
+    let mut buffer = [0; OBJECT_CACHE_STREAM_BYTES];
+    let mut remaining = payload_len;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        if !read_exact_or_invalid(file, &mut buffer[..chunk_len])? {
+            return Ok(false);
+        }
+        checksum.write_chunk(&buffer[..chunk_len])?;
+        remaining -= chunk_len as u64;
+    }
+    checksum.finish()?;
+    Ok(CodegenUnitFingerprint::from_parts(builder.finish().parts()) == expected_checksum)
+}
+
+fn compare_installed(
+    path: &Path,
     key: &CodegenUnitKey,
     fingerprints: CodegenUnitFingerprintSet,
     bytes: &[u8],
-) -> Vec<u8> {
+) -> io::Result<InstalledEntry> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(InstalledEntry::NotFound);
+        }
+        Err(error) => return Err(error),
+    };
+    let expected_key = encode_unit_key(key);
+    let Some(header) = read_work_product_header(&mut file, &expected_key)? else {
+        return Ok(InstalledEntry::Corrupt);
+    };
+    if header.fingerprints != fingerprints {
+        return Ok(InstalledEntry::Corrupt);
+    }
+    let expected_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    if header.payload_len != expected_len {
+        return Ok(InstalledEntry::Collision);
+    }
+    let mut builder = QueryFingerprintBuilder::new(OBJECT_WORK_PRODUCT_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(header.payload_len);
+    let mut buffer = [0; OBJECT_CACHE_STREAM_BYTES];
+    let mut offset = 0usize;
+    let mut identical = true;
+    while offset != bytes.len() {
+        let chunk_len = (bytes.len() - offset).min(buffer.len());
+        if !read_exact_or_invalid(&mut file, &mut buffer[..chunk_len])? {
+            return Ok(InstalledEntry::Corrupt);
+        }
+        checksum.write_chunk(&buffer[..chunk_len])?;
+        identical &= buffer[..chunk_len] == bytes[offset..offset + chunk_len];
+        offset += chunk_len;
+    }
+    checksum.finish()?;
+    if CodegenUnitFingerprint::from_parts(builder.finish().parts()) != header.checksum {
+        Ok(InstalledEntry::Corrupt)
+    } else if identical {
+        Ok(InstalledEntry::Identical)
+    } else {
+        Ok(InstalledEntry::Collision)
+    }
+}
+
+fn write_work_product(
+    output: &mut impl Write,
+    key: &CodegenUnitKey,
+    fingerprints: CodegenUnitFingerprintSet,
+    bytes: &[u8],
+) -> io::Result<()> {
     let key = encode_unit_key(key);
-    let checksum = payload_checksum(bytes);
-    let mut encoded = Vec::with_capacity(128 + key.len() + bytes.len());
-    encoded.extend_from_slice(OBJECT_WORK_PRODUCT.magic);
-    write_fingerprint(&mut encoded, fingerprints.fingerprint);
+    output.write_all(OBJECT_WORK_PRODUCT.magic)?;
+    write_fingerprint(output, fingerprints.fingerprint)?;
     for component in [
         fingerprints.components.policy,
         fingerprints.components.definition,
         fingerprints.components.declarations,
         fingerprints.components.target,
     ] {
-        write_fingerprint(&mut encoded, component);
+        write_fingerprint(output, component)?;
     }
-    encoded.extend_from_slice(&(key.len() as u64).to_le_bytes());
-    encoded.extend_from_slice(&key);
-    encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-    write_fingerprint(&mut encoded, checksum);
-    encoded.extend_from_slice(bytes);
-    encoded
+    write_u64(output, key.len())?;
+    output.write_all(&key)?;
+    write_u64(output, bytes.len())?;
+    write_fingerprint(output, payload_checksum(bytes))?;
+    output.write_all(bytes)
 }
 
-struct DecodedWorkProduct {
-    key: Vec<u8>,
-    fingerprints: CodegenUnitFingerprintSet,
-    payload: Vec<u8>,
+fn staged_path(path: &Path) -> PathBuf {
+    path.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        OBJECT_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+    ))
 }
 
-fn decode_work_product(encoded: &[u8]) -> Option<DecodedWorkProduct> {
-    let mut cursor = Cursor::new(encoded);
-    let mut magic = [0; 8];
-    cursor.read_exact(&mut magic).ok()?;
-    (magic == *OBJECT_WORK_PRODUCT.magic).then_some(())?;
-    let fingerprint = read_fingerprint(&mut cursor)?;
-    let components = CodegenUnitFingerprintComponents {
-        policy: read_fingerprint(&mut cursor)?,
-        definition: read_fingerprint(&mut cursor)?,
-        declarations: read_fingerprint(&mut cursor)?,
-        target: read_fingerprint(&mut cursor)?,
+struct ObjectCacheMutationLock {
+    _file: File,
+}
+
+impl ObjectCacheMutationLock {
+    fn acquire(path: &Path) -> io::Result<Self> {
+        let lock_path = path.with_extension("lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)?;
+        file.lock()?;
+        Ok(Self { _file: file })
+    }
+}
+
+/// A reader validates an opened inode, then waits for the same per-entry lock
+/// used by publishers and removes the path only if its current bytes still
+/// match that observation. This prevents a slow corrupt read from deleting a
+/// valid replacement installed before retirement acquires the lock.
+fn retire_corrupt(path: &Path, observed: &mut File) {
+    let Ok(_lock) = ObjectCacheMutationLock::acquire(path) else {
+        return;
     };
-    let fingerprints = CodegenUnitFingerprintSet::new(components);
-    (fingerprints.fingerprint == fingerprint).then_some(())?;
-    let key_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
-    let key_start = usize::try_from(cursor.position()).ok()?;
-    (key_len <= encoded.len().checked_sub(key_start)?).then_some(())?;
-    let mut key = vec![0; key_len];
-    cursor.read_exact(&mut key).ok()?;
-    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
-    let checksum = read_fingerprint(&mut cursor)?;
-    let position = usize::try_from(cursor.position()).ok()?;
-    (encoded.len().checked_sub(position)? == payload_len).then_some(())?;
-    let payload = encoded[position..].to_vec();
-    (payload_checksum(&payload) == checksum).then_some(DecodedWorkProduct {
-        key,
-        fingerprints,
-        payload,
-    })
-}
-
-fn write_fingerprint(encoded: &mut Vec<u8>, fingerprint: CodegenUnitFingerprint) {
-    for part in fingerprint.parts() {
-        encoded.extend_from_slice(&part.to_le_bytes());
+    let Ok(mut current) = File::open(path) else {
+        return;
+    };
+    if files_equal(observed, &mut current).unwrap_or(false) {
+        let _ = fs::remove_file(path);
     }
 }
 
-fn read_fingerprint(cursor: &mut Cursor<&[u8]>) -> Option<CodegenUnitFingerprint> {
-    Some(CodegenUnitFingerprint::from_parts([
-        read_u64(cursor)?,
-        read_u64(cursor)?,
-    ]))
+fn files_equal(left: &mut File, right: &mut File) -> io::Result<bool> {
+    let left_len = left.metadata()?.len();
+    if left_len != right.metadata()?.len() {
+        return Ok(false);
+    }
+    left.seek(SeekFrom::Start(0))?;
+    right.seek(SeekFrom::Start(0))?;
+    let mut left_buffer = [0; OBJECT_CACHE_STREAM_BYTES];
+    let mut right_buffer = [0; OBJECT_CACHE_STREAM_BYTES];
+    let mut remaining = left_len;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(left_buffer.len() as u64)).unwrap();
+        left.read_exact(&mut left_buffer[..chunk_len])?;
+        right.read_exact(&mut right_buffer[..chunk_len])?;
+        if left_buffer[..chunk_len] != right_buffer[..chunk_len] {
+            return Ok(false);
+        }
+        remaining -= chunk_len as u64;
+    }
+    Ok(true)
 }
 
-fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
-    let mut bytes = [0; 8];
-    cursor.read_exact(&mut bytes).ok()?;
-    Some(u64::from_le_bytes(bytes))
+fn read_exact_or_invalid(reader: &mut impl Read, bytes: &mut [u8]) -> io::Result<bool> {
+    match reader.read_exact(bytes) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn read_array<const N: usize>(reader: &mut impl Read) -> io::Result<Option<[u8; N]>> {
+    let mut bytes = [0; N];
+    Ok(read_exact_or_invalid(reader, &mut bytes)?.then_some(bytes))
+}
+
+fn write_fingerprint(
+    output: &mut impl Write,
+    fingerprint: CodegenUnitFingerprint,
+) -> io::Result<()> {
+    for part in fingerprint.parts() {
+        output.write_all(&part.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+fn read_fingerprint(reader: &mut impl Read) -> io::Result<Option<CodegenUnitFingerprint>> {
+    let Some(first) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    let Some(second) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    Ok(Some(CodegenUnitFingerprint::from_parts([first, second])))
+}
+
+fn write_u64(output: &mut impl Write, value: usize) -> io::Result<()> {
+    let value = u64::try_from(value)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "cache field is too large"))?;
+    output.write_all(&value.to_le_bytes())
+}
+
+fn read_u64(reader: &mut impl Read) -> io::Result<Option<u64>> {
+    Ok(read_array::<8>(reader)?.map(u64::from_le_bytes))
 }
 
 fn encode_unit_key(key: &CodegenUnitKey) -> Vec<u8> {
@@ -347,6 +575,23 @@ mod tests {
     }
 
     #[test]
+    fn large_work_product_round_trips_without_whole_record_encoding() {
+        let root = temp_root("large");
+        let cache = PersistentObjectWorkProductCache::new(root.clone());
+        let fingerprints = fingerprints(20);
+        let payload = vec![0x5a; OBJECT_CACHE_STREAM_BYTES * 5 + 17];
+
+        cache
+            .publish(&key(), fingerprints, &payload)
+            .expect("publish large object");
+        assert_eq!(
+            cache.load(&key(), fingerprints).expect("load large object"),
+            ObjectWorkProductLookup::Hit(payload)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn corrupt_work_product_is_deleted_and_can_be_republished() {
         let root = temp_root("corrupt");
         let cache = PersistentObjectWorkProductCache::new(root.clone());
@@ -380,7 +625,7 @@ mod tests {
         let cache = PersistentObjectWorkProductCache::new(root.clone());
         let first = fingerprints(50);
         cache
-            .publish(&key(), first, b"first")
+            .publish(&key(), first, &vec![0x33; OBJECT_CACHE_STREAM_BYTES * 3])
             .expect("publish first");
         let changed = CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
             definition: CodegenUnitFingerprint::from_parts([99, 2]),
@@ -401,6 +646,69 @@ mod tests {
             .expect("publish changed");
         assert!(cache.path(&key(), first.fingerprint).is_file());
         assert!(cache.path(&key(), changed.fingerprint).is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn malformed_key_length_is_rejected_without_allocating_it() {
+        let root = temp_root("key-length");
+        let cache = PersistentObjectWorkProductCache::new(root.clone());
+        let fingerprints = fingerprints(60);
+        let path = cache.path(&key(), fingerprints.fingerprint);
+        fs::create_dir_all(path.parent().expect("cache parent")).expect("create cache parent");
+        let mut encoded = Vec::new();
+        write_work_product(&mut encoded, &key(), fingerprints, b"payload").expect("encode");
+        let key_len_offset = 8 + 16 * 5;
+        encoded[key_len_offset..key_len_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        fs::write(&path, encoded).expect("write malformed entry");
+
+        assert_eq!(
+            cache
+                .load(&key(), fingerprints)
+                .expect("load malformed entry"),
+            ObjectWorkProductLookup::Corrupt
+        );
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_corruption_retirement_preserves_replacement() {
+        let root = temp_root("stale-retirement");
+        fs::create_dir_all(&root).expect("create cache root");
+        let path = root.join("entry.o");
+        fs::write(&path, b"corrupt").expect("write corrupt entry");
+        let mut observed = File::open(&path).expect("open observed entry");
+        let replacement = root.join("replacement.tmp");
+        fs::write(&replacement, b"replacement").expect("write replacement");
+        fs::rename(replacement, &path).expect("install replacement");
+
+        retire_corrupt(&path, &mut observed);
+
+        assert_eq!(fs::read(&path).expect("read replacement"), b"replacement");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publication_preserves_identical_winner_and_rejects_collision() {
+        let root = temp_root("publication-winner");
+        let cache = PersistentObjectWorkProductCache::new(root.clone());
+        let fingerprints = fingerprints(70);
+        cache
+            .publish(&key(), fingerprints, b"winner")
+            .expect("publish winner");
+        cache
+            .publish(&key(), fingerprints, b"winner")
+            .expect("accept identical publication");
+
+        let error = cache
+            .publish(&key(), fingerprints, b"loser")
+            .expect_err("reject fingerprint collision");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            cache.load(&key(), fingerprints).expect("load winner"),
+            ObjectWorkProductLookup::Hit(b"winner".to_vec())
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

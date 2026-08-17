@@ -612,6 +612,13 @@ commit as the corresponding implementation batch.
       fixed buffers and exact observed-length checks. Link orchestration no
       longer retains every archive in memory, and compatibility regressions
       preserve both registered fingerprint domains.
+- [x] Phase D native object work-product records now parse bounded canonical
+      keys and stream payload validation, invalidation scans, publication, and
+      collision comparison through fixed buffers without materializing the
+      complete cache envelope. Per-entry mutation locks preserve an immutable
+      valid winner and retire corrupt observations only while identical bytes
+      remain installed; exact hits allocate only the payload required by the
+      codegen cache interface.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
