@@ -738,23 +738,25 @@ impl<'a> Analyzer<'a> {
         call: &TypedExpr,
         env: &mut Environment,
     ) -> ValueProvenance {
-        let args = args
-            .iter()
-            .map(|arg| self.analyze_expr(arg, env).all())
-            .collect::<Vec<_>>();
+        // Function lowering evaluates an expression-backed callee or receiver
+        // before explicit arguments. Preserve that order here because either
+        // side may contain assignments that change later provenance reads.
         match callee {
-            TypedCallee::Function(def_id) | TypedCallee::FunctionInstance { def_id, .. } => self
-                .apply_summary(
+            TypedCallee::Function(def_id) | TypedCallee::FunctionInstance { def_id, .. } => {
+                let args = self.analyze_call_args(args, env);
+                self.apply_summary(
                     CallableKey::Function(*def_id),
                     &Provenances::new(),
                     &args,
                     call.span,
                     call.ty,
-                ),
+                )
+            }
             TypedCallee::Method {
                 def_id, receiver, ..
             } => {
                 let receiver_origins = self.analyze_expr(receiver, env).all();
+                let args = self.analyze_call_args(args, env);
                 let mut operands = vec![receiver_origins];
                 operands.extend(args);
                 self.apply_summary(
@@ -771,6 +773,7 @@ impl<'a> Analyzer<'a> {
                 ..
             } => {
                 let receiver = self.analyze_expr(receiver, env).all();
+                let args = self.analyze_call_args(args, env);
                 let mut operands = vec![receiver];
                 operands.extend(args);
                 self.apply_summary(
@@ -781,15 +784,19 @@ impl<'a> Analyzer<'a> {
                     call.ty,
                 )
             }
-            TypedCallee::TraitAssociatedFunction { method_id, .. } => self.apply_summary(
-                CallableKey::Function(*method_id),
-                &Provenances::new(),
-                &args,
-                call.span,
-                call.ty,
-            ),
+            TypedCallee::TraitAssociatedFunction { method_id, .. } => {
+                let args = self.analyze_call_args(args, env);
+                self.apply_summary(
+                    CallableKey::Function(*method_id),
+                    &Provenances::new(),
+                    &args,
+                    call.span,
+                    call.ty,
+                )
+            }
             TypedCallee::Closure(state) => {
                 let state_origins = self.analyze_expr(state, env).all();
+                let args = self.analyze_call_args(args, env);
                 let closure_id = match self.type_store.get(state.ty) {
                     Some(TyKind::ClosureState { closure_id, .. }) => Some(*closure_id),
                     _ => None,
@@ -807,6 +814,7 @@ impl<'a> Analyzer<'a> {
             }
             TypedCallee::Callable(callee) => {
                 let callee = self.analyze_expr(callee, env).all();
+                let args = self.analyze_call_args(args, env);
                 let closure_ids = callee
                     .iter()
                     .filter_map(|origin| match origin {
@@ -849,10 +857,12 @@ impl<'a> Analyzer<'a> {
             }
             TypedCallee::FunctionPointer(callee) => {
                 self.analyze_expr(callee, env);
+                let args = self.analyze_call_args(args, env);
                 self.apply_unknown_call(&args, call.span, call.ty)
             }
             TypedCallee::DynamicTraitMethod { receiver, .. } => {
                 let receiver = self.analyze_expr(receiver, env).all();
+                let args = self.analyze_call_args(args, env);
                 let mut operands = vec![receiver];
                 operands.extend(args);
                 self.apply_unknown_call(&operands, call.span, call.ty)
@@ -862,15 +872,23 @@ impl<'a> Analyzer<'a> {
                 receiver, ..
             }) => {
                 let mut result = self.analyze_expr(receiver, env).all();
+                let args = self.analyze_call_args(args, env);
                 for arg in args {
                     result.extend(arg);
                 }
                 ValueProvenance::from_value(result)
             }
             TypedCallee::BuiltinOperator(_) => {
+                let args = self.analyze_call_args(args, env);
                 ValueProvenance::from_value(args.into_iter().fold(Provenances::new(), union))
             }
         }
+    }
+
+    fn analyze_call_args(&mut self, args: &[TypedExpr], env: &mut Environment) -> Vec<Provenances> {
+        args.iter()
+            .map(|arg| self.analyze_expr(arg, env).all())
+            .collect()
     }
 
     fn apply_summary(
@@ -1378,6 +1396,7 @@ fn union(mut lhs: Provenances, rhs: Provenances) -> Provenances {
 #[cfg(test)]
 mod tests {
     use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_ty::TyKind;
 
     use super::*;
 
@@ -1441,5 +1460,79 @@ mod tests {
             ),
             captures,
         );
+    }
+
+    #[test]
+    fn expression_callee_mutations_precede_argument_provenance_reads() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let callable_ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: append.intern(TyKind::Tuple(Vec::new())),
+        });
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let selected = LocalId(0);
+        let stack_backed = LocalId(1);
+        let mut env = Environment::from([
+            (
+                selected,
+                ValueProvenance::from_value(Provenances::from([Provenance::Input(
+                    InputSource::Parameter(0),
+                )])),
+            ),
+            (
+                stack_backed,
+                ValueProvenance::from_value(Provenances::from([Provenance::CallableClosure {
+                    closure_id,
+                    stack_backed: true,
+                }])),
+            ),
+        ]);
+        let local = |local_id| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Local(local_id),
+        };
+        let callee = TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty: callable_ty,
+                    base: PlaceBase::Local(selected),
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(local(stack_backed)),
+            },
+        };
+        let call = TypedExpr {
+            span: Span::default(),
+            ty: unit_ty,
+            kind: TypedExprKind::Error,
+        };
+        let summaries = HashMap::new();
+        let mut analyzer = Analyzer::new(&types, &summaries, None);
+
+        analyzer.analyze_call(
+            &TypedCallee::FunctionPointer(Box::new(callee)),
+            &[local(selected)],
+            &call,
+            &mut env,
+        );
+
+        assert!(analyzer.escaped.contains(&Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        }));
     }
 }
