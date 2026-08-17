@@ -464,6 +464,9 @@ commit as the corresponding implementation batch.
 - [x] Phase B LLVM emission APIs now document the validated backend boundary,
       incremental readiness protocol, partial-output diagnostic contract,
       optimization mapping, and attributable object-cache fingerprints.
+- [x] Phase B backend lowering APIs now document the program-wide planning,
+      unique-owner assignment, parallel module finalization, readiness
+      publication, and deterministic collection contracts.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

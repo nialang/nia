@@ -68,16 +68,33 @@ use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, PartialEq)]
+/// Complete validated input to backend code generation.
+///
+/// `program`, `owner_directory`, and `codegen_partitions` are one inseparable
+/// snapshot: every emitted definition has exactly one module owner, and the
+/// partition plan was derived from that exact program. Diagnostics may be
+/// non-empty; callers must not pass such a lowering to codegen.
 pub struct BackendLowering {
+    /// Final module-owned backend IR.
     pub program: BackendProgram,
+    /// Canonical owner of every definition and generated backend item.
     pub owner_directory: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
+    /// Deterministic codegen partitioning derived from `program`.
     pub codegen_partitions: nia_backend_ir::CodegenPartitionPlan,
+    /// Optimization policy used while producing the program.
     pub optimization: OptimizationPolicy,
+    /// Enabled passes and transformations that changed IR.
     pub optimization_report: BackendOptimizationReport,
+    /// Internal diagnostics that make this lowering unsuitable for codegen.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, PartialEq)]
+/// Program-wide item discovery result before module-local finalization.
+///
+/// Planning resolves cross-module ownership and materializes the initial item
+/// fixed point. [`BackendItemPlan::into_module_plans`] then separates immutable
+/// program metadata from independently finalizable module plans.
 pub struct BackendItemPlan {
     modules: Vec<BackendModuleItemPlan>,
     optimization: OptimizationPolicy,
@@ -86,11 +103,13 @@ pub struct BackendItemPlan {
 }
 
 #[derive(Debug, PartialEq)]
+/// One module's planned backend items, ready for module-local finalization.
 pub struct BackendModuleItemPlan {
     module: BackendModule,
 }
 
 #[derive(Debug, PartialEq)]
+/// Program-wide state retained while module plans are finalized independently.
 pub struct BackendItemPlanFinalization {
     optimization: OptimizationPolicy,
     optimization_report: BackendOptimizationReport,
@@ -98,6 +117,11 @@ pub struct BackendItemPlanFinalization {
     owner_directory: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
 }
 
+/// Shared read-only context for independently finalizing module item plans.
+///
+/// The context rebuilds program indexes once and may be shared by parallel
+/// module tasks. Each task must pair an input and plan with the same module
+/// owner and source-order position.
 pub struct BackendProgramFinalizationContext<S = std::sync::Arc<nia_ty::TypeStore>> {
     type_store: S,
     optimization: OptimizationPolicy,
@@ -106,6 +130,7 @@ pub struct BackendProgramFinalizationContext<S = std::sync::Arc<nia_ty::TypeStor
 }
 
 #[derive(Debug, PartialEq)]
+/// Finalized module plus source-order metadata and module-owned reports.
 pub struct BackendModuleFinalization {
     position: usize,
     module: BackendModule,
@@ -113,6 +138,12 @@ pub struct BackendModuleFinalization {
     diagnostics: Vec<Diagnostic>,
 }
 
+/// Publishes finalized modules while restoring deterministic program order.
+///
+/// Module tasks may complete in any order. The collector publishes each module
+/// to [`BackendModuleStore`] immediately for downstream readiness consumers,
+/// but retains diagnostics and optimization changes by original source-module
+/// position so observable output is deterministic.
 pub struct BackendModuleFinalizationCollector {
     finalization: BackendItemPlanFinalization,
     module_order: Vec<ModuleId>,
@@ -125,6 +156,7 @@ impl<S> BackendProgramFinalizationContext<S>
 where
     S: Deref<Target = nia_ty::TypeStore>,
 {
+    /// Builds the shared indexes used by every module finalization task.
     pub fn new(
         modules: &[BackendLowerModuleInput<'_>],
         type_store: S,
@@ -143,6 +175,10 @@ where
         }
     }
 
+    /// Finalizes one module plan without mutating any other module's plan.
+    ///
+    /// `position` is opaque source-order metadata for the collector. `input`
+    /// and `module_plan` must have the same module owner.
     pub fn finalize_module(
         &self,
         position: usize,
@@ -172,12 +208,14 @@ where
 }
 
 impl BackendModuleItemPlan {
+    /// Returns the planned module for inspection before consuming the plan.
     pub fn module(&self) -> &BackendModule {
         &self.module
     }
 }
 
 impl BackendModuleFinalizationCollector {
+    /// Creates a collector for the exact source-module order of the plan.
     pub fn new(finalization: BackendItemPlanFinalization, module_order: &[ModuleId]) -> Self {
         let module_count = module_order.len();
         Self {
@@ -189,18 +227,27 @@ impl BackendModuleFinalizationCollector {
         }
     }
 
+    /// Returns the live store into which finalized modules are published.
     pub fn module_store(&self) -> Arc<BackendModuleStore> {
         Arc::clone(&self.modules)
     }
 
+    /// Returns the owner directory fixed during program-wide planning.
     pub fn owner_directory(&self) -> Arc<nia_backend_ir::BackendModuleOwnerDirectory> {
         Arc::clone(&self.finalization.owner_directory)
     }
 
+    /// Takes the store's readiness stream for incremental codegen.
+    ///
+    /// The stream is unique; taking it more than once is rejected by the store.
     pub fn take_readiness(&self) -> BackendModuleReadiness {
         self.modules.take_readiness()
     }
 
+    /// Publishes one completed module task at its original source position.
+    ///
+    /// Each position must be pushed exactly once and must match both the task's
+    /// recorded position and the module owner in `module_order`.
     pub fn push(&mut self, position: usize, module_finalization: BackendModuleFinalization) {
         assert_eq!(
             module_finalization.position, position,
@@ -223,6 +270,11 @@ impl BackendModuleFinalizationCollector {
         self.diagnostics[position] = Some(module_finalization.diagnostics);
     }
 
+    /// Joins all module results into one complete backend lowering.
+    ///
+    /// Every source position must have been pushed. Reports and diagnostics are
+    /// joined in source order even when publication happened in completion
+    /// order.
     pub fn finish(self) -> BackendLowering {
         let BackendItemPlanFinalization {
             optimization,
@@ -263,6 +315,7 @@ impl BackendModuleFinalizationCollector {
 }
 
 impl BackendItemPlan {
+    /// Creates an empty plan representing failure before item planning began.
     pub fn from_diagnostics(
         optimization: OptimizationPolicy,
         diagnostics: Vec<Diagnostic>,
@@ -280,10 +333,16 @@ impl BackendItemPlan {
         }
     }
 
+    /// Returns module plans in the same order as the lowering inputs.
     pub fn modules(&self) -> &[BackendModuleItemPlan] {
         &self.modules
     }
 
+    /// Splits program-wide state from module-local work.
+    ///
+    /// The returned module vector preserves input order. Its plans may be
+    /// finalized concurrently, then joined with a
+    /// [`BackendModuleFinalizationCollector`].
     pub fn into_module_plans(self) -> (BackendItemPlanFinalization, Vec<BackendModuleItemPlan>) {
         let owner_directory = Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
             self.modules.iter().map(BackendModuleItemPlan::module),
@@ -299,107 +358,187 @@ impl BackendItemPlan {
         )
     }
 
+    /// Returns the optimization policy captured by planning.
     pub fn optimization(&self) -> OptimizationPolicy {
         self.optimization
     }
 
+    /// Returns planning-time optimization evidence.
     pub fn optimization_report(&self) -> &BackendOptimizationReport {
         &self.optimization_report
     }
 
+    /// Returns diagnostics accumulated before module finalization.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Requested concrete function instance discovered by an earlier compiler phase.
 pub struct BackendFunctionInstancePlan {
+    /// Generic function or method definition to instantiate.
     pub def_id: GlobalDefId,
+    /// Module in whose type context the arguments were resolved.
     pub arg_module_id: ModuleId,
+    /// Concrete `Self` argument for method instances.
     pub self_arg: Option<InternedTyId>,
+    /// Concrete type arguments in effective generic parameter order.
     pub args: Vec<InternedTyId>,
+    /// Concrete const arguments in effective const-generic parameter order.
     pub const_args: Vec<nia_ty::ConstGenericArg>,
+    /// Use site that caused the instance to become reachable.
     pub span: nia_span::Span,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+/// Audit trail for backend optimization policy and observed transformations.
 pub struct BackendOptimizationReport {
+    /// Module pass names enabled by policy, whether or not they changed IR.
     pub enabled_module_passes: Vec<&'static str>,
+    /// Function pass names enabled by policy, whether or not they changed IR.
     pub enabled_function_passes: Vec<&'static str>,
+    /// Global/static pass names enabled by policy, whether or not they changed IR.
     pub enabled_global_passes: Vec<&'static str>,
+    /// Concrete owner and pass for every transformation that changed IR.
     pub changed_passes: Vec<BackendOptimizationChange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One backend owner changed by an optimization pass.
 pub enum BackendOptimizationChange {
+    /// A source function or concrete function instance changed.
     Function {
+        /// Module that owns the emitted function.
         module_id: ModuleId,
+        /// Source definition behind the emitted function.
         function: GlobalDefId,
+        /// Stable pass name.
         pass: &'static str,
+        /// Whether the changed function is a monomorphized instance.
         is_instance: bool,
+        /// Number of concrete type arguments for an instance.
         type_arg_count: usize,
     },
+    /// A global or static initializer changed.
     Global {
+        /// Module that owns the emitted global.
         module_id: ModuleId,
+        /// Source definition of the global.
         global: GlobalDefId,
+        /// Stable pass name.
         pass: &'static str,
     },
 }
 
+/// Program-wide semantic and IR facts required by module-owned lowering.
+///
+/// Implementations must expose one coherent compiler snapshot. Ids returned by
+/// list methods must resolve through their corresponding lookup method, and
+/// normalized types and signatures must belong to the same [`nia_ty::TypeStore`]
+/// supplied to lowering.
 pub trait BackendProgramFacts: Sync {
+    /// Returns source identities for every module that may own generated items.
     fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity>;
+    /// Returns evaluated array lengths owned by `module_id`.
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
+    /// Returns all source definitions with available checked function bodies.
     fn function_body_ids(&self) -> &[GlobalDefId];
+    /// Looks up the checked function IR for a source definition.
     fn function_body(&self, def_id: GlobalDefId) -> Option<&FunctionBody>;
+    /// Returns closure entry bodies owned by a source function.
     fn closure_entries(&self, _def_id: GlobalDefId) -> &[nia_function_ir::FunctionClosureEntry] {
         &[]
     }
+    /// Returns all definitions with available checked static initializers.
     fn static_init_ids(&self) -> &[GlobalDefId];
+    /// Looks up the checked static initializer for a global definition.
     fn static_init(&self, def_id: GlobalDefId) -> Option<&nia_static_ir::StaticInit>;
+    /// Returns program-wide extension-method ownership.
     fn extension_methods(&self) -> &ExtensionMethods;
+    /// Returns extension methods visible from `module_id`.
     fn extensions(&self, module_id: ModuleId) -> Option<&VisibleExtensionMethods>;
+    /// Returns definitions owned by `module_id`.
     fn defs(&self, module_id: ModuleId) -> Option<&DefCollection>;
+    /// Returns the canonical normalized form of a program type when available.
     fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId>;
+    /// Normalizes a type using aliases and projections visible from `module_id`.
     fn normalized_type_from_module(
         &self,
         module_id: ModuleId,
         ty: InternedTyId,
     ) -> Option<InternedTyId>;
+    /// Returns program-wide function signatures keyed by source definition.
     fn functions(&self) -> &HashMap<GlobalDefId, ProgramFunctionSignature>;
+    /// Returns program-wide struct signatures keyed by source definition.
     fn structs(&self) -> &HashMap<GlobalDefId, ProgramStructSignature>;
+    /// Returns program-wide union signatures keyed by source definition.
     fn unions(&self) -> &HashMap<GlobalDefId, ProgramUnionSignature>;
+    /// Returns program-wide enum signatures keyed by source definition.
     fn enums(&self) -> &HashMap<GlobalDefId, ProgramEnumSignature>;
+    /// Returns program-wide trait signatures keyed by source definition.
     fn traits(&self) -> &HashMap<GlobalDefId, ProgramTraitSignature>;
+    /// Returns program-wide type-alias signatures keyed by source definition.
     fn type_aliases(&self)
     -> &HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>;
+    /// Returns all program trait implementation signatures.
     fn trait_impls(&self) -> &[ProgramTraitImplSignature];
+    /// Returns the canonical lookup index for trait implementations.
     fn trait_impl_index(&self) -> &ProgramTraitImplIndex;
 }
 
 #[derive(Clone)]
+/// Complete checked input for lowering one source module.
+///
+/// All borrowed products must belong to the same module revision. Program-wide
+/// reachability slices, when present, must be sorted because membership checks
+/// use binary search.
 pub struct BackendLowerModuleInput<'a> {
+    /// Stable module identity shared by all local products.
     pub module_id: ModuleId,
+    /// Path-independent source identity used for deterministic ownership.
     pub source_identity: nia_source::SourceIdentity,
+    /// Human-readable module name used in emitted backend metadata.
     pub module_name: String,
+    /// Symbol text resolver for names and diagnostics.
     pub symbols: &'a (dyn SymbolText + Sync),
+    /// Active syntax items after configuration filtering.
     pub active_item_tree: &'a ActiveModuleItemTree,
+    /// Definition ownership for the module revision.
     pub defs: &'a DefCollection,
+    /// Resolved value paths.
     pub values: &'a ValueResolution,
+    /// Resolved local bindings and parameter identities.
     pub locals: &'a LocalResolution,
+    /// Lowered source types and const expressions.
     pub type_lowering: &'a TypeLowering,
+    /// Checked item signatures for the module.
     pub signatures: &'a ItemSignatures,
+    /// Canonical normalized types for this module.
     pub type_normalization: &'a TypeNormalization,
+    /// Body-check types, calls, and other semantic facts.
     pub semantic_facts: &'a SemanticFacts,
+    /// Extension methods visible from this module.
     pub extensions: &'a VisibleExtensionMethods,
+    /// Evaluated array lengths owned by this module.
     pub const_array_lengths: &'a HashMap<GlobalConstExprId, u64>,
+    /// Evaluated enum discriminants owned by this module.
     pub const_enum_values: &'a HashMap<DefId, nia_const_check::ConstValue>,
+    /// Layouts computed for the checked type snapshot.
     pub layouts: &'a Layouts,
+    /// Policy for choosing initial function roots.
     pub roots: BackendFunctionRoots,
+    /// Sorted executable function reachability, when available.
     pub reachable_functions: Option<&'a [GlobalDefId]>,
+    /// Sorted executable global reachability, when available.
     pub reachable_globals: Option<&'a [GlobalDefId]>,
+    /// Sorted executable struct reachability, when available.
     pub reachable_structs: Option<&'a [GlobalDefId]>,
+    /// Sorted executable union reachability, when available.
     pub reachable_unions: Option<&'a [GlobalDefId]>,
+    /// Concrete function instances requested before backend discovery.
     pub function_instance_plan: &'a [BackendFunctionInstancePlan],
+    /// Coherent program-wide facts used for cross-module materialization.
     pub program: &'a dyn BackendProgramFacts,
 }
 
@@ -413,14 +552,20 @@ impl std::fmt::Debug for BackendLowerModuleInput<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Policy for selecting the initial function set before reachability expansion.
 pub enum BackendFunctionRoots {
+    /// Lower externs, entry symbols, and non-private source functions.
     #[default]
     Public,
+    /// Lower externs and functions present in executable reachability facts.
     EntryPoints,
+    /// Lower every available non-generic checked body plus extern declarations.
     FunctionBodies,
+    /// Do not select source functions as initial roots.
     NoFunctions,
 }
 
+/// Plans and finalizes a backend program with timing disabled.
 pub fn lower_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
@@ -434,6 +579,10 @@ pub fn lower_backend_program(
     )
 }
 
+/// Plans and finalizes a backend program in one sequential convenience call.
+///
+/// Use [`plan_backend_program_with_timings`] and the public finalization types
+/// when module finalization and LLVM readiness should overlap.
 pub fn lower_backend_program_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
@@ -451,6 +600,7 @@ pub fn lower_backend_program_with_timings(
     )
 }
 
+/// Discovers program-wide backend items with timing disabled.
 pub fn plan_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
@@ -464,6 +614,12 @@ pub fn plan_backend_program(
     )
 }
 
+/// Discovers reachable items, resolves unique owners, and creates module plans.
+///
+/// This phase is program-wide because function instances, aggregate instances,
+/// vtables, and referenced foreign items can be discovered from several source
+/// modules. Equal generated definitions receive one deterministic owner before
+/// module plans are allowed to finalize independently.
 pub fn plan_backend_program_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
@@ -722,6 +878,7 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule]) {
     }
 }
 
+/// Finalizes module plans and joins them with timing disabled.
 pub fn finalize_backend_module_item_plans(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
@@ -737,6 +894,11 @@ pub fn finalize_backend_module_item_plans(
     )
 }
 
+/// Finalizes and joins module plans produced by the matching planning call.
+///
+/// `modules` and `module_plans` must have equal length and identical module
+/// order. If planning already produced diagnostics, finalization is skipped and
+/// the partial planned program is returned for diagnostics only.
 pub fn finalize_backend_module_item_plans_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
