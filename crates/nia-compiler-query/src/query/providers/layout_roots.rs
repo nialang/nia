@@ -187,7 +187,7 @@ impl<'a> LayoutRootCollector<'a> {
                 for arg in &const_args {
                     self.add(arg.ty);
                 }
-                self.add_nominal_fields(def_id, &args);
+                self.add_nominal_fields(def_id, &args, &const_args);
             }
             Some(TyKind::BuiltinTrait { args, .. })
             | Some(TyKind::TraitObject {
@@ -222,7 +222,12 @@ impl<'a> LayoutRootCollector<'a> {
         }
     }
 
-    fn add_nominal_fields(&mut self, def_id: GlobalDefId, args: &[InternedTyId]) {
+    fn add_nominal_fields(
+        &mut self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) {
         if def_id.module_id == self.module_id && !self.expand_local_aggregate_fields {
             return;
         }
@@ -230,331 +235,53 @@ impl<'a> LayoutRootCollector<'a> {
             && let Some(signature) = program_struct(def_id)
         {
             let signature = signature.signature;
-            self.add_aggregate_fields(&signature.generics, &signature.fields, args);
+            self.add_aggregate_fields(
+                &signature.generic_params,
+                &signature.fields,
+                args,
+                const_args,
+            );
             return;
         }
         if let Some(program_union) = self.program_union
             && let Some(signature) = program_union(def_id)
         {
             let signature = signature.signature;
-            self.add_aggregate_fields(&signature.generics, &signature.fields, args);
+            self.add_aggregate_fields(
+                &signature.generic_params,
+                &signature.fields,
+                args,
+                const_args,
+            );
         }
     }
 
     fn add_aggregate_fields(
         &mut self,
-        generics: &[SymbolId],
+        generic_params: &[nia_item_signatures::GenericParamSignature],
         fields: &[nia_item_signatures::FieldSignature],
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
     ) {
-        if generics.len() != args.len() {
+        let Some((substitutions, const_substitutions)) =
+            nia_item_signatures::generic_argument_substitutions(generic_params, args, const_args)
+        else {
             return;
-        }
-        let substitutions = generics
-            .iter()
-            .cloned()
-            .zip(args.iter().copied())
-            .collect::<SymbolMap<_>>();
+        };
+        // Root discovery must traverse the concrete field graph. Reuse the
+        // canonical type substituter so const array lengths and nested nominal
+        // arguments follow the same rules as layout computation itself.
         for field in fields {
-            let field_ty = self.substitute_generics(field.ty, &substitutions);
+            let field_ty = nia_ty::substitute_ty(
+                self.type_store,
+                &self.append,
+                field.ty,
+                &|name| substitutions.get(name).copied(),
+                &|name| const_substitutions.get(name).cloned(),
+                None,
+            );
             self.add(field_ty);
         }
-    }
-
-    fn substitute_generics(
-        &mut self,
-        ty: InternedTyId,
-        substitutions: &SymbolMap<InternedTyId>,
-    ) -> InternedTyId {
-        match self.type_store.get(ty).cloned() {
-            Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
-            Some(TyKind::Tuple(elems)) => {
-                let elems = elems
-                    .into_iter()
-                    .map(|elem| self.substitute_generics(elem, substitutions))
-                    .collect();
-                self.intern(TyKind::Tuple(elems))
-            }
-            Some(TyKind::ClosureState {
-                closure_id,
-                captures,
-                params,
-                return_type,
-            }) => {
-                let captures = captures
-                    .into_iter()
-                    .map(|ty| self.substitute_generics(ty, substitutions))
-                    .collect();
-                let params = params
-                    .into_iter()
-                    .map(|ty| self.substitute_generics(ty, substitutions))
-                    .collect();
-                let return_type = self.substitute_generics(return_type, substitutions);
-                self.intern(TyKind::ClosureState {
-                    closure_id,
-                    captures,
-                    params,
-                    return_type,
-                })
-            }
-            Some(TyKind::Pointer { is_readonly, elem }) => {
-                let elem = self.substitute_generics(elem, substitutions);
-                self.intern(TyKind::Pointer { is_readonly, elem })
-            }
-            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
-                let elem = self.substitute_generics(elem, substitutions);
-                self.intern(TyKind::VolatilePointer { is_readonly, elem })
-            }
-            Some(TyKind::Slice { is_readonly, elem }) => {
-                let elem = self.substitute_generics(elem, substitutions);
-                self.intern(TyKind::Slice { is_readonly, elem })
-            }
-            Some(TyKind::SlicePointee { elem }) => {
-                let elem = self.substitute_generics(elem, substitutions);
-                self.intern(TyKind::SlicePointee { elem })
-            }
-            Some(TyKind::Array { len, elem }) => {
-                let len = self.substitute_array_len_generics(len, substitutions);
-                let elem = self.substitute_generics(elem, substitutions);
-                self.intern(TyKind::Array { len, elem })
-            }
-            Some(TyKind::Range { kind, bound }) => {
-                let bound = bound.map(|bound| self.substitute_generics(bound, substitutions));
-                self.intern(TyKind::Range { kind, bound })
-            }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                is_variadic,
-            }) => {
-                let params = params
-                    .into_iter()
-                    .map(|param| self.substitute_generics(param, substitutions))
-                    .collect();
-                let return_type = self.substitute_generics(return_type, substitutions);
-                self.intern(TyKind::FunctionPointer {
-                    params,
-                    return_type,
-                    is_variadic,
-                })
-            }
-            Some(TyKind::Callable {
-                is_readonly,
-                params,
-                return_type,
-            }) => {
-                let params = params
-                    .into_iter()
-                    .map(|param| self.substitute_generics(param, substitutions))
-                    .collect();
-                let return_type = self.substitute_generics(return_type, substitutions);
-                self.intern(TyKind::Callable {
-                    is_readonly,
-                    params,
-                    return_type,
-                })
-            }
-            Some(TyKind::CallablePointee {
-                params,
-                return_type,
-            }) => {
-                let params = params
-                    .into_iter()
-                    .map(|param| self.substitute_generics(param, substitutions))
-                    .collect();
-                let return_type = self.substitute_generics(return_type, substitutions);
-                self.intern(TyKind::CallablePointee {
-                    params,
-                    return_type,
-                })
-            }
-            Some(TyKind::Optional { elem }) => {
-                let elem = self.substitute_generics(elem, substitutions);
-                self.intern(TyKind::Optional { elem })
-            }
-            Some(TyKind::ErrorUnion { error, value }) => {
-                let error = self.substitute_generics(error, substitutions);
-                let value = self.substitute_generics(value, substitutions);
-                self.intern(TyKind::ErrorUnion { error, value })
-            }
-            Some(TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            }) => {
-                let args = args
-                    .into_iter()
-                    .map(|arg| self.substitute_generics(arg, substitutions))
-                    .collect();
-                let const_args = const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.substitute_generics(arg.ty, substitutions);
-                        arg
-                    })
-                    .collect();
-                self.intern(TyKind::Nominal {
-                    def_id,
-                    args,
-                    const_args,
-                })
-            }
-            Some(TyKind::BuiltinTrait { trait_id, args }) => {
-                let args = args
-                    .into_iter()
-                    .map(|arg| self.substitute_generics(arg, substitutions))
-                    .collect();
-                self.intern(TyKind::BuiltinTrait { trait_id, args })
-            }
-            Some(TyKind::BuiltinType(_)) => ty,
-            Some(TyKind::Projection {
-                self_ty,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                name,
-            }) => {
-                let self_ty = self.substitute_generics(self_ty, substitutions);
-                let trait_args = trait_args
-                    .into_iter()
-                    .map(|arg| self.substitute_generics(arg, substitutions))
-                    .collect();
-                let trait_const_args = trait_const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.substitute_generics(arg.ty, substitutions);
-                        arg
-                    })
-                    .collect();
-                self.intern(TyKind::Projection {
-                    self_ty,
-                    trait_id,
-                    trait_args,
-                    trait_const_args,
-                    name,
-                })
-            }
-            Some(TyKind::TraitObject {
-                is_readonly,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-            }) => {
-                let trait_args = trait_args
-                    .into_iter()
-                    .map(|arg| self.substitute_generics(arg, substitutions))
-                    .collect();
-                let trait_const_args = trait_const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.substitute_generics(arg.ty, substitutions);
-                        arg
-                    })
-                    .collect();
-                let associated_type_bindings = associated_type_bindings
-                    .into_iter()
-                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
-                        trait_id: binding.trait_id,
-                        trait_args: binding
-                            .trait_args
-                            .into_iter()
-                            .map(|arg| self.substitute_generics(arg, substitutions))
-                            .collect(),
-                        trait_const_args: binding
-                            .trait_const_args
-                            .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.substitute_generics(arg.ty, substitutions);
-                                arg
-                            })
-                            .collect(),
-                        name: binding.name,
-                        ty: self.substitute_generics(binding.ty, substitutions),
-                    })
-                    .collect();
-                self.intern(TyKind::TraitObject {
-                    is_readonly,
-                    trait_id,
-                    trait_args,
-                    trait_const_args,
-                    associated_type_bindings,
-                })
-            }
-            Some(TyKind::TraitObjectPointee {
-                trait_id,
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-            }) => {
-                let trait_args = trait_args
-                    .into_iter()
-                    .map(|arg| self.substitute_generics(arg, substitutions))
-                    .collect();
-                let trait_const_args = trait_const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.substitute_generics(arg.ty, substitutions);
-                        arg
-                    })
-                    .collect();
-                let associated_type_bindings = associated_type_bindings
-                    .into_iter()
-                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
-                        trait_id: binding.trait_id,
-                        trait_args: binding
-                            .trait_args
-                            .into_iter()
-                            .map(|arg| self.substitute_generics(arg, substitutions))
-                            .collect(),
-                        trait_const_args: binding
-                            .trait_const_args
-                            .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.substitute_generics(arg.ty, substitutions);
-                                arg
-                            })
-                            .collect(),
-                        name: binding.name,
-                        ty: self.substitute_generics(binding.ty, substitutions),
-                    })
-                    .collect();
-                self.intern(TyKind::TraitObjectPointee {
-                    trait_id,
-                    trait_args,
-                    trait_const_args,
-                    associated_type_bindings,
-                })
-            }
-            Some(TyKind::Primitive(_))
-            | Some(TyKind::Opaque)
-            | Some(TyKind::Vector { .. })
-            | Some(TyKind::Error)
-            | Some(TyKind::ConstOnly)
-            | Some(TyKind::SelfParam)
-            | None => ty,
-        }
-    }
-
-    fn substitute_array_len_generics(
-        &mut self,
-        len: nia_ty::ArrayLenTy,
-        substitutions: &SymbolMap<InternedTyId>,
-    ) -> nia_ty::ArrayLenTy {
-        match len {
-            nia_ty::ArrayLenTy::Builtin { builtin, ty } => nia_ty::ArrayLenTy::Builtin {
-                builtin,
-                ty: self.substitute_generics(ty, substitutions),
-            },
-            nia_ty::ArrayLenTy::Infer
-            | nia_ty::ArrayLenTy::GenericParam(_)
-            | nia_ty::ArrayLenTy::ConstValue(_)
-            | nia_ty::ArrayLenTy::ConstExpr(_) => len,
-        }
-    }
-
-    fn intern(&mut self, kind: TyKind) -> InternedTyId {
-        self.append.intern(kind)
     }
 
     pub(super) fn add_struct(&mut self, def_id: nia_defs::DefId) {
@@ -618,4 +345,86 @@ pub(super) struct CollectedLayoutRoots {
 pub(super) struct CollectedGlobalLayoutRoots {
     pub(super) structs: Vec<GlobalDefId>,
     pub(super) unions: Vec<GlobalDefId>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aggregate_field_roots_substitute_interleaved_const_arguments() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let defining_module = module_ids.allocate();
+        let consuming_module = module_ids.allocate();
+        let packet_id = GlobalDefId {
+            module_id: defining_module,
+            def_id: nia_defs::DefId(1),
+        };
+        let type_store = nia_ty::TypeStore::new();
+        let defining_types = type_store.append_for_module(defining_module);
+        let consuming_types = type_store.append_for_module(consuming_module);
+        let type_name = SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
+        let const_name = SymbolId::from_stable_hash(nia_symbol::stable_hash("N"));
+        let usize_ty = defining_types.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        let generic_ty = defining_types.intern(TyKind::GenericParam(type_name));
+        let field_ty = defining_types.intern(TyKind::Array {
+            elem: generic_ty,
+            len: nia_ty::ArrayLenTy::GenericParam(const_name),
+        });
+        let signature = ProgramStructSignature {
+            signature: nia_item_signatures::StructSignature {
+                generics: vec![type_name, const_name],
+                generic_params: vec![
+                    nia_item_signatures::GenericParamSignature {
+                        name: type_name,
+                        kind: nia_item_signatures::GenericParamSignatureKind::Type,
+                    },
+                    nia_item_signatures::GenericParamSignature {
+                        name: const_name,
+                        kind: nia_item_signatures::GenericParamSignatureKind::Const {
+                            ty: usize_ty,
+                        },
+                    },
+                ],
+                where_predicates: Vec::new(),
+                fields: vec![nia_item_signatures::FieldSignature {
+                    def_id: nia_defs::DefId(2),
+                    name: SymbolId::from_stable_hash(nia_symbol::stable_hash("values")),
+                    ty: field_ty,
+                    span: nia_span::Span::default(),
+                }],
+                is_tuple: false,
+                is_extern: false,
+                span: nia_span::Span::default(),
+            },
+        };
+        let program_struct = |requested| (requested == packet_id).then(|| signature.clone());
+        let program_union = |_| None;
+        let u8_ty = consuming_types.intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8));
+        let packet_ty = consuming_types.intern(TyKind::Nominal {
+            def_id: packet_id,
+            args: vec![u8_ty],
+            const_args: vec![nia_ty::ConstGenericArg {
+                ty: usize_ty,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+            }],
+        });
+
+        let mut roots = LayoutRootCollector::with_program(
+            &type_store,
+            consuming_module,
+            &program_struct,
+            &program_union,
+        );
+        roots.add(packet_ty);
+        let roots = roots.finish();
+
+        assert!(roots.types.iter().any(|ty| matches!(
+            type_store.get(*ty),
+            Some(TyKind::Array {
+                elem,
+                len: nia_ty::ArrayLenTy::ConstValue(4),
+            }) if *elem == u8_ty
+        )));
+    }
 }

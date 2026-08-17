@@ -14,7 +14,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{
     EnumSignature, FunctionAttribute, FunctionSignature, GlobalSignature, ItemSignatures,
-    StructSignature, TypeAliasSignature, UnionSignature,
+    StructSignature, TypeAliasSignature, UnionSignature, generic_argument_substitutions,
 };
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
@@ -419,14 +419,16 @@ impl AbiChecker<'_> {
                         ));
                         return;
                     }
-                    if alias.generics.len() != args.len() || !const_args.is_empty() {
+                    let Some((substitutions, const_substitutions)) =
+                        generic_argument_substitutions(&alias.generic_params, args, const_args)
+                    else {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::STATIC_CHECK,
                             span,
                             format!("{context_desc} has invalid type alias arguments"),
                         ));
                         return;
-                    }
+                    };
                     // Signature ABI checks precede general normalization. Expand aliases here so
                     // an alias to `bool`, a Nia aggregate, or another forbidden representation
                     // cannot be mistaken for an ABI-safe nominal type.
@@ -435,14 +437,8 @@ impl AbiChecker<'_> {
                         self.type_store,
                         &append,
                         alias.target,
-                        &|name| {
-                            alias
-                                .generics
-                                .iter()
-                                .position(|generic| generic == name)
-                                .and_then(|index| args.get(index).copied())
-                        },
-                        &|_| None,
+                        &|name| substitutions.get(name).copied(),
+                        &|name| const_substitutions.get(name).cloned(),
                         None,
                     );
                     nominal_stack.push(*def_id);
@@ -606,7 +602,9 @@ mod tests {
     };
     use nia_parser::parse_module;
     use nia_symbol::{SymbolId, stable_hash};
-    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
+    use nia_type_lower::{
+        ProgramDefsContext, TypeLoweringContext, lower_module_types_with_context,
+    };
     use nia_type_resolve::resolve_module_types;
 
     #[test]
@@ -862,6 +860,60 @@ extern fn effect() Unit;
             checked.diagnostics
         );
         assert_eq!(checked.diagnostics.len(), 2, "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn expands_const_generic_aliases_before_classifying_extern_struct_fields() {
+        let (module, errors) = parse_module(
+            r#"
+type Repeat[T, N: usize] = [T; N];
+extern struct Header { values: Repeat[bool, 4] }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let program_defs =
+            |requested| (requested == module_id).then(|| std::sync::Arc::new(defs.clone()));
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::from_program_defs(
+                &type_store,
+                ProgramDefsContext {
+                    defs: Some(&program_defs),
+                },
+            ),
+        );
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
+        let checked = check_module_abi(&defs, &type_store, &signatures);
+
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("cannot use `bool` directly")),
+            "{:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.summary.contains("invalid type alias arguments")),
+            "{:?}",
+            checked.diagnostics
+        );
     }
 
     #[test]

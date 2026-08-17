@@ -872,6 +872,7 @@ using entry::types;
 
 extern fn bad_flag(flag: types::Flag);
 extern fn bad_generic(flag: types::Identity[bool]);
+extern struct Header { values: types::Repeat[bool, 4] }
 "#,
     );
     write(
@@ -879,6 +880,7 @@ extern fn bad_generic(flag: types::Identity[bool]);
         r#"
 pub type Flag = bool;
 pub type Identity[T] = T;
+pub type Repeat[T, N: usize] = [T; N];
 "#,
     );
 
@@ -892,7 +894,15 @@ pub type Identity[T] = T;
                 .summary
                 .contains("cannot use `bool` directly"))
             .count(),
-        2,
+        3,
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().all(|diagnostic| !diagnostic
+            .diagnostic
+            .summary
+            .contains("invalid type alias arguments")),
         "{:?}",
         program.diagnostics
     );
