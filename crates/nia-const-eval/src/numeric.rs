@@ -1,5 +1,7 @@
 //! Pure numeric and equality semantics for const evaluation.
 
+use std::cmp::Ordering;
+
 use crate::{ConstEnumPayload, ConstError, ConstIntegerSemantics, ConstValue};
 use nia_const_ir::ConstBinaryOp;
 use nia_span::Span;
@@ -22,26 +24,24 @@ pub(super) fn const_bit_not(value: IntConst) -> IntConst {
 pub(super) fn const_typed_bit_not(
     value: IntConst,
     semantics: Option<ConstIntegerSemantics>,
-) -> IntConst {
+) -> Result<IntConst, String> {
     let Some(semantics) = semantics else {
-        return const_bit_not(value);
+        return Ok(const_bit_not(value));
     };
     let mask = match semantics.bits {
         1..=127 => (1u128 << semantics.bits) - 1,
         128 => u128::MAX,
-        _ => return const_bit_not(value),
+        _ => return Err("invalid integer width in const bitwise not semantics".to_string()),
     };
     let bits = !value.bits() & mask;
     if semantics.signed {
-        let sign_bit = 1u128 << (semantics.bits - 1);
-        let value = if bits & sign_bit == 0 || semantics.bits == 128 {
-            bits as i128
-        } else {
-            (bits as i128) - (1i128 << semantics.bits)
-        };
-        IntConst::from_i128(value)
+        // Shift-based sign extension works for every width through 128. It
+        // avoids constructing positive `2^127`, which is not representable by
+        // `i128` and made the previous subtraction overflow at 127 bits.
+        let shift = 128 - semantics.bits;
+        Ok(IntConst::from_i128(((bits << shift) as i128) >> shift))
     } else {
-        IntConst::unsigned(bits)
+        Ok(IntConst::unsigned(bits))
     }
 }
 
@@ -314,23 +314,37 @@ pub(super) fn eval_numeric_binary_value(
 }
 
 pub(super) fn eval_binary_int_compare(lhs: IntConst, op: ConstBinaryOp, rhs: IntConst) -> bool {
-    if !lhs.is_signed() && !rhs.is_signed() {
-        return match op {
-            ConstBinaryOp::Lt => lhs.bits() < rhs.bits(),
-            ConstBinaryOp::Le => lhs.bits() <= rhs.bits(),
-            ConstBinaryOp::Gt => lhs.bits() > rhs.bits(),
-            ConstBinaryOp::Ge => lhs.bits() >= rhs.bits(),
-            _ => unreachable!("non-comparison binary operator routed to integer comparison"),
-        };
-    }
-    let lhs = lhs.as_i128().unwrap_or(i128::MAX);
-    let rhs = rhs.as_i128().unwrap_or(i128::MAX);
+    let ordering = compare_int_values(lhs, rhs);
     match op {
-        ConstBinaryOp::Lt => lhs < rhs,
-        ConstBinaryOp::Le => lhs <= rhs,
-        ConstBinaryOp::Gt => lhs > rhs,
-        ConstBinaryOp::Ge => lhs >= rhs,
+        ConstBinaryOp::Lt => ordering == Ordering::Less,
+        ConstBinaryOp::Le => ordering != Ordering::Greater,
+        ConstBinaryOp::Gt => ordering == Ordering::Greater,
+        ConstBinaryOp::Ge => ordering != Ordering::Less,
         _ => unreachable!("non-comparison binary operator routed to integer comparison"),
+    }
+}
+
+/// Orders the complete mathematical values without narrowing unsigned inputs.
+fn compare_int_values(lhs: IntConst, rhs: IntConst) -> Ordering {
+    match (lhs.is_signed(), rhs.is_signed()) {
+        (false, false) => lhs.bits().cmp(&rhs.bits()),
+        (true, true) => (lhs.bits() as i128).cmp(&(rhs.bits() as i128)),
+        (true, false) => {
+            let lhs = lhs.bits() as i128;
+            if lhs < 0 {
+                Ordering::Less
+            } else {
+                (lhs as u128).cmp(&rhs.bits())
+            }
+        }
+        (false, true) => {
+            let rhs = rhs.bits() as i128;
+            if rhs < 0 {
+                Ordering::Greater
+            } else {
+                lhs.bits().cmp(&(rhs as u128))
+            }
+        }
     }
 }
 
@@ -449,6 +463,45 @@ mod tests {
 
     fn int(value: i128) -> ConstValue {
         ConstValue::Int(IntConst::from_i128(value))
+    }
+
+    #[test]
+    fn typed_bit_not_sign_extends_127_bit_results_without_overflow() {
+        let value = const_typed_bit_not(
+            IntConst::unsigned(0),
+            Some(ConstIntegerSemantics {
+                bits: 127,
+                signed: true,
+            }),
+        )
+        .expect("127-bit bitwise not");
+
+        assert_eq!(value.as_i128(), Some(-1));
+    }
+
+    #[test]
+    fn typed_bit_not_rejects_invalid_integer_widths() {
+        assert_eq!(
+            const_typed_bit_not(
+                IntConst::unsigned(0),
+                Some(ConstIntegerSemantics {
+                    bits: 0,
+                    signed: false,
+                }),
+            ),
+            Err("invalid integer width in const bitwise not semantics".to_string())
+        );
+    }
+
+    #[test]
+    fn integer_comparison_does_not_narrow_large_unsigned_values() {
+        let huge = IntConst::unsigned(u128::MAX);
+        let signed_max = IntConst::from_i128(i128::MAX);
+        let negative = IntConst::from_i128(-1);
+
+        assert!(eval_binary_int_compare(huge, ConstBinaryOp::Gt, signed_max));
+        assert!(eval_binary_int_compare(huge, ConstBinaryOp::Gt, negative));
+        assert!(eval_binary_int_compare(negative, ConstBinaryOp::Lt, huge));
     }
 
     #[test]

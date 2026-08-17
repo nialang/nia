@@ -449,10 +449,10 @@ fn eval_resolved_const_expr_flow(
             op: ConstUnaryOp::BitNot,
             expr: inner,
         } => match eval_resolved_value_or_return_flow!(inner, env) {
-            ConstValue::Int(value) => ConstValue::Int(const_typed_bit_not(
-                value,
-                env.resolved_integer_semantics(expr),
-            )),
+            ConstValue::Int(value) => ConstValue::Int(
+                const_typed_bit_not(value, env.resolved_integer_semantics(expr))
+                    .map_err(|message| ConstError { span, message })?,
+            ),
             _ => {
                 return Err(ConstError {
                     span,
