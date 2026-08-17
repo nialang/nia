@@ -583,7 +583,7 @@ impl<'a> BodyChecker<'a> {
         Self::record_const_pattern_substitution(name, arg, const_substitutions)
     }
 
-    fn match_const_generic_arg_pattern(
+    pub(crate) fn match_const_generic_arg_pattern(
         &self,
         pattern: &nia_ty::ConstGenericArg,
         actual: &nia_ty::ConstGenericArg,

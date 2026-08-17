@@ -166,6 +166,44 @@ fn main(xs: [u8; 4]) usize {
 }
 
 #[test]
+fn trait_object_vtable_instantiations_retain_const_arguments() {
+    let checked = pipeline(
+        r#"
+trait Scaled[N: usize] {
+    fn value(& self) usize { 8usize }
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Scaled[N] {}
+
+fn read(value: & Scaled[8]) usize {
+    value.value()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let const_instances = checked
+        .facts
+        .iter_generic_instantiations()
+        .filter(|instantiation| !instantiation.const_args.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(const_instances.len(), 1, "{const_instances:?}");
+    assert!(const_instances.iter().all(|instantiation| matches!(
+        instantiation.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 8
+    )));
+}
+
+#[test]
 fn infers_const_generic_array_lengths_from_array_literal_arguments() {
     let checked = pipeline(
         r#"

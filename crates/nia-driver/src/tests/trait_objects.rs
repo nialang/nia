@@ -319,6 +319,20 @@ fn main() usize {
 
     let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        module
+            .semantic_facts
+            .iter_generic_instantiations()
+            .any(|instantiation| {
+                matches!(
+                    instantiation.const_args.as_slice(),
+                    [nia_ty::ConstGenericArg {
+                        value: nia_ty::ConstGenericValue::Int(value),
+                        ..
+                    }] if value.bits() == 8
+                )
+            })
+    }));
     let vtable = program
         .backend_lowering
         .program

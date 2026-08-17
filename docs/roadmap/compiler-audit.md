@@ -504,6 +504,10 @@ commit as the corresponding implementation batch.
 - [x] Phase A explicit-supertrait validation now substitutes and matches the
       complete trait instance, including const arguments and their types;
       `Base[8]` can no longer satisfy the required parent of `Child[4]`.
+- [x] Phase A trait-object coercion now selects impl/default methods with full
+      type/const patterns and records const-bearing semantic instantiations;
+      specialization and executable dependency facts retain the vtable trait
+      instance instead of emitting empty const vectors.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

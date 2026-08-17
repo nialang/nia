@@ -13,8 +13,10 @@ use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
 struct TraitObjectImplMethodMatch {
     def_id: GlobalDefId,
     args: Vec<InternedTyId>,
+    const_args: Vec<nia_ty::ConstGenericArg>,
     target_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 struct TraitObjectTraitRef {
@@ -195,7 +197,13 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
             },
         );
-        self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
+        self.record_trait_object_vtable_instantiations(
+            expr.span,
+            self_ty,
+            trait_id,
+            &trait_args,
+            &trait_const_args,
+        );
         Some(expected)
     }
 
@@ -263,7 +271,13 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
             },
         );
-        self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
+        self.record_trait_object_vtable_instantiations(
+            expr.span,
+            self_ty,
+            trait_id,
+            &trait_args,
+            &trait_const_args,
+        );
         Some(expected)
     }
 
@@ -369,6 +383,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
             return;
@@ -381,19 +396,21 @@ impl<'a> BodyChecker<'a> {
                 module_id: source_trait_id.module_id,
                 def_id: method.def_id,
             };
-            if let Some((def_id, args)) = self.trait_object_impl_method_instance(
+            if let Some((def_id, args, const_args)) = self.trait_object_impl_method_instance(
                 source_trait_id,
                 &method.name,
                 self_ty,
                 trait_args,
+                trait_const_args,
             ) {
-                self.record_generic_instantiation(def_id, &args, span);
+                self.record_generic_instantiation_with_const_args(def_id, &args, &const_args, span);
             } else if method.has_default {
                 let default_self_ty = self.trait_receiver_self_ty(self_ty).unwrap_or(self_ty);
-                self.record_generic_instantiation_with_self_arg(
+                self.record_generic_instantiation_with_self_and_const_args(
                     method_id,
                     Some(default_self_ty),
                     trait_args,
+                    trait_const_args,
                     span,
                 );
             }
@@ -406,7 +423,8 @@ impl<'a> BodyChecker<'a> {
         method_name: &SymbolId,
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        trait_const_args: &[nia_ty::ConstGenericArg],
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let mut matches = Vec::new();
         let program_methods = self
             .program
@@ -424,6 +442,7 @@ impl<'a> BodyChecker<'a> {
             }
             if method.trait_id != Some(nia_ty::TraitId::Source(trait_id))
                 || method.trait_args.len() != trait_args.len()
+                || method.trait_const_args.len() != trait_const_args.len()
             {
                 continue;
             }
@@ -434,8 +453,17 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             let target_ty = method.target_ty;
+            // The impl target and the trait instance form one pattern. Reuse both
+            // substitution maps so repeated type/const parameters must agree
+            // across every part of the candidate before recording its method.
             let mut substitutions = nia_symbol::SymbolMap::default();
-            if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
+            let mut const_substitutions = nia_symbol::SymbolMap::default();
+            if !self.match_type_pattern_with_consts(
+                target_ty,
+                self_ty,
+                &mut substitutions,
+                &mut const_substitutions,
+            ) {
                 continue;
             }
             let method_trait_args = method.trait_args.to_vec();
@@ -443,7 +471,22 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .zip(trait_args)
                 .all(|(pattern, actual)| {
-                    self.match_type_pattern(*pattern, *actual, &mut substitutions)
+                    self.match_type_pattern_with_consts(
+                        *pattern,
+                        *actual,
+                        &mut substitutions,
+                        &mut const_substitutions,
+                    )
+                })
+            {
+                continue;
+            }
+            let method_trait_const_args = method.trait_const_args.to_vec();
+            if !method_trait_const_args
+                .iter()
+                .zip(trait_const_args)
+                .all(|(pattern, actual)| {
+                    self.match_const_generic_arg_pattern(pattern, actual, &mut const_substitutions)
                 })
             {
                 continue;
@@ -453,16 +496,27 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .filter_map(|generic| substitutions.get(generic).copied())
                 .collect::<Vec<_>>();
+            let const_args = method
+                .effective_const_generics
+                .iter()
+                .filter_map(|generic| const_substitutions.get(generic).cloned())
+                .collect::<Vec<_>>();
             matches.push(TraitObjectImplMethodMatch {
                 def_id: method.def_id,
                 args,
+                const_args,
                 target_ty,
                 trait_args: method_trait_args,
+                trait_const_args: method_trait_const_args,
             });
         }
         let matches = self.filter_more_specific_trait_object_impl_methods(matches);
         match matches.as_slice() {
-            [candidate] => Some((candidate.def_id, candidate.args.clone())),
+            [candidate] => Some((
+                candidate.def_id,
+                candidate.args.clone(),
+                candidate.const_args.clone(),
+            )),
             _ => None,
         }
     }
@@ -488,7 +542,9 @@ impl<'a> BodyChecker<'a> {
         specific: &TraitObjectImplMethodMatch,
         general: &TraitObjectImplMethodMatch,
     ) -> bool {
-        if specific.trait_args.len() != general.trait_args.len() {
+        if specific.trait_args.len() != general.trait_args.len()
+            || specific.trait_const_args.len() != general.trait_const_args.len()
+        {
             return false;
         }
         let target_subsumes = self.pattern_subsumes(general.target_ty, specific.target_ty);
@@ -499,6 +555,12 @@ impl<'a> BodyChecker<'a> {
                 self.pattern_subsumes(*general_arg, *specific_arg)
             },
         );
+        if !self.const_patterns_subsume(&general.trait_const_args, &specific.trait_const_args) {
+            return false;
+        }
+        if !self.const_patterns_subsume(&specific.trait_const_args, &general.trait_const_args) {
+            any_strict = true;
+        }
         target_subsumes && args_subsume && any_strict
     }
 
