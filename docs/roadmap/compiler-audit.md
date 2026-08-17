@@ -579,6 +579,11 @@ commit as the corresponding implementation batch.
       immutable-output comparison stream from that handle with checksum
       revalidation, and exact corruption retirement no longer rereads the whole
       record under the mutation lock.
+- [x] Phase D external-command cache publication now retains opened staged
+      output handles with stable length/checksum identities, writes the existing
+      envelope directly to its staged file, and compares publication collisions
+      byte-for-byte through fixed buffers. Output snapshots and whole-record
+      encoding/collision allocations are no longer proportional to payload size.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

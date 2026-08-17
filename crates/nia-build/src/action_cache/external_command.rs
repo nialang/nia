@@ -6,9 +6,11 @@
 //! roots, dependencies, and compatibility components form identity; a hit
 //! restores the complete checksummed output set through output recovery.
 
+#[cfg(test)]
+use std::io::Cursor;
 use std::{
     fs,
-    io::{self, Cursor, Read, Seek, SeekFrom, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::Ordering,
 };
@@ -22,10 +24,11 @@ use nia_toolchain::ToolchainIdentity;
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, action_identity,
     encoded_field_fits, fingerprint_text, integer_component, logical_path_identity,
-    package_roots_identity, read_bytes, read_exact_or_corrupt, read_fingerprint,
-    read_stream_fingerprint, read_stream_u64, read_u64, stream_has_trailing_byte, text_component,
-    write_bytes, write_fingerprint,
+    package_roots_identity, read_exact_or_corrupt, read_stream_fingerprint, read_stream_u64,
+    stream_has_trailing_byte, text_component, write_bytes, write_fingerprint,
 };
+#[cfg(test)]
+use super::{read_bytes, read_fingerprint, read_u64};
 use crate::{
     ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
     PlanPackage,
@@ -321,6 +324,39 @@ struct CachedPayload {
     checksum: QueryFingerprint,
 }
 
+#[derive(Debug)]
+pub(crate) struct ExternalCommandCacheOutput {
+    file: fs::File,
+    length: u64,
+    checksum: QueryFingerprint,
+}
+
+impl ExternalCommandCacheOutput {
+    /// Captures a stable identity for one opened staged output without keeping
+    /// its bytes. Later publication must reproduce the same length/checksum,
+    /// so mutation across output installation cannot poison the cache record.
+    pub(crate) fn from_file(mut file: fs::File) -> io::Result<Self> {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "external command output must be a regular file",
+            ));
+        }
+        let length = metadata.len();
+        let checksum = fingerprint_output_file(&mut file, length)?;
+        Ok(Self {
+            file,
+            length,
+            checksum,
+        })
+    }
+
+    fn write_verified_to(&mut self, output: &mut impl Write) -> io::Result<()> {
+        stream_output_file(&mut self.file, self.length, self.checksum, Some(output))
+    }
+}
+
 impl ExternalCommandCacheHit {
     pub(crate) fn output_count(&self) -> usize {
         self.payloads.len()
@@ -338,16 +374,66 @@ impl ExternalCommandCacheHit {
         self.stream_payload(index, Some(output), None).map(|_| ())
     }
 
-    fn matches_payloads(&mut self, payloads: &[Vec<u8>]) -> io::Result<bool> {
-        if self.payloads.len() != payloads.len() {
+    fn matches_outputs(&mut self, outputs: &mut [ExternalCommandCacheOutput]) -> io::Result<bool> {
+        if self.payloads.len() != outputs.len() {
             return Ok(false);
         }
-        for (index, expected) in payloads.iter().enumerate() {
-            if !self.stream_payload(index, None, Some(expected))? {
+        for (index, output) in outputs.iter_mut().enumerate() {
+            if !self.payload_matches_output(index, output)? {
                 return Ok(false);
             }
         }
         Ok(true)
+    }
+
+    /// Compares both byte streams, not only their registered fingerprints, so
+    /// immutable publication preserves the previous collision semantics.
+    fn payload_matches_output(
+        &mut self,
+        index: usize,
+        output: &mut ExternalCommandCacheOutput,
+    ) -> io::Result<bool> {
+        let payload = self.payloads.get(index).copied().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "external-command cache payload index is out of bounds",
+            )
+        })?;
+        if payload.length != output.length {
+            return Ok(false);
+        }
+        self.file.seek(SeekFrom::Start(payload.offset))?;
+        output.file.seek(SeekFrom::Start(0))?;
+        let mut cache_builder = QueryFingerprintBuilder::new(EXTERNAL_COMMAND_PAYLOAD_DOMAIN);
+        let mut output_builder = QueryFingerprintBuilder::new(EXTERNAL_COMMAND_PAYLOAD_DOMAIN);
+        let mut cache_checksum = cache_builder.bytes_writer(payload.length);
+        let mut output_checksum = output_builder.bytes_writer(output.length);
+        let mut cache_buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
+        let mut output_buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
+        let mut remaining = payload.length;
+        let mut matches = true;
+        while remaining != 0 {
+            let chunk_len = usize::try_from(remaining.min(cache_buffer.len() as u64)).unwrap();
+            let cache_chunk = &mut cache_buffer[..chunk_len];
+            let output_chunk = &mut output_buffer[..chunk_len];
+            self.file.read_exact(cache_chunk)?;
+            output.file.read_exact(output_chunk)?;
+            cache_checksum.write_chunk(cache_chunk)?;
+            output_checksum.write_chunk(output_chunk)?;
+            matches &= cache_chunk == output_chunk;
+            remaining -= chunk_len as u64;
+        }
+        cache_checksum.finish()?;
+        output_checksum.finish()?;
+        validate_output_end(&mut output.file, output.length)?;
+        if cache_builder.finish() != payload.checksum || output_builder.finish() != output.checksum
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "external-command output changed while cache publication compared it",
+            ));
+        }
+        Ok(matches)
     }
 
     fn stream_payload(
@@ -443,16 +529,16 @@ impl ExternalCommandCache {
     pub(crate) fn publish(
         &self,
         identity: &ExternalCommandCacheIdentity,
-        payloads: &[Vec<u8>],
+        outputs: &mut [ExternalCommandCacheOutput],
     ) -> io::Result<()> {
-        if payloads.len() != identity.output_count {
+        if outputs.len() != identity.output_count {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "external-command cache payload count does not match outputs",
             ));
         }
         if let ExternalCommandCacheLookup::Hit(mut found) = self.lookup(identity)? {
-            if found.matches_payloads(payloads)? {
+            if found.matches_outputs(outputs)? {
                 return Ok(());
             }
             return Err(io::Error::new(
@@ -470,16 +556,15 @@ impl ExternalCommandCache {
             std::process::id(),
             CACHE_STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        let encoded = encode_entry(identity, payloads);
         let result = (|| {
             let mut file = fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&staged)?;
-            file.write_all(&encoded)?;
+            write_entry(&mut file, identity, outputs)?;
             file.sync_all()?;
             drop(file);
-            self.install_immutable_entry(&staged, &path, identity, payloads)?;
+            self.install_immutable_entry(&staged, &path, identity, outputs)?;
             fs::File::open(parent)?.sync_all()
         })();
         if result.is_err() || staged.exists() {
@@ -571,24 +656,33 @@ impl ExternalCommandCache {
         staged: &Path,
         path: &Path,
         identity: &ExternalCommandCacheIdentity,
-        payloads: &[Vec<u8>],
+        outputs: &mut [ExternalCommandCacheOutput],
     ) -> io::Result<()> {
         let _lock = self.acquire_mutation_lock(path)?;
         for _ in 0..4 {
             match fs::hard_link(staged, path) {
                 Ok(()) => return Ok(()),
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    let encoded = fs::read(path)?;
-                    if let Some(entry) = decode_entry(&encoded)
-                        && entry_matches(&entry, identity)
-                    {
-                        if entry.payloads == payloads {
-                            return Ok(());
+                    match scan_external_command_entry(path, Some(identity)) {
+                        Ok(Some(entry))
+                            if path == self.path(entry.fingerprints)
+                                && entry.payloads.is_some() =>
+                        {
+                            let mut hit = ExternalCommandCacheHit {
+                                file: entry.file,
+                                payloads: entry.payloads.unwrap(),
+                            };
+                            if hit.matches_outputs(outputs)? {
+                                return Ok(());
+                            }
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "concurrent external command produced different outputs for one cache identity",
+                            ));
                         }
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "concurrent external command produced different outputs for one cache identity",
-                        ));
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                        Err(error) => return Err(error),
+                        Ok(_) => {}
                     }
                     match fs::remove_file(path) {
                         Ok(()) => {}
@@ -650,6 +744,128 @@ impl ExternalCommandCache {
     }
 }
 
+fn fingerprint_output_file(file: &mut fs::File, length: u64) -> io::Result<QueryFingerprint> {
+    let mut builder = QueryFingerprintBuilder::new(EXTERNAL_COMMAND_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(length);
+    stream_output_chunks(file, length, |chunk| checksum.write_chunk(chunk))?;
+    checksum.finish()?;
+    Ok(builder.finish())
+}
+
+fn stream_output_file(
+    file: &mut fs::File,
+    length: u64,
+    expected_checksum: QueryFingerprint,
+    mut output: Option<&mut dyn Write>,
+) -> io::Result<()> {
+    let mut builder = QueryFingerprintBuilder::new(EXTERNAL_COMMAND_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(length);
+    stream_output_chunks(file, length, |chunk| {
+        checksum.write_chunk(chunk)?;
+        if let Some(output) = output.as_deref_mut() {
+            output.write_all(chunk)?;
+        }
+        Ok(())
+    })?;
+    checksum.finish()?;
+    if builder.finish() != expected_checksum {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "external-command output changed before cache publication",
+        ));
+    }
+    Ok(())
+}
+
+fn stream_output_chunks(
+    file: &mut fs::File,
+    length: u64,
+    mut consume: impl FnMut(&[u8]) -> io::Result<()>,
+) -> io::Result<()> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != length {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "external-command output changed length before cache publication",
+        ));
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let mut buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
+    let mut remaining = length;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk = &mut buffer[..chunk_len];
+        file.read_exact(chunk)?;
+        consume(chunk)?;
+        remaining -= chunk_len as u64;
+    }
+    validate_output_end(file, length)
+}
+
+fn validate_output_end(file: &mut fs::File, expected_length: u64) -> io::Result<()> {
+    let mut trailing = [0; 1];
+    if file.read(&mut trailing)? != 0 || file.metadata()?.len() != expected_length {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "external-command output changed length while cache publication read it",
+        ));
+    }
+    Ok(())
+}
+
+/// Writes the registered cache envelope directly to its staged file. Identity
+/// metadata is already bounded by the build plan; output bytes are copied and
+/// revalidated one at a time, preserving the existing on-disk format without
+/// constructing a record-sized allocation.
+fn write_entry(
+    encoded: &mut impl Write,
+    identity: &ExternalCommandCacheIdentity,
+    outputs: &mut [ExternalCommandCacheOutput],
+) -> io::Result<()> {
+    encoded.write_all(EXTERNAL_COMMAND_ENTRY.magic)?;
+    write_stream_fingerprint(encoded, identity.fingerprints.cache_key)?;
+    write_stream_fingerprint(encoded, identity.fingerprints.fingerprint)?;
+    for component in identity.fingerprints.components.values() {
+        write_stream_fingerprint(encoded, component)?;
+    }
+    for value in [
+        &identity.action,
+        &identity.command,
+        &identity.tool,
+        &identity.environment,
+        &identity.inputs,
+        &identity.dependencies,
+        &identity.working_directory,
+        &identity.package_roots,
+        &identity.outputs,
+    ] {
+        write_stream_bytes(encoded, value)?;
+    }
+    encoded.write_all(&(outputs.len() as u64).to_le_bytes())?;
+    for output in outputs {
+        write_stream_fingerprint(encoded, output.checksum)?;
+        encoded.write_all(&output.length.to_le_bytes())?;
+        output.write_verified_to(encoded)?;
+    }
+    Ok(())
+}
+
+fn write_stream_bytes(encoded: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    encoded.write_all(&(bytes.len() as u64).to_le_bytes())?;
+    encoded.write_all(bytes)
+}
+
+fn write_stream_fingerprint(
+    encoded: &mut impl Write,
+    fingerprint: QueryFingerprint,
+) -> io::Result<()> {
+    for part in fingerprint.parts() {
+        encoded.write_all(&part.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 struct DecodedEntry {
     fingerprints: FingerprintSet,
     action: Vec<u8>,
@@ -897,6 +1113,7 @@ fn stream_identity_field(
     Ok(Some((builder.finish(), first_u64, matches)))
 }
 
+#[cfg(test)]
 fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -> Vec<u8> {
     let mut encoded = Vec::new();
     encoded.extend_from_slice(EXTERNAL_COMMAND_ENTRY.magic);
@@ -929,6 +1146,7 @@ fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -
     encoded
 }
 
+#[cfg(test)]
 fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
@@ -1023,6 +1241,7 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     })
 }
 
+#[cfg(test)]
 fn entry_matches(entry: &DecodedEntry, identity: &ExternalCommandCacheIdentity) -> bool {
     entry.fingerprints == identity.fingerprints
         && entry.action == identity.action
@@ -1105,6 +1324,7 @@ fn component(domain: FingerprintDomain, value: &[u8]) -> QueryFingerprint {
     builder.finish()
 }
 
+#[cfg(test)]
 fn bytes_fingerprint(domain: FingerprintDomain, value: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_bytes(value);
@@ -1191,6 +1411,7 @@ fn path_list_identity(paths: &[LogicalPath]) -> Vec<u8> {
     encoded
 }
 
+#[cfg(test)]
 fn identity_count(identity: &[u8]) -> Option<usize> {
     let mut cursor = Cursor::new(identity);
     usize::try_from(read_u64(&mut cursor)?).ok()
@@ -1324,6 +1545,34 @@ mod tests {
             .collect()
     }
 
+    fn cache_outputs(
+        root: &Path,
+        name: &str,
+        payloads: &[Vec<u8>],
+    ) -> Vec<ExternalCommandCacheOutput> {
+        let directory = root.join("test-outputs").join(name);
+        fs::create_dir_all(&directory).unwrap();
+        payloads
+            .iter()
+            .enumerate()
+            .map(|(index, payload)| {
+                let path = directory.join(index.to_string());
+                fs::write(&path, payload).unwrap();
+                ExternalCommandCacheOutput::from_file(fs::File::open(path).unwrap()).unwrap()
+            })
+            .collect()
+    }
+
+    fn publish_payloads(
+        cache: &ExternalCommandCache,
+        identity: &ExternalCommandCacheIdentity,
+        root: &Path,
+        name: &str,
+        payloads: &[Vec<u8>],
+    ) -> io::Result<()> {
+        cache.publish(identity, &mut cache_outputs(root, name, payloads))
+    }
+
     #[test]
     fn envelope_rejects_every_truncated_prefix_and_trailing_bytes() {
         let identity = identity();
@@ -1349,15 +1598,48 @@ mod tests {
     }
 
     #[test]
+    fn streamed_publication_preserves_registered_envelope() {
+        let root = root("streamed-envelope");
+        let identity = identity();
+        let payloads = vec![b"first".to_vec(), b"second".to_vec()];
+        let mut outputs = cache_outputs(&root, "envelope", &payloads);
+        let mut streamed = Vec::new();
+
+        write_entry(&mut streamed, &identity, &mut outputs).unwrap();
+
+        assert_eq!(streamed, encode_entry(&identity, &payloads));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn publication_rejects_output_changed_after_capture() {
+        let root = root("changed-after-capture");
+        let cache = ExternalCommandCache::new(root.clone());
+        let identity = identity();
+        let payloads = vec![b"first".to_vec(), b"second".to_vec()];
+        let mut outputs = cache_outputs(&root, "changed", &payloads);
+        fs::write(root.join("test-outputs/changed/0"), b"other").unwrap();
+
+        let error = cache.publish(&identity, &mut outputs).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(matches!(
+            cache.lookup(&identity).unwrap(),
+            ExternalCommandCacheLookup::Miss(ActionCacheMissReason::NotFound)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn immutable_identity_rejects_different_outputs() {
         let root = root("nondeterministic");
         let cache = ExternalCommandCache::new(root.clone());
         let identity = identity();
         let first = vec![b"first".to_vec(), b"second".to_vec()];
         let changed = vec![b"changed".to_vec(), b"second".to_vec()];
-        cache.publish(&identity, &first).unwrap();
+        publish_payloads(&cache, &identity, &root, "first", &first).unwrap();
 
-        let error = cache.publish(&identity, &changed).unwrap_err();
+        let error = publish_payloads(&cache, &identity, &root, "changed", &changed).unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(lookup_payloads(&cache, &identity), first);
@@ -1369,9 +1651,14 @@ mod tests {
         let root = root("dependency-invalidation");
         let cache = ExternalCommandCache::new(root.clone());
         let identity = identity();
-        cache
-            .publish(&identity, &[b"first".to_vec(), b"second".to_vec()])
-            .unwrap();
+        publish_payloads(
+            &cache,
+            &identity,
+            &root,
+            "dependency",
+            &[b"first".to_vec(), b"second".to_vec()],
+        )
+        .unwrap();
 
         let changed = changed_dependencies(&identity);
 
@@ -1392,7 +1679,7 @@ mod tests {
             vec![7; 3 * EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES + 17],
             b"second".to_vec(),
         ];
-        cache.publish(&identity, &payloads).unwrap();
+        publish_payloads(&cache, &identity, &root, "large", &payloads).unwrap();
 
         let path = cache.path(identity.fingerprints);
         let scanned = scan_external_command_entry(&path, None).unwrap().unwrap();
@@ -1432,9 +1719,14 @@ mod tests {
         let root = root("damaged-invalidation-payload");
         let cache = ExternalCommandCache::new(root.clone());
         let identity = identity();
-        cache
-            .publish(&identity, &[b"first".to_vec(), b"second".to_vec()])
-            .unwrap();
+        publish_payloads(
+            &cache,
+            &identity,
+            &root,
+            "invalidation-damage",
+            &[b"first".to_vec(), b"second".to_vec()],
+        )
+        .unwrap();
         let path = cache.path(identity.fingerprints);
         let mut encoded = fs::read(&path).unwrap();
         *encoded.last_mut().unwrap() ^= 1;
@@ -1453,9 +1745,14 @@ mod tests {
         let root = root("damaged-exact-payload");
         let cache = ExternalCommandCache::new(root.clone());
         let identity = identity();
-        cache
-            .publish(&identity, &[b"first".to_vec(), b"second".to_vec()])
-            .unwrap();
+        publish_payloads(
+            &cache,
+            &identity,
+            &root,
+            "exact-damage",
+            &[b"first".to_vec(), b"second".to_vec()],
+        )
+        .unwrap();
         let path = cache.path(identity.fingerprints);
         let mut encoded = fs::read(&path).unwrap();
         *encoded.last_mut().unwrap() ^= 1;
@@ -1475,7 +1772,7 @@ mod tests {
         let cache = ExternalCommandCache::new(root.clone());
         let identity = identity();
         let payloads = vec![b"first".to_vec(), b"second".to_vec()];
-        cache.publish(&identity, &payloads).unwrap();
+        publish_payloads(&cache, &identity, &root, "restore", &payloads).unwrap();
         let ExternalCommandCacheLookup::Hit(mut hit) = cache.lookup(&identity).unwrap() else {
             panic!("expected external-command cache hit");
         };
