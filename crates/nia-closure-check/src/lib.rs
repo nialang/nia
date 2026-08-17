@@ -335,6 +335,7 @@ impl<'a> Analyzer<'a> {
         body: &TypedBody,
         env: &mut Environment,
     ) -> ValueProvenance {
+        let mut deferred = Vec::new();
         for stmt in &body.stmts {
             match &stmt.kind {
                 TypedStmtKind::Binding(binding) => {
@@ -349,9 +350,10 @@ impl<'a> Analyzer<'a> {
                     let value = self.analyze_expr(&binding.value, env);
                     bind_pattern(&binding.pattern, &value, env);
                 }
-                TypedStmtKind::Expr(expr) | TypedStmtKind::Defer(expr) => {
+                TypedStmtKind::Expr(expr) => {
                     self.analyze_expr(expr, env);
                 }
+                TypedStmtKind::Defer(expr) => deferred.push(expr),
                 TypedStmtKind::Return(value) => {
                     let value = value
                         .as_ref()
@@ -374,10 +376,19 @@ impl<'a> Analyzer<'a> {
                 TypedStmtKind::Break | TypedStmtKind::Continue => {}
             }
         }
-        body.tail
+        // Runtime lowering registers defers in source order and executes them
+        // in reverse order after the scope's result has been evaluated. Analyze
+        // the same delayed transfer against the exit environment so later
+        // assignments are visible to deferred calls and stores.
+        let tail = body
+            .tail
             .as_deref()
             .map(|tail| self.analyze_expr(tail, env))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        for deferred in deferred.into_iter().rev() {
+            self.analyze_expr(deferred, env);
+        }
+        tail
     }
 
     fn analyze_loop(&mut self, body: &TypedBody, outer: &mut Environment, mut head: Environment) {
@@ -1690,5 +1701,94 @@ mod tests {
                 .filter_origins_for_type(origins, pair_ty)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn defers_observe_exit_state_and_execute_in_lifo_order() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let callable_ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: unit_ty,
+        });
+        let selected = LocalId(0);
+        let stack_backed = LocalId(1);
+        let local = |local_id| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Local(local_id),
+        };
+        let assign = |base, rhs| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty: callable_ty,
+                    base,
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(rhs),
+            },
+        };
+        let body = TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: vec![
+                nia_body_ir::TypedStmt {
+                    span: Span::default(),
+                    kind: TypedStmtKind::Defer(assign(
+                        PlaceBase::Global(GlobalDefId {
+                            module_id,
+                            def_id: DefId(2),
+                        }),
+                        local(selected),
+                    )),
+                },
+                nia_body_ir::TypedStmt {
+                    span: Span::default(),
+                    kind: TypedStmtKind::Defer(assign(
+                        PlaceBase::Local(selected),
+                        local(stack_backed),
+                    )),
+                },
+            ],
+            tail: None,
+            ty: unit_ty,
+        };
+        let mut env = Environment::from([
+            (
+                selected,
+                ValueProvenance::from_value(Provenances::from([Provenance::Input(
+                    InputSource::Parameter(0),
+                )])),
+            ),
+            (
+                stack_backed,
+                ValueProvenance::from_value(Provenances::from([Provenance::CallableClosure {
+                    closure_id,
+                    stack_backed: true,
+                }])),
+            ),
+        ]);
+        let summaries = HashMap::new();
+        let mut analyzer = Analyzer::new(&types, &summaries, None);
+
+        analyzer.analyze_body_contents(&body, &mut env);
+
+        assert!(analyzer.escaped.contains(&Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        }));
     }
 }
