@@ -256,7 +256,7 @@ impl DriverActionExecutor {
                 cancellation: Some(cancellation),
             },
         );
-        let payloads = match (execution, staged.as_ref()) {
+        let mut cache_outputs = match (execution, staged.as_ref()) {
             (Ok(()), Some(_)) if cancellation.is_cancelled() => {
                 let cause = CoordinatorError::ExternalCommand(Box::new(ExternalCommandError {
                     action: action.key.clone(),
@@ -273,8 +273,8 @@ impl DriverActionExecutor {
                     .map(|()| None);
             }
             (Ok(()), Some(staged_output)) if cacheable => {
-                match read_staged_external_outputs(action, staged_output) {
-                    Ok(payloads) => Some(payloads),
+                match open_staged_external_outputs(action, staged_output) {
+                    Ok(outputs) => Some(outputs),
                     Err(cause) => {
                         let staged = take_staged_output_transaction(action, &mut staged)?;
                         return cleanup_staged_outputs(action, staged, Some(Box::new(cause)))
@@ -317,7 +317,7 @@ impl DriverActionExecutor {
         let reason = if current_identity != identity {
             ActionCacheMissReason::Uncacheable
         } else {
-            match cache.publish(&identity, payloads.as_deref().unwrap_or_default()) {
+            match cache.publish(&identity, cache_outputs.as_deref_mut().unwrap_or_default()) {
                 Ok(()) => miss_reason.unwrap_or(ActionCacheMissReason::NotFound),
                 Err(_) => ActionCacheMissReason::WriteError,
             }
