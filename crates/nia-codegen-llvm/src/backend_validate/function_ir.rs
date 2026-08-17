@@ -1499,39 +1499,51 @@ impl BackendValidator<'_> {
                     .filter(|vtable| self.same_type(vtable.key.object_ty, object_ty)),
             )
             .collect::<Vec<_>>();
-        if !exact_vtables.is_empty() {
-            let mut targets = Vec::new();
-            for vtable in exact_vtables {
-                let Some(entry) =
-                    self.dynamic_trait_slot_entry(vtable, trait_instance, method_id, slot)
-                else {
-                    self.invalid_dynamic_trait_slot(span);
-                    return None;
-                };
-                if !targets.contains(&entry.function) {
-                    targets.push(entry.function.clone());
-                }
+        let mut targets = Vec::new();
+        for vtable in &exact_vtables {
+            let Some(entry) =
+                self.dynamic_trait_slot_entry(vtable, trait_instance, method_id, slot)
+            else {
+                self.invalid_dynamic_trait_slot(span);
+                return None;
+            };
+            if !targets.contains(&entry.function) {
+                targets.push(entry.function.clone());
             }
-            return Some(targets);
         }
 
         // An explicitly upcast receiver names the target trait-object type but
-        // retains a pointer into a source vtable. Its call slot is relative to
-        // the first target-supertrait entry, unlike calls on the original
-        // object whose slots are absolute in that object's complete table.
-        let targets = self
+        // retains a pointer into a source vtable. A direct table and one or
+        // more such source tables can coexist, so both sets are runtime
+        // candidates. The source-table offset is anchored at the object view's
+        // principal trait segment, not the trait that happened to declare the
+        // called method; otherwise calls to that principal trait's supertraits
+        // would be validated against the wrong relative slot.
+        let object_trait_instance = self.vtable_trait_instance_for_object_ty(object_ty)?;
+        for vtable in self
             .index
             .trait_object_vtables()
-            .filter_map(|vtable| {
-                self.dynamic_trait_upcast_slot_entry(vtable, trait_instance, method_id, slot)
-            })
-            .map(|entry| entry.function.clone())
-            .fold(Vec::new(), |mut targets, target| {
-                if !targets.contains(&target) {
-                    targets.push(target);
-                }
-                targets
-            });
+            .filter(|vtable| !self.same_type(vtable.key.object_ty, object_ty))
+        {
+            let Some(first_slot) =
+                self.first_vtable_slot_for_trait_instance(vtable, object_trait_instance)
+            else {
+                continue;
+            };
+            let Some(entry) = self.dynamic_trait_upcast_slot_entry(
+                vtable,
+                trait_instance,
+                method_id,
+                first_slot,
+                slot,
+            ) else {
+                self.invalid_dynamic_trait_slot(span);
+                return None;
+            };
+            if !targets.contains(&entry.function) {
+                targets.push(entry.function.clone());
+            }
+        }
         if targets.is_empty() {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1570,19 +1582,47 @@ impl BackendValidator<'_> {
         vtable: &'a nia_backend_ir::BackendTraitObjectVtable,
         trait_instance: VtableTraitInstance<'_>,
         method_id: nia_ids::GlobalDefId,
+        first_slot: usize,
         slot: usize,
     ) -> Option<&'a nia_backend_ir::BackendTraitObjectVtableEntry> {
-        let first_slot = vtable
-            .entries
-            .iter()
-            .filter(|entry| self.vtable_entry_matches_trait_instance(entry, trait_instance))
-            .map(|entry| entry.slot)
-            .min()?;
         vtable.entries.iter().find(|entry| {
             self.vtable_entry_matches_trait_instance(entry, trait_instance)
                 && entry.method_id == method_id
                 && entry.slot.checked_sub(first_slot) == Some(slot)
         })
+    }
+
+    fn vtable_trait_instance_for_object_ty(
+        &self,
+        object_ty: nia_ids::InternedTyId,
+    ) -> Option<VtableTraitInstance<'_>> {
+        let TyKind::TraitObject {
+            trait_id,
+            trait_args,
+            trait_const_args,
+            ..
+        } = self.index.ty_kind(object_ty)?
+        else {
+            return None;
+        };
+        Some(VtableTraitInstance {
+            trait_id: *trait_id,
+            args: trait_args,
+            const_args: trait_const_args,
+        })
+    }
+
+    fn first_vtable_slot_for_trait_instance(
+        &self,
+        vtable: &nia_backend_ir::BackendTraitObjectVtable,
+        trait_instance: VtableTraitInstance<'_>,
+    ) -> Option<usize> {
+        vtable
+            .entries
+            .iter()
+            .filter(|entry| self.vtable_entry_matches_trait_instance(entry, trait_instance))
+            .map(|entry| entry.slot)
+            .min()
     }
 
     fn vtable_entry_matches_trait_instance(

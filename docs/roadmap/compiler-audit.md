@@ -407,6 +407,11 @@ commit as the corresponding implementation batch.
       than accepting whichever table was indexed first. Multiple-self
       regressions keep malformed later targets and publication-order changes
       from bypassing backend validation.
+- [x] Phase B dynamic-call ABI validation now checks direct object tables and
+      upcast source tables as one runtime candidate set. Source-table slots are
+      rebased from the object view's principal trait segment, so a direct table
+      cannot hide a malformed non-zero-offset upcast target or misclassify an
+      unrelated table that merely shares a supertrait.
 - [x] Phase A local HM inference now performs a symmetric occurs-check and
       transactional union rollback, preventing self-referential structural
       terms and late tuple/callable conflicts from poisoning later constraints;
