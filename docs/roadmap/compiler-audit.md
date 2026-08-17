@@ -566,6 +566,9 @@ commit as the corresponding implementation batch.
       file once and enforce the observed length on the byte stream, closing the
       metadata/growth race. The current cache envelope still buffers the stable
       snapshots and requires a streaming payload publication/restore redesign.
+- [x] Phase D generated-file publication now compares an existing destination
+      through one no-follow handle, an exact expected-length budget, and a fixed
+      buffer; unchanged-output detection no longer uses an unbounded `fs::read`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
