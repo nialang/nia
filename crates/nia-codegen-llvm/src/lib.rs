@@ -1,4 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Validated backend IR emission through LLVM.
+//!
+//! This crate is the LLVM boundary of the compiler. Callers provide a complete
+//! [`BackendLowering`] together with the matching [`TypeStore`]; codegen first
+//! validates partition definitions and declarations, then creates LLVM modules
+//! or native objects. Malformed backend IR is reported as diagnostics before it
+//! reaches the unsafe LLVM wrapper layer.
+//!
+//! The readiness emitters expose the same pipeline incrementally. Modules may
+//! be published as backend finalization completes, while partitions are emitted
+//! only after all declaration owners they depend on are visible. `finish`
+//! requires every module in the store to have been published and returns output
+//! sorted by stable codegen-unit key.
 mod backend_validate;
 mod compiler_builtins;
 mod declaration_membership;
@@ -48,6 +61,13 @@ type LlvmNativeObjectReadinessOutcome = (
     Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>>,
 );
 
+/// Incrementally emits textual LLVM IR from finalized backend modules.
+///
+/// Create one emitter for one [`nia_backend_ir::BackendModuleStore`], publish
+/// each readiness token produced by that store exactly once, then call
+/// [`finish`](Self::finish). Partitions can execute before unrelated modules
+/// finish, but validation waits until every declaration required by a partition
+/// is available.
 pub struct LlvmIrReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
     options: LlvmCodegenOptions,
@@ -57,6 +77,12 @@ pub struct LlvmIrReadinessEmitter<'session> {
     tasks: nia_query::QueryTaskPool<'session, LlvmIrReadinessOutcome>,
 }
 
+/// Incrementally emits native objects from finalized backend modules.
+///
+/// This follows the same publication contract as [`LlvmIrReadinessEmitter`]
+/// and additionally performs incremental object-cache lookup and publication.
+/// Cache failures become diagnostics for the affected codegen unit rather than
+/// suppressing validation of other units.
 pub struct LlvmNativeObjectReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
     options: LlvmCodegenOptions,
@@ -69,6 +95,10 @@ pub struct LlvmNativeObjectReadinessEmitter<'session> {
 }
 
 impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
+    /// Starts native-object emission for a module store and its owner index.
+    ///
+    /// `modules`, `type_store`, and `owners` must describe the same backend
+    /// program. The emitter retains them until [`finish`](Self::finish).
     pub fn new(
         modules: Arc<nia_backend_ir::BackendModuleStore>,
         type_store: Arc<TypeStore>,
@@ -89,6 +119,11 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         }
     }
 
+    /// Publishes one finalized module and schedules every newly ready partition.
+    ///
+    /// Readiness tokens are single-use ownership events from the associated
+    /// module store. Publishing the same module twice is an internal contract
+    /// violation.
     pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) {
         for preparation in self.coordinator.publish(ready.module_id()) {
             self.partition_count += 1;
@@ -118,6 +153,11 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         }
     }
 
+    /// Waits for scheduled work and returns deterministically ordered objects.
+    ///
+    /// This must be called only after every module readiness token has been
+    /// published. Invalid units are omitted from `link_inputs` and represented
+    /// in the returned diagnostics.
     pub fn finish(mut self) -> LlvmObjectOutput {
         let index = self.coordinator.finish();
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
@@ -183,6 +223,10 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
 }
 
 impl<'session> LlvmIrReadinessEmitter<'session> {
+    /// Starts textual IR emission for a module store and its owner index.
+    ///
+    /// `modules`, `type_store`, and `owners` must describe the same backend
+    /// program. The emitter retains them until [`finish`](Self::finish).
     pub fn new(
         modules: Arc<nia_backend_ir::BackendModuleStore>,
         type_store: Arc<TypeStore>,
@@ -200,6 +244,11 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
         }
     }
 
+    /// Publishes one finalized module and schedules every newly ready partition.
+    ///
+    /// Readiness tokens are single-use ownership events from the associated
+    /// module store. Publishing the same module twice is an internal contract
+    /// violation.
     pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) {
         for preparation in self.coordinator.publish(ready.module_id()) {
             self.partition_count += 1;
@@ -223,6 +272,11 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
         }
     }
 
+    /// Waits for scheduled work and returns deterministically ordered IR units.
+    ///
+    /// This must be called only after every module readiness token has been
+    /// published. Invalid units are omitted from `modules` and represented in
+    /// the returned diagnostics.
     pub fn finish(mut self) -> LlvmCodegenOutput {
         let index = self.coordinator.finish();
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
@@ -266,6 +320,11 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
     }
 }
 
+/// Validates and emits textual LLVM IR with default codegen options.
+///
+/// Backend diagnostics already present in `lowering` remain owned by the
+/// lowering caller; this function reports only failures discovered at the
+/// backend-IR/LLVM boundary.
 pub fn emit_llvm_ir(
     lowering: Arc<BackendLowering>,
     type_store: Arc<TypeStore>,
@@ -274,6 +333,10 @@ pub fn emit_llvm_ir(
     emit_llvm_ir_with_options(lowering, type_store, session, LlvmCodegenOptions::default())
 }
 
+/// Validates and emits textual LLVM IR for every codegen partition.
+///
+/// Independent partitions run through the query session's bounded task pool.
+/// A failed partition does not discard valid output from other partitions.
 pub fn emit_llvm_ir_with_options(
     lowering: Arc<BackendLowering>,
     type_store: Arc<TypeStore>,
@@ -347,6 +410,11 @@ fn emit_llvm_ir_with_options_inner(
     }
 }
 
+/// Validates backend IR and emits linkable native object work products.
+///
+/// When `cache` is present, lookup uses the complete policy, definition,
+/// declaration, and target fingerprint set. Invalid or corrupt entries are
+/// regenerated; I/O failures are returned as diagnostics for their unit.
 pub fn emit_native_objects(
     lowering: Arc<BackendLowering>,
     type_store: Arc<TypeStore>,
@@ -834,14 +902,20 @@ fn catch_llvm_object_ice(f: impl FnOnce() -> LlvmObjectOutput) -> LlvmObjectOutp
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// LLVM's speed-oriented optimization tier after mapping from Nia policy.
 pub enum LlvmCodegenOptimizationLevel {
+    /// Disable LLVM optimization passes.
     None,
+    /// Run LLVM's lightweight optimization pipeline.
     Less,
+    /// Run LLVM's standard optimization pipeline.
     Default,
+    /// Run LLVM's most aggressive speed optimization pipeline.
     Aggressive,
 }
 
 impl LlvmCodegenOptimizationLevel {
+    /// Returns the stable diagnostic and fingerprint name for this tier.
     pub fn name(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -853,13 +927,18 @@ impl LlvmCodegenOptimizationLevel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Code-size preference passed independently from LLVM's speed tier.
 pub enum LlvmCodegenSizePolicy {
+    /// Do not request size-specific optimization.
     Default,
+    /// Prefer smaller output while retaining the standard speed tier.
     Small,
+    /// Minimize output size more aggressively.
     Tiny,
 }
 
 impl LlvmCodegenSizePolicy {
+    /// Returns the stable diagnostic and fingerprint name for this policy.
     pub fn name(self) -> &'static str {
         match self {
             Self::Default => "default",
@@ -869,6 +948,11 @@ impl LlvmCodegenSizePolicy {
     }
 }
 
+/// Maps a Nia optimization level to LLVM's speed-oriented pass tier.
+///
+/// Size modes are intentionally split: `Os` uses the default speed tier and
+/// `Oz` uses the lighter tier, while [`llvm_codegen_size_policy`] carries the
+/// explicit size preference.
 pub fn llvm_codegen_optimization_level(
     level: NiaOptimizationLevel,
 ) -> LlvmCodegenOptimizationLevel {
@@ -883,6 +967,7 @@ pub fn llvm_codegen_optimization_level(
     }
 }
 
+/// Maps a Nia optimization level to LLVM's independent size preference.
 pub fn llvm_codegen_size_policy(level: NiaOptimizationLevel) -> LlvmCodegenSizePolicy {
     match level {
         NiaOptimizationLevel::O0

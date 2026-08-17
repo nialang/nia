@@ -461,6 +461,9 @@ commit as the corresponding implementation batch.
 - [x] Phase B backend validation now checks builtin slice length/pointer and
       range-bound receiver/result contracts and rejects unresolved iterator
       builtins before LLVM instead of relying on emitter-side type failures.
+- [x] Phase B LLVM emission APIs now document the validated backend boundary,
+      incremental readiness protocol, partial-output diagnostic contract,
+      optimization mapping, and attributable object-cache fingerprints.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
