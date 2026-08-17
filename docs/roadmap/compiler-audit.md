@@ -508,6 +508,9 @@ commit as the corresponding implementation batch.
       type/const patterns and records const-bearing semantic instantiations;
       specialization and executable dependency facts retain the vtable trait
       instance instead of emitting empty const vectors.
+- [x] Phase B backend trait-method owner assumptions now rebuild type and const
+      arguments from declaration-order generic kinds; specialization ordering
+      also rejects mismatched type/const arities instead of accepting prefixes.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

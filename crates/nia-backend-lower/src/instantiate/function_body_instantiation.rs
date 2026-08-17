@@ -1311,6 +1311,12 @@ impl<'a> ModuleLowerer<'a> {
         specific: &crate::ExtensionTraitMethodCandidate,
         general: &crate::ExtensionTraitMethodCandidate,
     ) -> bool {
+        // Candidate buckets normally enforce these arities. Keep the
+        // comparison total for stale or independently constructed products:
+        // `zip` must never turn a proper prefix into a specialization proof.
+        if !extension_trait_candidate_arities_match(specific, general) {
+            return false;
+        }
         let specific_target =
             self.normalized_type_from_module(specific.module_id, specific.target_ty);
         let general_target = self.normalized_type_from_module(general.module_id, general.target_ty);
@@ -1327,15 +1333,14 @@ impl<'a> ModuleLowerer<'a> {
                 self.extension_pattern_subsumes(general_arg, specific_arg)
             },
         );
-        let const_args_subsume = specific.trait_const_args.len() == general.trait_const_args.len()
-            && specific
-                .trait_const_args
-                .iter()
-                .zip(&general.trait_const_args)
-                .all(|(specific, general)| {
-                    matches!(general.value, nia_ty::ConstGenericValue::GenericParam(_))
-                        || specific.value == general.value
-                });
+        let const_args_subsume = specific
+            .trait_const_args
+            .iter()
+            .zip(&general.trait_const_args)
+            .all(|(specific, general)| {
+                matches!(general.value, nia_ty::ConstGenericValue::GenericParam(_))
+                    || specific.value == general.value
+            });
         let const_strict = specific
             .trait_const_args
             .iter()
@@ -1487,5 +1492,66 @@ impl<'a> ModuleLowerer<'a> {
                 count: self.instantiate_array_len(count, substitutions),
             },
         }
+    }
+}
+
+fn extension_trait_candidate_arities_match(
+    specific: &crate::ExtensionTraitMethodCandidate,
+    general: &crate::ExtensionTraitMethodCandidate,
+) -> bool {
+    specific.trait_args.len() == general.trait_args.len()
+        && specific.trait_const_args.len() == general.trait_const_args.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate_with_arities(
+        type_arg_count: usize,
+        const_arg_count: usize,
+    ) -> crate::ExtensionTraitMethodCandidate {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        crate::ExtensionTraitMethodCandidate {
+            module_id,
+            target_ty: ty,
+            method_def_id: GlobalDefId {
+                module_id,
+                def_id: nia_ids::DefId(0),
+            },
+            trait_args: vec![ty; type_arg_count],
+            trait_const_args: vec![
+                nia_ty::ConstGenericArg {
+                    ty,
+                    value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(0)),
+                };
+                const_arg_count
+            ],
+            where_predicates: Vec::new(),
+            effective_generics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn trait_candidate_arity_rejects_type_and_const_prefixes() {
+        let complete = candidate_with_arities(2, 2);
+        let short_types = candidate_with_arities(1, 2);
+        let short_consts = candidate_with_arities(2, 1);
+
+        assert!(extension_trait_candidate_arities_match(
+            &complete, &complete
+        ));
+        assert!(!extension_trait_candidate_arities_match(
+            &complete,
+            &short_types
+        ));
+        assert!(!extension_trait_candidate_arities_match(
+            &complete,
+            &short_consts
+        ));
     }
 }

@@ -354,7 +354,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn current_trait_method_owner_assumption(&mut self, current: GlobalDefId) -> Option<TraitGoal> {
-        let (trait_def_id, generics) = if current.module_id == self.input.module_id
+        let (trait_def_id, generic_params) = if current.module_id == self.input.module_id
             && let Some(def) = self.input.defs.defs.get(current.def_id)
             && def.kind == nia_defs::DefKind::TraitMethod
         {
@@ -363,7 +363,7 @@ impl<'a> ModuleLowerer<'a> {
                 def_id: def.parent?,
             };
             let trait_signature = self.input.signatures.traits.get(&trait_def_id.def_id)?;
-            (trait_def_id, trait_signature.generics.clone())
+            (trait_def_id, trait_signature.generic_params.clone())
         } else {
             self.input
                 .program
@@ -380,22 +380,16 @@ impl<'a> ModuleLowerer<'a> {
                                 def_id: method.def_id,
                             } == current
                         })
-                        .then(|| (*trait_id, signature.signature.generics.clone()))
+                        .then(|| (*trait_id, signature.signature.generic_params.clone()))
                 })?
         };
-        let trait_args = generics
-            .iter()
-            .map(|generic| {
-                self.type_context
-                    .append
-                    .intern(TyKind::GenericParam(*generic))
-            })
-            .collect();
+        let (trait_args, trait_const_args) =
+            trait_owner_generic_arguments(&self.type_context.append, &generic_params);
         Some(TraitGoal {
             self_ty: self.type_context.append.intern(TyKind::SelfParam),
             trait_id: TraitId::Source(trait_def_id),
             trait_args,
-            trait_const_args: Vec::new(),
+            trait_const_args,
         })
     }
 
@@ -846,5 +840,83 @@ impl<'a> ModuleLowerer<'a> {
             }),
             _ => None,
         }
+    }
+}
+
+/// Rebuilds a trait's open owner instance from declaration-order generic metadata.
+///
+/// `TraitGoal` stores type and const arguments in separate vectors, so walking
+/// the kind-aware parameter list is required for interleaved declarations.
+fn trait_owner_generic_arguments(
+    append: &nia_ty::TypeStoreAppend,
+    generic_params: &[nia_item_signatures::GenericParamSignature],
+) -> (Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>) {
+    let mut trait_args = Vec::new();
+    let mut trait_const_args = Vec::new();
+    for param in generic_params {
+        match param.kind {
+            nia_item_signatures::GenericParamSignatureKind::Type => {
+                trait_args.push(append.intern(TyKind::GenericParam(param.name)));
+            }
+            nia_item_signatures::GenericParamSignatureKind::Const { ty } => {
+                trait_const_args.push(nia_ty::ConstGenericArg {
+                    ty,
+                    value: nia_ty::ConstGenericValue::GenericParam(param.name),
+                });
+            }
+        }
+    }
+    (trait_args, trait_const_args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_item_signatures::{GenericParamSignature, GenericParamSignatureKind};
+    use nia_ty::PrimitiveTy;
+
+    #[test]
+    fn trait_owner_arguments_preserve_interleaved_generic_kinds() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let usize_ty = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
+        let first_type = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("T"));
+        let const_name = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("N"));
+        let second_type = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("U"));
+        let params = [
+            GenericParamSignature {
+                name: first_type,
+                kind: GenericParamSignatureKind::Type,
+            },
+            GenericParamSignature {
+                name: const_name,
+                kind: GenericParamSignatureKind::Const { ty: usize_ty },
+            },
+            GenericParamSignature {
+                name: second_type,
+                kind: GenericParamSignatureKind::Type,
+            },
+        ];
+
+        let (type_args, const_args) = trait_owner_generic_arguments(&append, &params);
+
+        assert_eq!(type_args.len(), 2);
+        assert!(matches!(
+            type_store.get(type_args[0]),
+            Some(TyKind::GenericParam(name)) if *name == first_type
+        ));
+        assert!(matches!(
+            type_store.get(type_args[1]),
+            Some(TyKind::GenericParam(name)) if *name == second_type
+        ));
+        assert_eq!(
+            const_args,
+            vec![nia_ty::ConstGenericArg {
+                ty: usize_ty,
+                value: nia_ty::ConstGenericValue::GenericParam(const_name),
+            }]
+        );
     }
 }
