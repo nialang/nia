@@ -300,6 +300,11 @@ commit as the corresponding implementation batch.
       stream-enforced protocol budgets. Oversized cache lock files cannot drive
       unbounded `read_to_string` allocations or smuggle a valid owner prefix,
       and owner Drop will not remove an oversized replacement record.
+- [x] Query memory accounting now bounds every Linux meminfo/cgroup pseudo-file
+      read on the opened stream and rejects cgroup membership paths containing
+      non-normal components. Oversized kernel/container records degrade to the
+      conservative memory fallback without unbounded allocation or escaping
+      the expected cgroup mount.
 - [x] Unix `nia-test-support` process-slot reclamation now retains owner-file
       locks, preventing stale slot cleanup from deleting a successor permit.
 - [x] Phase A owner regression evidence: `nia-body-check` 228 libtest cases

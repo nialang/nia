@@ -2,8 +2,8 @@
 use std::{
     cell::RefCell,
     fs,
+    io::Read as _,
     marker::PhantomData,
-    path::Path,
     rc::Rc,
     sync::{
         Condvar, Mutex, MutexGuard, OnceLock,
@@ -11,9 +11,21 @@ use std::{
     },
 };
 
+#[cfg(target_os = "linux")]
+use std::path::{Component, Path};
+
 const MAX_PARALLEL_LLVM_TASKS: usize = 4;
 const LLVM_TASK_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
 const LLVM_MEMORY_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
+// Kernel pseudo-files are tiny protocols. These budgets leave generous room
+// for large machines and deeply nested containers without trusting a growing
+// procfs/cgroupfs stream to choose the allocation size.
+#[cfg(target_os = "linux")]
+const MAX_MEMINFO_BYTES: usize = 1024 * 1024;
+#[cfg(target_os = "linux")]
+const MAX_CGROUP_MEMBERSHIP_BYTES: usize = 64 * 1024;
+#[cfg(target_os = "linux")]
+const MAX_CGROUP_SCALAR_BYTES: usize = 128;
 
 static LLVM_MEMORY_BUDGET: OnceLock<MemoryBudget> = OnceLock::new();
 
@@ -225,7 +237,7 @@ fn system_available_memory_bytes() -> Option<usize> {
 
 #[cfg(target_os = "linux")]
 fn meminfo_bytes(field: &str) -> Option<usize> {
-    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    let meminfo = read_bounded_utf8(Path::new("/proc/meminfo"), MAX_MEMINFO_BYTES)?;
     let value_kib = meminfo.lines().find_map(|line| {
         line.strip_prefix(field)?
             .split_whitespace()
@@ -238,33 +250,35 @@ fn meminfo_bytes(field: &str) -> Option<usize> {
 
 #[cfg(target_os = "linux")]
 fn cgroup_memory_limit_bytes() -> Option<usize> {
-    let cgroup = fs::read_to_string("/proc/self/cgroup").ok()?;
+    let cgroup = read_bounded_utf8(Path::new("/proc/self/cgroup"), MAX_CGROUP_MEMBERSHIP_BYTES)?;
     if let Some(directory) = cgroup_v2_directory(&cgroup) {
         let mount = Path::new("/sys/fs/cgroup");
         return cgroup_v2_memory_limit(mount, &mount.join(directory));
     }
     let path = cgroup_v1_memory_directory(&cgroup)?;
-    let value = fs::read_to_string(
-        Path::new("/sys/fs/cgroup/memory")
+    let value = read_bounded_utf8(
+        &Path::new("/sys/fs/cgroup/memory")
             .join(path)
             .join("memory.limit_in_bytes"),
-    )
-    .ok()?;
+        MAX_CGROUP_SCALAR_BYTES,
+    )?;
     parse_memory_limit(&value)
 }
 
 #[cfg(target_os = "linux")]
 fn cgroup_available_memory_bytes() -> Option<usize> {
-    let cgroup = fs::read_to_string("/proc/self/cgroup").ok()?;
+    let cgroup = read_bounded_utf8(Path::new("/proc/self/cgroup"), MAX_CGROUP_MEMBERSHIP_BYTES)?;
     if let Some(directory) = cgroup_v2_directory(&cgroup) {
         let mount = Path::new("/sys/fs/cgroup");
         return cgroup_v2_available_memory(mount, &mount.join(directory));
     }
     let path = cgroup_v1_memory_directory(&cgroup)?;
     let root = Path::new("/sys/fs/cgroup/memory").join(path);
-    let limit = parse_memory_limit(&fs::read_to_string(root.join("memory.limit_in_bytes")).ok()?)?;
-    let current = fs::read_to_string(root.join("memory.usage_in_bytes"))
-        .ok()?
+    let limit = parse_memory_limit(&read_bounded_utf8(
+        &root.join("memory.limit_in_bytes"),
+        MAX_CGROUP_SCALAR_BYTES,
+    )?)?;
+    let current = read_bounded_utf8(&root.join("memory.usage_in_bytes"), MAX_CGROUP_SCALAR_BYTES)?
         .trim()
         .parse::<usize>()
         .ok()?;
@@ -276,7 +290,7 @@ fn cgroup_v2_directory(cgroup: &str) -> Option<&Path> {
     cgroup
         .lines()
         .find_map(|line| line.strip_prefix("0::"))
-        .map(|path| Path::new(path.trim_start_matches('/')))
+        .and_then(relative_cgroup_path)
 }
 
 #[cfg(target_os = "linux")]
@@ -289,15 +303,26 @@ fn cgroup_v1_memory_directory(cgroup: &str) -> Option<&Path> {
         controllers
             .split(',')
             .any(|item| item == "memory")
-            .then(|| Path::new(path.trim_start_matches('/')))
+            .then(|| relative_cgroup_path(path))?
     })
+}
+
+#[cfg(target_os = "linux")]
+fn relative_cgroup_path(path: &str) -> Option<&Path> {
+    let path = Path::new(path.trim_start_matches('/'));
+    path.components()
+        .all(|component| matches!(component, Component::Normal(_)))
+        .then_some(path)
 }
 
 #[cfg(target_os = "linux")]
 fn cgroup_v2_memory_limit(mount: &Path, leaf: &Path) -> Option<usize> {
     cgroup_v2_ancestors(mount, leaf)
         .filter_map(|directory| {
-            parse_memory_limit(&fs::read_to_string(directory.join("memory.max")).ok()?)
+            parse_memory_limit(&read_bounded_utf8(
+                &directory.join("memory.max"),
+                MAX_CGROUP_SCALAR_BYTES,
+            )?)
         })
         .min()
 }
@@ -306,13 +331,15 @@ fn cgroup_v2_memory_limit(mount: &Path, leaf: &Path) -> Option<usize> {
 fn cgroup_v2_available_memory(mount: &Path, leaf: &Path) -> Option<usize> {
     cgroup_v2_ancestors(mount, leaf)
         .filter_map(|directory| {
-            let limit =
-                parse_memory_limit(&fs::read_to_string(directory.join("memory.max")).ok()?)?;
-            let current = fs::read_to_string(directory.join("memory.current"))
-                .ok()?
-                .trim()
-                .parse::<usize>()
-                .ok()?;
+            let limit = parse_memory_limit(&read_bounded_utf8(
+                &directory.join("memory.max"),
+                MAX_CGROUP_SCALAR_BYTES,
+            )?)?;
+            let current =
+                read_bounded_utf8(&directory.join("memory.current"), MAX_CGROUP_SCALAR_BYTES)?
+                    .trim()
+                    .parse::<usize>()
+                    .ok()?;
             Some(limit.saturating_sub(current))
         })
         .min()
@@ -347,6 +374,19 @@ fn cgroup_available_memory_bytes() -> Option<usize> {
 fn parse_memory_limit(value: &str) -> Option<usize> {
     let value = value.trim();
     (value != "max").then(|| value.parse().ok()).flatten()
+}
+
+#[cfg(target_os = "linux")]
+fn read_bounded_utf8(path: &Path, max_bytes: usize) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(u64::try_from(max_bytes).ok()?.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > max_bytes {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg(test)]
@@ -402,6 +442,34 @@ mod tests {
         assert_eq!(parse_memory_limit("1073741824\n"), Some(1024 * 1024 * 1024));
         assert_eq!(parse_memory_limit("max\n"), None);
         assert_eq!(parse_memory_limit("invalid\n"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cgroup_paths_reject_parent_components() {
+        assert_eq!(
+            cgroup_v2_directory("0::/parent/leaf\n"),
+            Some(Path::new("parent/leaf"))
+        );
+        assert_eq!(cgroup_v2_directory("0::/../../outside\n"), None);
+        assert_eq!(
+            cgroup_v1_memory_directory("7:cpu,memory:/parent/leaf\n"),
+            Some(Path::new("parent/leaf"))
+        );
+        assert_eq!(cgroup_v1_memory_directory("7:memory:/../outside\n"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bounded_resource_file_rejects_oversized_valid_prefix() {
+        let root = test_root("oversized_resource_file");
+        fs::create_dir_all(&root).expect("create resource fixture");
+        let path = root.join("memory.max");
+        let mut value = b"4096\n".to_vec();
+        value.resize(MAX_CGROUP_SCALAR_BYTES + 1, b'0');
+        fs::write(&path, value).expect("write oversized resource file");
+
+        assert_eq!(read_bounded_utf8(&path, MAX_CGROUP_SCALAR_BYTES), None);
     }
 
     #[cfg(target_os = "linux")]
