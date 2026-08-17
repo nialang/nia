@@ -481,6 +481,24 @@ impl BackendValidator<'_> {
                 "backend IR vtable trait arguments do not match its object type",
             ));
         }
+        // LLVM emits entries in vector order, while dynamic calls address the
+        // explicit slot field. Requiring the two coordinates to agree prevents
+        // a well-typed but unreferenced malformed table from reaching codegen.
+        for (expected_slot, entry) in vtable.entries.iter().enumerate() {
+            if entry.slot != expected_slot {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    vtable.span,
+                    "backend IR vtable entry slot does not match its table position",
+                ));
+            }
+            for arg in &entry.trait_args {
+                self.validate_type(*arg, vtable.span);
+            }
+            for arg in &entry.trait_const_args {
+                self.validate_type(arg.ty, vtable.span);
+            }
+        }
         if entries {
             for entry in &vtable.entries {
                 match &entry.function {

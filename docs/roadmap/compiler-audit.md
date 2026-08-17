@@ -484,6 +484,10 @@ commit as the corresponding implementation batch.
       disambiguate repeated const-generic supertraits. Driver and LLVM
       regressions cover impl, default-method, supertrait dispatch, and an
       upcast across two instances of the same const-generic supertrait.
+- [x] Phase B backend validation now requires trait-object vtable slot metadata
+      to equal physical entry order and validates every per-entry trait type and
+      const-argument type, preventing malformed but otherwise unreferenced
+      tables from reaching LLVM array emission.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

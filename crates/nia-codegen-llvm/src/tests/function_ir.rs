@@ -1564,7 +1564,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
 }
 
 #[test]
-fn validates_backend_ir_vtable_payload_and_function_refs_before_llvm() {
+fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
@@ -1630,7 +1630,7 @@ fn validates_backend_ir_vtable_payload_and_function_refs_before_llvm() {
                     trait_const_args: Vec::new(),
                     method_id: missing_fn,
                     method_name: known::SHOW,
-                    slot: 0,
+                    slot: 1,
                     function: BackendTraitObjectVtableFunction::Function(missing_fn),
                 }],
                 span,
@@ -1648,6 +1648,13 @@ fn validates_backend_ir_vtable_payload_and_function_refs_before_llvm() {
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
             .contains("vtable trait arguments do not match its object type")),
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("vtable entry slot does not match its table position")),
         "{:?}",
         output.diagnostics
     );
