@@ -515,6 +515,9 @@ commit as the corresponding implementation batch.
       non-byte-aligned, and wider-than-128-bit integer ABI descriptors before
       shifts or fixed-buffer slicing; malformed scalar and vector lanes have
       direct evaluator regressions.
+- [x] Phase C const integer comparison now orders mixed signed/unsigned values
+      without narrowing large `u128` inputs, while typed bitwise-not uses
+      overflow-free sign extension and rejects invalid width metadata.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
