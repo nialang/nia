@@ -146,6 +146,60 @@ fn main() i32 {
 }
 
 #[test]
+fn const_generic_supertraits_require_the_exact_parent_instance() {
+    let root = temp_dir("const_generic_supertraits_require_the_exact_parent_instance");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base[N: usize] {
+    fn base(& self) usize;
+}
+
+trait Child[N: usize] : Base[N] {
+    fn child(& self) usize;
+}
+
+struct Good {}
+
+extend Good : Base[4] {
+    fn base(& self) usize { 4usize }
+}
+
+extend Good : Child[4] {
+    fn child(& self) usize { 4usize }
+}
+
+struct Bad {}
+
+extend Bad : Base[8] {
+    fn base(& self) usize { 8usize }
+}
+
+extend Bad : Child[4] {
+    fn child(& self) usize { 4usize }
+}
+
+fn main() usize { 0usize }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("requires explicit implementation of supertrait `Base`"))
+            .count(),
+        1,
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn generic_where_bound_trait_methods_dispatch_to_impl_instances() {
     let root = temp_dir("generic_where_bound_trait_methods_dispatch_to_impl_instances");
     write(

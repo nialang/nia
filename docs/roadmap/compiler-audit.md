@@ -501,6 +501,9 @@ commit as the corresponding implementation batch.
 - [x] Phase B layout-root closure now substitutes aggregate fields with the
       canonical recursive type/const algorithm; mixed generic structs and
       unions no longer skip all nested roots or retain symbolic array lengths.
+- [x] Phase A explicit-supertrait validation now substitutes and matches the
+      complete trait instance, including const arguments and their types;
+      `Base[8]` can no longer satisfy the required parent of `Child[4]`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
