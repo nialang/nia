@@ -1131,6 +1131,20 @@ fn mutable(value: ?i32) i32 {
     }
 }
 
+struct Link { next: ?&mut Link }
+
+fn mutable_pointer(value: ?&mut Link) i32 {
+    match value {
+        mut ?current => {
+            _ = current;
+            1
+        },
+        null => {
+            0
+        },
+    }
+}
+
 fn immutable(value: ?i32) i32 {
     match value {
         ?current => {
@@ -1159,6 +1173,14 @@ fn immutable(value: ?i32) i32 {
             .filter(|diagnostic| diagnostic.summary.contains("local is let"))
             .count(),
         1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.summary.contains("non-exhaustive matched")
+                || diagnostic.summary.contains("match pattern is unreachable")
+        }),
         "{:?}",
         checked.diagnostics
     );

@@ -385,6 +385,12 @@ commit as the corresponding implementation batch.
       domains using an inductive type-path guard; cycle-only constructors remain
       uninhabited while finite-base recursive domains remain accepted, with
       independent-column regression coverage.
+- [x] Phase C recursive pattern inhabitation now guards only unconstrained
+      wildcard expansion instead of conflating an explicitly selected outer
+      constructor with a nested occurrence of the same type. Mutable optional
+      pointer patterns over recursive allocator nodes can reach their nested
+      `null` base case without weakening rejection of cycle-only domains; owner
+      and standard-library build-case regressions cover both boundaries.
 - [x] Phase A local HM inference now performs a symmetric occurs-check and
       transactional union rollback, preventing self-referential structural
       terms and late tuple/callable conflicts from poisoning later constraints;

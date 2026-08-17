@@ -412,11 +412,13 @@ where
 /// scalar-domain validation. This pass preserves the witness shape while
 /// checking that the queried product has at least one inhabitant.
 //
-// The recursive helper uses a type-path guard. Inhabitation is an inductive
-// property: a recursive constructor with no finite base case (for example
-// `Loop(Loop)`) has no value. Treating an active type as false both terminates
-// recursive domains and avoids manufacturing a witness for such a type. A
-// sibling constructor can still establish inhabitation, as in `List::Nil`.
+// The recursive helper guards wildcard expansion, where the analysis is free
+// to choose any constructor for a type. Explicit constructor queries are not
+// added to that guard: a recursive field may revisit the same type and choose a
+// finite base constructor even when the outer query selected a recursive one.
+// This still rejects cycle-only domains such as `Loop(Loop)`, because every
+// finite query eventually reaches a wildcard whose expansion encounters its
+// own active type without finding a base constructor.
 fn validate_empty_query<T, C, F>(
     query: &[Pattern<C>],
     types: &[T],
@@ -445,28 +447,32 @@ where
         return Ok(true);
     }
     let current_ty = &types[0];
-    if active_types.iter().any(|ty| ty == current_ty) {
-        return Ok(false);
-    }
-    active_types.push(current_ty.clone());
-    let head_domain = domain(current_ty);
     let head_result = match &query[0] {
         Pattern::Wildcard | Pattern::Opaque => {
-            validate_wildcard_head(&head_domain, domain, active_types)?
+            if active_types.iter().any(|ty| ty == current_ty) {
+                false
+            } else {
+                active_types.push(current_ty.clone());
+                let head_domain = domain(current_ty);
+                let result = validate_wildcard_head(&head_domain, domain, active_types)?;
+                active_types.pop();
+                result
+            }
         }
         Pattern::Constructor { id, fields } => {
+            let head_domain = domain(current_ty);
             let constructor = find_constructor(&head_domain, id)?;
             check_arity(fields.len(), constructor.fields.len())?;
             validate_empty_query_inner(fields, &constructor.fields, domain, active_types)?
         }
         Pattern::ScalarRange { start, end } => {
+            let head_domain = domain(current_ty);
             let Domain::Scalar { min, max, .. } = head_domain else {
                 return Err(AnalysisError::ScalarPatternOutsideScalarDomain);
             };
             clip_range(*start, *end, min, max).is_some()
         }
     };
-    active_types.pop();
     if !head_result {
         return Ok(false);
     }
@@ -710,6 +716,8 @@ mod tests {
         Opaque,
         RecursiveLoop,
         RecursiveList,
+        RecursiveOptional,
+        RecursiveNode,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -721,6 +729,7 @@ mod tests {
         Loop,
         Nil,
         Cons,
+        Node,
     }
 
     fn domain(ty: &Ty) -> Domain<Ty, Ctor> {
@@ -768,6 +777,20 @@ mod tests {
                     fields: vec![Ty::RecursiveList],
                 },
             ]),
+            Ty::RecursiveOptional => Domain::Finite(vec![
+                Constructor {
+                    id: Ctor::None,
+                    fields: Vec::new(),
+                },
+                Constructor {
+                    id: Ctor::Some,
+                    fields: vec![Ty::RecursiveNode],
+                },
+            ]),
+            Ty::RecursiveNode => Domain::Finite(vec![Constructor {
+                id: Ctor::Node,
+                fields: vec![Ty::RecursiveOptional],
+            }]),
         }
     }
 
@@ -958,6 +981,34 @@ mod tests {
                 domain,
             ),
             Ok(Some(vec![Pattern::Wildcard, Pattern::Wildcard]))
+        );
+    }
+
+    #[test]
+    fn constrained_recursive_query_can_reach_a_nested_base_constructor() {
+        let some = Pattern::Constructor {
+            id: Ctor::Some,
+            fields: vec![Pattern::Wildcard],
+        };
+        assert_eq!(
+            useful_witness(
+                &[],
+                std::slice::from_ref(&some),
+                &[Ty::RecursiveOptional],
+                domain,
+            ),
+            Ok(Some(vec![some.clone()]))
+        );
+        let matrix = vec![
+            vec![some],
+            vec![Pattern::Constructor {
+                id: Ctor::None,
+                fields: Vec::new(),
+            }],
+        ];
+        assert_eq!(
+            missing_witness(&matrix, Ty::RecursiveOptional, domain),
+            Ok(None)
         );
     }
 }
