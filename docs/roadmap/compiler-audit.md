@@ -402,6 +402,11 @@ commit as the corresponding implementation batch.
       definition validation cannot race ahead of cross-module function
       signatures; owner, upcast-boundary, and allocator executable regressions
       cover the publication-order invariant.
+- [x] Phase B dynamic-call ABI validation now checks the selected method slot
+      and target signature in every concrete vtable for an object view, rather
+      than accepting whichever table was indexed first. Multiple-self
+      regressions keep malformed later targets and publication-order changes
+      from bypassing backend validation.
 - [x] Phase A local HM inference now performs a symmetric occurs-check and
       transactional union rollback, preventing self-referential structural
       terms and late tuple/callable conflicts from poisoning later constraints;

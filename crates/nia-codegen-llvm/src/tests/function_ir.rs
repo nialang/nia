@@ -1679,6 +1679,10 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         is_readonly: true,
         elem: i32_ty,
     });
+    let bool_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: bool_ty,
+    });
     let trait_def = GlobalDefId {
         module_id,
         def_id: DefId(1),
@@ -1686,6 +1690,10 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
     let method_def = GlobalDefId {
         module_id,
         def_id: DefId(2),
+    };
+    let secondary_method_def = GlobalDefId {
+        module_id,
+        def_id: DefId(5),
     };
     let object_ty = interner.intern(TyKind::TraitObject {
         is_readonly: true,
@@ -1787,6 +1795,37 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         })),
         span,
     };
+    let secondary_method = BackendFunction {
+        def_id: secondary_method_def,
+        name: known::SHOW,
+        link_name: None,
+        generics: Vec::new(),
+        params: vec![
+            BackendParam {
+                local_id: None,
+                name: None,
+                receiver: Some(nia_ids::ReceiverKind::RefReadOnly),
+                passing_ty: bool_ptr_ty,
+                local_ty: bool_ty,
+                span,
+            },
+            BackendParam {
+                local_id: None,
+                name: None,
+                receiver: None,
+                passing_ty: bool_ty,
+                local_ty: bool_ty,
+                span,
+            },
+        ],
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
     let bad_abi = BackendFunction {
         def_id: GlobalDefId {
             module_id,
@@ -1813,7 +1852,7 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
                     slot: 0,
-                    params: vec![bool_ty],
+                    params: vec![i32_ty],
                     return_type: i32_ty,
                     receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
                     receiver: Box::new(FunctionExpr {
@@ -1824,8 +1863,8 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
                 },
                 args: vec![FunctionExpr {
                     span,
-                    ty: bool_ty,
-                    kind: FunctionExprKind::Bool(true),
+                    ty: i32_ty,
+                    kind: FunctionExprKind::Integer("1".to_string()),
                 }],
             },
         })),
@@ -1843,6 +1882,7 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
                     (bool_ty, TypeLayout { size: 1, align: 1 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                    (bool_ptr_ty, TypeLayout { size: 8, align: 8 }),
                     (object_ty, TypeLayout { size: 16, align: 8 }),
                 ],
                 structs: Vec::new(),
@@ -1858,28 +1898,49 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
             enums: Vec::new(),
             globals: Vec::new(),
             global_instances: Vec::new(),
-            functions: vec![method, main, bad_abi],
+            functions: vec![method, secondary_method, main, bad_abi],
             function_instances: Vec::new(),
             closure_entries: Vec::new(),
-            trait_object_vtables: vec![BackendTraitObjectVtable {
-                key: BackendTraitObjectVtableKey {
-                    self_ty: i32_ty,
-                    object_ty,
-                },
-                trait_id: TraitId::Source(trait_def),
-                trait_args: Vec::new(),
-                trait_const_args: Vec::new(),
-                entries: vec![BackendTraitObjectVtableEntry {
+            trait_object_vtables: vec![
+                BackendTraitObjectVtable {
+                    key: BackendTraitObjectVtableKey {
+                        self_ty: i32_ty,
+                        object_ty,
+                    },
                     trait_id: TraitId::Source(trait_def),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    method_id: method_def,
-                    method_name: known::SHOW,
-                    slot: 0,
-                    function: BackendTraitObjectVtableFunction::Function(method_def),
-                }],
-                span,
-            }],
+                    entries: vec![BackendTraitObjectVtableEntry {
+                        trait_id: TraitId::Source(trait_def),
+                        trait_args: Vec::new(),
+                        trait_const_args: Vec::new(),
+                        method_id: method_def,
+                        method_name: known::SHOW,
+                        slot: 0,
+                        function: BackendTraitObjectVtableFunction::Function(method_def),
+                    }],
+                    span,
+                },
+                BackendTraitObjectVtable {
+                    key: BackendTraitObjectVtableKey {
+                        self_ty: bool_ty,
+                        object_ty,
+                    },
+                    trait_id: TraitId::Source(trait_def),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                    entries: vec![BackendTraitObjectVtableEntry {
+                        trait_id: TraitId::Source(trait_def),
+                        trait_args: Vec::new(),
+                        trait_const_args: Vec::new(),
+                        method_id: method_def,
+                        method_name: known::SHOW,
+                        slot: 0,
+                        function: BackendTraitObjectVtableFunction::Function(secondary_method_def),
+                    }],
+                    span,
+                },
+            ],
             generic_instantiations: Vec::new(),
         }]
         .into(),
