@@ -111,21 +111,29 @@ enum BoundedCacheEntry {
     Oversized,
 }
 
-fn read_bounded_compiler_cache_entry(path: &Path) -> io::Result<BoundedCacheEntry> {
+/// Reads at most `max_bytes + 1` bytes so growth after the metadata check cannot
+/// turn a bounded cache lookup into an unbounded allocation.
+fn read_bounded_cache_entry(path: &Path, max_bytes: usize) -> io::Result<BoundedCacheEntry> {
     let mut file = fs::File::open(path)?;
     let metadata_len = file.metadata()?.len();
-    if metadata_len > MAX_COMPILER_CACHE_ENTRY_BYTES as u64 {
+    let max_bytes_u64 = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+    if metadata_len > max_bytes_u64 {
         return Ok(BoundedCacheEntry::Oversized);
     }
     let mut encoded = Vec::with_capacity(usize::try_from(metadata_len).unwrap_or(0));
+    let read_limit = max_bytes_u64.saturating_add(1);
     Read::by_ref(&mut file)
-        .take((MAX_COMPILER_CACHE_ENTRY_BYTES + 1) as u64)
+        .take(read_limit)
         .read_to_end(&mut encoded)?;
-    if encoded.len() > MAX_COMPILER_CACHE_ENTRY_BYTES {
+    if encoded.len() > max_bytes {
         Ok(BoundedCacheEntry::Oversized)
     } else {
         Ok(BoundedCacheEntry::Bytes(encoded))
     }
+}
+
+fn read_bounded_compiler_cache_entry(path: &Path) -> io::Result<BoundedCacheEntry> {
+    read_bounded_cache_entry(path, MAX_COMPILER_CACHE_ENTRY_BYTES)
 }
 
 fn validate_compiler_cache_entry_size(encoded: &[u8]) -> io::Result<()> {
@@ -245,6 +253,7 @@ pub(crate) struct GeneratedFileCacheIdentity {
     fingerprints: GeneratedFileFingerprintSet,
     action: Vec<u8>,
     output: Vec<u8>,
+    payload_len: usize,
 }
 
 impl GeneratedFileCacheIdentity {
@@ -272,7 +281,32 @@ impl GeneratedFileCacheIdentity {
             fingerprints: GeneratedFileFingerprintSet::new(action, output, contents, toolchain),
             action: action_identity(action),
             output: logical_path_identity(output),
+            payload_len: contents.len(),
         }
+    }
+
+    /// A generated-file identity fingerprints the exact bytes later published,
+    /// so its valid record has one precise size rather than a global payload cap.
+    fn encoded_len(&self) -> io::Result<usize> {
+        generated_file_entry_overhead(self)
+            .checked_add(self.payload_len)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "cache entry is too large"))
+    }
+
+    fn validate_payload(&self, payload: &[u8]) -> io::Result<()> {
+        if payload.len() != self.payload_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "generated-file cache payload length does not match its identity",
+            ));
+        }
+        if contents_fingerprint(payload) != self.fingerprints.components.contents {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "generated-file cache payload contents do not match its identity",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -297,21 +331,28 @@ impl GeneratedFileCache {
         identity: &GeneratedFileCacheIdentity,
     ) -> io::Result<GeneratedFileCacheLookup> {
         let path = self.path(identity.fingerprints);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) => encoded,
+        let max_bytes = identity.encoded_len()?;
+        let encoded = match read_bounded_cache_entry(&path, max_bytes) {
+            Ok(BoundedCacheEntry::Bytes(encoded)) => encoded,
+            Ok(BoundedCacheEntry::Oversized) => {
+                self.retire_bounded_corrupt(&path, &BoundedCacheEntry::Oversized, max_bytes)?;
+                return Ok(GeneratedFileCacheLookup::Miss(
+                    ActionCacheMissReason::Corrupt,
+                ));
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return self.lookup_invalidation(identity);
             }
             Err(error) => return Err(error),
         };
         let Some(entry) = decode_entry(&encoded) else {
-            self.retire_corrupt(&path, &encoded)?;
+            self.retire_bounded_corrupt(&path, &BoundedCacheEntry::Bytes(encoded), max_bytes)?;
             return Ok(GeneratedFileCacheLookup::Miss(
                 ActionCacheMissReason::Corrupt,
             ));
         };
         if !entry_matches(&entry, identity) || path != self.path(entry.fingerprints) {
-            self.retire_corrupt(&path, &encoded)?;
+            self.retire_bounded_corrupt(&path, &BoundedCacheEntry::Bytes(encoded), max_bytes)?;
             return Ok(GeneratedFileCacheLookup::Miss(
                 ActionCacheMissReason::Corrupt,
             ));
@@ -324,6 +365,7 @@ impl GeneratedFileCache {
         identity: &GeneratedFileCacheIdentity,
         payload: &[u8],
     ) -> io::Result<()> {
+        identity.validate_payload(payload)?;
         if matches!(self.lookup(identity)?, GeneratedFileCacheLookup::Hit(_)) {
             return Ok(());
         }
@@ -441,13 +483,21 @@ impl GeneratedFileCache {
         identity: &GeneratedFileCacheIdentity,
     ) -> io::Result<()> {
         let _lock = self.acquire_mutation_lock(path)?;
+        let max_bytes = identity.encoded_len()?;
         for _ in 0..4 {
             match fs::hard_link(staged, path) {
                 Ok(()) => return Ok(()),
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    let encoded = fs::read(path)?;
-                    if decode_entry(&encoded).is_some_and(|entry| entry_matches(&entry, identity)) {
-                        return Ok(());
+                    match read_bounded_cache_entry(path, max_bytes) {
+                        Ok(BoundedCacheEntry::Bytes(encoded))
+                            if decode_entry(&encoded)
+                                .is_some_and(|entry| entry_matches(&entry, identity)) =>
+                        {
+                            return Ok(());
+                        }
+                        Ok(BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized) => {}
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                        Err(error) => return Err(error),
                     }
                     match fs::remove_file(path) {
                         Ok(()) => {}
@@ -462,6 +512,33 @@ impl GeneratedFileCache {
             io::ErrorKind::AlreadyExists,
             "generated-file cache entry changed during publication",
         ))
+    }
+
+    fn retire_bounded_corrupt(
+        &self,
+        path: &Path,
+        observed: &BoundedCacheEntry,
+        max_bytes: usize,
+    ) -> io::Result<()> {
+        let _lock = self.acquire_mutation_lock(path)?;
+        let unchanged = match (read_bounded_cache_entry(path, max_bytes), observed) {
+            (Ok(BoundedCacheEntry::Bytes(current)), BoundedCacheEntry::Bytes(observed)) => {
+                current == *observed
+            }
+            (Ok(BoundedCacheEntry::Oversized), BoundedCacheEntry::Oversized) => true,
+            (Ok(BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized), _) => false,
+            (Err(error), _) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            (Err(error), _) => return Err(error),
+        };
+        if unchanged {
+            match fs::remove_file(path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(())
+        }
     }
 
     fn retire_corrupt(&self, path: &Path, observed: &[u8]) -> io::Result<()> {
@@ -522,13 +599,27 @@ fn entry_matches(entry: &DecodedEntry, identity: &GeneratedFileCacheIdentity) ->
     entry.fingerprints == identity.fingerprints
         && entry.action == identity.action
         && entry.output == identity.output
+        && entry.payload.len() == identity.payload_len
+}
+
+fn generated_file_entry_overhead(identity: &GeneratedFileCacheIdentity) -> usize {
+    // Eight identity fingerprints, two length-prefixed identities, the payload
+    // length, and the payload checksum precede the payload bytes.
+    GENERATED_FILE_ENTRY.magic.len()
+        + 8 * 16
+        + 8
+        + identity.action.len()
+        + 8
+        + identity.output.len()
+        + 8
+        + 16
 }
 
 fn encode_entry(identity: &GeneratedFileCacheIdentity, payload: &[u8]) -> Vec<u8> {
     let checksum = payload_checksum(payload);
     let fingerprints = identity.fingerprints;
     let mut encoded =
-        Vec::with_capacity(120 + identity.action.len() + identity.output.len() + payload.len());
+        Vec::with_capacity(generated_file_entry_overhead(identity).saturating_add(payload.len()));
     encoded.extend_from_slice(GENERATED_FILE_ENTRY.magic);
     for fingerprint in [
         fingerprints.cache_key,
@@ -547,6 +638,10 @@ fn encode_entry(identity: &GeneratedFileCacheIdentity, payload: &[u8]) -> Vec<u8
     encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     write_fingerprint(&mut encoded, checksum);
     encoded.extend_from_slice(payload);
+    debug_assert_eq!(
+        encoded.len(),
+        generated_file_entry_overhead(identity) + payload.len()
+    );
     encoded
 }
 
@@ -876,6 +971,46 @@ mod tests {
     }
 
     #[test]
+    fn oversized_exact_generated_file_entry_is_retired_without_full_read() {
+        let root = test_root("oversized-exact-entry");
+        let cache = GeneratedFileCache::new(root.clone());
+        let identity = identity(&output("generated/source.nia"), b"source", toolchain());
+        let path = cache.path(identity.fingerprints);
+        fs::create_dir_all(path.parent().expect("entry directory"))
+            .expect("create entry directory");
+        let file = fs::File::create(&path).expect("create sparse entry");
+        file.set_len(u64::try_from(identity.encoded_len().expect("encoded length") + 1).unwrap())
+            .expect("extend sparse entry");
+
+        assert_eq!(
+            cache.lookup(&identity).expect("oversized lookup"),
+            GeneratedFileCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists(), "oversized exact entry must be retired");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_file_publication_requires_identity_payload() {
+        let root = test_root("payload-identity");
+        let cache = GeneratedFileCache::new(root.clone());
+        let identity = identity(&output("generated/source.nia"), b"source", toolchain());
+
+        let length_error = cache
+            .publish(&identity, b"source!")
+            .expect_err("mismatched payload length");
+        assert_eq!(length_error.kind(), io::ErrorKind::InvalidInput);
+        let contents_error = cache
+            .publish(&identity, b"sourcf")
+            .expect_err("mismatched payload contents");
+        assert_eq!(contents_error.kind(), io::ErrorKind::InvalidInput);
+        assert!(!cache.path(identity.fingerprints).exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn stale_corruption_retirement_does_not_remove_republished_entry() {
         let root = test_root("stale-retirement");
         let cache = GeneratedFileCache::new(root.clone());
@@ -889,7 +1024,11 @@ mod tests {
         cache.publish(&identity, b"source").expect("republish");
 
         cache
-            .retire_corrupt(&path, &observed)
+            .retire_bounded_corrupt(
+                &path,
+                &BoundedCacheEntry::Bytes(observed),
+                identity.encoded_len().expect("encoded length"),
+            )
             .expect("stale retirement");
 
         assert_eq!(

@@ -546,6 +546,10 @@ commit as the corresponding implementation batch.
 - [x] Phase D output-transaction recovery now enforces its journal limit on the
       opened byte stream as well as pre-read metadata, closing the file-growth
       race that could turn a nominally bounded recovery read into `fs::read`.
+- [x] Phase D exact-key generated-file cache reads now derive their byte budget
+      from the identity's payload length, enforce it across lookup, collision,
+      and retirement paths, and reject publication payloads inconsistent with
+      the identity. Invalidation scans still require streaming record handling.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
