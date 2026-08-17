@@ -938,7 +938,9 @@ impl BackendValidator<'_> {
                 });
             }
             FunctionCallee::BuiltinMethod {
-                self_ty, receiver, ..
+                method,
+                self_ty,
+                receiver,
             } => {
                 self.validate_type(*self_ty, span);
                 self.validate_expr(receiver);
@@ -949,6 +951,7 @@ impl BackendValidator<'_> {
                         "builtin methods do not accept value arguments",
                     );
                 }
+                self.validate_builtin_method_call(*method, *self_ty, call_result_ty, span);
             }
             FunctionCallee::BuiltinPlaceMethod {
                 trait_id,
@@ -1080,6 +1083,107 @@ impl BackendValidator<'_> {
                     );
                 }
             }
+        }
+    }
+
+    fn validate_builtin_method_call(
+        &mut self,
+        method: nia_function_ir::FunctionBuiltinMethod,
+        self_ty: nia_ids::InternedTyId,
+        result_ty: nia_ids::InternedTyId,
+        span: Span,
+    ) {
+        match method {
+            nia_function_ir::FunctionBuiltinMethod::SliceLen => {
+                if !matches!(
+                    self.index.ty_kind(self_ty),
+                    Some(TyKind::Array { .. } | TyKind::Slice { .. })
+                ) {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "len receiver type is not an array or slice",
+                    );
+                }
+                if !matches!(
+                    self.index.ty_kind(result_ty),
+                    Some(TyKind::Primitive(PrimitiveTy::Usize))
+                ) {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "len result type is not usize",
+                    );
+                }
+            }
+            nia_function_ir::FunctionBuiltinMethod::SlicePtr
+            | nia_function_ir::FunctionBuiltinMethod::SlicePtrMut => {
+                let Some(TyKind::Slice { is_readonly, elem }) = self.index.ty_kind(self_ty) else {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "pointer receiver type is not a slice",
+                    );
+                    return;
+                };
+                let expected_readonly = method == nia_function_ir::FunctionBuiltinMethod::SlicePtr;
+                if !expected_readonly && *is_readonly {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "mutable pointer method has a readonly slice receiver",
+                    );
+                }
+                if !matches!(
+                    self.index.ty_kind(result_ty),
+                    Some(TyKind::Pointer {
+                        is_readonly,
+                        elem: result_elem,
+                    }) if *is_readonly == expected_readonly
+                        && self.same_type(*result_elem, *elem)
+                ) {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "slice pointer result type does not match its receiver",
+                    );
+                }
+            }
+            nia_function_ir::FunctionBuiltinMethod::Start
+            | nia_function_ir::FunctionBuiltinMethod::End => {
+                let Some(TyKind::Range { kind, bound }) = self.index.ty_kind(self_ty) else {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "range-bound receiver type is not a range",
+                    );
+                    return;
+                };
+                let has_bound = match method {
+                    nia_function_ir::FunctionBuiltinMethod::Start => kind.has_start_bound(),
+                    nia_function_ir::FunctionBuiltinMethod::End => kind.has_end_bound(),
+                    _ => unreachable!(),
+                };
+                if !has_bound {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "range receiver does not contain the requested bound",
+                    );
+                }
+                if bound.is_none_or(|bound| !self.same_type(bound, result_ty)) {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "range-bound result type does not match its receiver",
+                    );
+                }
+            }
+            nia_function_ir::FunctionBuiltinMethod::Iter => self.invalid_call_contract(
+                span,
+                "builtin-method",
+                "iter must be resolved before LLVM codegen",
+            ),
         }
     }
 
