@@ -574,6 +574,11 @@ commit as the corresponding implementation batch.
       one fixed buffer, and retain only candidate fingerprints. Corrupt records
       are revalidated by the same streaming parser under the mutation lock so a
       concurrent valid replacement is not retired.
+- [x] Phase D exact external-command cache hits now retain an opened entry plus
+      bounded output offsets instead of materializing payloads. Restoration and
+      immutable-output comparison stream from that handle with checksum
+      revalidation, and exact corruption retirement no longer rereads the whole
+      record under the mutation lock.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
