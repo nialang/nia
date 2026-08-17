@@ -2150,6 +2150,8 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         "callable call has an invalid ABI contract: argument count",
         "function-pointer call has an invalid ABI contract: result type",
         "builtin-method call has an invalid ABI contract",
+        "builtin-method call has an invalid ABI contract: len receiver type",
+        "builtin-method call has an invalid ABI contract: len result type",
         "builtin-operator call has an invalid ABI contract",
     ] {
         assert!(

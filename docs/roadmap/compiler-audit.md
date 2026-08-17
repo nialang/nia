@@ -458,6 +458,9 @@ commit as the corresponding implementation batch.
       source/function-instance owner and validate generated state-pointer,
       parameter, and return ABI metadata before LLVM; missing-entry and malformed
       call regressions cover the owner boundary.
+- [x] Phase B backend validation now checks builtin slice length/pointer and
+      range-bound receiver/result contracts and rejects unresolved iterator
+      builtins before LLVM instead of relying on emitter-side type failures.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
