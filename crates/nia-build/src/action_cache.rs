@@ -36,6 +36,9 @@ pub(crate) use external_command::{
 };
 
 static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+/// Compiler action-cache entries contain identities and typed references, not
+/// object payloads. Keep their budget aligned with compiler persistence files.
+const MAX_COMPILER_CACHE_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const GENERATED_FILE_COMPILER_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.generated-file-compiler.v1");
 const GENERATED_FILE_RESOURCE_LAYOUT_DOMAIN: FingerprintDomain =
@@ -101,6 +104,42 @@ pub enum ActionCacheInvalidation {
     ResourceLayout,
     StandardLibrary,
     BuildProtocol,
+}
+
+enum BoundedCacheEntry {
+    Bytes(Vec<u8>),
+    Oversized,
+}
+
+fn read_bounded_compiler_cache_entry(path: &Path) -> io::Result<BoundedCacheEntry> {
+    let mut file = fs::File::open(path)?;
+    let metadata_len = file.metadata()?.len();
+    if metadata_len > MAX_COMPILER_CACHE_ENTRY_BYTES as u64 {
+        return Ok(BoundedCacheEntry::Oversized);
+    }
+    let mut encoded = Vec::with_capacity(usize::try_from(metadata_len).unwrap_or(0));
+    Read::by_ref(&mut file)
+        .take((MAX_COMPILER_CACHE_ENTRY_BYTES + 1) as u64)
+        .read_to_end(&mut encoded)?;
+    if encoded.len() > MAX_COMPILER_CACHE_ENTRY_BYTES {
+        Ok(BoundedCacheEntry::Oversized)
+    } else {
+        Ok(BoundedCacheEntry::Bytes(encoded))
+    }
+}
+
+fn validate_compiler_cache_entry_size(encoded: &[u8]) -> io::Result<()> {
+    if encoded.len() > MAX_COMPILER_CACHE_ENTRY_BYTES {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "compiler action-cache entry exceeds the {} byte limit",
+                MAX_COMPILER_CACHE_ENTRY_BYTES
+            ),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 pub(super) fn package_roots_identity<'a>(

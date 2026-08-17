@@ -22,7 +22,8 @@ use nia_source::SourceIdentity;
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
-    ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE,
+    ActionCacheInvalidation, ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE,
+    MAX_COMPILER_CACHE_ENTRY_BYTES,
     compiler_check::{
         COMPILER_CHECK_MODULE_DOMAIN, COMPILER_CHECK_OPTIMIZATION_DOMAIN,
         COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, COMPILER_CHECK_RUNTIME_DOMAIN,
@@ -30,8 +31,9 @@ use super::{
         SourceRecord, action_fingerprint, bytes_fingerprint, integer_fingerprint,
         invalidations as compiler_invalidations, read_tag, source_records_fingerprint,
     },
-    fingerprint_text, logical_path_identity, read_bytes, read_fingerprint, read_u64, write_bytes,
-    write_fingerprint, write_text,
+    fingerprint_text, logical_path_identity, read_bounded_compiler_cache_entry, read_bytes,
+    read_fingerprint, read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
+    write_text,
 };
 use crate::{ActionKey, PlanArtifact, PlanModule, PlanPackage, TargetSpec, lock::ScopedFileLock};
 
@@ -179,8 +181,14 @@ impl CompilerEmitCache {
         identity: &CompilerEmitCacheIdentity,
     ) -> io::Result<CompilerEmitCacheLookup> {
         let path = self.path(identity.fingerprints);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) => encoded,
+        let encoded = match read_bounded_compiler_cache_entry(&path) {
+            Ok(BoundedCacheEntry::Bytes(encoded)) => encoded,
+            Ok(BoundedCacheEntry::Oversized) => {
+                self.retire_oversized(&path)?;
+                return Ok(CompilerEmitCacheLookup::Miss(
+                    ActionCacheMissReason::Corrupt,
+                ));
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return self.lookup_invalidation(identity);
             }
@@ -227,6 +235,7 @@ impl CompilerEmitCache {
             CACHE_STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         let encoded = encode_entry(identity, reference);
+        validate_compiler_cache_entry_size(&encoded)?;
         let result = (|| {
             let mut file = fs::OpenOptions::new()
                 .write(true)
@@ -251,8 +260,8 @@ impl CompilerEmitCache {
     ) -> io::Result<()> {
         let path = self.path(identity.fingerprints);
         let _lock = self.acquire_mutation_lock(&path)?;
-        match fs::read(&path) {
-            Ok(encoded)
+        match read_bounded_compiler_cache_entry(&path) {
+            Ok(BoundedCacheEntry::Bytes(encoded))
                 if decode_entry(&encoded).is_some_and(|entry| {
                     entry_matches(&entry, identity) && entry.reference == reference
                 }) =>
@@ -263,7 +272,12 @@ impl CompilerEmitCache {
                     Err(error) => Err(error),
                 }
             }
-            Ok(_) => Ok(()),
+            Ok(BoundedCacheEntry::Oversized) => match fs::remove_file(path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error),
+            },
+            Ok(BoundedCacheEntry::Bytes(_)) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),
         }
@@ -289,7 +303,14 @@ impl CompilerEmitCache {
             if path.extension().and_then(|value| value.to_str()) != Some("entry") {
                 continue;
             }
-            let encoded = fs::read(&path)?;
+            let encoded = match read_bounded_compiler_cache_entry(&path)? {
+                BoundedCacheEntry::Bytes(encoded) => encoded,
+                BoundedCacheEntry::Oversized => {
+                    self.retire_oversized(&path)?;
+                    corrupt = true;
+                    continue;
+                }
+            };
             let Some(entry) = decode_entry(&encoded) else {
                 self.retire_corrupt(&path, &encoded)?;
                 corrupt = true;
@@ -355,16 +376,20 @@ impl CompilerEmitCache {
         match fs::hard_link(staged, path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let encoded = fs::read(path)?;
-                if decode_entry(&encoded).is_some_and(|entry| {
-                    entry_matches(&entry, identity) && entry.reference == reference
-                }) {
-                    Ok(())
-                } else {
-                    Err(io::Error::new(
-                        io::ErrorKind::AlreadyExists,
-                        "compiler-emit cache entry changed during publication",
-                    ))
+                match read_bounded_compiler_cache_entry(path)? {
+                    BoundedCacheEntry::Bytes(encoded)
+                        if decode_entry(&encoded).is_some_and(|entry| {
+                            entry_matches(&entry, identity) && entry.reference == reference
+                        }) =>
+                    {
+                        Ok(())
+                    }
+                    BoundedCacheEntry::Bytes(_) | BoundedCacheEntry::Oversized => {
+                        Err(io::Error::new(
+                            io::ErrorKind::AlreadyExists,
+                            "compiler-emit cache entry changed during publication",
+                        ))
+                    }
                 }
             }
             Err(error) => Err(error),
@@ -373,12 +398,35 @@ impl CompilerEmitCache {
 
     fn retire_corrupt(&self, path: &Path, observed: &[u8]) -> io::Result<()> {
         let _lock = self.acquire_mutation_lock(path)?;
-        match fs::read(path) {
-            Ok(current) if current == observed => match fs::remove_file(path) {
+        match read_bounded_compiler_cache_entry(path) {
+            Ok(BoundedCacheEntry::Bytes(current)) if current == observed => {
+                match fs::remove_file(path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error),
+                }
+            }
+            Ok(BoundedCacheEntry::Oversized) => match fs::remove_file(path) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(error),
             },
+            Ok(BoundedCacheEntry::Bytes(_)) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn retire_oversized(&self, path: &Path) -> io::Result<()> {
+        let _lock = self.acquire_mutation_lock(path)?;
+        match fs::metadata(path) {
+            Ok(metadata) if metadata.len() > MAX_COMPILER_CACHE_ENTRY_BYTES as u64 => {
+                match fs::remove_file(path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(error),
+                }
+            }
             Ok(_) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),
@@ -908,6 +956,30 @@ mod tests {
             cache.lookup(&identity).expect("lookup replacement"),
             CompilerEmitCacheLookup::Hit(replacement)
         );
+
+        fs::remove_dir_all(root).expect("remove compiler emit cache fixture");
+    }
+
+    #[test]
+    fn compiler_emit_lookup_retires_oversized_entries_without_reading_them() {
+        let identity = identity();
+        let root = std::env::temp_dir().join(format!(
+            "nia-compiler-emit-cache-oversized-{}-{}",
+            std::process::id(),
+            CACHE_STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = CompilerEmitCache::new(root.clone());
+        let path = cache.path(identity.fingerprints);
+        fs::create_dir_all(path.parent().expect("cache parent")).expect("create cache parent");
+        let file = fs::File::create(&path).expect("create oversized entry");
+        file.set_len((MAX_COMPILER_CACHE_ENTRY_BYTES + 1) as u64)
+            .expect("size oversized entry");
+
+        assert_eq!(
+            cache.lookup(&identity).expect("lookup oversized entry"),
+            CompilerEmitCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists(), "oversized entry must be retired");
 
         fs::remove_dir_all(root).expect("remove compiler emit cache fixture");
     }
