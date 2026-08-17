@@ -438,6 +438,12 @@ commit as the corresponding implementation batch.
       result types plus tuple, array, repeat-array, and direct aggregate
       field initializer contracts before LLVM. A malformed-IR matrix covers
       element types, arity/count metadata, and selected-value types.
+- [x] Phase A/B atomic validation now enforces pointer-width value types,
+      pointee and write-permission contracts, operand/result shapes, RMW type
+      restrictions, and the per-op LLVM ordering sets before emission.
+      Cmpxchg failure ordering uses the actual acquire/release partial order,
+      rejecting incomparable `Release`/`Acquire` pairs at both source and
+      backend boundaries; focused matrices cover malformed producer IR.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

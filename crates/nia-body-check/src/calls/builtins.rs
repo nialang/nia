@@ -1457,11 +1457,11 @@ impl<'a> BodyChecker<'a> {
         success: CheckedAtomicOrder,
         failure: CheckedAtomicOrder,
     ) {
-        if failure.strength() > success.strength() {
+        if !success.allows_cmpxchg_failure(failure) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                "cmpxchg failure ordering cannot be stronger than success ordering",
+                "cmpxchg failure ordering cannot be stronger than or incomparable with success ordering",
             ));
         }
     }
@@ -1567,13 +1567,14 @@ impl CheckedAtomicOrder {
         }
     }
 
-    fn strength(self) -> u8 {
+    fn allows_cmpxchg_failure(self, failure: Self) -> bool {
         match self {
-            Self::Unordered => 0,
-            Self::Monotonic => 1,
-            Self::Acquire | Self::Release => 2,
-            Self::AcqRel => 3,
-            Self::SeqCst => 4,
+            Self::Monotonic => failure == Self::Monotonic,
+            Self::Acquire => matches!(failure, Self::Monotonic | Self::Acquire),
+            Self::Release => failure == Self::Monotonic,
+            Self::AcqRel => matches!(failure, Self::Monotonic | Self::Acquire),
+            Self::SeqCst => matches!(failure, Self::Monotonic | Self::Acquire | Self::SeqCst),
+            Self::Unordered => false,
         }
     }
 }
