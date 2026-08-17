@@ -521,6 +521,9 @@ commit as the corresponding implementation batch.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.
+- [x] Phase D output-transaction recovery now enforces its journal limit on the
+      opened byte stream as well as pre-read metadata, closing the file-growth
+      race that could turn a nominally bounded recovery read into `fs::read`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
