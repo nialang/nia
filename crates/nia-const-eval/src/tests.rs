@@ -39,6 +39,58 @@ fn frozen_pointer_value_equality_uses_origin_not_pointee_contents() {
 }
 
 #[test]
+fn const_union_rejects_malformed_integer_scalar_widths() {
+    let field = sym("value");
+    for bits in [0, 7, 136] {
+        let fields = BTreeMap::from([(
+            field,
+            ConstAbiType::Scalar(ConstScalarType::Integer {
+                bits,
+                signed: false,
+            }),
+        )]);
+
+        let error = ConstUnionValue::new(
+            fields,
+            16,
+            field,
+            ConstValue::Int(IntConst::unsigned(1)),
+            ConstEndianness::Little,
+        )
+        .expect_err("malformed integer widths must be rejected");
+
+        assert!(error.contains("invalid scalar width"), "{error}");
+    }
+}
+
+#[test]
+fn const_union_rejects_malformed_integer_vector_lanes() {
+    let field = sym("lanes");
+    let fields = BTreeMap::from([(
+        field,
+        ConstAbiType::Vector {
+            lane: ConstScalarType::Integer {
+                bits: 136,
+                signed: false,
+            },
+            lanes: 1,
+            size: 17,
+        },
+    )]);
+
+    let error = ConstUnionValue::new(
+        fields,
+        17,
+        field,
+        ConstValue::Vector(vec![ConstValue::Int(IntConst::unsigned(1))]),
+        ConstEndianness::Little,
+    )
+    .expect_err("malformed vector lane widths must be rejected");
+
+    assert!(error.contains("exceeds its layout"), "{error}");
+}
+
+#[test]
 fn pointer_union_storage_requires_an_exact_relocation() {
     let pointer_field = sym("pointer");
     let integer_field = sym("integer");

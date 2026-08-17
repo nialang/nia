@@ -511,6 +511,10 @@ commit as the corresponding implementation batch.
 - [x] Phase B backend trait-method owner assumptions now rebuild type and const
       arguments from declaration-order generic kinds; specialization ordering
       also rejects mismatched type/const arities instead of accepting prefixes.
+- [x] Phase C const union scalar encoding now rejects zero-width,
+      non-byte-aligned, and wider-than-128-bit integer ABI descriptors before
+      shifts or fixed-buffer slicing; malformed scalar and vector lanes have
+      direct evaluator regressions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
