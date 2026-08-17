@@ -555,6 +555,10 @@ commit as the corresponding implementation batch.
       the canonical build-plan string limit, and materialize payload bytes only
       for an exact entry published after the direct miss; corruption retirement
       revalidates under the mutation lock without an unbounded reread.
+- [x] Phase D regular-file external-command tool/input identities now stream
+      fingerprints from one opened handle and reject length growth or truncation;
+      Unix declared inputs also use no-follow opens. Directory identities still
+      require a flat streaming encoding instead of recursive nested buffers.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

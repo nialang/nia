@@ -56,8 +56,8 @@ use crate::{
         CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
         CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
         CompilerEmitCacheLinkInput, CompilerEmitCacheLookup, ExternalCommandCache,
-        ExternalCommandCacheIdentity, ExternalCommandCacheLookup, GeneratedFileCache,
-        GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
+        ExternalCommandCacheIdentity, ExternalCommandCacheLookup, ExternalCommandContentIdentity,
+        GeneratedFileCache, GeneratedFileCacheIdentity, GeneratedFileCacheLookup,
     },
     lock::{ProcessIdentity, ScopedFileLock, output_lock_path},
     output_recovery::{

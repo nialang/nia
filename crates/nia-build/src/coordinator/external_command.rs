@@ -2,6 +2,16 @@
 //! Hermetic external-command identity, execution, and bounded diagnostics.
 
 use super::*;
+use std::io::Read;
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
+
+#[derive(Clone, Copy)]
+enum ExternalIdentityKind {
+    Tool,
+    Input,
+}
 
 pub(super) struct ResolvedExternalCommand<'a> {
     pub(super) program: &'a str,
@@ -84,37 +94,15 @@ pub(super) fn read_external_identity_file(
     action: &PlanAction,
     path: &Path,
     operation: &'static str,
-) -> Result<Vec<u8>, CoordinatorError> {
-    let metadata = fs::metadata(path).map_err(|error| CoordinatorError::ExternalCommandIo {
-        action: action.key.clone(),
-        path: path.to_path_buf(),
-        operation,
-        error,
-    })?;
-    if !metadata.is_file() {
-        return Err(CoordinatorError::ExternalCommandIo {
-            action: action.key.clone(),
-            path: path.to_path_buf(),
-            operation,
-            error: io::Error::new(
-                io::ErrorKind::InvalidData,
-                "cache input must be a regular file",
-            ),
-        });
-    }
-    fs::read(path).map_err(|error| CoordinatorError::ExternalCommandIo {
-        action: action.key.clone(),
-        path: path.to_path_buf(),
-        operation,
-        error,
-    })
+) -> Result<ExternalCommandContentIdentity, CoordinatorError> {
+    read_external_identity_regular_file(action, path, operation, ExternalIdentityKind::Tool, false)
 }
 
 pub(super) fn read_external_identity_input(
     action: &PlanAction,
     path: &Path,
     operation: &'static str,
-) -> Result<Vec<u8>, CoordinatorError> {
+) -> Result<ExternalCommandContentIdentity, CoordinatorError> {
     let metadata =
         fs::symlink_metadata(path).map_err(|error| CoordinatorError::ExternalCommandIo {
             action: action.key.clone(),
@@ -123,15 +111,17 @@ pub(super) fn read_external_identity_input(
             error,
         })?;
     if metadata.is_file() {
-        return fs::read(path).map_err(|error| CoordinatorError::ExternalCommandIo {
-            action: action.key.clone(),
-            path: path.to_path_buf(),
+        return read_external_identity_regular_file(
+            action,
+            path,
             operation,
-            error,
-        });
+            ExternalIdentityKind::Input,
+            true,
+        );
     }
     if metadata.is_dir() {
-        return read_external_identity_directory(action, path, operation);
+        return read_external_identity_directory(action, path, operation)
+            .map(|bytes| ExternalCommandContentIdentity::input_from_bytes(&bytes));
     }
     Err(CoordinatorError::ExternalCommandIo {
         action: action.key.clone(),
@@ -141,6 +131,91 @@ pub(super) fn read_external_identity_input(
             io::ErrorKind::InvalidData,
             "cache input must be a regular file or directory",
         ),
+    })
+}
+
+fn read_external_identity_regular_file(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+    kind: ExternalIdentityKind,
+    reject_symlink: bool,
+) -> Result<ExternalCommandContentIdentity, CoordinatorError> {
+    let result = (|| -> io::Result<ExternalCommandContentIdentity> {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        if reject_symlink {
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        #[cfg(not(unix))]
+        let _ = reject_symlink;
+        let mut file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache identity must be a regular file",
+            ));
+        }
+        match kind {
+            ExternalIdentityKind::Tool => {
+                ExternalCommandContentIdentity::tool_from_reader(&mut file, metadata.len())
+            }
+            ExternalIdentityKind::Input => {
+                ExternalCommandContentIdentity::input_from_reader(&mut file, metadata.len())
+            }
+        }
+    })();
+    result.map_err(|error| CoordinatorError::ExternalCommandIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
+    })
+}
+
+fn read_external_identity_regular_bytes(
+    action: &PlanAction,
+    path: &Path,
+    operation: &'static str,
+) -> Result<Vec<u8>, CoordinatorError> {
+    let result = (|| -> io::Result<Vec<u8>> {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        options.custom_flags(libc::O_NOFOLLOW);
+        let mut file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input tree entry must be a regular file",
+            ));
+        }
+        let expected_len = usize::try_from(metadata.len()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input file is too large for this host",
+            )
+        })?;
+        let mut bytes = Vec::with_capacity(expected_len);
+        Read::by_ref(&mut file)
+            .take(metadata.len().saturating_add(1))
+            .read_to_end(&mut bytes)?;
+        if bytes.len() != expected_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cache input file changed length while it was read",
+            ));
+        }
+        Ok(bytes)
+    })();
+    result.map_err(|error| CoordinatorError::ExternalCommandIo {
+        action: action.key.clone(),
+        path: path.to_path_buf(),
+        operation,
+        error,
     })
 }
 
@@ -188,12 +263,7 @@ fn read_external_identity_directory(
             })?;
         if metadata.is_file() {
             encoded.push(0);
-            let bytes = fs::read(&child).map_err(|error| CoordinatorError::ExternalCommandIo {
-                action: action.key.clone(),
-                path: child,
-                operation,
-                error,
-            })?;
+            let bytes = read_external_identity_regular_bytes(action, &child, operation)?;
             encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
             encoded.extend_from_slice(&bytes);
         } else if metadata.is_dir() {
