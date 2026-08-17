@@ -816,6 +816,21 @@ impl ProgramIndex {
             .into_iter()
             .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
     }
+
+    /// Iterates every emitted trait-object vtable.
+    ///
+    /// A dynamic call on a supertrait view can use metadata produced for the
+    /// original (more-derived) object. In that case the call's `object_ty`
+    /// names the upcast target, while no standalone vtable is indexed under
+    /// that target type. Validators must still be able to inspect the source
+    /// vtable entries rather than treating the upcast as an absent table.
+    pub(super) fn trait_object_vtables(&self) -> impl Iterator<Item = &BackendTraitObjectVtable> {
+        self.module_ids()
+            .iter()
+            .copied()
+            .filter(|module_id| self.is_published(*module_id))
+            .flat_map(move |module_id| self.module_at(module_id).trait_object_vtables.iter())
+    }
 }
 
 #[cfg(test)]
