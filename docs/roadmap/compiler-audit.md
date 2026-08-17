@@ -318,6 +318,11 @@ commit as the corresponding implementation batch.
       the opened stream as well as file metadata, so all six products reject
       oversized or concurrently growing entries without an unbounded
       `fs::read` allocation.
+- [x] Persistent signature-cache publishers and corruption retirement now use
+      per-key OS file locks. Retirement repeats the bounded read and deletes
+      only the same observed bytes (or a still-oversized record), while
+      non-replacing publication rechecks ownership under the lock; stale
+      readers cannot remove or overwrite a concurrent replacement.
 - [x] Loader frontend-cache publication now enforces its read-side size bound
       and only treats `AlreadyExists` as a benign concurrent-writer outcome;
       permission, I/O, and other rename failures remain visible to callers.
