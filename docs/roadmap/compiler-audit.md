@@ -625,6 +625,12 @@ commit as the corresponding implementation batch.
       is preserved, checksum failures cannot install partial outputs, and
       per-entry mutation locks prevent Unix rename replacement or stale-reader
       retirement from discarding a valid immutable winner.
+- [x] Phase D executable link-result caching now applies the same fixed-buffer
+      capture, validation, invalidation, publication-collision, and stale
+      retirement protocol while preserving the v3 envelope and v2 checksum
+      domain. Cache hits stream directly into an atomic staged executable,
+      verify integrity before installation, and restore executable permissions
+      without coordinator allocations proportional to the binary size.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

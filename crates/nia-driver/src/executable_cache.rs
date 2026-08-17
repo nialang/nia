@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    fs::{self, OpenOptions},
-    io::{self, Cursor, Read, Write},
+    fs::{self, File, OpenOptions},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -15,6 +15,7 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 const LINK_RESULT_PAYLOAD_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-payload.v2");
+const LINK_CACHE_STREAM_BYTES: usize = 64 * 1024;
 static LINK_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -30,13 +31,6 @@ pub(crate) enum LinkResultCacheLookup {
     Corrupt,
 }
 
-enum LinkResultCacheEntryLookup {
-    Hit(Vec<u8>),
-    NotFound,
-    Invalidated(LinkResultInvalidation),
-    Corrupt,
-}
-
 impl PersistentLinkResultCache {
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
@@ -47,36 +41,60 @@ impl PersistentLinkResultCache {
         fingerprints: LinkResultFingerprintSet,
         output: &Path,
     ) -> io::Result<LinkResultCacheLookup> {
-        let bytes = match self.load(fingerprints)? {
-            LinkResultCacheEntryLookup::Hit(bytes) => bytes,
-            LinkResultCacheEntryLookup::NotFound => return Ok(LinkResultCacheLookup::NotFound),
-            LinkResultCacheEntryLookup::Invalidated(reasons) => {
-                return Ok(LinkResultCacheLookup::Invalidated(reasons));
+        let path = self.path(fingerprints.cache_key, fingerprints.fingerprint);
+        let mut entry = match File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return self.lookup_invalidation(fingerprints);
             }
-            LinkResultCacheEntryLookup::Corrupt => return Ok(LinkResultCacheLookup::Corrupt),
+            Err(error) => return Err(error),
         };
+        let encoded_len = entry.metadata()?.len();
+        let Some(header) = read_link_result_header(&mut entry, encoded_len)? else {
+            retire_corrupt(&path, &mut entry);
+            return Ok(LinkResultCacheLookup::Corrupt);
+        };
+        if header.fingerprints != fingerprints {
+            retire_corrupt(&path, &mut entry);
+            return Ok(LinkResultCacheLookup::Corrupt);
+        }
+
         let parent = output
             .parent()
-            .ok_or_else(|| io::Error::other("invalid executable output path"))?;
+            .ok_or_else(|| io::Error::other("invalid linked executable output path"))?;
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
         }
         let staged = staged_path(output);
-        let result = (|| {
-            let mut file = OpenOptions::new()
+        let result: io::Result<bool> = (|| {
+            let mut staged_file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&staged)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            drop(file);
+            if !stream_payload(
+                &mut entry,
+                header.payload_len,
+                header.checksum,
+                Some(&mut staged_file),
+            )? {
+                return Ok(false);
+            }
             make_executable(&staged)?;
-            fs::rename(&staged, output)
+            staged_file.sync_all()?;
+            drop(staged_file);
+            fs::rename(&staged, output)?;
+            Ok(true)
         })();
         if result.is_err() || staged.exists() {
             let _ = fs::remove_file(&staged);
         }
-        result.map(|()| LinkResultCacheLookup::Hit)
+        match result? {
+            true => Ok(LinkResultCacheLookup::Hit),
+            false => {
+                retire_corrupt(&path, &mut entry);
+                Ok(LinkResultCacheLookup::Corrupt)
+            }
+        }
     }
 
     pub(crate) fn publish(
@@ -84,30 +102,39 @@ impl PersistentLinkResultCache {
         fingerprints: LinkResultFingerprintSet,
         output: &Path,
     ) -> io::Result<()> {
-        if matches!(self.load(fingerprints)?, LinkResultCacheEntryLookup::Hit(_)) {
-            return Ok(());
-        }
-        let bytes = fs::read(output)?;
+        let mut linked = PublishedLinkResult::open(output)?;
         let path = self.path(fingerprints.cache_key, fingerprints.fingerprint);
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid link-result cache path"))?;
         fs::create_dir_all(parent)?;
         let staged = staged_path(&path);
-        let encoded = encode_link_result(fingerprints, &bytes);
         let result = (|| {
-            let mut file = OpenOptions::new()
+            let mut staged_file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&staged)?;
-            file.write_all(&encoded)?;
-            file.sync_all()?;
-            drop(file);
-            match fs::rename(&staged, &path) {
-                Ok(()) => Ok(()),
-                Err(_) if path.is_file() => Ok(()),
-                Err(error) => Err(error),
+            write_link_result(&mut staged_file, fingerprints, &mut linked)?;
+            staged_file.sync_all()?;
+            drop(staged_file);
+
+            let _lock = LinkResultCacheMutationLock::acquire(&path)?;
+            match compare_installed(&path, fingerprints, &mut linked)? {
+                InstalledEntry::NotFound => {}
+                InstalledEntry::Identical => return Ok(()),
+                InstalledEntry::Corrupt => fs::remove_file(&path)?,
+                InstalledEntry::Collision => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "link-result cache fingerprint collision",
+                    ));
+                }
             }
+            fs::rename(&staged, &path)?;
+            if let Ok(directory) = File::open(parent) {
+                let _ = directory.sync_all();
+            }
+            Ok(())
         })();
         if result.is_err() || staged.exists() {
             let _ = fs::remove_file(&staged);
@@ -115,40 +142,15 @@ impl PersistentLinkResultCache {
         result
     }
 
-    fn load(
-        &self,
-        fingerprints: LinkResultFingerprintSet,
-    ) -> io::Result<LinkResultCacheEntryLookup> {
-        let path = self.path(fingerprints.cache_key, fingerprints.fingerprint);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) => encoded,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return self.lookup_invalidation(fingerprints);
-            }
-            Err(error) => return Err(error),
-        };
-        let Some(entry) = decode_link_result(&encoded) else {
-            remove_corrupt(&path);
-            return Ok(LinkResultCacheEntryLookup::Corrupt);
-        };
-        if entry.fingerprints != fingerprints
-            || path != self.path(entry.fingerprints.cache_key, entry.fingerprints.fingerprint)
-        {
-            remove_corrupt(&path);
-            return Ok(LinkResultCacheEntryLookup::Corrupt);
-        }
-        Ok(LinkResultCacheEntryLookup::Hit(entry.payload))
-    }
-
     fn lookup_invalidation(
         &self,
         expected: LinkResultFingerprintSet,
-    ) -> io::Result<LinkResultCacheEntryLookup> {
+    ) -> io::Result<LinkResultCacheLookup> {
         let directory = self.key_dir(expected.cache_key);
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(LinkResultCacheEntryLookup::NotFound);
+                return Ok(LinkResultCacheLookup::NotFound);
             }
             Err(error) => return Err(error),
         };
@@ -159,22 +161,39 @@ impl PersistentLinkResultCache {
             if path.extension().and_then(|value| value.to_str()) != Some("link") {
                 continue;
             }
-            let encoded = fs::read(&path)?;
-            let Some(entry) = decode_link_result(&encoded) else {
-                remove_corrupt(&path);
+            let mut file = match File::open(&path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+            let encoded_len = file.metadata()?.len();
+            let Some(header) = read_link_result_header(&mut file, encoded_len)? else {
+                retire_corrupt(&path, &mut file);
                 corrupt = true;
                 continue;
             };
-            if entry.fingerprints.cache_key != expected.cache_key
-                || path != self.path(entry.fingerprints.cache_key, entry.fingerprints.fingerprint)
+            if header.fingerprints.cache_key != expected.cache_key
+                || path
+                    != self.path(
+                        header.fingerprints.cache_key,
+                        header.fingerprints.fingerprint,
+                    )
+                || !stream_payload(
+                    &mut file,
+                    header.payload_len,
+                    header.checksum,
+                    None::<&mut File>,
+                )?
             {
-                remove_corrupt(&path);
+                retire_corrupt(&path, &mut file);
                 corrupt = true;
                 continue;
             }
-            let reasons =
-                LinkResultInvalidation::between(entry.fingerprints.components, expected.components);
-            let candidate = (reasons.count(), entry.fingerprints.fingerprint, reasons);
+            let reasons = LinkResultInvalidation::between(
+                header.fingerprints.components,
+                expected.components,
+            );
+            let candidate = (reasons.count(), header.fingerprints.fingerprint, reasons);
             if nearest
                 .as_ref()
                 .is_none_or(|current| (candidate.0, candidate.1) < (current.0, current.1))
@@ -183,11 +202,11 @@ impl PersistentLinkResultCache {
             }
         }
         if let Some((_, _, reasons)) = nearest {
-            Ok(LinkResultCacheEntryLookup::Invalidated(reasons))
+            Ok(LinkResultCacheLookup::Invalidated(reasons))
         } else if corrupt {
-            Ok(LinkResultCacheEntryLookup::Corrupt)
+            Ok(LinkResultCacheLookup::Corrupt)
         } else {
-            Ok(LinkResultCacheEntryLookup::NotFound)
+            Ok(LinkResultCacheLookup::NotFound)
         }
     }
 
@@ -207,6 +226,297 @@ impl PersistentLinkResultCache {
     }
 }
 
+#[derive(Clone, Copy)]
+struct LinkResultHeader {
+    fingerprints: LinkResultFingerprintSet,
+    payload_len: u64,
+    checksum: LinkResultFingerprint,
+}
+
+struct PublishedLinkResult {
+    file: File,
+    length: u64,
+    checksum: LinkResultFingerprint,
+}
+
+impl PublishedLinkResult {
+    /// Captures the linked executable through one opened regular-file handle.
+    /// Publication makes a second pass through that same handle and must
+    /// reproduce this length/checksum, so output mutation cannot poison the
+    /// cache envelope.
+    fn open(path: &Path) -> io::Result<Self> {
+        let mut file = File::open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "linked executable output must be a regular file",
+            ));
+        }
+        let length = metadata.len();
+        let checksum = fingerprint_link_file(&mut file, length)?;
+        Ok(Self {
+            file,
+            length,
+            checksum,
+        })
+    }
+    fn write_verified_to(&mut self, output: &mut impl Write) -> io::Result<()> {
+        stream_file(&mut self.file, self.length, self.checksum, Some(output))
+    }
+}
+
+enum InstalledEntry {
+    NotFound,
+    Identical,
+    Corrupt,
+    Collision,
+}
+
+fn read_link_result_header(
+    reader: &mut (impl Read + Seek),
+    encoded_len: u64,
+) -> io::Result<Option<LinkResultHeader>> {
+    reader.seek(SeekFrom::Start(0))?;
+    let Some(magic) = read_array::<8>(reader)? else {
+        return Ok(None);
+    };
+    if magic != *LINK_RESULT.magic {
+        return Ok(None);
+    }
+    let Some(cache_key_first) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    let Some(cache_key_second) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    let cache_key = LinkResultCacheKey::from_parts([cache_key_first, cache_key_second]);
+    let Some(fingerprint) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let Some(inputs) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let Some(toolchain) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let Some(target) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let Some(linker) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let Some(options) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let fingerprints = LinkResultFingerprintSet::new(
+        cache_key,
+        LinkResultFingerprintComponents {
+            inputs,
+            toolchain,
+            target,
+            linker,
+            options,
+        },
+    );
+    if fingerprints.fingerprint != fingerprint {
+        return Ok(None);
+    }
+    let Some(payload_len) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    let Some(checksum) = read_fingerprint(reader)? else {
+        return Ok(None);
+    };
+    let payload_offset = reader.stream_position()?;
+    let Some(expected_len) = payload_offset.checked_add(payload_len) else {
+        return Ok(None);
+    };
+    if encoded_len != expected_len {
+        return Ok(None);
+    }
+    Ok(Some(LinkResultHeader {
+        fingerprints,
+        payload_len,
+        checksum,
+    }))
+}
+
+fn stream_payload<W: Write>(
+    entry: &mut File,
+    payload_len: u64,
+    expected_checksum: LinkResultFingerprint,
+    mut output: Option<&mut W>,
+) -> io::Result<bool> {
+    let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(payload_len);
+    let mut buffer = [0; LINK_CACHE_STREAM_BYTES];
+    let mut remaining = payload_len;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        if !read_exact_or_invalid(entry, &mut buffer[..chunk_len])? {
+            return Ok(false);
+        }
+        checksum.write_chunk(&buffer[..chunk_len])?;
+        if let Some(output) = output.as_deref_mut() {
+            output.write_all(&buffer[..chunk_len])?;
+        }
+        remaining -= chunk_len as u64;
+    }
+    checksum.finish()?;
+    Ok(LinkResultFingerprint::from_parts(builder.finish().parts()) == expected_checksum)
+}
+
+fn compare_installed(
+    path: &Path,
+    fingerprints: LinkResultFingerprintSet,
+    linked: &mut PublishedLinkResult,
+) -> io::Result<InstalledEntry> {
+    let mut entry = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(InstalledEntry::NotFound);
+        }
+        Err(error) => return Err(error),
+    };
+    let encoded_len = entry.metadata()?.len();
+    let Some(header) = read_link_result_header(&mut entry, encoded_len)? else {
+        return Ok(InstalledEntry::Corrupt);
+    };
+    if header.fingerprints != fingerprints {
+        return Ok(InstalledEntry::Collision);
+    }
+    if header.payload_len != linked.length {
+        return Ok(InstalledEntry::Collision);
+    }
+    entry.seek(SeekFrom::Start(encoded_len - header.payload_len))?;
+    linked.file.seek(SeekFrom::Start(0))?;
+    let mut entry_builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
+    let mut linked_builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
+    let mut entry_checksum = entry_builder.bytes_writer(header.payload_len);
+    let mut linked_checksum = linked_builder.bytes_writer(linked.length);
+    let mut entry_buffer = [0; LINK_CACHE_STREAM_BYTES];
+    let mut linked_buffer = [0; LINK_CACHE_STREAM_BYTES];
+    let mut remaining = header.payload_len;
+    let mut identical = true;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(entry_buffer.len() as u64)).unwrap();
+        if !read_exact_or_invalid(&mut entry, &mut entry_buffer[..chunk_len])? {
+            return Ok(InstalledEntry::Corrupt);
+        }
+        linked.file.read_exact(&mut linked_buffer[..chunk_len])?;
+        entry_checksum.write_chunk(&entry_buffer[..chunk_len])?;
+        linked_checksum.write_chunk(&linked_buffer[..chunk_len])?;
+        identical &= entry_buffer[..chunk_len] == linked_buffer[..chunk_len];
+        remaining -= chunk_len as u64;
+    }
+    entry_checksum.finish()?;
+    linked_checksum.finish()?;
+    if LinkResultFingerprint::from_parts(entry_builder.finish().parts()) != header.checksum {
+        return Ok(InstalledEntry::Corrupt);
+    }
+    if LinkResultFingerprint::from_parts(linked_builder.finish().parts()) != linked.checksum
+        || linked.file.metadata()?.len() != linked.length
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "linked executable output changed during cache publication",
+        ));
+    }
+    Ok(if identical {
+        InstalledEntry::Identical
+    } else {
+        InstalledEntry::Collision
+    })
+}
+
+fn write_link_result(
+    output: &mut impl Write,
+    fingerprints: LinkResultFingerprintSet,
+    linked: &mut PublishedLinkResult,
+) -> io::Result<()> {
+    output.write_all(LINK_RESULT.magic)?;
+    for part in fingerprints.cache_key.parts() {
+        output.write_all(&part.to_le_bytes())?;
+    }
+    write_fingerprint(output, fingerprints.fingerprint)?;
+    for component in [
+        fingerprints.components.inputs,
+        fingerprints.components.toolchain,
+        fingerprints.components.target,
+        fingerprints.components.linker,
+        fingerprints.components.options,
+    ] {
+        write_fingerprint(output, component)?;
+    }
+    output.write_all(&linked.length.to_le_bytes())?;
+    write_fingerprint(output, linked.checksum)?;
+    linked.write_verified_to(output)
+}
+
+fn fingerprint_link_file(file: &mut File, length: u64) -> io::Result<LinkResultFingerprint> {
+    let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(length);
+    stream_file_chunks(file, length, |chunk| checksum.write_chunk(chunk))?;
+    checksum.finish()?;
+    Ok(LinkResultFingerprint::from_parts(builder.finish().parts()))
+}
+
+fn stream_file(
+    file: &mut File,
+    length: u64,
+    expected_checksum: LinkResultFingerprint,
+    mut output: Option<&mut impl Write>,
+) -> io::Result<()> {
+    let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
+    let mut checksum = builder.bytes_writer(length);
+    stream_file_chunks(file, length, |chunk| {
+        checksum.write_chunk(chunk)?;
+        if let Some(output) = output.as_deref_mut() {
+            output.write_all(chunk)?;
+        }
+        Ok(())
+    })?;
+    checksum.finish()?;
+    if LinkResultFingerprint::from_parts(builder.finish().parts()) != expected_checksum {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "linked executable output changed before cache publication",
+        ));
+    }
+    Ok(())
+}
+
+fn stream_file_chunks(
+    file: &mut File,
+    length: u64,
+    mut consume: impl FnMut(&[u8]) -> io::Result<()>,
+) -> io::Result<()> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != length {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "linked executable output changed length before cache publication",
+        ));
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let mut buffer = [0; LINK_CACHE_STREAM_BYTES];
+    let mut remaining = length;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        file.read_exact(&mut buffer[..chunk_len])?;
+        consume(&buffer[..chunk_len])?;
+        remaining -= chunk_len as u64;
+    }
+    if file.metadata()?.len() != length {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "linked executable output changed length while cache publication read it",
+        ));
+    }
+    Ok(())
+}
+
 fn staged_path(path: &Path) -> PathBuf {
     path.with_extension(format!(
         "tmp.{}.{}",
@@ -215,93 +525,95 @@ fn staged_path(path: &Path) -> PathBuf {
     ))
 }
 
-fn remove_corrupt(path: &Path) {
-    match fs::remove_file(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(_) => {}
+struct LinkResultCacheMutationLock {
+    _file: File,
+}
+
+impl LinkResultCacheMutationLock {
+    fn acquire(path: &Path) -> io::Result<Self> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_extension("lock"))?;
+        file.lock()?;
+        Ok(Self { _file: file })
     }
 }
 
-fn encode_link_result(fingerprints: LinkResultFingerprintSet, bytes: &[u8]) -> Vec<u8> {
-    let checksum = payload_checksum(bytes);
-    let mut encoded = Vec::with_capacity(128 + bytes.len());
-    encoded.extend_from_slice(LINK_RESULT.magic);
-    for part in fingerprints.cache_key.parts() {
-        encoded.extend_from_slice(&part.to_le_bytes());
-    }
-    write_fingerprint(&mut encoded, fingerprints.fingerprint);
-    for component in [
-        fingerprints.components.inputs,
-        fingerprints.components.toolchain,
-        fingerprints.components.target,
-        fingerprints.components.linker,
-        fingerprints.components.options,
-    ] {
-        write_fingerprint(&mut encoded, component);
-    }
-    encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-    write_fingerprint(&mut encoded, checksum);
-    encoded.extend_from_slice(bytes);
-    encoded
-}
-
-struct DecodedLinkResult {
-    fingerprints: LinkResultFingerprintSet,
-    payload: Vec<u8>,
-}
-
-fn decode_link_result(encoded: &[u8]) -> Option<DecodedLinkResult> {
-    let mut cursor = Cursor::new(encoded);
-    let mut magic = [0; 8];
-    cursor.read_exact(&mut magic).ok()?;
-    (magic == *LINK_RESULT.magic).then_some(())?;
-    let cache_key =
-        LinkResultCacheKey::from_parts([read_u64(&mut cursor)?, read_u64(&mut cursor)?]);
-    let fingerprint = read_fingerprint(&mut cursor)?;
-    let components = LinkResultFingerprintComponents {
-        inputs: read_fingerprint(&mut cursor)?,
-        toolchain: read_fingerprint(&mut cursor)?,
-        target: read_fingerprint(&mut cursor)?,
-        linker: read_fingerprint(&mut cursor)?,
-        options: read_fingerprint(&mut cursor)?,
+/// Retires only the exact opened record that failed validation. Publishers use
+/// the same per-entry lock, and the fixed-buffer comparison prevents a stale
+/// reader from deleting a valid replacement installed while it was decoding.
+fn retire_corrupt(path: &Path, observed: &mut File) {
+    let Ok(_lock) = LinkResultCacheMutationLock::acquire(path) else {
+        return;
     };
-    let fingerprints = LinkResultFingerprintSet::new(cache_key, components);
-    (fingerprints.fingerprint == fingerprint).then_some(())?;
-    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
-    let checksum = read_fingerprint(&mut cursor)?;
-    let position = usize::try_from(cursor.position()).ok()?;
-    (encoded.len().checked_sub(position)? == payload_len).then_some(())?;
-    let payload = encoded[position..].to_vec();
-    (payload_checksum(&payload) == checksum).then_some(DecodedLinkResult {
-        fingerprints,
-        payload,
-    })
-}
-
-fn write_fingerprint(encoded: &mut Vec<u8>, fingerprint: LinkResultFingerprint) {
-    for part in fingerprint.parts() {
-        encoded.extend_from_slice(&part.to_le_bytes());
+    let Ok(mut current) = File::open(path) else {
+        return;
+    };
+    if files_equal(observed, &mut current).unwrap_or(false) {
+        let _ = fs::remove_file(path);
     }
 }
 
-fn read_fingerprint(cursor: &mut Cursor<&[u8]>) -> Option<LinkResultFingerprint> {
-    Some(LinkResultFingerprint::from_parts([
-        read_u64(cursor)?,
-        read_u64(cursor)?,
-    ]))
+fn files_equal(left: &mut File, right: &mut File) -> io::Result<bool> {
+    let left_len = left.metadata()?.len();
+    if left_len != right.metadata()?.len() {
+        return Ok(false);
+    }
+    left.seek(SeekFrom::Start(0))?;
+    right.seek(SeekFrom::Start(0))?;
+    let mut left_buffer = [0; LINK_CACHE_STREAM_BYTES];
+    let mut right_buffer = [0; LINK_CACHE_STREAM_BYTES];
+    let mut remaining = left_len;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(left_buffer.len() as u64)).unwrap();
+        left.read_exact(&mut left_buffer[..chunk_len])?;
+        right.read_exact(&mut right_buffer[..chunk_len])?;
+        if left_buffer[..chunk_len] != right_buffer[..chunk_len] {
+            return Ok(false);
+        }
+        remaining -= chunk_len as u64;
+    }
+    Ok(true)
 }
 
-fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
-    let mut bytes = [0; 8];
-    cursor.read_exact(&mut bytes).ok()?;
-    Some(u64::from_le_bytes(bytes))
+fn read_exact_or_invalid(reader: &mut impl Read, bytes: &mut [u8]) -> io::Result<bool> {
+    match reader.read_exact(bytes) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
-fn payload_checksum(bytes: &[u8]) -> LinkResultFingerprint {
-    let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
-    builder.write_bytes(bytes);
-    LinkResultFingerprint::from_parts(builder.finish().parts())
+fn read_array<const N: usize>(reader: &mut impl Read) -> io::Result<Option<[u8; N]>> {
+    let mut bytes = [0; N];
+    Ok(read_exact_or_invalid(reader, &mut bytes)?.then_some(bytes))
+}
+
+fn write_fingerprint(
+    output: &mut impl Write,
+    fingerprint: LinkResultFingerprint,
+) -> io::Result<()> {
+    for part in fingerprint.parts() {
+        output.write_all(&part.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+fn read_fingerprint(reader: &mut impl Read) -> io::Result<Option<LinkResultFingerprint>> {
+    let Some(first) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    let Some(second) = read_u64(reader)? else {
+        return Ok(None);
+    };
+    Ok(Some(LinkResultFingerprint::from_parts([first, second])))
+}
+
+fn read_u64(reader: &mut impl Read) -> io::Result<Option<u64>> {
+    Ok(read_array::<8>(reader)?.map(u64::from_le_bytes))
 }
 
 #[cfg(unix)]
@@ -316,6 +628,45 @@ fn make_executable(path: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+fn encode_link_result(fingerprints: LinkResultFingerprintSet, bytes: &[u8]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(LINK_RESULT.magic);
+    for part in fingerprints.cache_key.parts() {
+        encoded.extend_from_slice(&part.to_le_bytes());
+    }
+    write_fingerprint(&mut encoded, fingerprints.fingerprint).expect("write fingerprint");
+    for component in [
+        fingerprints.components.inputs,
+        fingerprints.components.toolchain,
+        fingerprints.components.target,
+        fingerprints.components.linker,
+        fingerprints.components.options,
+    ] {
+        write_fingerprint(&mut encoded, component).expect("write component");
+    }
+    encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+    write_fingerprint(&mut encoded, payload_checksum(bytes)).expect("write checksum");
+    encoded.extend_from_slice(bytes);
+    encoded
+}
+
+#[cfg(test)]
+fn decode_link_result(encoded: &[u8]) -> Option<(LinkResultFingerprintSet, Vec<u8>)> {
+    let mut cursor = io::Cursor::new(encoded);
+    let header = read_link_result_header(&mut cursor, encoded.len() as u64).ok()??;
+    let mut payload = vec![0; usize::try_from(header.payload_len).ok()?];
+    cursor.read_exact(&mut payload).ok()?;
+    (payload_checksum(&payload) == header.checksum).then_some((header.fingerprints, payload))
+}
+
+#[cfg(test)]
+fn payload_checksum(bytes: &[u8]) -> LinkResultFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_PAYLOAD_DOMAIN);
+    builder.write_bytes(bytes);
+    LinkResultFingerprint::from_parts(builder.finish().parts())
 }
 
 #[cfg(test)]
@@ -349,9 +700,9 @@ mod tests {
         let cache = PersistentLinkResultCache::new(root.clone());
         let fingerprints = fingerprints(10);
         let linked = root.join("linked");
-        let restored = root.join("restored");
+        let restored = root.join("nested/restored");
         fs::create_dir_all(&root).expect("create cache root");
-        fs::write(&linked, b"linked executable").expect("write linked executable");
+        fs::write(&linked, b"linked executable").expect("write linked");
         let legacy = root.join("artifacts/links/v1/legacy.link");
         fs::create_dir_all(legacy.parent().expect("legacy parent"))
             .expect("create legacy namespace");
@@ -363,29 +714,77 @@ mod tests {
         );
         cache
             .publish(fingerprints, &linked)
-            .expect("publish link result");
+            .expect("publish linked");
         assert_eq!(
             cache
                 .restore(fingerprints, &restored)
-                .expect("restore link result"),
+                .expect("restore linked"),
             LinkResultCacheLookup::Hit
         );
         assert_eq!(
             fs::read(restored).expect("read restored"),
             b"linked executable"
         );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            assert_ne!(
+                fs::metadata(root.join("nested/restored"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o111,
+                0
+            );
+        }
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn large_link_result_round_trips_through_streaming_paths() {
+        let root = temp_root("large");
+        let cache = PersistentLinkResultCache::new(root.clone());
+        let fingerprints = fingerprints(12);
+        let linked = root.join("linked");
+        let restored = root.join("restored");
+        let payload = vec![0x4d; LINK_CACHE_STREAM_BYTES * 5 + 23];
+        fs::create_dir_all(&root).expect("create cache root");
+        fs::write(&linked, &payload).expect("write linked");
+
+        cache.publish(fingerprints, &linked).expect("publish");
+        assert_eq!(
+            cache.restore(fingerprints, &restored).expect("restore"),
+            LinkResultCacheLookup::Hit
+        );
+        assert_eq!(fs::read(restored).expect("read restored"), payload);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn link_result_codec_rejects_noncanonical_bytes() {
+        let fingerprints = fingerprints(15);
+        let encoded = encode_link_result(fingerprints, b"linked executable payload");
+
+        for end in 0..encoded.len() {
+            assert!(decode_link_result(&encoded[..end]).is_none());
+        }
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert!(decode_link_result(&trailing).is_none());
+        let mut damaged = encoded;
+        *damaged.last_mut().expect("linked executable payload byte") ^= 0xff;
+        assert!(decode_link_result(&damaged).is_none());
     }
 
     #[test]
     fn corrupt_link_result_is_retired_and_can_be_republished() {
         let root = temp_root("corrupt");
         let cache = PersistentLinkResultCache::new(root.clone());
-        let fingerprints = fingerprints(30);
+        let fingerprints = fingerprints(20);
         let linked = root.join("linked");
-        let restored = root.join("restored");
         fs::create_dir_all(&root).expect("create cache root");
-        fs::write(&linked, b"first").expect("write first executable");
+        fs::write(&linked, b"first").expect("write first linked");
         cache.publish(fingerprints, &linked).expect("publish first");
         fs::write(
             cache.path(fingerprints.cache_key, fingerprints.fingerprint),
@@ -395,53 +794,38 @@ mod tests {
 
         assert_eq!(
             cache
-                .restore(fingerprints, &restored)
+                .restore(fingerprints, &root.join("restored"))
                 .expect("corrupt miss"),
             LinkResultCacheLookup::Corrupt
         );
-        assert!(
-            !cache
-                .path(fingerprints.cache_key, fingerprints.fingerprint)
-                .exists()
-        );
-        fs::write(&linked, b"second").expect("write second executable");
+        fs::write(&linked, b"second").expect("write second linked");
         cache
             .publish(fingerprints, &linked)
-            .expect("republish link result");
+            .expect("republish linked");
         assert_eq!(
             cache
-                .restore(fingerprints, &restored)
+                .restore(fingerprints, &root.join("restored"))
                 .expect("restore second"),
             LinkResultCacheLookup::Hit
         );
-        assert_eq!(fs::read(restored).expect("read second"), b"second");
+        assert_eq!(fs::read(root.join("restored")).unwrap(), b"second");
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn changed_components_report_nearest_invalidation_without_replacing_prior_entries() {
+    fn changed_link_components_report_nearest_invalidation() {
         let root = temp_root("invalidation");
         let cache = PersistentLinkResultCache::new(root.clone());
-        let first = fingerprints(50);
+        let first = fingerprints(30);
         let linked = root.join("linked");
         fs::create_dir_all(&root).expect("create cache root");
-        fs::write(&linked, b"first").expect("write executable");
+        fs::write(&linked, vec![0x7a; LINK_CACHE_STREAM_BYTES * 3 + 5]).expect("write linked");
         cache.publish(first, &linked).expect("publish first");
-        let second = LinkResultFingerprintSet::new(
-            first.cache_key,
-            LinkResultFingerprintComponents {
-                inputs: LinkResultFingerprint::from_parts([99, 1]),
-                options: LinkResultFingerprint::from_parts([99, 4]),
-                ..first.components
-            },
-        );
-        fs::write(&linked, b"second").expect("write second executable");
-        cache.publish(second, &linked).expect("publish second");
         let changed = LinkResultFingerprintSet::new(
             first.cache_key,
             LinkResultFingerprintComponents {
-                target: LinkResultFingerprint::from_parts([99, 2]),
-                ..second.components
+                target: LinkResultFingerprint::from_parts([99, 3]),
+                ..first.components
             },
         );
 
@@ -457,8 +841,52 @@ mod tests {
                 options: false,
             })
         );
-        assert!(cache.path(first.cache_key, first.fingerprint).is_file());
-        assert!(cache.path(second.cache_key, second.fingerprint).is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_corruption_retirement_preserves_replacement() {
+        let root = temp_root("stale-retirement");
+        fs::create_dir_all(&root).expect("create cache root");
+        let path = root.join("entry.link");
+        fs::write(&path, b"corrupt").expect("write corrupt entry");
+        let mut observed = File::open(&path).expect("open observed entry");
+        let replacement = root.join("replacement.tmp");
+        fs::write(&replacement, b"replacement").expect("write replacement");
+        fs::rename(replacement, &path).expect("install replacement");
+
+        retire_corrupt(&path, &mut observed);
+
+        assert_eq!(fs::read(&path).expect("read replacement"), b"replacement");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publication_preserves_winner_and_rejects_collision() {
+        let root = temp_root("publication-winner");
+        let cache = PersistentLinkResultCache::new(root.clone());
+        let fingerprints = fingerprints(40);
+        let linked = root.join("linked");
+        fs::create_dir_all(&root).expect("create cache root");
+        fs::write(&linked, b"winner").expect("write winner");
+        cache
+            .publish(fingerprints, &linked)
+            .expect("publish winner");
+        cache
+            .publish(fingerprints, &linked)
+            .expect("accept identical publication");
+
+        fs::write(&linked, b"loser!").expect("write collision");
+        let error = cache
+            .publish(fingerprints, &linked)
+            .expect_err("reject collision");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        let restored = root.join("restored");
+        assert_eq!(
+            cache.restore(fingerprints, &restored).expect("restore"),
+            LinkResultCacheLookup::Hit
+        );
+        assert_eq!(fs::read(restored).expect("read winner"), b"winner");
         let _ = fs::remove_dir_all(root);
     }
 }
