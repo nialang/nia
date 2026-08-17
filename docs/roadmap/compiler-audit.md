@@ -569,6 +569,11 @@ commit as the corresponding implementation batch.
 - [x] Phase D generated-file publication now compares an existing destination
       through one no-follow handle, an exact expected-length budget, and a fixed
       buffer; unchanged-output detection no longer uses an unbounded `fs::read`.
+- [x] Phase D external-command invalidation scans now bound identity metadata
+      by canonical plan limits, checksum arbitrarily large output payloads with
+      one fixed buffer, and retain only candidate fingerprints. Corrupt records
+      are revalidated by the same streaming parser under the mutation lock so a
+      concurrent valid replacement is not retired.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
