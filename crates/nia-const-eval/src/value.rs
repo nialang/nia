@@ -121,12 +121,20 @@ pub enum ConstScalarType {
 }
 
 impl ConstScalarType {
-    pub const fn byte_len(self) -> usize {
+    /// Returns the exact byte width accepted by const ABI encoding.
+    ///
+    /// Integer storage must be non-zero, byte-aligned, and fit the evaluator's
+    /// `u128` backing representation. Rejecting malformed descriptors here
+    /// keeps every aggregate/vector caller from reconstructing those bounds.
+    pub const fn byte_len(self) -> Option<usize> {
         match self {
-            Self::Integer { bits, .. } => (bits / 8) as usize,
-            Self::Float32 | Self::Char => 4,
-            Self::Float64 => 8,
-            Self::Bool => 1,
+            Self::Integer { bits, .. } if bits > 0 && bits <= 128 && bits % 8 == 0 => {
+                Some((bits / 8) as usize)
+            }
+            Self::Integer { .. } => None,
+            Self::Float32 | Self::Char => Some(4),
+            Self::Float64 => Some(8),
+            Self::Bool => Some(1),
         }
     }
 }
@@ -167,7 +175,7 @@ pub struct ConstAbiField {
 impl ConstAbiType {
     pub fn byte_len(&self) -> Option<usize> {
         match self {
-            Self::Scalar(scalar) => Some(scalar.byte_len()),
+            Self::Scalar(scalar) => scalar.byte_len(),
             Self::Pointer { size, .. } => Some(*size),
             Self::Array { element, len } => element.byte_len()?.checked_mul(*len),
             Self::Vector { size, .. } => Some(*size),
@@ -617,7 +625,7 @@ fn vector_store_len(lane: ConstScalarType, lanes: usize) -> Option<usize> {
     if lane == ConstScalarType::Bool {
         lanes.checked_add(7)?.checked_div(8)
     } else {
-        lane.byte_len().checked_mul(lanes)
+        lane.byte_len()?.checked_mul(lanes)
     }
 }
 
@@ -656,7 +664,9 @@ fn encode_vector(
             relocations: Vec::new(),
         });
     }
-    let lane_len = lane.byte_len();
+    let lane_len = lane
+        .byte_len()
+        .ok_or_else(|| "const union vector lane has an invalid scalar width".to_string())?;
     for (index, value) in values.into_iter().enumerate() {
         let encoded = encode_scalar(lane, value, endianness)?;
         let start = index * lane_len;
@@ -698,7 +708,9 @@ fn decode_vector(
         }
         return Ok(ConstValue::Vector(values));
     }
-    let lane_len = lane.byte_len();
+    let lane_len = lane
+        .byte_len()
+        .ok_or_else(|| "const union vector lane has an invalid scalar width".to_string())?;
     for index in 0..lanes {
         let start = index * lane_len;
         values.push(decode_scalar(
@@ -715,12 +727,15 @@ fn encode_scalar(
     value: ConstValue,
     endianness: ConstEndianness,
 ) -> Result<Vec<u8>, String> {
+    let scalar_len = scalar
+        .byte_len()
+        .ok_or_else(|| "const union integer field has an invalid scalar width".to_string())?;
     let (raw, len) = match (scalar, value) {
         (ConstScalarType::Integer { bits, signed }, ConstValue::Int(value)) => {
             if !integer_fits(value, bits, signed) {
                 return Err("const union integer field value is out of range".to_string());
             }
-            (value.bits(), (bits / 8) as usize)
+            (value.bits(), scalar_len)
         }
         (ConstScalarType::Float32, ConstValue::Float(value)) => {
             let value = value as f32;
@@ -757,6 +772,9 @@ fn encode_scalar(
 }
 
 fn integer_fits(value: IntConst, bits: u32, signed: bool) -> bool {
+    if bits == 0 || bits > 128 {
+        return false;
+    }
     if signed {
         if value.is_signed() {
             let value = value.as_i128().expect("signed const integer");
@@ -784,6 +802,12 @@ fn decode_scalar(
     bytes: &[u8],
     endianness: ConstEndianness,
 ) -> Result<ConstValue, String> {
+    let expected_len = scalar
+        .byte_len()
+        .ok_or_else(|| "const union integer field has an invalid scalar width".to_string())?;
+    if bytes.len() != expected_len {
+        return Err("const union scalar field storage has the wrong length".to_string());
+    }
     let mut raw_bytes = [0u8; 16];
     match endianness {
         ConstEndianness::Little => raw_bytes[..bytes.len()].copy_from_slice(bytes),
