@@ -9,8 +9,8 @@ use std::fmt;
 
 use nia_compat::formats::BUILD_PLAN;
 
-pub(super) const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
-const MAX_ITEMS: usize = 100_000;
+pub(crate) const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_ITEMS: usize = 100_000;
 pub(crate) const MAX_PLAN_STRING_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

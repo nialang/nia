@@ -21,12 +21,16 @@ use nia_toolchain::ToolchainIdentity;
 
 use super::{
     ActionCacheInvalidation, ActionCacheMissReason, CACHE_STAGE_SEQUENCE, action_identity,
-    fingerprint_text, integer_component, logical_path_identity, package_roots_identity, read_bytes,
-    read_fingerprint, read_u64, text_component, write_bytes, write_fingerprint,
+    encoded_field_fits, fingerprint_text, integer_component, logical_path_identity,
+    package_roots_identity, read_bytes, read_exact_or_corrupt, read_fingerprint,
+    read_stream_fingerprint, read_stream_u64, read_u64, stream_has_trailing_byte, text_component,
+    write_bytes, write_fingerprint,
 };
 use crate::{
     ActionKey, CommandArgument, CommandProgram, EnvironmentInput, LogicalPath, LogicalPathRoot,
-    PlanPackage, lock::ScopedFileLock,
+    PlanPackage,
+    lock::ScopedFileLock,
+    plan::{MAX_ITEMS, MAX_PLAN_BYTES},
 };
 
 const EXTERNAL_COMMAND_FINGERPRINT_DOMAIN: FingerprintDomain =
@@ -409,16 +413,20 @@ impl ExternalCommandCache {
             if path.extension().and_then(|value| value.to_str()) != Some("entry") {
                 continue;
             }
-            let encoded = fs::read(&path)?;
-            let Some(entry) = decode_entry(&encoded) else {
-                self.retire_corrupt(&path, &encoded)?;
-                corrupt = true;
-                continue;
+            let entry = match scan_invalidation_entry(&path) {
+                Ok(Some(entry)) => entry,
+                Ok(None) => {
+                    self.retire_scanned_corrupt(&path, expected)?;
+                    corrupt = true;
+                    continue;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
             };
             if entry.fingerprints.cache_key != expected.fingerprints.cache_key
                 || path != self.path(entry.fingerprints)
             {
-                self.retire_corrupt(&path, &encoded)?;
+                self.retire_scanned_corrupt(&path, expected)?;
                 corrupt = true;
                 continue;
             }
@@ -516,6 +524,35 @@ impl ExternalCommandCache {
         }
     }
 
+    /// Revalidates an invalidation candidate after acquiring its mutation
+    /// lock. A concurrently installed valid record must survive even when the
+    /// unlocked scan observed corrupt bytes at the same pathname.
+    fn retire_scanned_corrupt(
+        &self,
+        path: &Path,
+        expected: &ExternalCommandCacheIdentity,
+    ) -> io::Result<()> {
+        let _lock = self.acquire_mutation_lock(path)?;
+        let current_is_valid = match scan_invalidation_entry(path) {
+            Ok(Some(entry)) => {
+                entry.fingerprints.cache_key == expected.fingerprints.cache_key
+                    && path == self.path(entry.fingerprints)
+            }
+            Ok(None) => false,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        if current_is_valid {
+            Ok(())
+        } else {
+            match fs::remove_file(path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error),
+            }
+        }
+    }
+
     fn acquire_mutation_lock(&self, path: &Path) -> io::Result<ScopedFileLock> {
         let mut builder = QueryFingerprintBuilder::new(super::ACTION_CACHE_MUTATION_LOCK_DOMAIN);
         builder.write_bytes(path.as_os_str().as_encoded_bytes());
@@ -541,6 +578,188 @@ struct DecodedEntry {
     package_roots: Vec<u8>,
     outputs: Vec<u8>,
     payloads: Vec<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScannedInvalidationEntry {
+    fingerprints: FingerprintSet,
+}
+
+/// Validates a candidate envelope with fixed working memory.
+///
+/// Identity fields are bounded by the canonical plan envelope that produced
+/// them. Payloads intentionally have no global size limit: each is consumed
+/// through one buffer and accepted only when its registered checksum matches.
+/// The caller therefore retains only the fingerprints needed to rank an
+/// invalidation candidate, regardless of output size or count.
+fn scan_invalidation_entry(path: &Path) -> io::Result<Option<ScannedInvalidationEntry>> {
+    let mut file = fs::File::open(path)?;
+    let metadata_len = file.metadata()?.len();
+    let mut magic = [0; 8];
+    if !read_exact_or_corrupt(&mut file, &mut magic)? || magic != *EXTERNAL_COMMAND_ENTRY.magic {
+        return Ok(None);
+    }
+    let Some(cache_key) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(fingerprint) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let mut component_values = [QueryFingerprint::from_parts([0, 0]); 12];
+    for component in &mut component_values {
+        let Some(found) = read_stream_fingerprint(&mut file)? else {
+            return Ok(None);
+        };
+        *component = found;
+    }
+    let components = FingerprintComponents {
+        command: component_values[0],
+        tool: component_values[1],
+        environment: component_values[2],
+        inputs: component_values[3],
+        dependencies: component_values[4],
+        working_directory: component_values[5],
+        package_roots: component_values[6],
+        outputs: component_values[7],
+        compiler: component_values[8],
+        resource_layout: component_values[9],
+        standard_library: component_values[10],
+        build_protocol: component_values[11],
+    };
+    let fingerprints = FingerprintSet::new(cache_key, components);
+    if fingerprints.fingerprint != fingerprint {
+        return Ok(None);
+    }
+
+    let mut consumed = u64::try_from(EXTERNAL_COMMAND_ENTRY.magic.len() + 14 * 16).unwrap();
+    let identity_domains = [
+        EXTERNAL_COMMAND_KEY_DOMAIN,
+        EXTERNAL_COMMAND_DECLARATION_DOMAIN,
+        EXTERNAL_COMMAND_TOOL_DOMAIN,
+        EXTERNAL_COMMAND_ENVIRONMENT_DOMAIN,
+        EXTERNAL_COMMAND_INPUTS_DOMAIN,
+        EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN,
+        EXTERNAL_COMMAND_WORKING_DIRECTORY_DOMAIN,
+        EXTERNAL_COMMAND_PACKAGE_ROOTS_DOMAIN,
+        EXTERNAL_COMMAND_OUTPUTS_DOMAIN,
+    ];
+    let expected_components = [
+        cache_key,
+        components.command,
+        components.tool,
+        components.environment,
+        components.inputs,
+        components.dependencies,
+        components.working_directory,
+        components.package_roots,
+        components.outputs,
+    ];
+    let mut output_count = None;
+    for (index, (domain, expected_component)) in identity_domains
+        .into_iter()
+        .zip(expected_components)
+        .enumerate()
+    {
+        let Some(length) = read_stream_u64(&mut file)? else {
+            return Ok(None);
+        };
+        consumed = match consumed.checked_add(8) {
+            Some(consumed) => consumed,
+            None => return Ok(None),
+        };
+        if length > u64::try_from(MAX_PLAN_BYTES).unwrap_or(u64::MAX)
+            || !encoded_field_fits(&mut consumed, length, metadata_len)
+        {
+            return Ok(None);
+        }
+        let capture_count = index + 1 == identity_domains.len();
+        let Some((found, first_u64)) =
+            stream_identity_field(&mut file, domain, length, capture_count)?
+        else {
+            return Ok(None);
+        };
+        if found != expected_component {
+            return Ok(None);
+        }
+        if capture_count {
+            output_count = first_u64.and_then(|count| usize::try_from(count).ok());
+        }
+    }
+
+    let Some(payload_count_u64) = read_stream_u64(&mut file)? else {
+        return Ok(None);
+    };
+    consumed = match consumed.checked_add(8) {
+        Some(consumed) => consumed,
+        None => return Ok(None),
+    };
+    let Ok(payload_count) = usize::try_from(payload_count_u64) else {
+        return Ok(None);
+    };
+    if payload_count > MAX_ITEMS || output_count != Some(payload_count) {
+        return Ok(None);
+    }
+    for _ in 0..payload_count {
+        let Some(expected_checksum) = read_stream_fingerprint(&mut file)? else {
+            return Ok(None);
+        };
+        let Some(length) = read_stream_u64(&mut file)? else {
+            return Ok(None);
+        };
+        consumed = match consumed.checked_add(24) {
+            Some(consumed) => consumed,
+            None => return Ok(None),
+        };
+        if !encoded_field_fits(&mut consumed, length, metadata_len) {
+            return Ok(None);
+        }
+        let Some((found_checksum, _)) =
+            stream_identity_field(&mut file, EXTERNAL_COMMAND_PAYLOAD_DOMAIN, length, false)?
+        else {
+            return Ok(None);
+        };
+        if found_checksum != expected_checksum {
+            return Ok(None);
+        }
+    }
+    if consumed != metadata_len || stream_has_trailing_byte(&mut file)? {
+        return Ok(None);
+    }
+    Ok(Some(ScannedInvalidationEntry { fingerprints }))
+}
+
+/// Streams one registered byte field and optionally captures its first u64.
+/// Capturing only the output-list count avoids retaining the output identity.
+fn stream_identity_field(
+    reader: &mut impl Read,
+    domain: FingerprintDomain,
+    length: u64,
+    capture_first_u64: bool,
+) -> io::Result<Option<(QueryFingerprint, Option<u64>)>> {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    let mut writer = builder.bytes_writer(length);
+    let mut buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
+    let mut remaining = length;
+    let mut prefix = [0; 8];
+    let mut prefix_len = 0usize;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk = &mut buffer[..chunk_len];
+        if !read_exact_or_corrupt(reader, chunk)? {
+            return Ok(None);
+        }
+        writer.write_chunk(chunk)?;
+        if capture_first_u64 && prefix_len < prefix.len() {
+            let copied = (prefix.len() - prefix_len).min(chunk.len());
+            prefix[prefix_len..prefix_len + copied].copy_from_slice(&chunk[..copied]);
+            prefix_len += copied;
+        }
+        remaining -= chunk_len as u64;
+    }
+    writer.finish()?;
+    let first_u64 =
+        (capture_first_u64 && prefix_len == prefix.len()).then(|| u64::from_le_bytes(prefix));
+    Ok(Some((builder.finish(), first_u64)))
 }
 
 fn encode_entry(identity: &ExternalCommandCacheIdentity, payloads: &[Vec<u8>]) -> Vec<u8> {
@@ -940,6 +1159,20 @@ mod tests {
         ))
     }
 
+    fn changed_dependencies(
+        identity: &ExternalCommandCacheIdentity,
+    ) -> ExternalCommandCacheIdentity {
+        let mut changed = identity.clone();
+        changed.dependencies = b"changed-dependencies".to_vec();
+        changed.fingerprints.components.dependencies =
+            component(EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN, &changed.dependencies);
+        changed.fingerprints = FingerprintSet::new(
+            changed.fingerprints.cache_key,
+            changed.fingerprints.components,
+        );
+        changed
+    }
+
     #[test]
     fn envelope_rejects_every_truncated_prefix_and_trailing_bytes() {
         let identity = identity();
@@ -992,20 +1225,104 @@ mod tests {
             .publish(&identity, &[b"first".to_vec(), b"second".to_vec()])
             .unwrap();
 
-        let mut changed = identity.clone();
-        changed.dependencies = b"changed-dependencies".to_vec();
-        changed.fingerprints.components.dependencies =
-            component(EXTERNAL_COMMAND_DEPENDENCIES_DOMAIN, &changed.dependencies);
-        changed.fingerprints = FingerprintSet::new(
-            changed.fingerprints.cache_key,
-            changed.fingerprints.components,
-        );
+        let changed = changed_dependencies(&identity);
 
         assert_eq!(
             cache.lookup(&changed).unwrap(),
             ExternalCommandCacheLookup::Miss(ActionCacheMissReason::Invalidated(vec![
                 ActionCacheInvalidation::Dependencies,
             ]))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalidation_scan_streams_large_payloads() {
+        let root = root("stream-large-invalidation");
+        let cache = ExternalCommandCache::new(root.clone());
+        let identity = identity();
+        let payloads = vec![
+            vec![7; 3 * EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES + 17],
+            b"second".to_vec(),
+        ];
+        cache.publish(&identity, &payloads).unwrap();
+
+        let path = cache.path(identity.fingerprints);
+        assert_eq!(
+            scan_invalidation_entry(&path).unwrap(),
+            Some(ScannedInvalidationEntry {
+                fingerprints: identity.fingerprints,
+            })
+        );
+        assert_eq!(
+            cache.lookup(&changed_dependencies(&identity)).unwrap(),
+            ExternalCommandCacheLookup::Miss(ActionCacheMissReason::Invalidated(vec![
+                ActionCacheInvalidation::Dependencies,
+            ]))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalidation_scan_retires_malformed_identity_length() {
+        let root = root("malformed-invalidation-length");
+        let cache = ExternalCommandCache::new(root.clone());
+        let identity = identity();
+        let path = cache.path(identity.fingerprints);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut encoded = encode_entry(&identity, &[b"first".to_vec(), b"second".to_vec()]);
+        let action_length_offset = EXTERNAL_COMMAND_ENTRY.magic.len() + 14 * 16;
+        encoded[action_length_offset..action_length_offset + 8]
+            .copy_from_slice(&u64::MAX.to_le_bytes());
+        fs::write(&path, encoded).unwrap();
+
+        assert_eq!(
+            cache.lookup(&changed_dependencies(&identity)).unwrap(),
+            ExternalCommandCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalidation_scan_retires_payload_checksum_damage() {
+        let root = root("damaged-invalidation-payload");
+        let cache = ExternalCommandCache::new(root.clone());
+        let identity = identity();
+        cache
+            .publish(&identity, &[b"first".to_vec(), b"second".to_vec()])
+            .unwrap();
+        let path = cache.path(identity.fingerprints);
+        let mut encoded = fs::read(&path).unwrap();
+        *encoded.last_mut().unwrap() ^= 1;
+        fs::write(&path, encoded).unwrap();
+
+        assert_eq!(
+            cache.lookup(&changed_dependencies(&identity)).unwrap(),
+            ExternalCommandCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn locked_invalidation_retirement_preserves_valid_replacement() {
+        let root = root("preserve-replacement");
+        let cache = ExternalCommandCache::new(root.clone());
+        let identity = identity();
+        let payloads = vec![b"first".to_vec(), b"second".to_vec()];
+        let path = cache.path(identity.fingerprints);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"corrupt").unwrap();
+
+        // Model a publisher replacing the bytes after an unlocked corrupt
+        // scan but before retirement acquires the mutation lock.
+        fs::write(&path, encode_entry(&identity, &payloads)).unwrap();
+        cache.retire_scanned_corrupt(&path, &identity).unwrap();
+
+        assert_eq!(
+            cache.lookup(&identity).unwrap(),
+            ExternalCommandCacheLookup::Hit(payloads)
         );
         fs::remove_dir_all(root).unwrap();
     }
