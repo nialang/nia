@@ -76,6 +76,37 @@ fn fingerprint_builder_is_deterministic_and_domain_separated() {
 }
 
 #[test]
+fn fingerprint_byte_stream_matches_one_shot_bytes_and_enforces_length() {
+    let domain = FingerprintDomain::new("nia.query.stream-test.v1");
+    let mut direct = QueryFingerprintBuilder::new(domain);
+    direct.write_bytes(b"streamed payload");
+
+    let mut streamed = QueryFingerprintBuilder::new(domain);
+    let mut writer = streamed.bytes_writer(16);
+    writer.write_chunk(b"streamed ").expect("first chunk");
+    writer.write_chunk(b"payload").expect("second chunk");
+    writer.finish().expect("complete stream");
+    assert_eq!(streamed.finish(), direct.finish());
+
+    let mut incomplete_builder = QueryFingerprintBuilder::new(domain);
+    let incomplete = incomplete_builder.bytes_writer(1);
+    assert_eq!(
+        incomplete.finish().expect_err("incomplete stream").kind(),
+        std::io::ErrorKind::UnexpectedEof
+    );
+
+    let mut oversized_builder = QueryFingerprintBuilder::new(domain);
+    let mut oversized = oversized_builder.bytes_writer(1);
+    assert_eq!(
+        oversized
+            .write_chunk(b"too long")
+            .expect_err("oversized chunk")
+            .kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+}
+
+#[test]
 fn fingerprint_domains_require_a_versioned_nia_identity() {
     assert_eq!(
         FingerprintDomain::new("nia.query.product.v12").as_str(),

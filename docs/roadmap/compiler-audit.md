@@ -549,7 +549,12 @@ commit as the corresponding implementation batch.
 - [x] Phase D exact-key generated-file cache reads now derive their byte budget
       from the identity's payload length, enforce it across lookup, collision,
       and retirement paths, and reject publication payloads inconsistent with
-      the identity. Invalidation scans still require streaming record handling.
+      the identity.
+- [x] Phase D generated-file invalidation scans now validate variable-size
+      records with a fixed streaming buffer, bound persisted identity fields by
+      the canonical build-plan string limit, and materialize payload bytes only
+      for an exact entry published after the direct miss; corruption retirement
+      revalidates under the mutation lock without an unbounded reread.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

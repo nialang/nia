@@ -2,6 +2,7 @@
 //! Declarative query contracts, fingerprint domains, and registry validation.
 
 use super::*;
+use std::io;
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Send + Sync + 'static;
@@ -118,6 +119,16 @@ pub struct QueryFingerprintBuilder {
     state: [u64; 2],
 }
 
+/// Incremental writer for one length-prefixed byte field in a fingerprint.
+///
+/// Call [`finish`](Self::finish) after writing exactly the declared number of
+/// bytes. If writing or finishing fails, discard the parent fingerprint builder.
+#[must_use = "the byte stream must be completed with `finish`"]
+pub struct QueryFingerprintBytesWriter<'a> {
+    builder: &'a mut QueryFingerprintBuilder,
+    remaining: u64,
+}
+
 impl QueryFingerprintBuilder {
     const FIRST_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FIRST_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -145,6 +156,18 @@ impl QueryFingerprintBuilder {
         self.write_raw_bytes(bytes);
     }
 
+    /// Begins a streaming equivalent of [`write_bytes`](Self::write_bytes).
+    ///
+    /// This keeps fingerprints stable for payloads that are too large to
+    /// materialize as one slice. The declared length is part of the fingerprint.
+    pub fn bytes_writer(&mut self, length: u64) -> QueryFingerprintBytesWriter<'_> {
+        self.write_u64(length);
+        QueryFingerprintBytesWriter {
+            builder: self,
+            remaining: length,
+        }
+    }
+
     pub fn write_str(&mut self, text: &str) {
         self.write_bytes(text.as_bytes());
     }
@@ -169,6 +192,39 @@ impl QueryFingerprintBuilder {
             self.state[1] = self.state[1]
                 .rotate_left(7)
                 .wrapping_mul(Self::SECOND_PRIME);
+        }
+    }
+}
+
+impl QueryFingerprintBytesWriter<'_> {
+    /// Adds the next contiguous payload chunk.
+    pub fn write_chunk(&mut self, bytes: &[u8]) -> io::Result<()> {
+        let length = u64::try_from(bytes.len()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "fingerprint chunk length does not fit in u64",
+            )
+        })?;
+        if length > self.remaining {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "fingerprint byte stream exceeds its declared length",
+            ));
+        }
+        self.builder.write_raw_bytes(bytes);
+        self.remaining -= length;
+        Ok(())
+    }
+
+    /// Completes the field after verifying that every declared byte was written.
+    pub fn finish(self) -> io::Result<()> {
+        if self.remaining == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "fingerprint byte stream ended before its declared length",
+            ))
         }
     }
 }

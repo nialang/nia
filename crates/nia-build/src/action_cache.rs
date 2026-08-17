@@ -15,10 +15,15 @@ use std::{
 };
 
 use nia_compat::formats::{GENERATED_FILE_CACHE, GENERATED_FILE_ENTRY};
-use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
+use nia_query::{
+    FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintBytesWriter,
+};
 use nia_toolchain::ToolchainIdentity;
 
-use crate::{ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock};
+use crate::{
+    ActionKey, ArtifactKey, LogicalPath, LogicalPathRoot, lock::ScopedFileLock,
+    plan::MAX_PLAN_STRING_BYTES,
+};
 
 mod compiler_check;
 mod compiler_emit;
@@ -59,6 +64,10 @@ const GENERATED_FILE_OUTPUT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.generated-file-output.v1");
 const GENERATED_FILE_PAYLOAD_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.generated-file-payload.v1");
+const GENERATED_FILE_STREAM_BUFFER_BYTES: usize = 64 * 1024;
+// An artifact-rooted logical path contains at most package, artifact, and path
+// strings, each bounded by the canonical build-plan codec.
+const MAX_GENERATED_FILE_OUTPUT_IDENTITY_BYTES: usize = 3 * MAX_PLAN_STRING_BYTES + 25;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionCacheReport {
@@ -418,21 +427,23 @@ impl GeneratedFileCache {
             if path.extension().and_then(|value| value.to_str()) != Some("entry") {
                 continue;
             }
-            let encoded = fs::read(&path)?;
-            let Some(entry) = decode_entry(&encoded) else {
-                self.retire_corrupt(&path, &encoded)?;
-                corrupt = true;
-                continue;
+            let entry = match scan_generated_file_entry(&path, expected) {
+                Ok(Some(entry)) => entry,
+                Ok(None) => {
+                    self.retire_scanned_corrupt(&path, expected)?;
+                    corrupt = true;
+                    continue;
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
             };
-            if entry.fingerprints.cache_key != expected.fingerprints.cache_key
-                || path != self.path(entry.fingerprints)
-            {
-                self.retire_corrupt(&path, &encoded)?;
+            if !self.scanned_entry_is_valid_at(&path, &entry, expected) {
+                self.retire_scanned_corrupt(&path, expected)?;
                 corrupt = true;
                 continue;
             }
-            if entry_matches(&entry, expected) {
-                return Ok(GeneratedFileCacheLookup::Hit(entry.payload));
+            if let Some(payload) = entry.payload {
+                return Ok(GeneratedFileCacheLookup::Hit(payload));
             }
             let reasons = invalidations(
                 entry.fingerprints.components,
@@ -459,6 +470,19 @@ impl GeneratedFileCache {
                 ActionCacheMissReason::NotFound,
             ))
         }
+    }
+
+    fn scanned_entry_is_valid_at(
+        &self,
+        path: &Path,
+        entry: &ScannedEntry,
+        expected: &GeneratedFileCacheIdentity,
+    ) -> bool {
+        entry.fingerprints.cache_key == expected.fingerprints.cache_key
+            && path == self.path(entry.fingerprints)
+            // Equal fingerprints require exact action/output identity and the
+            // expected payload length; the scanner retains payload only then.
+            && (entry.fingerprints != expected.fingerprints || entry.payload.is_some())
     }
 
     fn key_dir(&self, cache_key: QueryFingerprint) -> PathBuf {
@@ -541,17 +565,26 @@ impl GeneratedFileCache {
         }
     }
 
-    fn retire_corrupt(&self, path: &Path, observed: &[u8]) -> io::Result<()> {
+    fn retire_scanned_corrupt(
+        &self,
+        path: &Path,
+        expected: &GeneratedFileCacheIdentity,
+    ) -> io::Result<()> {
         let _lock = self.acquire_mutation_lock(path)?;
-        match fs::read(path) {
-            Ok(current) if current == observed => match fs::remove_file(path) {
+        let current_is_valid = match scan_generated_file_entry(path, expected) {
+            Ok(Some(entry)) => self.scanned_entry_is_valid_at(path, &entry, expected),
+            Ok(None) => false,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        if current_is_valid {
+            Ok(())
+        } else {
+            match fs::remove_file(path) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(error),
-            },
-            Ok(_) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
+            }
         }
     }
 
@@ -650,6 +683,256 @@ struct DecodedEntry {
     action: Vec<u8>,
     output: Vec<u8>,
     payload: Vec<u8>,
+}
+
+struct ScannedEntry {
+    fingerprints: GeneratedFileFingerprintSet,
+    payload: Option<Vec<u8>>,
+}
+
+/// Validates an invalidation candidate without materializing its payload.
+/// Payload bytes are retained only for an exact identity that appeared after
+/// the direct lookup missed; all other candidates are checksummed as a stream.
+fn scan_generated_file_entry(
+    path: &Path,
+    expected: &GeneratedFileCacheIdentity,
+) -> io::Result<Option<ScannedEntry>> {
+    let mut file = fs::File::open(path)?;
+    let metadata_len = file.metadata()?.len();
+    let mut magic = [0; 8];
+    if !read_exact_or_corrupt(&mut file, &mut magic)? || magic != *GENERATED_FILE_ENTRY.magic {
+        return Ok(None);
+    }
+    let Some(cache_key) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(fingerprint) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(contents) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(output_fingerprint) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(compiler) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(resource_layout) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(standard_library) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(build_protocol) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    let components = GeneratedFileFingerprintComponents {
+        contents,
+        output: output_fingerprint,
+        compiler,
+        resource_layout,
+        standard_library,
+        build_protocol,
+    };
+    let fingerprints = GeneratedFileFingerprintSet {
+        cache_key,
+        fingerprint,
+        components,
+    };
+    let mut rebuilt = QueryFingerprintBuilder::new(GENERATED_FILE_FINGERPRINT_DOMAIN);
+    rebuilt.write_fingerprint(cache_key);
+    rebuilt.write_fingerprint(contents);
+    rebuilt.write_fingerprint(output_fingerprint);
+    rebuilt.write_fingerprint(compiler);
+    rebuilt.write_fingerprint(resource_layout);
+    rebuilt.write_fingerprint(standard_library);
+    rebuilt.write_fingerprint(build_protocol);
+    if rebuilt.finish() != fingerprint {
+        return Ok(None);
+    }
+
+    let mut consumed = u64::try_from(GENERATED_FILE_ENTRY.magic.len() + 8 * 16).unwrap();
+    let Some(action_len) = read_stream_u64(&mut file)? else {
+        return Ok(None);
+    };
+    consumed = match consumed.checked_add(8) {
+        Some(consumed) => consumed,
+        None => return Ok(None),
+    };
+    if action_len != u64::try_from(expected.action.len()).unwrap_or(u64::MAX)
+        || !encoded_field_fits(&mut consumed, action_len, metadata_len)
+    {
+        return Ok(None);
+    }
+    let mut action = vec![0; expected.action.len()];
+    if !read_exact_or_corrupt(&mut file, &mut action)?
+        || action != expected.action
+        || action_fingerprint(&action) != Some(cache_key)
+    {
+        return Ok(None);
+    }
+
+    let Some(output_len) = read_stream_u64(&mut file)? else {
+        return Ok(None);
+    };
+    consumed = match consumed.checked_add(8) {
+        Some(consumed) => consumed,
+        None => return Ok(None),
+    };
+    if output_len > u64::try_from(MAX_GENERATED_FILE_OUTPUT_IDENTITY_BYTES).unwrap_or(u64::MAX)
+        || !encoded_field_fits(&mut consumed, output_len, metadata_len)
+    {
+        return Ok(None);
+    }
+    let mut output_builder = QueryFingerprintBuilder::new(GENERATED_FILE_OUTPUT_DOMAIN);
+    let mut output_writer = output_builder.bytes_writer(output_len);
+    let mut output_writers = [&mut output_writer];
+    let Some(output_matches) = stream_bytes(
+        &mut file,
+        output_len,
+        &mut output_writers,
+        Some(&expected.output),
+        None,
+    )?
+    else {
+        return Ok(None);
+    };
+    output_writer.finish()?;
+    if output_builder.finish() != output_fingerprint {
+        return Ok(None);
+    }
+
+    let Some(payload_len) = read_stream_u64(&mut file)? else {
+        return Ok(None);
+    };
+    let Some(payload_checksum) = read_stream_fingerprint(&mut file)? else {
+        return Ok(None);
+    };
+    consumed = match consumed.checked_add(8 + 16) {
+        Some(consumed) => consumed,
+        None => return Ok(None),
+    };
+    if consumed.checked_add(payload_len) != Some(metadata_len) {
+        return Ok(None);
+    }
+
+    let exact = fingerprints == expected.fingerprints
+        && output_matches
+        && payload_len == u64::try_from(expected.payload_len).unwrap_or(u64::MAX);
+    let mut payload = exact.then(|| Vec::with_capacity(expected.payload_len));
+    let mut checksum_builder = QueryFingerprintBuilder::new(GENERATED_FILE_PAYLOAD_DOMAIN);
+    let mut contents_builder = QueryFingerprintBuilder::new(GENERATED_FILE_CONTENTS_DOMAIN);
+    let mut checksum_writer = checksum_builder.bytes_writer(payload_len);
+    let mut contents_writer = contents_builder.bytes_writer(payload_len);
+    let mut payload_writers = [&mut checksum_writer, &mut contents_writer];
+    if stream_bytes(
+        &mut file,
+        payload_len,
+        &mut payload_writers,
+        None,
+        payload.as_mut(),
+    )?
+    .is_none()
+    {
+        return Ok(None);
+    }
+    checksum_writer.finish()?;
+    contents_writer.finish()?;
+    if checksum_builder.finish() != payload_checksum
+        || contents_builder.finish() != contents
+        || stream_has_trailing_byte(&mut file)?
+    {
+        return Ok(None);
+    }
+    Ok(Some(ScannedEntry {
+        fingerprints,
+        payload,
+    }))
+}
+
+fn encoded_field_fits(consumed: &mut u64, length: u64, encoded_len: u64) -> bool {
+    let Some(end) = consumed.checked_add(length) else {
+        return false;
+    };
+    if end > encoded_len {
+        return false;
+    }
+    *consumed = end;
+    true
+}
+
+fn read_exact_or_corrupt(reader: &mut impl Read, bytes: &mut [u8]) -> io::Result<bool> {
+    match reader.read_exact(bytes) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn read_stream_u64(reader: &mut impl Read) -> io::Result<Option<u64>> {
+    let mut bytes = [0; 8];
+    read_exact_or_corrupt(reader, &mut bytes)
+        .map(|complete| complete.then(|| u64::from_le_bytes(bytes)))
+}
+
+fn read_stream_fingerprint(reader: &mut impl Read) -> io::Result<Option<QueryFingerprint>> {
+    let Some(first) = read_stream_u64(reader)? else {
+        return Ok(None);
+    };
+    let Some(second) = read_stream_u64(reader)? else {
+        return Ok(None);
+    };
+    Ok(Some(QueryFingerprint::from_parts([first, second])))
+}
+
+fn stream_bytes(
+    reader: &mut impl Read,
+    length: u64,
+    writers: &mut [&mut QueryFingerprintBytesWriter<'_>],
+    expected: Option<&[u8]>,
+    mut retained: Option<&mut Vec<u8>>,
+) -> io::Result<Option<bool>> {
+    let mut buffer = [0; GENERATED_FILE_STREAM_BUFFER_BYTES];
+    let mut remaining = length;
+    let mut offset = 0usize;
+    let mut matches =
+        expected.is_none_or(|expected| u64::try_from(expected.len()).unwrap_or(u64::MAX) == length);
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        let chunk = &mut buffer[..chunk_len];
+        if !read_exact_or_corrupt(reader, chunk)? {
+            return Ok(None);
+        }
+        for writer in writers.iter_mut() {
+            writer.write_chunk(chunk)?;
+        }
+        if let Some(expected) = expected
+            && matches
+        {
+            matches = expected
+                .get(offset..offset + chunk_len)
+                .is_some_and(|expected| expected == chunk);
+        }
+        if let Some(retained) = retained.as_deref_mut() {
+            retained.extend_from_slice(chunk);
+        }
+        remaining -= chunk_len as u64;
+        offset = offset.saturating_add(chunk_len);
+    }
+    Ok(Some(matches))
+}
+
+fn stream_has_trailing_byte(reader: &mut impl Read) -> io::Result<bool> {
+    let mut byte = [0; 1];
+    loop {
+        match reader.read(&mut byte) {
+            Ok(0) => return Ok(false),
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
@@ -941,6 +1224,88 @@ mod tests {
                 GeneratedFileCacheLookup::Miss(ActionCacheMissReason::Invalidated(vec![expected]))
             );
         }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalidation_scan_streams_nonmatching_generated_payloads() {
+        let root = test_root("streamed-invalidation");
+        let cache = GeneratedFileCache::new(root.clone());
+        let logical_output = output("generated/large.bin");
+        let payload = vec![0x5a; 4 * 1024 * 1024];
+        let baseline = identity(&logical_output, &payload, toolchain());
+        cache.publish(&baseline, &payload).expect("publish");
+        let changed = identity(&logical_output, b"changed", toolchain());
+
+        let scanned = scan_generated_file_entry(&cache.path(baseline.fingerprints), &changed)
+            .expect("scan candidate")
+            .expect("valid candidate");
+        assert!(
+            scanned.payload.is_none(),
+            "an invalidation candidate must not retain its payload"
+        );
+        assert_eq!(
+            cache.lookup(&changed).expect("invalidation lookup"),
+            GeneratedFileCacheLookup::Miss(ActionCacheMissReason::Invalidated(vec![
+                ActionCacheInvalidation::Contents,
+            ]))
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalidation_scan_rejects_untrusted_identity_lengths_before_allocating() {
+        let root = test_root("invalid-invalidation-length");
+        let cache = GeneratedFileCache::new(root.clone());
+        let logical_output = output("generated/source.nia");
+        let baseline = identity(&logical_output, b"source", toolchain());
+        cache.publish(&baseline, b"source").expect("publish");
+        let path = cache.path(baseline.fingerprints);
+        let mut encoded = fs::read(&path).expect("read entry");
+        let action_length_offset = GENERATED_FILE_ENTRY.magic.len() + 8 * 16;
+        encoded[action_length_offset..action_length_offset + 8]
+            .copy_from_slice(&u64::MAX.to_le_bytes());
+        fs::write(&path, encoded).expect("forge action length");
+        let changed = identity(&logical_output, b"changed", toolchain());
+
+        assert_eq!(
+            cache.lookup(&changed).expect("corrupt invalidation lookup"),
+            GeneratedFileCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists(), "malformed candidate must be retired");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalidation_scan_bounds_persisted_output_identity_bytes() {
+        let root = test_root("invalid-output-identity-length");
+        let cache = GeneratedFileCache::new(root.clone());
+        let logical_output = output("generated/source.nia");
+        let baseline = identity(&logical_output, b"source", toolchain());
+        cache.publish(&baseline, b"source").expect("publish");
+        let path = cache.path(baseline.fingerprints);
+        let mut encoded = fs::read(&path).expect("read entry");
+        let output_length_offset =
+            GENERATED_FILE_ENTRY.magic.len() + 8 * 16 + 8 + baseline.action.len();
+        encoded[output_length_offset..output_length_offset + 8].copy_from_slice(
+            &u64::try_from(MAX_GENERATED_FILE_OUTPUT_IDENTITY_BYTES + 1)
+                .unwrap()
+                .to_le_bytes(),
+        );
+        fs::write(&path, encoded).expect("forge output identity length");
+        let changed = identity(&logical_output, b"changed", toolchain());
+
+        assert_eq!(
+            cache.lookup(&changed).expect("corrupt invalidation lookup"),
+            GeneratedFileCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(
+            !path.exists(),
+            "oversized identity candidate must be retired"
+        );
 
         let _ = fs::remove_dir_all(root);
     }
