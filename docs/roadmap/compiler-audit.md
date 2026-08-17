@@ -619,6 +619,12 @@ commit as the corresponding implementation batch.
       valid winner and retire corrupt observations only while identical bytes
       remain installed; exact hits allocate only the payload required by the
       codegen cache interface.
+- [x] Phase D static-archive cache capture, publication, invalidation, collision
+      comparison, and restoration now stream arbitrarily large payloads through
+      fixed buffers from stable opened handles. The existing v1 record format
+      is preserved, checksum failures cannot install partial outputs, and
+      per-entry mutation locks prevent Unix rename replacement or stale-reader
+      retirement from discarding a valid immutable winner.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -331,7 +331,7 @@ fn compare_installed(
         return Ok(InstalledEntry::Corrupt);
     };
     if header.fingerprints != fingerprints {
-        return Ok(InstalledEntry::Corrupt);
+        return Ok(InstalledEntry::Collision);
     }
     let expected_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     if header.payload_len != expected_len {
