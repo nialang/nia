@@ -677,22 +677,43 @@ fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
             "transaction record is too large",
         )
     })?;
-    if length > MAX_JOURNAL_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "transaction record exceeds its size limit",
-        ));
-    }
-    fs::read(path)
+    validate_transaction_record_size(length)?;
+    let mut file = fs::File::open(path)?;
+    read_bounded_contents(&mut file, length)
+}
+
+/// Reads through the byte limit even when the file grows after metadata was
+/// sampled. The extra byte distinguishes an exact-limit record from a raced or
+/// otherwise oversized stream without ever allocating the complete input.
+fn read_bounded_contents(reader: &mut impl Read, expected_len: usize) -> io::Result<Vec<u8>> {
+    validate_transaction_record_size(expected_len)?;
+    let mut encoded = Vec::with_capacity(expected_len);
+    reader
+        .take((MAX_JOURNAL_BYTES + 1) as u64)
+        .read_to_end(&mut encoded)?;
+    validate_transaction_record_size(encoded.len())?;
+    Ok(encoded)
 }
 
 fn write_synced_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    validate_transaction_record_size(bytes.len())?;
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)?;
     file.write_all(bytes)?;
     file.sync_all()
+}
+
+fn validate_transaction_record_size(length: usize) -> io::Result<()> {
+    if length > MAX_JOURNAL_BYTES {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "transaction record exceeds its size limit",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn write_text(encoded: &mut Vec<u8>, text: &str) {
@@ -1482,5 +1503,22 @@ mod tests {
             ..duplicate
         };
         assert!(decode_journal(&encode_journal(&nested)).is_none());
+    }
+
+    #[test]
+    fn bounded_journal_read_rechecks_stream_length_after_metadata() {
+        let mut contents = Cursor::new(vec![0; MAX_JOURNAL_BYTES + 1]);
+        let error = read_bounded_contents(&mut contents, 1)
+            .expect_err("a record that grows after metadata must be rejected");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("exceeds its size limit"));
+        assert!(validate_transaction_record_size(MAX_JOURNAL_BYTES).is_ok());
+        assert_eq!(
+            validate_transaction_record_size(MAX_JOURNAL_BYTES + 1)
+                .expect_err("publication must share the read-side limit")
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }
