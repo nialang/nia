@@ -1413,7 +1413,7 @@ impl BackendValidator<'_> {
             );
         }
 
-        let Some(target) = self.validate_dynamic_trait_slot(
+        let Some(targets) = self.validate_dynamic_trait_slots(
             object_ty,
             VtableTraitInstance {
                 trait_id,
@@ -1426,8 +1426,20 @@ impl BackendValidator<'_> {
         ) else {
             return;
         };
-        let Some((target_params, target_return_type)) =
-            self.dynamic_trait_target_signature(&target)
+        for target in targets {
+            self.validate_dynamic_trait_target(&target, params, return_type, receiver_kind, span);
+        }
+    }
+
+    fn validate_dynamic_trait_target(
+        &mut self,
+        target: &nia_backend_ir::BackendTraitObjectVtableFunction,
+        params: &[nia_ids::InternedTyId],
+        return_type: nia_ids::InternedTyId,
+        receiver_kind: nia_ids::ReceiverKind,
+        span: Span,
+    ) {
+        let Some((target_params, target_return_type)) = self.dynamic_trait_target_signature(target)
         else {
             self.invalid_dynamic_trait_call(span, "vtable slot references a missing function");
             return;
@@ -1462,58 +1474,81 @@ impl BackendValidator<'_> {
         }
     }
 
-    fn validate_dynamic_trait_slot(
+    fn validate_dynamic_trait_slots(
         &mut self,
         object_ty: nia_ids::InternedTyId,
         trait_instance: VtableTraitInstance<'_>,
         method_id: nia_ids::GlobalDefId,
         slot: usize,
         span: Span,
-    ) -> Option<nia_backend_ir::BackendTraitObjectVtableFunction> {
+    ) -> Option<Vec<nia_backend_ir::BackendTraitObjectVtableFunction>> {
         // The slot is part of the typed call contract, not merely an indexing
         // hint. Calls on the original object use absolute slots in its complete
         // table; explicitly upcast views use slots relative to the target
         // supertrait segment. Keep those two representations distinct so a
-        // malformed slot cannot turn into an unchecked LLVM GEP.
-        let exact_vtable = self
+        // malformed slot cannot turn into an unchecked LLVM GEP. Every
+        // concrete table is checked: selecting the first table would make ABI
+        // validation depend on module publication order.
+        let exact_vtables = self
             .index
             .trait_object_vtables_for_object_ty(object_ty)
-            .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
-            .or_else(|| {
+            .filter(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            .chain(
                 self.index
                     .trait_object_vtables_for_trait(trait_instance.trait_id)
-                    .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
-            });
-        if let Some(vtable) = exact_vtable {
-            let Some(entry) =
-                self.dynamic_trait_slot_entry(vtable, trait_instance, method_id, slot)
-            else {
-                self.diagnostics.push(Diagnostic::internal_error_at(
-                    nia_diagnostic::codes::INVALID_BACKEND_IR,
-                    span,
-                    "backend IR dynamic trait call has an invalid vtable method slot",
-                ));
-                return None;
-            };
-            return Some(entry.function.clone());
+                    .filter(|vtable| self.same_type(vtable.key.object_ty, object_ty)),
+            )
+            .collect::<Vec<_>>();
+        if !exact_vtables.is_empty() {
+            let mut targets = Vec::new();
+            for vtable in exact_vtables {
+                let Some(entry) =
+                    self.dynamic_trait_slot_entry(vtable, trait_instance, method_id, slot)
+                else {
+                    self.invalid_dynamic_trait_slot(span);
+                    return None;
+                };
+                if !targets.contains(&entry.function) {
+                    targets.push(entry.function.clone());
+                }
+            }
+            return Some(targets);
         }
 
         // An explicitly upcast receiver names the target trait-object type but
         // retains a pointer into a source vtable. Its call slot is relative to
         // the first target-supertrait entry, unlike calls on the original
         // object whose slots are absolute in that object's complete table.
-        let upcast_entry = self.index.trait_object_vtables().find_map(|vtable| {
-            self.dynamic_trait_upcast_slot_entry(vtable, trait_instance, method_id, slot)
-        });
-        let Some(entry) = upcast_entry else {
+        let targets = self
+            .index
+            .trait_object_vtables()
+            .filter_map(|vtable| {
+                self.dynamic_trait_upcast_slot_entry(vtable, trait_instance, method_id, slot)
+            })
+            .map(|entry| entry.function.clone())
+            .fold(Vec::new(), |mut targets, target| {
+                if !targets.contains(&target) {
+                    targets.push(target);
+                }
+                targets
+            });
+        if targets.is_empty() {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 "backend IR dynamic trait call has no matching object vtable",
             ));
             return None;
-        };
-        Some(entry.function.clone())
+        }
+        Some(targets)
+    }
+
+    fn invalid_dynamic_trait_slot(&mut self, span: Span) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            "backend IR dynamic trait call has an invalid vtable method slot",
+        ));
     }
 
     fn dynamic_trait_slot_entry<'a>(
