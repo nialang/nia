@@ -1651,6 +1651,245 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
 }
 
 #[test]
+fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let trait_def = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let method_def = GlobalDefId {
+        module_id,
+        def_id: DefId(2),
+    };
+    let object_ty = interner.intern(TyKind::TraitObject {
+        is_readonly: true,
+        trait_id: TraitId::Source(trait_def),
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        associated_type_bindings: Vec::new(),
+    });
+    let span = Span::default();
+    let body = |value| FunctionBody {
+        span,
+        locals: Vec::new(),
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(value),
+                span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty: i32_ty,
+    };
+    let method = BackendFunction {
+        def_id: method_def,
+        name: known::SHOW,
+        link_name: None,
+        generics: Vec::new(),
+        params: vec![
+            BackendParam {
+                local_id: None,
+                name: None,
+                receiver: Some(nia_ids::ReceiverKind::RefReadOnly),
+                passing_ty: i32_ptr_ty,
+                local_ty: i32_ty,
+                span,
+            },
+            BackendParam {
+                local_id: None,
+                name: None,
+                receiver: None,
+                passing_ty: i32_ty,
+                local_ty: i32_ty,
+                span,
+            },
+        ],
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
+    let main = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(3),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(body(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Call {
+                callee: FunctionCallee::DynamicTraitMethod {
+                    object_ty,
+                    trait_id: TraitId::Source(trait_def),
+                    method_id: method_def,
+                    method_name: known::SHOW,
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                    slot: 1,
+                    params: Vec::new(),
+                    return_type: i32_ty,
+                    receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
+                    receiver: Box::new(FunctionExpr {
+                        span,
+                        ty: object_ty,
+                        kind: FunctionExprKind::Null,
+                    }),
+                },
+                args: Vec::new(),
+            },
+        })),
+        span,
+    };
+    let bad_abi = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(4),
+        },
+        name: sym("bad_abi"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(body(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Call {
+                callee: FunctionCallee::DynamicTraitMethod {
+                    object_ty,
+                    trait_id: TraitId::Source(trait_def),
+                    method_id: method_def,
+                    method_name: known::SHOW,
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                    slot: 0,
+                    params: vec![bool_ty],
+                    return_type: i32_ty,
+                    receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
+                    receiver: Box::new(FunctionExpr {
+                        span,
+                        ty: object_ty,
+                        kind: FunctionExprKind::Null,
+                    }),
+                },
+                args: vec![FunctionExpr {
+                    span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Bool(true),
+                }],
+            },
+        })),
+        span,
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (bool_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                    (object_ty, TypeLayout { size: 16, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: vec![method, main, bad_abi],
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: vec![BackendTraitObjectVtable {
+                key: BackendTraitObjectVtableKey {
+                    self_ty: i32_ty,
+                    object_ty,
+                },
+                trait_id: TraitId::Source(trait_def),
+                trait_args: Vec::new(),
+                entries: vec![BackendTraitObjectVtableEntry {
+                    trait_id: TraitId::Source(trait_def),
+                    method_id: method_def,
+                    method_name: known::SHOW,
+                    slot: 0,
+                    function: BackendTraitObjectVtableFunction::Function(method_def),
+                }],
+                span,
+            }],
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        has_internal_diagnostic(
+            &output.diagnostics,
+            codes::INVALID_BACKEND_IR,
+            "invalid vtable method slot"
+        ),
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(
+        has_internal_diagnostic(
+            &output.diagnostics,
+            codes::INVALID_BACKEND_IR,
+            "parameter metadata does not match the vtable target signature"
+        ),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
 fn validates_backend_ir_static_initializer_refs_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

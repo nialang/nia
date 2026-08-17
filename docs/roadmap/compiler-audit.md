@@ -442,6 +442,14 @@ commit as the corresponding implementation batch.
       mismatches instead of silently truncating through iterator `zip`, while
       variadic function pointers preserve and emit all tail arguments in source
       order; an indirect variadic call regression covers the ABI path.
+- [x] Phase B backend validation now verifies dynamic trait-call vtable slots
+      against emitted method identity, including vtables used by supertrait
+      upcasts; malformed-slot and valid-upcast regressions cover both sides of
+      the pre-LLVM boundary.
+- [x] Phase B backend validation now checks dynamic trait-call receiver,
+      argument, result, parameter, and return contracts against the canonical
+      function or function-instance signature selected by the vtable; malformed
+      ABI metadata and the existing dynamic-dispatch matrix cover the boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

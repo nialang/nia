@@ -11,6 +11,20 @@ use nia_ty::{ConstGenericValue, PrimitiveTy, TyKind};
 
 use super::{BackendValidator, FunctionInstanceRef};
 
+struct DynamicTraitCallContract<'a> {
+    object_ty: nia_ids::InternedTyId,
+    trait_id: nia_ty::TraitId,
+    method_id: nia_ids::GlobalDefId,
+    slot: usize,
+    params: &'a [nia_ids::InternedTyId],
+    return_type: nia_ids::InternedTyId,
+    receiver_kind: nia_ids::ReceiverKind,
+    receiver: &'a FunctionExpr,
+    args: &'a [FunctionExpr],
+    result_ty: nia_ids::InternedTyId,
+    span: Span,
+}
+
 impl BackendValidator<'_> {
     pub(super) fn validate_function_body(
         &mut self,
@@ -609,7 +623,7 @@ impl BackendValidator<'_> {
                 self.validate_expr(rhs);
             }
             FunctionExprKind::Call { callee, args } => {
-                self.validate_callee(callee, expr.span);
+                self.validate_callee(callee, args, expr.ty, expr.span);
                 for arg in args {
                     self.validate_expr(arg);
                 }
@@ -739,7 +753,13 @@ impl BackendValidator<'_> {
         }
     }
 
-    fn validate_callee(&mut self, callee: &FunctionCallee, span: Span) {
+    fn validate_callee(
+        &mut self,
+        callee: &FunctionCallee,
+        call_args: &[FunctionExpr],
+        call_result_ty: nia_ids::InternedTyId,
+        span: Span,
+    ) {
         match callee {
             FunctionCallee::ClosureEntry { state, .. } => {
                 self.validate_expr(state);
@@ -798,8 +818,12 @@ impl BackendValidator<'_> {
             }
             FunctionCallee::DynamicTraitMethod {
                 object_ty,
+                trait_id,
+                method_id,
+                slot,
                 params,
                 return_type,
+                receiver_kind,
                 receiver,
                 ..
             } => {
@@ -809,6 +833,19 @@ impl BackendValidator<'_> {
                     self.validate_runtime_type(*param, span);
                 }
                 self.validate_expr(receiver);
+                self.validate_dynamic_trait_call(DynamicTraitCallContract {
+                    object_ty: *object_ty,
+                    trait_id: *trait_id,
+                    method_id: *method_id,
+                    slot: *slot,
+                    params,
+                    return_type: *return_type,
+                    receiver_kind: *receiver_kind,
+                    receiver,
+                    args: call_args,
+                    result_ty: call_result_ty,
+                    span,
+                });
             }
             FunctionCallee::BuiltinMethod {
                 self_ty, receiver, ..
@@ -888,6 +925,194 @@ impl BackendValidator<'_> {
             // lowering only rewrites them when a source-level extension method wins dispatch.
             FunctionCallee::BuiltinOperator(_) => {}
         }
+    }
+
+    fn validate_dynamic_trait_call(&mut self, call: DynamicTraitCallContract<'_>) {
+        let DynamicTraitCallContract {
+            object_ty,
+            trait_id,
+            method_id,
+            slot,
+            params,
+            return_type,
+            receiver_kind,
+            receiver,
+            args,
+            result_ty,
+            span,
+        } = call;
+        if !matches!(
+            self.index.ty_kind(object_ty),
+            Some(TyKind::TraitObject { .. })
+        ) {
+            self.invalid_dynamic_trait_call(span, "object type is not a trait object");
+        }
+        if !self.same_type(receiver.ty, object_ty) {
+            self.invalid_dynamic_trait_call(
+                span,
+                "receiver type does not match its trait-object type",
+            );
+        }
+        if !self.same_type(result_ty, return_type) {
+            self.invalid_dynamic_trait_call(
+                span,
+                "expression result type does not match its return metadata",
+            );
+        }
+        if args.len() != params.len() {
+            self.invalid_dynamic_trait_call(
+                span,
+                "argument count does not match its parameter metadata",
+            );
+        }
+        if args
+            .iter()
+            .zip(params)
+            .any(|(arg, param)| !self.same_type(arg.ty, *param))
+        {
+            self.invalid_dynamic_trait_call(
+                span,
+                "argument type does not match its parameter metadata",
+            );
+        }
+
+        let Some(target) =
+            self.validate_dynamic_trait_slot(object_ty, trait_id, method_id, slot, span)
+        else {
+            return;
+        };
+        let Some((target_params, target_return_type)) =
+            self.dynamic_trait_target_signature(&target)
+        else {
+            self.invalid_dynamic_trait_call(span, "vtable slot references a missing function");
+            return;
+        };
+        let Some(target_receiver) = target_params.first() else {
+            self.invalid_dynamic_trait_call(span, "vtable target has no receiver parameter");
+            return;
+        };
+        if target_receiver.receiver != Some(receiver_kind) {
+            self.invalid_dynamic_trait_call(
+                span,
+                "receiver kind does not match the vtable target signature",
+            );
+        }
+        let target_value_params = &target_params[1..];
+        if target_value_params.len() != params.len()
+            || target_value_params
+                .iter()
+                .zip(params)
+                .any(|(target, param)| !self.same_type(target.passing_ty, *param))
+        {
+            self.invalid_dynamic_trait_call(
+                span,
+                "parameter metadata does not match the vtable target signature",
+            );
+        }
+        if !self.same_type(target_return_type, return_type) {
+            self.invalid_dynamic_trait_call(
+                span,
+                "return metadata does not match the vtable target signature",
+            );
+        }
+    }
+
+    fn validate_dynamic_trait_slot(
+        &mut self,
+        object_ty: nia_ids::InternedTyId,
+        trait_id: nia_ty::TraitId,
+        method_id: nia_ids::GlobalDefId,
+        slot: usize,
+        span: Span,
+    ) -> Option<nia_backend_ir::BackendTraitObjectVtableFunction> {
+        // The slot is part of the typed call contract, not merely an indexing
+        // hint. Resolve it against the exact object vtable first, then the
+        // trait index for equivalent handles, so a malformed slot cannot turn
+        // into an unchecked LLVM GEP.
+        let vtable = self
+            .index
+            .trait_object_vtables_for_object_ty(object_ty)
+            .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            .or_else(|| {
+                self.index
+                    .trait_object_vtables_for_trait(trait_id)
+                    .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            })
+            .or_else(|| {
+                // An upcast receiver keeps the source vtable metadata while
+                // its typed view names a supertrait object. Such a vtable is
+                // not indexed under the target object type, so validate the
+                // method identity against the emitted source tables as well.
+                self.index.trait_object_vtables().find(|vtable| {
+                    Self::dynamic_trait_slot_entry(vtable, trait_id, method_id, slot).is_some()
+                })
+            });
+        let Some(vtable) = vtable else {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "backend IR dynamic trait call has no matching object vtable",
+            ));
+            return None;
+        };
+        let Some(entry) = Self::dynamic_trait_slot_entry(vtable, trait_id, method_id, slot) else {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "backend IR dynamic trait call has an invalid vtable method slot",
+            ));
+            return None;
+        };
+        Some(entry.function.clone())
+    }
+
+    fn dynamic_trait_slot_entry(
+        vtable: &nia_backend_ir::BackendTraitObjectVtable,
+        trait_id: nia_ids::TraitId,
+        method_id: nia_ids::GlobalDefId,
+        slot: usize,
+    ) -> Option<&nia_backend_ir::BackendTraitObjectVtableEntry> {
+        let first_slot = vtable
+            .entries
+            .iter()
+            .filter(|entry| entry.trait_id == trait_id)
+            .map(|entry| entry.slot)
+            .min()?;
+        vtable.entries.iter().find(|entry| {
+            entry.trait_id == trait_id
+                && entry.method_id == method_id
+                && entry.slot.checked_sub(first_slot) == Some(slot)
+        })
+    }
+
+    fn dynamic_trait_target_signature(
+        &self,
+        target: &nia_backend_ir::BackendTraitObjectVtableFunction,
+    ) -> Option<(Vec<nia_backend_ir::BackendParam>, nia_ids::InternedTyId)> {
+        match target {
+            nia_backend_ir::BackendTraitObjectVtableFunction::Function(def_id) => self
+                .index
+                .function(*def_id)
+                .map(|function| (function.params.clone(), function.return_type)),
+            nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+            } => self
+                .index
+                .function_instance(*def_id, *arg_module_id, *self_arg, args, const_args)
+                .map(|function| (function.params.clone(), function.return_type)),
+        }
+    }
+
+    fn invalid_dynamic_trait_call(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR dynamic trait call has an invalid ABI contract: {message}"),
+        ));
     }
 
     fn validate_place(&mut self, place: &FunctionPlace) {
