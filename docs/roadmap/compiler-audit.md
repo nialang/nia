@@ -444,6 +444,11 @@ commit as the corresponding implementation batch.
       Cmpxchg failure ordering uses the actual acquire/release partial order,
       rejecting incomparable `Release`/`Acquire` pairs at both source and
       backend boundaries; focused matrices cover malformed producer IR.
+- [x] Phase B bulk-memory validation now checks mutable destination slices,
+      element metadata, copy/move source slices, and byte-only set operations
+      before LLVM extracts fat-pointer fields or computes byte counts. The
+      Function IR operation documents this producer/consumer contract, and a
+      malformed-IR matrix covers each independent mismatch.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

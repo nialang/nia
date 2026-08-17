@@ -108,6 +108,11 @@ pub struct FunctionDeferBody {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// An effect-only bulk memory operation over slice storage.
+///
+/// `dest` must be a mutable slice of `elem_ty`. Copy and move operations pair
+/// with a slice source of the same element type, while set operations require
+/// both `elem_ty` and their byte source to be `u8`.
 pub struct FunctionMemoryIntrinsic {
     pub span: Span,
     pub op: FunctionMemoryIntrinsicOp,
@@ -117,12 +122,14 @@ pub struct FunctionMemoryIntrinsic {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// The source shape paired with a [`FunctionMemoryIntrinsic`] operation.
 pub enum FunctionMemoryIntrinsicSource {
     Slice(FunctionExpr),
     Byte(FunctionExpr),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The overlap contract of a [`FunctionMemoryIntrinsic`].
 pub enum FunctionMemoryIntrinsicOp {
     Copy,
     Move,
