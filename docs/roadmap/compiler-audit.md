@@ -449,6 +449,13 @@ commit as the corresponding implementation batch.
       before LLVM extracts fat-pointer fields or computes byte counts. The
       Function IR operation documents this producer/consumer contract, and a
       malformed-IR matrix covers each independent mismatch.
+- [x] Phase B low-level builtin validation now checks unaligned-load metadata
+      and byte pointers plus SIMD splat/lane/bitmask, integer bit-intrinsic,
+      and Unicode scalar conversion operand/result contracts before typed LLVM
+      casts, extracts, calls, or aggregate writes. Function IR documents the
+      per-variant contract and a malformed-IR matrix covers all mismatch axes.
+      Bitmask lane limits and result widening now follow the target `usize`
+      width instead of assuming LP64.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

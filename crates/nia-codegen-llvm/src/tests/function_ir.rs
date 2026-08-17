@@ -2,8 +2,8 @@
 use super::common::*;
 use nia_backend_ir::BackendEnumVariantPayload;
 use nia_function_ir::{
-    AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic, FunctionMemoryIntrinsic,
-    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource,
+    AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic, FunctionBitIntrinsicOp,
+    FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource,
 };
 
 fn single_module_program(
@@ -376,6 +376,102 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("define i32"), "{ir}");
     assert!(ir.contains("ret i32 7"), "{ir}");
+}
+
+#[test]
+fn emits_bitmask_with_32_bit_usize_result() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let boolx16_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::Bool,
+        lanes: 16,
+    });
+    let span = Span::default();
+    let vector = FunctionExpr {
+        span,
+        ty: boolx16_ty,
+        kind: FunctionExprKind::Splat {
+            value: Box::new(FunctionExpr {
+                span,
+                ty: bool_ty,
+                kind: FunctionExprKind::Bool(true),
+            }),
+        },
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("mask"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: usize_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: usize_ty,
+                        kind: FunctionExprKind::Bitmask {
+                            vector: Box::new(vector),
+                        },
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: usize_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout {
+                pointer_size: 4,
+                pointer_align: 4,
+            },
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("define i32"), "{ir}");
+    assert!(ir.contains("ret i32 65535"), "{ir}");
+    assert!(!ir.contains("ret i64"), "{ir}");
 }
 
 #[test]
@@ -1120,6 +1216,210 @@ fn validates_memory_intrinsic_contracts_before_llvm() {
         "set operation element type is not u8",
         "set source is not a u8 value",
         "set operation requires a byte source",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
+fn validates_low_level_builtin_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let char_ty = interner.primitive(PrimitiveTy::Char);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let u32_ty = interner.primitive(PrimitiveTy::U32);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let optional_char_ty = interner.intern(TyKind::Optional { elem: char_ty });
+    let byte_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: u8_ty,
+    });
+    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let i32x4_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 4,
+    });
+    let boolx4_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::Bool,
+        lanes: 4,
+    });
+    let boolx65_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::Bool,
+        lanes: 65,
+    });
+    let span = Span::default();
+    let value = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let builtin = |ty, kind| FunctionOp::Expr(FunctionExpr { span, ty, kind });
+    let ops = vec![
+        builtin(
+            bool_ty,
+            FunctionExprKind::LoadUnaligned {
+                ty: i32_ty,
+                ptr: Box::new(value(i32_ptr_ty)),
+            },
+        ),
+        builtin(
+            i32x4_ty,
+            FunctionExprKind::Splat {
+                value: Box::new(value(bool_ty)),
+            },
+        ),
+        builtin(
+            i32_ty,
+            FunctionExprKind::Splat {
+                value: Box::new(value(i32_ty)),
+            },
+        ),
+        builtin(
+            bool_ty,
+            FunctionExprKind::ExtractElement {
+                vector: Box::new(value(i32x4_ty)),
+                index: Box::new(value(f32_ty)),
+            },
+        ),
+        builtin(
+            boolx4_ty,
+            FunctionExprKind::InsertElement {
+                vector: Box::new(value(i32x4_ty)),
+                index: Box::new(value(f32_ty)),
+                value: Box::new(value(bool_ty)),
+            },
+        ),
+        builtin(
+            i32_ty,
+            FunctionExprKind::Bitmask {
+                vector: Box::new(value(i32x4_ty)),
+            },
+        ),
+        builtin(
+            usize_ty,
+            FunctionExprKind::Bitmask {
+                vector: Box::new(value(boolx65_ty)),
+            },
+        ),
+        builtin(
+            u32_ty,
+            FunctionExprKind::BitIntrinsic {
+                op: FunctionBitIntrinsicOp::Ctz,
+                value: Box::new(value(i32_ty)),
+            },
+        ),
+        builtin(
+            f32_ty,
+            FunctionExprKind::BitIntrinsic {
+                op: FunctionBitIntrinsicOp::Popcount,
+                value: Box::new(value(f32_ty)),
+            },
+        ),
+        builtin(
+            optional_char_ty,
+            FunctionExprKind::CharFromU32 {
+                value: Box::new(value(i32_ty)),
+            },
+        ),
+        builtin(
+            i32_ty,
+            FunctionExprKind::CharFromU32 {
+                value: Box::new(value(u32_ty)),
+            },
+        ),
+        builtin(
+            i32_ty,
+            FunctionExprKind::LoadUnaligned {
+                ty: i32_ty,
+                ptr: Box::new(value(byte_ptr_ty)),
+            },
+        ),
+    ];
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_low_level_builtins"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops,
+                terminator: FunctionTerminator::Tail {
+                    value: Some(value(i32_ty)),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "unaligned load has an invalid contract: result type",
+        "unaligned load has an invalid contract: operand is not a byte pointer",
+        "SIMD splat has an invalid contract: scalar value type",
+        "SIMD splat has an invalid contract: result is not a vector",
+        "SIMD lane has an invalid contract: index",
+        "SIMD extract has an invalid contract: result type",
+        "SIMD insert has an invalid contract: result type",
+        "SIMD insert has an invalid contract: inserted value type",
+        "SIMD bitmask has an invalid contract: result type",
+        "SIMD bitmask has an invalid contract: operand is not a bool vector",
+        "SIMD bitmask has an invalid contract: mask exceeds the target usize width",
+        "bit intrinsic has an invalid contract: operand",
+        "bit intrinsic has an invalid contract: result type",
+        "char conversion has an invalid contract: operand type",
+        "char conversion has an invalid contract: result type",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),

@@ -747,11 +747,14 @@ impl<'a> BodyChecker<'a> {
                 elem: PrimitiveTy::Bool,
                 lanes,
             }) => {
-                if lanes > 64 {
+                if lanes > self.target.pointer_width {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         args[0].span,
-                        "builtin `bitmask` supports at most 64 SIMD mask lanes",
+                        format!(
+                            "builtin `bitmask` supports at most {} SIMD mask lanes for this target",
+                            self.target.pointer_width
+                        ),
                     ));
                 }
             }

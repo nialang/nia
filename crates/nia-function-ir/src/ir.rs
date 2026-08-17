@@ -297,29 +297,36 @@ pub enum FunctionExprKind {
     },
     InlineAsm(FunctionInlineAsm),
     Atomic(FunctionAtomic),
+    /// Loads `ty` at byte alignment from a readonly or mutable `u8` pointer.
     LoadUnaligned {
         ty: InternedTyId,
         ptr: Box<FunctionExpr>,
     },
+    /// Broadcasts one scalar lane into the result SIMD vector type.
     Splat {
         value: Box<FunctionExpr>,
     },
+    /// Extracts one lane using an integer index; the result is the lane type.
     ExtractElement {
         vector: Box<FunctionExpr>,
         index: Box<FunctionExpr>,
     },
+    /// Replaces one lane and returns the same SIMD vector type.
     InsertElement {
         vector: Box<FunctionExpr>,
         index: Box<FunctionExpr>,
         value: Box<FunctionExpr>,
     },
+    /// Packs bool lanes, up to the target `usize` width, into a `usize` result.
     Bitmask {
         vector: Box<FunctionExpr>,
     },
+    /// Applies an LLVM integer bit-counting intrinsic without changing type.
     BitIntrinsic {
         op: FunctionBitIntrinsicOp,
         value: Box<FunctionExpr>,
     },
+    /// Converts a `u32` scalar to `Optional[char]` after validity checks.
     CharFromU32 {
         value: Box<FunctionExpr>,
     },
