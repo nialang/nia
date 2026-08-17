@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 use nia_backend_ir::BackendEnumVariantPayload;
-use nia_function_ir::{AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic};
+use nia_function_ir::{
+    AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic, FunctionMemoryIntrinsic,
+    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource,
+};
 
 fn single_module_program(
     module_id: ModuleId,
@@ -974,6 +977,156 @@ fn validates_atomic_contracts_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+}
+
+#[test]
+fn validates_memory_intrinsic_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let mutable_i32_slice_ty = interner.intern(TyKind::Slice {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let readonly_i32_slice_ty = interner.intern(TyKind::Slice {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let readonly_bool_slice_ty = interner.intern(TyKind::Slice {
+        is_readonly: true,
+        elem: bool_ty,
+    });
+    let span = Span::default();
+    let value = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let memory = |op, elem_ty, dest_ty, source| {
+        FunctionOp::MemoryIntrinsic(Box::new(FunctionMemoryIntrinsic {
+            span,
+            op,
+            elem_ty,
+            dest: value(dest_ty),
+            source,
+        }))
+    };
+    let ops = vec![
+        memory(
+            FunctionMemoryIntrinsicOp::Copy,
+            i32_ty,
+            readonly_i32_slice_ty,
+            FunctionMemoryIntrinsicSource::Slice(value(readonly_bool_slice_ty)),
+        ),
+        memory(
+            FunctionMemoryIntrinsicOp::Move,
+            i32_ty,
+            i32_ty,
+            FunctionMemoryIntrinsicSource::Slice(value(readonly_i32_slice_ty)),
+        ),
+        memory(
+            FunctionMemoryIntrinsicOp::Copy,
+            i32_ty,
+            mutable_i32_slice_ty,
+            FunctionMemoryIntrinsicSource::Byte(value(u8_ty)),
+        ),
+        memory(
+            FunctionMemoryIntrinsicOp::Set,
+            i32_ty,
+            mutable_i32_slice_ty,
+            FunctionMemoryIntrinsicSource::Byte(value(bool_ty)),
+        ),
+        memory(
+            FunctionMemoryIntrinsicOp::Set,
+            u8_ty,
+            mutable_i32_slice_ty,
+            FunctionMemoryIntrinsicSource::Slice(value(readonly_i32_slice_ty)),
+        ),
+    ];
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_memory_intrinsics"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops,
+                terminator: FunctionTerminator::Tail {
+                    value: Some(value(i32_ty)),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (u8_ty, TypeLayout { size: 1, align: 1 }),
+                (mutable_i32_slice_ty, TypeLayout { size: 16, align: 8 }),
+                (readonly_i32_slice_ty, TypeLayout { size: 16, align: 8 }),
+                (readonly_bool_slice_ty, TypeLayout { size: 16, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "destination slice is readonly",
+        "destination is not a slice",
+        "destination element type does not match",
+        "source element type does not match",
+        "copy or move operation requires a slice source",
+        "set operation element type is not u8",
+        "set source is not a u8 value",
+        "set operation requires a byte source",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
 }
 
 #[test]
