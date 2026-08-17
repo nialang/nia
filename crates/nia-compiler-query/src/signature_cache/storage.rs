@@ -18,16 +18,15 @@ impl PersistentSignatureCache {
         node_store: &nia_node_id::NodeStore,
     ) -> io::Result<SignatureTypeResolutionLookup> {
         let path = self.type_resolution_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
+        let encoded = match read_signature_cache_entry(&path)? {
+            SignatureCacheEntryRead::Bytes(encoded) => encoded,
+            SignatureCacheEntryRead::Oversized => {
                 remove_corrupt(&path);
                 return Ok(SignatureTypeResolutionLookup::Corrupt);
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            SignatureCacheEntryRead::NotFound => {
                 return Ok(SignatureTypeResolutionLookup::NotFound);
             }
-            Err(error) => return Err(error),
         };
         let Some(payload) = decode_entry(&encoded, identity) else {
             remove_corrupt(&path);
@@ -84,16 +83,15 @@ impl PersistentSignatureCache {
         type_store: &TypeStore,
     ) -> io::Result<SignatureTypeLoweringLookup> {
         let path = self.type_lowering_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
+        let encoded = match read_signature_cache_entry(&path)? {
+            SignatureCacheEntryRead::Bytes(encoded) => encoded,
+            SignatureCacheEntryRead::Oversized => {
                 remove_corrupt(&path);
                 return Ok(SignatureTypeLoweringLookup::Corrupt);
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            SignatureCacheEntryRead::NotFound => {
                 return Ok(SignatureTypeLoweringLookup::NotFound);
             }
-            Err(error) => return Err(error),
         };
         let Some(payload) = decode_type_lowering_entry(&encoded, identity) else {
             remove_corrupt(&path);
@@ -167,16 +165,15 @@ impl PersistentSignatureCache {
         type_store: &TypeStore,
     ) -> io::Result<SignatureItemSignaturesLookup> {
         let path = self.item_signatures_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
+        let encoded = match read_signature_cache_entry(&path)? {
+            SignatureCacheEntryRead::Bytes(encoded) => encoded,
+            SignatureCacheEntryRead::Oversized => {
                 remove_corrupt(&path);
                 return Ok(SignatureItemSignaturesLookup::Corrupt);
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            SignatureCacheEntryRead::NotFound => {
                 return Ok(SignatureItemSignaturesLookup::NotFound);
             }
-            Err(error) => return Err(error),
         };
         let Some(payload) = decode_item_signatures_entry(&encoded, identity) else {
             remove_corrupt(&path);
@@ -237,16 +234,15 @@ impl PersistentSignatureCache {
         identity: ExtensionValidationDiagnosticsIdentity<'_>,
     ) -> io::Result<ExtensionValidationDiagnosticsLookup> {
         let path = self.extension_validation_diagnostics_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
+        let encoded = match read_signature_cache_entry(&path)? {
+            SignatureCacheEntryRead::Bytes(encoded) => encoded,
+            SignatureCacheEntryRead::Oversized => {
                 remove_corrupt(&path);
                 return Ok(ExtensionValidationDiagnosticsLookup::Corrupt);
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            SignatureCacheEntryRead::NotFound => {
                 return Ok(ExtensionValidationDiagnosticsLookup::NotFound);
             }
-            Err(error) => return Err(error),
         };
         let Some(payload) = decode_extension_validation_diagnostics_entry(&encoded, identity)
         else {
@@ -294,16 +290,15 @@ impl PersistentSignatureCache {
         modules: &HashMap<String, ModuleId>,
     ) -> io::Result<ExecutableValueRefEdgesLookup> {
         let path = self.executable_value_ref_edges_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
+        let encoded = match read_signature_cache_entry(&path)? {
+            SignatureCacheEntryRead::Bytes(encoded) => encoded,
+            SignatureCacheEntryRead::Oversized => {
                 remove_corrupt(&path);
                 return Ok(ExecutableValueRefEdgesLookup::Corrupt);
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            SignatureCacheEntryRead::NotFound => {
                 return Ok(ExecutableValueRefEdgesLookup::NotFound);
             }
-            Err(error) => return Err(error),
         };
         let Some(payload) = decode_executable_value_ref_edges_entry(&encoded, identity) else {
             remove_corrupt(&path);
@@ -348,16 +343,15 @@ impl PersistentSignatureCache {
         identity: CheckCertificateIdentity<'_>,
     ) -> io::Result<CheckCertificateLookup> {
         let path = self.check_certificate_path(identity.key);
-        let encoded = match fs::read(&path) {
-            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
-            Ok(_) => {
+        let encoded = match read_signature_cache_entry(&path)? {
+            SignatureCacheEntryRead::Bytes(encoded) => encoded,
+            SignatureCacheEntryRead::Oversized => {
                 remove_corrupt(&path);
                 return Ok(CheckCertificateLookup::Corrupt);
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            SignatureCacheEntryRead::NotFound => {
                 return Ok(CheckCertificateLookup::NotFound);
             }
-            Err(error) => return Err(error),
         };
         let Some(certificate) = decode_check_certificate(&encoded, identity) else {
             remove_corrupt(&path);
@@ -494,6 +488,38 @@ fn atomic_publish(path: &Path, encoded: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+enum SignatureCacheEntryRead {
+    NotFound,
+    Oversized,
+    Bytes(Vec<u8>),
+}
+
+/// Enforces the decoder's entry budget on the opened stream. The metadata
+/// check avoids reading known oversized files, while `max + 1` also catches a
+/// file that grows after metadata was observed without an unbounded allocation.
+fn read_signature_cache_entry(path: &Path) -> io::Result<SignatureCacheEntryRead> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(SignatureCacheEntryRead::NotFound);
+        }
+        Err(error) => return Err(error),
+    };
+    let metadata_len = file.metadata()?.len();
+    let max_bytes = u64::try_from(MAX_ENTRY_BYTES).unwrap_or(u64::MAX);
+    if metadata_len > max_bytes {
+        return Ok(SignatureCacheEntryRead::Oversized);
+    }
+    let mut encoded = Vec::with_capacity(usize::try_from(metadata_len).unwrap_or(0));
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut encoded)?;
+    if encoded.len() > MAX_ENTRY_BYTES {
+        Ok(SignatureCacheEntryRead::Oversized)
+    } else {
+        Ok(SignatureCacheEntryRead::Bytes(encoded))
+    }
+}
+
 fn validate_entry_size(len: usize) -> io::Result<()> {
     if len > MAX_ENTRY_BYTES {
         return Err(io::Error::new(
@@ -511,11 +537,34 @@ fn remove_corrupt(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn entry_size_limit_is_shared_by_all_publishers() {
         validate_entry_size(MAX_ENTRY_BYTES).expect("limit itself is valid");
         let error = validate_entry_size(MAX_ENTRY_BYTES + 1).expect_err("oversized entry");
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn oversized_entry_is_rejected_from_metadata_without_full_read() {
+        let path = std::env::temp_dir().join(format!(
+            "nia-signature-cache-oversized-{}-{}",
+            std::process::id(),
+            TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let file = File::create(&path).expect("create sparse cache entry");
+        file.set_len((MAX_ENTRY_BYTES + 1) as u64)
+            .expect("extend sparse cache entry");
+        drop(file);
+
+        assert!(matches!(
+            read_signature_cache_entry(&path).expect("read bounded cache entry"),
+            SignatureCacheEntryRead::Oversized
+        ));
+
+        fs::remove_file(path).expect("remove sparse cache entry");
     }
 }

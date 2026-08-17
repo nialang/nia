@@ -314,6 +314,10 @@ commit as the corresponding implementation batch.
 - [x] Persistent signature-cache publication enforces the same bounded entry
       size used by decoders, preventing oversized type/signature products from
       being written only to become guaranteed cache misses on the next load.
+- [x] Persistent signature-cache reads enforce that shared 64 MiB budget on
+      the opened stream as well as file metadata, so all six products reject
+      oversized or concurrently growing entries without an unbounded
+      `fs::read` allocation.
 - [x] Loader frontend-cache publication now enforces its read-side size bound
       and only treats `AlreadyExists` as a benign concurrent-writer outcome;
       permission, I/O, and other rename failures remain visible to callers.
@@ -564,8 +568,8 @@ commit as the corresponding implementation batch.
       memory, and a compatibility regression proves cache-key parity.
 - [x] Phase D staged external-command output snapshots now open each regular
       file once and enforce the observed length on the byte stream, closing the
-      metadata/growth race. The current cache envelope still buffers the stable
-      snapshots and requires a streaming payload publication/restore redesign.
+      metadata/growth race. The later streaming publication path retains these
+      handles and their stable checksums instead of buffering output bytes.
 - [x] Phase D generated-file publication now compares an existing destination
       through one no-follow handle, an exact expected-length budget, and a fixed
       buffer; unchanged-output detection no longer uses an unbounded `fs::read`.
