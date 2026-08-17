@@ -366,8 +366,7 @@ impl<'a> Analyzer<'a> {
                     self.analyze_loop(&for_in.body, env, loop_env);
                 }
                 TypedStmtKind::While(while_stmt) => {
-                    self.analyze_expr(&while_stmt.cond, env);
-                    self.analyze_loop(&while_stmt.body, env, env.clone());
+                    self.analyze_while_loop(&while_stmt.cond, &while_stmt.body, env);
                 }
                 TypedStmtKind::Loop(loop_stmt) => {
                     self.analyze_loop(&loop_stmt.body, env, env.clone());
@@ -392,6 +391,33 @@ impl<'a> Analyzer<'a> {
             join_environment(&mut next, &entry);
             if next == head {
                 *outer = next;
+                break;
+            }
+            head = next;
+        }
+    }
+
+    fn analyze_while_loop(
+        &mut self,
+        condition: &TypedExpr,
+        body: &TypedBody,
+        outer: &mut Environment,
+    ) {
+        let entry = outer.clone();
+        let mut head = entry.clone();
+        // `head` is the environment before the condition. Both the initial
+        // edge and every body backedge reach it, so the condition transfer must
+        // participate in the fixed point rather than run only once.
+        loop {
+            let mut after_condition = head.clone();
+            self.analyze_expr(condition, &mut after_condition);
+            let mut next = after_condition.clone();
+            self.analyze_nested_body(body, &mut next);
+            join_environment(&mut next, &entry);
+            if next == head {
+                // The false edge exits immediately after evaluating the
+                // condition, including its assignments and call effects.
+                *outer = after_condition;
                 break;
             }
             head = next;
@@ -1534,5 +1560,103 @@ mod tests {
             closure_id,
             stack_backed: true,
         }));
+    }
+
+    #[test]
+    fn while_backedges_reapply_condition_provenance_transfers() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
+        let callable_ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: unit_ty,
+        });
+        let pending = LocalId(0);
+        let selected = LocalId(1);
+        let stack_backed = LocalId(2);
+        let input = ValueProvenance::from_value(Provenances::from([Provenance::Input(
+            InputSource::Parameter(0),
+        )]));
+        let mut env = Environment::from([
+            (pending, input.clone()),
+            (selected, input),
+            (
+                stack_backed,
+                ValueProvenance::from_value(Provenances::from([Provenance::CallableClosure {
+                    closure_id,
+                    stack_backed: true,
+                }])),
+            ),
+        ]);
+        let local = |local_id| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Local(local_id),
+        };
+        let assign = |target, source| TypedExpr {
+            span: Span::default(),
+            ty: callable_ty,
+            kind: TypedExprKind::Assign {
+                place: TypedPlace {
+                    span: Span::default(),
+                    ty: callable_ty,
+                    base: PlaceBase::Local(target),
+                    elems: Vec::new(),
+                },
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(local(source)),
+            },
+        };
+        let condition = TypedExpr {
+            span: Span::default(),
+            ty: bool_ty,
+            kind: TypedExprKind::Block(TypedBody {
+                span: Span::default(),
+                locals: Vec::new(),
+                stmts: vec![nia_body_ir::TypedStmt {
+                    span: Span::default(),
+                    kind: TypedStmtKind::Expr(assign(selected, pending)),
+                }],
+                tail: Some(Box::new(TypedExpr {
+                    span: Span::default(),
+                    ty: bool_ty,
+                    kind: TypedExprKind::Bool(true),
+                })),
+                ty: bool_ty,
+            }),
+        };
+        let body = TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: vec![nia_body_ir::TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::Expr(assign(pending, stack_backed)),
+            }],
+            tail: None,
+            ty: unit_ty,
+        };
+        let summaries = HashMap::new();
+        let mut analyzer = Analyzer::new(&types, &summaries, None);
+
+        analyzer.analyze_while_loop(&condition, &body, &mut env);
+
+        assert!(
+            env.get(&selected)
+                .expect("selected local must remain in the loop environment")
+                .value
+                .contains(&Provenance::CallableClosure {
+                    closure_id,
+                    stack_backed: true,
+                })
+        );
     }
 }

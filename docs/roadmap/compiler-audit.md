@@ -525,6 +525,9 @@ commit as the corresponding implementation batch.
 - [x] Phase C closure call analysis now follows runtime callee/receiver-before-
       argument evaluation order, preventing callee-side assignments from
       hiding stack-backed arguments from escape summaries and diagnostics.
+- [x] Phase C closure loop analysis now includes repeated `while` condition
+      effects in the backedge fixed point, so condition-side provenance updates
+      after the first iteration reach the body and exit environment.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.
