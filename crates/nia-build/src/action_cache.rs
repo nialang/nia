@@ -38,6 +38,7 @@ pub(crate) use compiler_emit::{
 };
 pub(crate) use external_command::{
     ExternalCommandCache, ExternalCommandCacheIdentity, ExternalCommandCacheLookup,
+    ExternalCommandContentIdentity,
 };
 
 static CACHE_STAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);

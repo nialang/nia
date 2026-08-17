@@ -354,7 +354,7 @@ impl DriverActionExecutor {
             &inputs,
             outputs,
             self.plan.packages(),
-            &tool_contents,
+            tool_contents,
             self.invocation.toolchain.identity(),
         )
         .ok_or_else(|| {

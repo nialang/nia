@@ -61,6 +61,62 @@ const EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-tool-contents.v1");
 const EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-input-contents.v2");
+const EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExternalCommandContentIdentity {
+    length: u64,
+    fingerprint: QueryFingerprint,
+}
+
+impl ExternalCommandContentIdentity {
+    pub(crate) fn tool_from_reader(reader: &mut impl Read, length: u64) -> io::Result<Self> {
+        Self::from_reader(EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN, reader, length)
+    }
+
+    pub(crate) fn input_from_reader(reader: &mut impl Read, length: u64) -> io::Result<Self> {
+        Self::from_reader(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN, reader, length)
+    }
+
+    pub(crate) fn input_from_bytes(bytes: &[u8]) -> Self {
+        Self {
+            length: bytes.len() as u64,
+            fingerprint: bytes_fingerprint(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN, bytes),
+        }
+    }
+
+    /// Fingerprints exactly the size observed on the opened file handle. A
+    /// shorter read or a growth byte is rejected so metadata cannot become an
+    /// unbounded `read_to_end` allocation or describe different contents.
+    fn from_reader(
+        domain: FingerprintDomain,
+        reader: &mut impl Read,
+        length: u64,
+    ) -> io::Result<Self> {
+        let mut builder = QueryFingerprintBuilder::new(domain);
+        let mut writer = builder.bytes_writer(length);
+        let mut remaining = length;
+        let mut buffer = [0; EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES];
+        while remaining != 0 {
+            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            reader.read_exact(&mut buffer[..chunk_len])?;
+            writer.write_chunk(&buffer[..chunk_len])?;
+            remaining -= chunk_len as u64;
+        }
+        writer.finish()?;
+        let mut trailing = [0; 1];
+        if reader.read(&mut trailing)? != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "external-command identity file grew while it was read",
+            ));
+        }
+        Ok(Self {
+            length,
+            fingerprint: builder.finish(),
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FingerprintComponents {
@@ -142,10 +198,10 @@ impl ExternalCommandCacheIdentity {
         arguments: &[CommandArgument],
         working_directory: &LogicalPath,
         environment: &[EnvironmentInput],
-        inputs: &[(LogicalPath, Vec<u8>)],
+        inputs: &[(LogicalPath, ExternalCommandContentIdentity)],
         outputs: &[LogicalPath],
         packages: &[PlanPackage],
-        tool_contents: &[u8],
+        tool_contents: ExternalCommandContentIdentity,
         toolchain: &ToolchainIdentity,
     ) -> Option<Self> {
         let action_identity = action_identity(action);
@@ -155,12 +211,12 @@ impl ExternalCommandCacheIdentity {
         let regular_inputs = inputs
             .iter()
             .filter(|(path, _)| !matches!(path.root(), LogicalPathRoot::Artifact(_)))
-            .map(|(path, contents)| (path, contents.as_slice()))
+            .map(|(path, contents)| (path, *contents))
             .collect::<Vec<_>>();
         let dependency_inputs = inputs
             .iter()
             .filter(|(path, _)| matches!(path.root(), LogicalPathRoot::Artifact(_)))
-            .map(|(path, contents)| (path, contents.as_slice()))
+            .map(|(path, contents)| (path, *contents))
             .collect::<Vec<_>>();
         let mut package_paths = Vec::new();
         if let CommandProgram::Path(path) = program {
@@ -720,14 +776,11 @@ fn encode_program(encoded: &mut Vec<u8>, program: &CommandProgram) {
     }
 }
 
-fn tool_identity(program: &CommandProgram, contents: &[u8]) -> Vec<u8> {
+fn tool_identity(program: &CommandProgram, contents: ExternalCommandContentIdentity) -> Vec<u8> {
     let mut encoded = Vec::new();
     encode_program(&mut encoded, program);
-    encoded.extend_from_slice(&(contents.len() as u64).to_le_bytes());
-    write_fingerprint(
-        &mut encoded,
-        bytes_fingerprint(EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN, contents),
-    );
+    encoded.extend_from_slice(&contents.length.to_le_bytes());
+    write_fingerprint(&mut encoded, contents.fingerprint);
     encoded
 }
 
@@ -747,16 +800,13 @@ fn environment_identity(environment: &[EnvironmentInput]) -> Vec<u8> {
     encoded
 }
 
-fn input_identity(inputs: &[(&LogicalPath, &[u8])]) -> Vec<u8> {
+fn input_identity(inputs: &[(&LogicalPath, ExternalCommandContentIdentity)]) -> Vec<u8> {
     let mut encoded = Vec::new();
     encoded.extend_from_slice(&(inputs.len() as u64).to_le_bytes());
     for (path, contents) in inputs {
         write_bytes(&mut encoded, &logical_path_identity(path));
-        encoded.extend_from_slice(&(contents.len() as u64).to_le_bytes());
-        write_fingerprint(
-            &mut encoded,
-            bytes_fingerprint(EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN, contents),
-        );
+        encoded.extend_from_slice(&contents.length.to_le_bytes());
+        write_fingerprint(&mut encoded, contents.fingerprint);
     }
     encoded
 }
@@ -781,6 +831,32 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn streamed_content_identity_matches_bytes_and_rejects_length_changes() {
+        let expected = ExternalCommandContentIdentity::input_from_bytes(b"input contents");
+        let streamed = ExternalCommandContentIdentity::input_from_reader(
+            &mut Cursor::new(b"input contents"),
+            14,
+        )
+        .expect("stream input identity");
+        assert_eq!(streamed.length, expected.length);
+        assert_eq!(streamed.fingerprint, expected.fingerprint);
+
+        let growth = ExternalCommandContentIdentity::input_from_reader(
+            &mut Cursor::new(b"input contents!"),
+            14,
+        )
+        .expect_err("growth must be rejected");
+        assert_eq!(growth.kind(), io::ErrorKind::InvalidData);
+
+        let truncation = ExternalCommandContentIdentity::input_from_reader(
+            &mut Cursor::new(b"input contents"),
+            15,
+        )
+        .expect_err("truncation must be rejected");
+        assert_eq!(truncation.kind(), io::ErrorKind::UnexpectedEof);
+    }
 
     fn identity() -> ExternalCommandCacheIdentity {
         let action = b"action".to_vec();
