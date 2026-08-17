@@ -1695,9 +1695,24 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         module_id,
         def_id: DefId(5),
     };
+    let return_method_def = GlobalDefId {
+        module_id,
+        def_id: DefId(6),
+    };
+    let child_trait_def = GlobalDefId {
+        module_id,
+        def_id: DefId(7),
+    };
     let object_ty = interner.intern(TyKind::TraitObject {
         is_readonly: true,
         trait_id: TraitId::Source(trait_def),
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        associated_type_bindings: Vec::new(),
+    });
+    let child_object_ty = interner.intern(TyKind::TraitObject {
+        is_readonly: true,
+        trait_id: TraitId::Source(child_trait_def),
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         associated_type_bindings: Vec::new(),
@@ -1826,6 +1841,37 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         function_body: None,
         span,
     };
+    let return_method = BackendFunction {
+        def_id: return_method_def,
+        name: known::SHOW,
+        link_name: None,
+        generics: Vec::new(),
+        params: vec![
+            BackendParam {
+                local_id: None,
+                name: None,
+                receiver: Some(nia_ids::ReceiverKind::RefReadOnly),
+                passing_ty: i32_ptr_ty,
+                local_ty: i32_ty,
+                span,
+            },
+            BackendParam {
+                local_id: None,
+                name: None,
+                receiver: None,
+                passing_ty: i32_ty,
+                local_ty: i32_ty,
+                span,
+            },
+        ],
+        return_type: bool_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
     let bad_abi = BackendFunction {
         def_id: GlobalDefId {
             module_id,
@@ -1884,6 +1930,7 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
                     (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
                     (bool_ptr_ty, TypeLayout { size: 8, align: 8 }),
                     (object_ty, TypeLayout { size: 16, align: 8 }),
+                    (child_object_ty, TypeLayout { size: 16, align: 8 }),
                 ],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -1898,7 +1945,7 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
             enums: Vec::new(),
             globals: Vec::new(),
             global_instances: Vec::new(),
-            functions: vec![method, secondary_method, main, bad_abi],
+            functions: vec![method, secondary_method, return_method, main, bad_abi],
             function_instances: Vec::new(),
             closure_entries: Vec::new(),
             trait_object_vtables: vec![
@@ -1940,6 +1987,40 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
                     }],
                     span,
                 },
+                // This source table can reach `object_ty` through an upcast.
+                // Its root-trait entry makes the relative object-view offset
+                // non-zero, while the selected target has a malformed return
+                // ABI. Direct tables above must not hide this candidate.
+                BackendTraitObjectVtable {
+                    key: BackendTraitObjectVtableKey {
+                        self_ty: i32_ty,
+                        object_ty: child_object_ty,
+                    },
+                    trait_id: TraitId::Source(child_trait_def),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                    entries: vec![
+                        BackendTraitObjectVtableEntry {
+                            trait_id: TraitId::Source(child_trait_def),
+                            trait_args: Vec::new(),
+                            trait_const_args: Vec::new(),
+                            method_id: method_def,
+                            method_name: known::SHOW,
+                            slot: 0,
+                            function: BackendTraitObjectVtableFunction::Function(method_def),
+                        },
+                        BackendTraitObjectVtableEntry {
+                            trait_id: TraitId::Source(trait_def),
+                            trait_args: Vec::new(),
+                            trait_const_args: Vec::new(),
+                            method_id: method_def,
+                            method_name: known::SHOW,
+                            slot: 1,
+                            function: BackendTraitObjectVtableFunction::Function(return_method_def),
+                        },
+                    ],
+                    span,
+                },
             ],
             generic_instantiations: Vec::new(),
         }]
@@ -1964,6 +2045,15 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
             &output.diagnostics,
             codes::INVALID_BACKEND_IR,
             "parameter metadata does not match the vtable target signature"
+        ),
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(
+        has_internal_diagnostic(
+            &output.diagnostics,
+            codes::INVALID_BACKEND_IR,
+            "return metadata does not match the vtable target signature"
         ),
         "{:?}",
         output.diagnostics
