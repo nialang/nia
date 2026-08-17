@@ -10,7 +10,7 @@ use nia_target_config::TargetConfig;
 
 use crate::RuntimeModel;
 
-const FRONTEND_CACHE_SCHEMA_VERSION: u64 = 2;
+const FRONTEND_CACHE_SCHEMA_VERSION: u64 = 3;
 const SOURCE_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.source.v1");
 const SIGNATURE_TYPE_RESOLUTION_CACHE_KEY_DOMAIN: FingerprintDomain =

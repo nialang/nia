@@ -324,3 +324,73 @@ fn main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
     .expect("external MixedBits instance detail");
     assert_eq!(external_mixed_bits, mixed_bits.clone());
 }
+
+#[test]
+fn substitutes_interleaved_type_and_const_alias_parameters_in_layouts() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, symbols) = parse_test_module(
+        r#"
+type Mixed[T, N: usize, U] = ([T; N], U);
+fn main(value: Mixed[u8, 3, u32]) {}
+"#,
+    );
+    let defs = collect_module_defs(module_id, &module);
+    let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+    let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
+    let const_eval = compute_test_const(
+        module_id,
+        &type_store,
+        &module,
+        &symbols,
+        &defs,
+        &signatures,
+        &lowered,
+    );
+    let root_types = signatures.type_roots();
+    let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+        type_store: &type_store,
+        defs: &defs,
+        signatures: &signatures,
+        root_types: &root_types,
+        normalized: &HashMap::new(),
+        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        target: TargetDataLayout::LP64,
+        program: ProgramLayoutContext::default(),
+    });
+    assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+    let alias_id = defs
+        .module_scope
+        .types
+        .get(&sym("Mixed"))
+        .expect("Mixed alias def");
+    assert!(
+        root_types.iter().copied().any(|ty| {
+            matches!(
+                type_store.get(ty),
+                Some(TyKind::Nominal {
+                    def_id,
+                    const_args,
+                    ..
+                }) if def_id.def_id == alias_id
+                    && matches!(
+                        &const_args[0].value,
+                        ConstGenericValue::Int(value) if value.bits() == 3
+                    )
+            ) && layouts.types.get(&ty) == Some(&TypeLayout { size: 8, align: 4 })
+        }),
+        "root types: {:?}; layouts: {:?}",
+        root_types
+            .iter()
+            .map(|ty| (*ty, type_store.get(*ty)))
+            .collect::<Vec<_>>(),
+        layouts.types
+    );
+}

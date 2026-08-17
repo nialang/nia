@@ -215,6 +215,39 @@ pub enum GenericParamSignatureKind {
     Const { ty: InternedTyId },
 }
 
+/// Rebuilds type and const substitutions from declaration-order parameter metadata.
+///
+/// Nominal type identities store type arguments and const arguments in separate
+/// vectors even when their source parameters are interleaved. Independent cursors
+/// preserve that declaration mapping and reject missing or surplus arguments.
+pub fn generic_argument_substitutions(
+    params: &[GenericParamSignature],
+    args: &[InternedTyId],
+    const_args: &[nia_ty::ConstGenericArg],
+) -> Option<(
+    nia_symbol::SymbolMap<InternedTyId>,
+    nia_symbol::SymbolMap<nia_ty::ConstGenericArg>,
+)> {
+    let mut type_index = 0;
+    let mut const_index = 0;
+    let mut substitutions = nia_symbol::SymbolMap::default();
+    let mut const_substitutions = nia_symbol::SymbolMap::default();
+    for param in params {
+        match param.kind {
+            GenericParamSignatureKind::Type => {
+                substitutions.insert(param.name, *args.get(type_index)?);
+                type_index += 1;
+            }
+            GenericParamSignatureKind::Const { .. } => {
+                const_substitutions.insert(param.name, const_args.get(const_index)?.clone());
+                const_index += 1;
+            }
+        }
+    }
+    (type_index == args.len() && const_index == const_args.len())
+        .then_some((substitutions, const_substitutions))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionAttribute {
     Naked,
@@ -425,6 +458,9 @@ pub enum EnumVariantPayloadSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasSignature {
     pub generics: Vec<SymbolId>,
+    /// Declaration-order parameter kinds used to rebuild the separate type and
+    /// const argument vectors stored in nominal type identities.
+    pub generic_params: Vec<GenericParamSignature>,
     pub target: InternedTyId,
     pub span: Span,
 }
@@ -472,4 +508,58 @@ mod tests {
 
     #[path = "item_signatures/type_store_contracts.rs"]
     mod type_store_contracts;
+
+    #[test]
+    fn generic_argument_substitutions_preserve_interleaved_parameter_order() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let usize_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        let u8_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8));
+        let u16_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::U16));
+        let type_name = sym("T");
+        let const_name = sym("N");
+        let trailing_type_name = sym("U");
+        let params = [
+            GenericParamSignature {
+                name: type_name,
+                kind: GenericParamSignatureKind::Type,
+            },
+            GenericParamSignature {
+                name: const_name,
+                kind: GenericParamSignatureKind::Const { ty: usize_ty },
+            },
+            GenericParamSignature {
+                name: trailing_type_name,
+                kind: GenericParamSignatureKind::Type,
+            },
+        ];
+        let const_arg = nia_ty::ConstGenericArg {
+            ty: usize_ty,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+        };
+
+        let (types, consts) = generic_argument_substitutions(
+            &params,
+            &[u8_ty, u16_ty],
+            std::slice::from_ref(&const_arg),
+        )
+        .expect("complete argument vectors");
+        assert_eq!(types.get(&type_name), Some(&u8_ty));
+        assert_eq!(types.get(&trailing_type_name), Some(&u16_ty));
+        assert_eq!(consts.get(&const_name), Some(&const_arg));
+        assert!(
+            generic_argument_substitutions(&params, &[u8_ty], std::slice::from_ref(&const_arg))
+                .is_none()
+        );
+        assert!(
+            generic_argument_substitutions(
+                &params,
+                &[u8_ty, u16_ty],
+                &[const_arg.clone(), const_arg],
+            )
+            .is_none()
+        );
+    }
 }

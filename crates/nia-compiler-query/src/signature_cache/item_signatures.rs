@@ -673,6 +673,7 @@ pub(crate) fn write_type_alias_signature(
     graph: &mut TypeGraphEncoder<'_>,
 ) -> io::Result<()> {
     write_symbols(encoded, &signature.generics, graph)?;
+    write_generic_params(encoded, &signature.generic_params, graph)?;
     write_type_index(encoded, graph.intern(signature.target)?);
     write_span(encoded, signature.span);
     Ok(())
@@ -686,6 +687,7 @@ pub(crate) fn read_type_alias_signature(
 ) -> Option<item_signatures::TypeAliasSignature> {
     Some(item_signatures::TypeAliasSignature {
         generics: read_symbols(cursor, symbols)?,
+        generic_params: read_generic_params(cursor, types, symbols)?,
         target: read_type_index(cursor, types)?,
         span: read_span(cursor, source_len)?,
     })
