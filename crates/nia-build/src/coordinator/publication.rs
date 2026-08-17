@@ -6,6 +6,8 @@
 //! reverse order while the caller still holds every output lock.
 
 use super::*;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
 
 pub(super) fn path_text(action: &PlanAction, path: &Path) -> Result<String, CoordinatorError> {
     path.to_str()
@@ -546,9 +548,7 @@ pub(super) fn write_generated_file(
     output: &std::path::Path,
     contents: &[u8],
 ) -> Result<(), CoordinatorError> {
-    if fs::symlink_metadata(output).is_ok_and(|metadata| metadata.file_type().is_file())
-        && fs::read(output).is_ok_and(|current| current == contents)
-    {
+    if generated_file_matches(output, contents) {
         return Ok(());
     }
     let parent = output
@@ -597,6 +597,47 @@ pub(super) fn write_generated_file(
         }
     }
     result
+}
+
+fn generated_file_matches(path: &Path, expected: &[u8]) -> bool {
+    (|| -> io::Result<bool> {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        options.custom_flags(libc::O_NOFOLLOW);
+        let mut file = options.open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Ok(false);
+        }
+        generated_stream_matches(&mut file, metadata.len(), expected)
+    })()
+    .unwrap_or(false)
+}
+
+/// Compares an existing generated output with fixed memory and an exact stream
+/// budget. A replacement or growth race becomes a mismatch and takes the normal
+/// atomic publication path instead of allocating the complete existing file.
+fn generated_stream_matches(
+    reader: &mut impl io::Read,
+    observed_len: u64,
+    expected: &[u8],
+) -> io::Result<bool> {
+    if observed_len != u64::try_from(expected.len()).unwrap_or(u64::MAX) {
+        return Ok(false);
+    }
+    let mut buffer = [0; 64 * 1024];
+    let mut offset = 0;
+    while offset != expected.len() {
+        let chunk_len = (expected.len() - offset).min(buffer.len());
+        reader.read_exact(&mut buffer[..chunk_len])?;
+        if buffer[..chunk_len] != expected[offset..offset + chunk_len] {
+            return Ok(false);
+        }
+        offset += chunk_len;
+    }
+    let mut trailing = [0; 1];
+    Ok(reader.read(&mut trailing)? == 0)
 }
 
 pub(super) fn install_artifact_io(
@@ -656,5 +697,18 @@ fn generated_io(
         path: path.to_path_buf(),
         operation,
         error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_stream_comparison_is_bounded_and_exact() {
+        assert!(generated_stream_matches(&mut io::Cursor::new(b"source"), 6, b"source").unwrap());
+        assert!(!generated_stream_matches(&mut io::Cursor::new(b"sourcf"), 6, b"source").unwrap());
+        assert!(!generated_stream_matches(&mut io::Cursor::new(b"source!"), 6, b"source").unwrap());
+        assert!(!generated_stream_matches(&mut io::Cursor::new(b"source"), 7, b"source").unwrap());
     }
 }
