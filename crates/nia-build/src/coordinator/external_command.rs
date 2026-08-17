@@ -395,28 +395,7 @@ pub(super) fn read_staged_external_outputs(
         .outputs
         .iter()
         .map(|output| {
-            let metadata = fs::symlink_metadata(&output.temporary).map_err(|error| {
-                staged_output_io(
-                    action,
-                    &output.temporary,
-                    "inspect command-produced",
-                    error,
-                    None,
-                )
-            })?;
-            if !metadata.file_type().is_file() {
-                return Err(staged_output_io(
-                    action,
-                    &output.temporary,
-                    "cache non-file",
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "external command output must be a regular file",
-                    ),
-                    None,
-                ));
-            }
-            fs::read(&output.temporary).map_err(|error| {
+            read_staged_external_output(&output.temporary).map_err(|error| {
                 staged_output_io(
                     action,
                     &output.temporary,
@@ -427,6 +406,45 @@ pub(super) fn read_staged_external_outputs(
             })
         })
         .collect()
+}
+
+fn read_staged_external_output(path: &Path) -> io::Result<Vec<u8>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "external command output must be a regular file",
+        ));
+    }
+    read_external_output_stream(&mut file, metadata.len())
+}
+
+/// Reads one staged output using the opened handle's observed length as the
+/// allocation and stream limit. Outputs remain buffered for the current cache
+/// format, but concurrent growth can no longer turn the snapshot unbounded.
+fn read_external_output_stream(reader: &mut impl Read, expected_len: u64) -> io::Result<Vec<u8>> {
+    let expected_len = usize::try_from(expected_len).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "external command output is too large for this host",
+        )
+    })?;
+    let mut bytes = Vec::with_capacity(expected_len);
+    Read::by_ref(reader)
+        .take((expected_len as u64).saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() != expected_len {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "external command output changed length while it was read",
+        ));
+    }
+    Ok(bytes)
 }
 
 pub(super) fn restore_cached_external_outputs(
@@ -717,4 +735,29 @@ pub(super) fn display_output_tails(
         write!(f, "\nstderr tail:\n{}", String::from_utf8_lossy(stderr))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn staged_output_stream_rejects_growth_and_truncation() {
+        assert_eq!(
+            read_external_output_stream(&mut io::Cursor::new(b"output"), 6).unwrap(),
+            b"output"
+        );
+        assert_eq!(
+            read_external_output_stream(&mut io::Cursor::new(b"output!"), 6)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            read_external_output_stream(&mut io::Cursor::new(b"output"), 7)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
 }

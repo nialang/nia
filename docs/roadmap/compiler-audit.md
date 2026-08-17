@@ -562,6 +562,10 @@ commit as the corresponding implementation batch.
       metadata, then stream the registered recursive byte format through one
       fixed buffer. File payloads and nested encodings no longer accumulate in
       memory, and a compatibility regression proves cache-key parity.
+- [x] Phase D staged external-command output snapshots now open each regular
+      file once and enforce the observed length on the byte stream, closing the
+      metadata/growth race. The current cache envelope still buffers the stable
+      snapshots and requires a streaming payload publication/restore redesign.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
