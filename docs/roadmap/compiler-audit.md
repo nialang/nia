@@ -454,6 +454,10 @@ commit as the corresponding implementation batch.
       callable-view, function-pointer, builtin-method, and builtin-operator call
       contracts before LLVM; generic method instances also preserve their named
       extern and variadic flags instead of swapping positional tuple fields.
+- [x] Phase B closure-entry calls now resolve through the exact enclosing
+      source/function-instance owner and validate generated state-pointer,
+      parameter, and return ABI metadata before LLVM; missing-entry and malformed
+      call regressions cover the owner boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

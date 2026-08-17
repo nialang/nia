@@ -2887,6 +2887,209 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
 }
 
 #[test]
+fn validates_closure_entry_call_contract_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let main_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let closure_id = nia_ids::ClosureId {
+        owner: main_id,
+        ordinal: 0,
+    };
+    let state_ty = interner.intern(TyKind::ClosureState {
+        closure_id,
+        captures: Vec::new(),
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let state_pointer_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: state_ty,
+    });
+    let integer = || FunctionExpr {
+        span,
+        ty: i32_ty,
+        kind: FunctionExprKind::Integer("0".to_string()),
+    };
+    let main = BackendFunction {
+        def_id: main_id,
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: bool_ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::ClosureEntry {
+                                closure_id,
+                                state: Box::new(integer()),
+                            },
+                            args: Vec::new(),
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::ClosureEntry {
+                                closure_id: nia_ids::ClosureId {
+                                    owner: main_id,
+                                    ordinal: 1,
+                                },
+                                state: Box::new(FunctionExpr {
+                                    span,
+                                    ty: state_pointer_ty,
+                                    kind: FunctionExprKind::Null,
+                                }),
+                            },
+                            args: vec![integer()],
+                        },
+                    }),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(integer()),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let entry = nia_backend_ir::BackendClosureEntry {
+        key: nia_backend_ir::BackendClosureEntryKey {
+            closure_id,
+            owner: nia_backend_ir::BackendClosureEntryOwner::Source(main_id),
+        },
+        symbol: "main__closure_entry__ord__0".to_string(),
+        abi: nia_backend_ir::BackendClosureEntryAbi {
+            state_type: state_ty,
+            state_pointer_type: state_pointer_ty,
+            params: vec![i32_ty],
+            return_type: i32_ty,
+        },
+        state_param: LocalId(0),
+        params: vec![LocalId(1)],
+        local_names: Default::default(),
+        function_body: FunctionBody {
+            span,
+            locals: vec![
+                FunctionLocal {
+                    id: LocalId(0),
+                    name: local_name("state"),
+                    kind: FunctionLocalKind::Param,
+                    ty: state_pointer_ty,
+                    span,
+                },
+                FunctionLocal {
+                    id: LocalId(1),
+                    name: local_name("value"),
+                    kind: FunctionLocalKind::Param,
+                    ty: i32_ty,
+                    span,
+                },
+            ],
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(integer()),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        },
+        span,
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (bool_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (state_ty, TypeLayout { size: 0, align: 1 }),
+                    (state_pointer_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: vec![main],
+            function_instances: Vec::new(),
+            closure_entries: vec![entry],
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for message in [
+        "closure-entry call has an invalid ABI contract: state pointer type",
+        "closure-entry call has an invalid ABI contract: argument count",
+        "closure-entry call has an invalid ABI contract: result type",
+        "closure-entry call has an invalid ABI contract: call references a missing generated entry",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_function_ir_local_storage_type_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

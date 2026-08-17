@@ -777,8 +777,47 @@ impl BackendValidator<'_> {
         span: Span,
     ) {
         match callee {
-            FunctionCallee::ClosureEntry { state, .. } => {
+            FunctionCallee::ClosureEntry { closure_id, state } => {
                 self.validate_expr(state);
+                let Some(owner) = self.current_closure_owner.clone() else {
+                    self.invalid_call_contract(
+                        span,
+                        "closure-entry",
+                        "call has no enclosing closure owner",
+                    );
+                    return;
+                };
+                let key = nia_backend_ir::BackendClosureEntryKey {
+                    closure_id: *closure_id,
+                    owner,
+                };
+                let Some(entry) = self.index.closure_entry(&key) else {
+                    self.invalid_call_contract(
+                        span,
+                        "closure-entry",
+                        "call references a missing generated entry",
+                    );
+                    return;
+                };
+                let state_pointer_type = entry.abi.state_pointer_type;
+                let params = entry.abi.params.clone();
+                let return_type = entry.abi.return_type;
+                if !self.same_type(state.ty, state_pointer_type) {
+                    self.invalid_call_contract(
+                        span,
+                        "closure-entry",
+                        "state pointer type does not match generated entry ABI",
+                    );
+                }
+                self.validate_typed_call_signature(TypedCallContract {
+                    kind: "closure-entry",
+                    args: call_args,
+                    params: &params,
+                    return_type,
+                    is_variadic: false,
+                    result_ty: call_result_ty,
+                    span,
+                });
             }
             FunctionCallee::Function(def_id) => {
                 self.validate_function_ref(

@@ -65,6 +65,7 @@ struct ProgramIndexTables {
     functions: HashMap<GlobalDefId, ItemPosition>,
     function_instances: FunctionInstanceIndex,
     function_instances_by_def: HashMap<GlobalDefId, Vec<ItemPosition>>,
+    closure_entries: HashMap<nia_backend_ir::BackendClosureEntryKey, ItemPosition>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<ItemPosition>>,
     trait_object_vtables_by_trait: HashMap<TraitId, Vec<ItemPosition>>,
     trait_object_vtables: HashMap<nia_backend_ir::BackendTraitObjectVtableKey, ItemPosition>,
@@ -372,6 +373,15 @@ impl ProgramIndexPublisher {
                 .entry(item.def_id)
                 .or_default()
                 .push(position);
+        }
+        for (item_index, entry) in module.closure_entries.iter().enumerate() {
+            index.closure_entries.insert(
+                entry.key.clone(),
+                ItemPosition {
+                    module: module.id,
+                    item: item_index,
+                },
+            );
         }
         for (item_index, vtable) in module.trait_object_vtables.iter().enumerate() {
             let position = ItemPosition {
@@ -717,6 +727,14 @@ impl ProgramIndex {
     pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
         let position = self.tables().functions.get(&def_id).copied()?;
         Some(&self.module_at(position.module).functions[position.item])
+    }
+
+    pub(super) fn closure_entry(
+        &self,
+        key: &nia_backend_ir::BackendClosureEntryKey,
+    ) -> Option<&nia_backend_ir::BackendClosureEntry> {
+        let position = self.tables().closure_entries.get(key).copied()?;
+        Some(&self.module_at(position.module).closure_entries[position.item])
     }
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
