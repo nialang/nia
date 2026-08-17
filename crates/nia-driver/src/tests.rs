@@ -270,7 +270,7 @@ fn static_archive_requires_successful_tool_to_produce_output() {
     assert!(matches!(
         error,
         crate::DriverError::Io {
-            operation: "read temporary static archive",
+            operation: "install temporary static archive",
             ..
         }
     ));
