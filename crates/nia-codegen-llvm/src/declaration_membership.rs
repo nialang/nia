@@ -7,7 +7,9 @@ use nia_backend_ir::{
     BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
     CodegenPartition, CodegenUnitDependencies, CodegenUnitId, CodegenUnitPendingModules,
 };
-use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, TraitObjectVtableRef};
+use nia_function_ir::{
+    DynamicTraitCallRef, FunctionBodyRefs, FunctionInstanceKey, TraitObjectVtableRef,
+};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{MangleModuleId, MangleResolvers, mangle_symbol_id, mangle_type_with};
 use nia_ty::{ArrayLenTy, TraitId, TyKind};
@@ -74,7 +76,7 @@ struct MembershipBuilder<'a> {
     globals: BTreeSet<GlobalDefId>,
     global_instances: HashSet<BackendGlobalInstanceKey>,
     vtables: HashSet<BackendTraitObjectVtableKey>,
-    expanded_vtable_definitions: HashSet<BackendTraitObjectVtableKey>,
+    expanded_vtables: HashSet<BackendTraitObjectVtableKey>,
     pending_types: VecDeque<InternedTyId>,
     visited_types: HashSet<InternedTyId>,
     dependency_modules: BTreeSet<ModuleId>,
@@ -95,7 +97,7 @@ impl<'a> MembershipBuilder<'a> {
             globals: BTreeSet::new(),
             global_instances: HashSet::new(),
             vtables: HashSet::new(),
-            expanded_vtable_definitions: HashSet::new(),
+            expanded_vtables: HashSet::new(),
             pending_types: VecDeque::new(),
             visited_types: HashSet::new(),
             dependency_modules: BTreeSet::new(),
@@ -295,6 +297,9 @@ impl<'a> MembershipBuilder<'a> {
         for reference in refs.trait_object_vtables {
             self.add_vtable_reference(reference);
         }
+        for call in refs.dynamic_trait_calls {
+            self.add_dynamic_trait_object_vtables(call);
+        }
     }
 
     fn add_vtable_reference(&mut self, reference: TraitObjectVtableRef) {
@@ -309,6 +314,26 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
+    fn add_dynamic_trait_object_vtables(&mut self, call: DynamicTraitCallRef) {
+        // A dynamic call contains the erased object type but no concrete
+        // `self` type. The owner directory is the planning-time authority for
+        // every possible table, including tables whose modules have not been
+        // published to the incremental index yet.
+        let keys = self
+            .owners
+            .vtable_keys_for_object_ty(call.object_ty)
+            .chain(self.owners.vtable_keys_for_trait(call.trait_id))
+            .cloned()
+            .collect::<HashSet<_>>();
+        for key in keys {
+            if let Some(item) = self.index.trait_object_vtable(&key) {
+                self.add_vtable(item);
+            } else {
+                self.wait_for_owner(self.owners.vtable_owner(&key), "trait-object vtable");
+            }
+        }
+    }
+
     fn add_vtable(&mut self, item: &BackendTraitObjectVtable) {
         if self.vtables.insert(item.key.clone()) {
             self.add_dependency(
@@ -319,13 +344,13 @@ impl<'a> MembershipBuilder<'a> {
             self.add_types(item.trait_args.iter().copied());
             self.add_types(item.trait_const_args.iter().map(|arg| arg.ty));
         }
-    }
-
-    fn add_vtable_definition(&mut self, item: &BackendTraitObjectVtable) {
-        self.add_vtable(item);
-        if !self.expanded_vtable_definitions.insert(item.key.clone()) {
+        if !self.expanded_vtables.insert(item.key.clone()) {
             return;
         }
+        // A dynamic call needs only the vtable symbol at LLVM runtime, but IR
+        // validation also resolves the selected slot's target signature. Keep
+        // those declarations and owner modules in the same readiness closure
+        // for referenced tables as well as locally defined tables.
         for entry in &item.entries {
             self.add_types(entry.trait_args.iter().copied());
             self.add_types(entry.trait_const_args.iter().map(|arg| arg.ty));
@@ -368,6 +393,10 @@ impl<'a> MembershipBuilder<'a> {
                 }
             }
         }
+    }
+
+    fn add_vtable_definition(&mut self, item: &BackendTraitObjectVtable) {
+        self.add_vtable(item);
     }
 
     fn add_type(&mut self, ty: InternedTyId) {
@@ -767,6 +796,29 @@ mod tests {
         module
     }
 
+    fn function_owner_module(
+        module_id: ModuleId,
+        def_id: GlobalDefId,
+        ty: InternedTyId,
+    ) -> BackendModule {
+        let mut module = empty_module(module_id, "function-owner.nia");
+        module.functions.push(BackendFunction {
+            def_id,
+            name: SymbolId::EMPTY,
+            link_name: None,
+            generics: Vec::new(),
+            params: Vec::new(),
+            return_type: ty,
+            is_extern: true,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: None,
+            span: Span::default(),
+        });
+        module
+    }
+
     fn caller_partition(program: &BackendProgram, caller: ModuleId) -> CodegenPartition {
         program
             .codegen_partition_plan()
@@ -825,6 +877,100 @@ mod tests {
             }
         };
         assert_eq!(ready.dependencies.modules(), &[caller, actual_owner]);
+    }
+
+    #[test]
+    fn referenced_vtable_waits_for_its_function_owner() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let caller = module_ids.allocate();
+        let vtable_owner = module_ids.allocate();
+        let function_owner = module_ids.allocate();
+        let types = TypeStore::new();
+        let append = types.append_for_module(caller);
+        let ty = append.primitive(PrimitiveTy::I32);
+        let upcast_object_ty = append.primitive(PrimitiveTy::Bool);
+        let trait_def = GlobalDefId {
+            module_id: vtable_owner,
+            def_id: DefId(3),
+        };
+        let function_def = GlobalDefId {
+            module_id: function_owner,
+            def_id: DefId(7),
+        };
+        let key = BackendTraitObjectVtableKey {
+            self_ty: ty,
+            object_ty: ty,
+        };
+        let mut vtable_module = empty_module(vtable_owner, "vtable-owner.nia");
+        vtable_module
+            .trait_object_vtables
+            .push(BackendTraitObjectVtable {
+                key: key.clone(),
+                trait_id: TraitId::Source(trait_def),
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                entries: vec![nia_backend_ir::BackendTraitObjectVtableEntry {
+                    trait_id: TraitId::Source(trait_def),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                    method_id: trait_def,
+                    method_name: SymbolId::EMPTY,
+                    slot: 0,
+                    function: BackendTraitObjectVtableFunction::Function(function_def),
+                }],
+                span: Span::default(),
+            });
+        let modules = vec![
+            empty_module(caller, "caller.nia"),
+            vtable_module,
+            function_owner_module(function_owner, function_def, ty),
+        ];
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let program = BackendProgram::new(modules);
+        let partition = caller_partition(&program, vtable_owner);
+        let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
+        publisher.publish(caller);
+
+        let build = |index: &ProgramIndex| {
+            let mut builder = MembershipBuilder::new(index, &owners);
+            let mut refs = FunctionBodyRefs::default();
+            refs.dynamic_trait_calls.insert(DynamicTraitCallRef {
+                // An upcast view names a different object type while retaining
+                // the source vtable that contains this trait's slot segment.
+                object_ty: upcast_object_ty,
+                trait_id: TraitId::Source(trait_def),
+            });
+            builder.add_refs(refs);
+            builder.close_types();
+            builder.finish(partition.id)
+        };
+        let pending = match build(&index) {
+            CodegenDeclarationMembershipBuild::Pending(pending) => pending,
+            CodegenDeclarationMembershipBuild::Ready(_) => {
+                panic!("membership became ready before the vtable function owner")
+            }
+        };
+        assert_eq!(pending.modules(), &[vtable_owner]);
+
+        publisher.publish(vtable_owner);
+        let pending = match build(&index) {
+            CodegenDeclarationMembershipBuild::Pending(pending) => pending,
+            CodegenDeclarationMembershipBuild::Ready(_) => {
+                panic!("membership became ready before the vtable function owner")
+            }
+        };
+        assert_eq!(pending.modules(), &[function_owner]);
+
+        publisher.publish(function_owner);
+        let ready = match build(&index) {
+            CodegenDeclarationMembershipBuild::Ready(ready) => ready,
+            CodegenDeclarationMembershipBuild::Pending(pending) => {
+                panic!("membership remained pending for {:?}", pending.modules())
+            }
+        };
+        assert_eq!(ready.functions, vec![function_def]);
+        assert!(ready.dependencies.contains(vtable_owner));
+        assert!(ready.dependencies.contains(function_owner));
     }
 
     #[test]

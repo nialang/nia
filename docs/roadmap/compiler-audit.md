@@ -391,6 +391,17 @@ commit as the corresponding implementation batch.
       pointer patterns over recursive allocator nodes can reach their nested
       `null` base case without weakening rejection of cycle-only domains; owner
       and standard-library build-case regressions cover both boundaries.
+- [x] Phase C backend planning now distinguishes source functions that merely
+      have checked bodies from functions already selected by executable
+      reachability. Vtables discovered after the frontend plan route late
+      cross-module implementation methods back to their defining module, with
+      owner and allocator-backed executable regressions covering the closure.
+- [x] Phase C codegen readiness now treats dynamic trait calls as declaration
+      edges to every planned candidate vtable and slot target. The owner
+      directory indexes both exact object tables and supertrait segments, so
+      definition validation cannot race ahead of cross-module function
+      signatures; owner, upcast-boundary, and allocator executable regressions
+      cover the publication-order invariant.
 - [x] Phase A local HM inference now performs a symmetric occurs-check and
       transactional union rollback, preventing self-referential structural
       terms and late tuple/callable conflicts from poisoning later constraints;

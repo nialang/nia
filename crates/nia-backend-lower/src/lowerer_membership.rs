@@ -253,11 +253,19 @@ impl<'a> ModuleLowerer<'a> {
             || def.visibility != Visibility::Private
     }
 
+    /// Returns whether initial lowering already selected a foreign source body.
+    ///
+    /// Having a checked body is sufficient only when every body is a root. In
+    /// executable mode the frontend plan is intentionally narrower, so a
+    /// vtable discovered by backend substitution may still need to route its
+    /// implementation back to the defining module.
     pub(crate) fn foreign_source_function_is_preplanned(&self, def_id: GlobalDefId) -> bool {
-        matches!(
+        source_function_is_preplanned(
             self.input.roots,
-            BackendFunctionRoots::EntryPoints | BackendFunctionRoots::FunctionBodies
-        ) && self.input.program.function_body(def_id).is_some()
+            self.input.reachable_functions,
+            def_id,
+            self.input.program.function_body(def_id).is_some(),
+        )
     }
 
     pub(crate) fn is_backend_global_reachable(&self, def_id: GlobalDefId) -> bool {
@@ -418,5 +426,68 @@ impl<'a> ModuleLowerer<'a> {
         own_generics: &[SymbolId],
     ) -> bool {
         !self.effective_generics(def_id, own_generics).is_empty()
+    }
+}
+
+fn source_function_is_preplanned(
+    roots: BackendFunctionRoots,
+    reachable_functions: Option<&[GlobalDefId]>,
+    def_id: GlobalDefId,
+    has_body: bool,
+) -> bool {
+    if !has_body {
+        return false;
+    }
+    match roots {
+        BackendFunctionRoots::FunctionBodies => true,
+        BackendFunctionRoots::EntryPoints => {
+            reachable_functions.is_some_and(|functions| functions.binary_search(&def_id).is_ok())
+        }
+        BackendFunctionRoots::Public | BackendFunctionRoots::NoFunctions => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{DefId, ModuleIdAllocator};
+
+    #[test]
+    fn executable_preplanning_requires_exact_reachability_membership() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let selected = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let late = GlobalDefId {
+            module_id,
+            def_id: DefId(2),
+        };
+        let reachable = [selected];
+
+        assert!(source_function_is_preplanned(
+            BackendFunctionRoots::EntryPoints,
+            Some(&reachable),
+            selected,
+            true,
+        ));
+        assert!(!source_function_is_preplanned(
+            BackendFunctionRoots::EntryPoints,
+            Some(&reachable),
+            late,
+            true,
+        ));
+        assert!(source_function_is_preplanned(
+            BackendFunctionRoots::FunctionBodies,
+            None,
+            late,
+            true,
+        ));
+        assert!(!source_function_is_preplanned(
+            BackendFunctionRoots::FunctionBodies,
+            None,
+            late,
+            false,
+        ));
     }
 }

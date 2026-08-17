@@ -802,6 +802,34 @@ fn alloc(&mut self) i32 {
         !vtable_instance_refs.is_empty(),
         "trait object vtable should reference a default method instance"
     );
+    let vtable_function_refs = backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.trait_object_vtables)
+        .flat_map(|vtable| &vtable.entries)
+        .filter_map(|entry| match entry.function {
+            nia_backend_ir::BackendTraitObjectVtableFunction::Function(def_id) => Some(def_id),
+            nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !vtable_function_refs.is_empty(),
+        "trait object vtable should reference a concrete impl method"
+    );
+    for def_id in vtable_function_refs {
+        assert_eq!(
+            backend_lowering
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| &module.functions)
+                .filter(|function| function.def_id == def_id)
+                .count(),
+            1,
+            "expected one lowered vtable function for {def_id:?}"
+        );
+    }
     for (def_id, arg_module_id, self_arg, args, const_args) in vtable_instance_refs {
         let matches = backend_lowering
             .program
@@ -968,6 +996,30 @@ allocator.remap()
         !vtable_instance_refs.is_empty(),
         "the vtable should reference the default method instance"
     );
+    let vtable_function_refs = dispatch_module
+        .trait_object_vtables
+        .iter()
+        .flat_map(|vtable| &vtable.entries)
+        .filter_map(|entry| match entry.function {
+            nia_backend_ir::BackendTraitObjectVtableFunction::Function(def_id) => Some(def_id),
+            nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !vtable_function_refs.is_empty(),
+        "the substituted body should discover a concrete vtable method"
+    );
+    for def_id in vtable_function_refs {
+        assert_eq!(
+            dispatch_module
+                .functions
+                .iter()
+                .filter(|function| function.def_id == def_id)
+                .count(),
+            1,
+            "the backend vtable closure should materialize {def_id:?} once"
+        );
+    }
     for vtable_ref in vtable_instance_refs {
         assert_eq!(
             dispatch_module
