@@ -18,6 +18,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         &ItemSignatures,
         &nia_ty::TypeStoreAppend,
     ),
+    mutate_signatures: impl FnOnce(&mut ItemSignatures, &nia_defs::DefCollection),
     optimization: nia_opt::OptimizationPolicy,
 ) -> TestBackendLowering {
     let mut module_ids = ModuleIdAllocator::new();
@@ -42,7 +43,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         )
         .with_symbols(&symbols),
     );
-    let signatures = collect_item_signatures(ItemSignatureInput {
+    let mut signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &type_lowering,
@@ -248,6 +249,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         program_function_bodies,
         program_static_inits,
     );
+    mutate_signatures(&mut signatures, &defs);
 
     let input = BackendLowerModuleInput {
         module_id,

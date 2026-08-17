@@ -243,6 +243,18 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
+        // Syntax parameters own source names/spans while signature parameters own ABI types.
+        // Lowering may zip them only after proving they still describe the same sequence;
+        // otherwise a stale phase product would silently create a truncated backend ABI.
+        if function.params.len() != signature.params.len() {
+            self.report_backend_function_param_count_mismatch(
+                global_def_id,
+                span,
+                function.params.len(),
+                signature.params.len(),
+            );
+            return None;
+        }
         if !signature.is_extern && self.input.program.function_body(global_def_id).is_none() {
             return None;
         }
@@ -361,6 +373,29 @@ impl<'a> ModuleLowerer<'a> {
         });
         self.instantiation.restore(instantiation_snapshot);
         backend_function
+    }
+
+    fn report_backend_function_param_count_mismatch(
+        &mut self,
+        def_id: nia_ids::GlobalDefId,
+        span: Span,
+        syntax_params: usize,
+        signature_params: usize,
+    ) {
+        self.diagnostics.push(
+            nia_diagnostic::Diagnostic::internal_error(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                "backend function syntax parameters do not match its signature",
+            )
+            .primary(
+                span,
+                "backend function syntax parameters do not match its signature",
+            )
+            .debug("def_id", def_id)
+            .debug("syntax_params", syntax_params)
+            .debug("signature_params", signature_params)
+            .finish(),
+        );
     }
 
     pub(crate) fn receiver_passing_ty(

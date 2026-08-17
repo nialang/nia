@@ -467,6 +467,9 @@ commit as the corresponding implementation batch.
 - [x] Phase B backend lowering APIs now document the program-wide planning,
       unique-owner assignment, parallel module finalization, readiness
       publication, and deterministic collection contracts.
+- [x] Phase B source-function lowering now verifies AST/signature parameter
+      arity before pairing source metadata with ABI types, rejecting stale
+      phase products instead of silently truncating either side through `zip`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

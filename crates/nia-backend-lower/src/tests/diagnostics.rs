@@ -41,6 +41,46 @@ fn main() i32 {
 }
 
 #[test]
+fn backend_function_parameter_products_must_have_equal_arity() {
+    let source = r#"
+fn main(value: i32) i32 {
+    value
+}
+"#;
+
+    for make_signature_params in [0, 2] {
+        let lowering = lower_source_with_signature_mutation(source, |signatures, defs| {
+            let main = global_def_id_by_name(defs, "main");
+            let params = &mut signatures
+                .functions
+                .get_mut(&main.def_id)
+                .expect("main signature")
+                .params;
+            match make_signature_params {
+                0 => params.clear(),
+                2 => params.push(params[0].clone()),
+                _ => unreachable!(),
+            }
+        });
+
+        assert!(
+            lowering.program.modules[0].functions.is_empty(),
+            "malformed function must not enter backend IR: {:?}",
+            lowering.program
+        );
+        assert_eq!(lowering.diagnostics.len(), 1, "{:?}", lowering.diagnostics);
+        assert_eq!(lowering.diagnostics[0].code.as_str(), "I0300");
+        assert!(
+            lowering.diagnostics[0]
+                .summary
+                .contains("syntax parameters do not match its signature"),
+            "{:?}",
+            lowering.diagnostics
+        );
+    }
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 const N: usize = 3;
