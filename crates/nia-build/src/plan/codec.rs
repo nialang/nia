@@ -11,7 +11,7 @@ use nia_compat::formats::BUILD_PLAN;
 
 pub(super) const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ITEMS: usize = 100_000;
-const MAX_STRING_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_PLAN_STRING_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanCodecError {
@@ -163,9 +163,9 @@ impl Writer {
     }
 
     fn string(&mut self, value: &str) -> Result<(), PlanCodecError> {
-        if value.len() > MAX_STRING_BYTES || value.len() > u32::MAX as usize {
+        if value.len() > MAX_PLAN_STRING_BYTES || value.len() > u32::MAX as usize {
             return Err(PlanCodecError::TooLarge {
-                limit: MAX_STRING_BYTES,
+                limit: MAX_PLAN_STRING_BYTES,
                 actual: value.len(),
             });
         }
@@ -526,9 +526,9 @@ impl<'a> Reader<'a> {
     fn string(&mut self) -> Result<String, PlanCodecError> {
         let start = self.offset;
         let len = self.u32()? as usize;
-        if len > MAX_STRING_BYTES {
+        if len > MAX_PLAN_STRING_BYTES {
             return Err(PlanCodecError::TooLarge {
-                limit: MAX_STRING_BYTES,
+                limit: MAX_PLAN_STRING_BYTES,
                 actual: len,
             });
         }
