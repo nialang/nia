@@ -58,6 +58,63 @@ fn main() i32 {
 }
 
 #[test]
+fn const_generic_default_trait_method_codegen_keeps_owner_assumption() {
+    let root = temp_dir("const_generic_default_trait_method_codegen_keeps_owner_assumption");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source[N: usize] {
+    fn value(& self) usize;
+}
+
+trait Summary[N: usize] : Source[N] {
+    fn total(& self) usize {
+        self.value() + N
+    }
+}
+
+struct Meter[N: usize] {
+    value: usize,
+}
+
+extend[N: usize] Meter[N] : Source[N] {
+    fn value(& self) usize {
+        self.value
+    }
+}
+
+extend[N: usize] Meter[N] : Summary[N] {}
+
+fn main() usize {
+    let meter = Meter[8] { value: 34usize };
+    meter.total()
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .any(|module| {
+                module.function_instances.iter().any(|instance| {
+                    matches!(
+                        instance.const_args.as_slice(),
+                        [nia_ty::ConstGenericArg {
+                            value: nia_ty::ConstGenericValue::Int(value),
+                            ..
+                        }] if value.bits() == 8
+                    )
+                })
+            })
+    );
+}
+
+#[test]
 fn const_generic_assoc_projection_rejects_unconstrained_literal_fallback() {
     let root = temp_dir("const_generic_assoc_projection_rejects_unconstrained_literal_fallback");
     write(
