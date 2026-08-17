@@ -1890,6 +1890,277 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
 }
 
 #[test]
+fn validates_backend_ir_call_signatures_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let function_pointer_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let callable_ty = interner.intern(TyKind::Callable {
+        is_readonly: true,
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let span = Span::default();
+    let target_id = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let method_id = GlobalDefId {
+        module_id,
+        def_id: DefId(2),
+    };
+    let instance_id = GlobalDefId {
+        module_id,
+        def_id: DefId(3),
+    };
+    let param = |ty| BackendParam {
+        local_id: None,
+        name: None,
+        receiver: None,
+        passing_ty: ty,
+        local_ty: ty,
+        span,
+    };
+    let call = |ty, callee, args| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Call { callee, args },
+    };
+    let null = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let integer = || FunctionExpr {
+        span,
+        ty: i32_ty,
+        kind: FunctionExprKind::Integer("1".to_string()),
+    };
+    let boolean = || FunctionExpr {
+        span,
+        ty: bool_ty,
+        kind: FunctionExprKind::Bool(true),
+    };
+    let body = FunctionBody {
+        span,
+        locals: Vec::new(),
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::Function(target_id),
+                    vec![boolean()],
+                )),
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::FunctionInstance {
+                        def_id: instance_id,
+                        arg_module_id: module_id,
+                        self_arg: None,
+                        args: vec![i32_ty],
+                        const_args: Vec::new(),
+                    },
+                    Vec::new(),
+                )),
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::Method {
+                        def_id: method_id,
+                        arg_module_id: module_id,
+                        self_arg: None,
+                        args: Vec::new(),
+                        const_args: Vec::new(),
+                        receiver_kind: nia_ids::ReceiverKind::Ref,
+                        receiver: Box::new(integer()),
+                    },
+                    vec![integer()],
+                )),
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::Callable(Box::new(null(callable_ty))),
+                    Vec::new(),
+                )),
+                FunctionOp::Expr(call(
+                    bool_ty,
+                    FunctionCallee::FunctionPointer(Box::new(null(function_pointer_ty))),
+                    vec![integer()],
+                )),
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::BuiltinMethod {
+                        method: nia_function_ir::FunctionBuiltinMethod::SliceLen,
+                        self_ty: i32_ty,
+                        receiver: Box::new(integer()),
+                    },
+                    vec![integer()],
+                )),
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::BuiltinOperator(nia_function_ir::FunctionBuiltinOperator {
+                        trait_id: nia_ids::BuiltinTrait::Neg,
+                        op: nia_function_ir::FunctionBuiltinOperatorOp::Unary(
+                            nia_ast::UnaryOp::Neg,
+                        ),
+                    }),
+                    vec![integer(), integer()],
+                )),
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(integer()),
+                span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty: i32_ty,
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (bool_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                    (function_pointer_ty, TypeLayout { size: 8, align: 8 }),
+                    (callable_ty, TypeLayout { size: 16, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: vec![
+                BackendFunction {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(0),
+                    },
+                    name: sym("main"),
+                    link_name: None,
+                    generics: Vec::new(),
+                    params: Vec::new(),
+                    return_type: i32_ty,
+                    is_extern: false,
+                    is_variadic: false,
+                    attributes: Vec::new(),
+                    local_names: Default::default(),
+                    function_body: Some(body),
+                    span,
+                },
+                BackendFunction {
+                    def_id: target_id,
+                    name: sym("target"),
+                    link_name: None,
+                    generics: Vec::new(),
+                    params: vec![param(i32_ty)],
+                    return_type: i32_ty,
+                    is_extern: false,
+                    is_variadic: false,
+                    attributes: Vec::new(),
+                    local_names: Default::default(),
+                    function_body: None,
+                    span,
+                },
+                BackendFunction {
+                    def_id: method_id,
+                    name: sym("method"),
+                    link_name: None,
+                    generics: Vec::new(),
+                    params: vec![
+                        BackendParam {
+                            receiver: Some(nia_ids::ReceiverKind::RefReadOnly),
+                            passing_ty: i32_ptr_ty,
+                            local_ty: i32_ty,
+                            ..param(i32_ptr_ty)
+                        },
+                        param(i32_ty),
+                    ],
+                    return_type: i32_ty,
+                    is_extern: false,
+                    is_variadic: false,
+                    attributes: Vec::new(),
+                    local_names: Default::default(),
+                    function_body: None,
+                    span,
+                },
+            ],
+            function_instances: vec![BackendFunctionInstance {
+                def_id: instance_id,
+                name: sym("instance"),
+                arg_module_id: module_id,
+                self_arg: None,
+                args: vec![i32_ty],
+                const_args: Vec::new(),
+                symbol: "instance_i32".to_string(),
+                params: vec![param(i32_ty)],
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: None,
+                span,
+            }],
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for message in [
+        "function call has an invalid ABI contract: argument type",
+        "function-instance call has an invalid ABI contract: argument count",
+        "method call has an invalid ABI contract: receiver kind",
+        "callable call has an invalid ABI contract: argument count",
+        "function-pointer call has an invalid ABI contract: result type",
+        "builtin-method call has an invalid ABI contract",
+        "builtin-operator call has an invalid ABI contract",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_backend_ir_static_initializer_refs_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

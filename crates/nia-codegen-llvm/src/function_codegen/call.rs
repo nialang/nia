@@ -388,6 +388,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             type_args,
                             const_args,
                         );
+                        let is_extern = instance.is_some_and(|instance| instance.is_extern);
+                        let is_variadic = instance.is_some_and(|instance| instance.is_variadic);
                         (
                             instance.and_then(|instance| {
                                 self.module.function_instance_value(
@@ -398,8 +400,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                                     &instance.const_args,
                                 )
                             }),
-                            instance.is_some_and(|instance| instance.is_variadic),
-                            instance.is_some_and(|instance| instance.is_extern),
+                            is_extern,
+                            is_variadic,
                             instance.map(|instance| {
                                 instance
                                     .params
