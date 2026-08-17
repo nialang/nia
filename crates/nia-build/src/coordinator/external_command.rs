@@ -451,18 +451,20 @@ pub(super) fn restore_cached_external_outputs(
     action: &PlanAction,
     build_dir: &Path,
     resolved_outputs: &[(&LogicalPath, PathBuf)],
-    payloads: &[Vec<u8>],
+    mut hit: ExternalCommandCacheHit,
 ) -> Result<(), CoordinatorError> {
-    if resolved_outputs.len() != payloads.len() {
+    if resolved_outputs.len() != hit.output_count() {
         return Err(inconsistent(
             format!("action `{}`", action.key.name()),
             "matching cached external-command outputs".to_string(),
         ));
     }
     let staged = prepare_staged_outputs(action, build_dir, resolved_outputs)?;
-    for (index, payload) in payloads.iter().enumerate() {
+    for index in 0..hit.output_count() {
         let temporary = staged.outputs[index].temporary.clone();
-        if let Err(error) = fs::write(&temporary, payload) {
+        let restored = fs::File::create(&temporary)
+            .and_then(|mut output| hit.write_payload(index, &mut output));
+        if let Err(error) = restored {
             return cleanup_staged_outputs(
                 action,
                 staged,

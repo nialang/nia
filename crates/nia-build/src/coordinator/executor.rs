@@ -172,12 +172,12 @@ impl DriverActionExecutor {
         let mut miss_reason = None;
         if let Some(identity) = cache_identity.as_ref() {
             match cache.lookup(identity) {
-                Ok(ExternalCommandCacheLookup::Hit(payloads)) => {
+                Ok(ExternalCommandCacheLookup::Hit(hit)) => {
                     restore_cached_external_outputs(
                         action,
                         &self.invocation.build_dir,
                         &resolved_outputs,
-                        &payloads,
+                        hit,
                     )?;
                     return Ok(Some(ActionCacheOutcome::Hit));
                 }
