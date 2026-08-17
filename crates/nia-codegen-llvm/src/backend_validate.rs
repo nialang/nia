@@ -12,10 +12,10 @@ use std::{
 
 use crate::{declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex};
 use nia_backend_ir::{
-    BackendClosureEntry, BackendFunction, BackendFunctionInstance, BackendGlobal,
-    BackendGlobalInstance, BackendModule, BackendParam, BackendStruct, BackendStructInstance,
-    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendUnion, BackendUnionInstance,
-    CodegenPartition,
+    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
+    BackendGlobal, BackendGlobalInstance, BackendModule, BackendParam, BackendStruct,
+    BackendStructInstance, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
+    BackendUnion, BackendUnionInstance, CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
@@ -236,6 +236,7 @@ impl<'a> BackendValidator<'a> {
             union_fields_lookup_cache: RefCell::new(HashMap::new()),
             local_tys: Vec::new(),
             body_tys: Vec::new(),
+            current_closure_owner: None,
             current_item: None,
             current_subject: None,
         }
@@ -254,6 +255,7 @@ pub(super) struct BackendValidator<'a> {
     union_fields_lookup_cache: AggregateFieldsLookup,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
     body_tys: Vec<InternedTyId>,
+    current_closure_owner: Option<BackendClosureEntryOwner>,
     current_item: Option<String>,
     current_subject: Option<&'static str>,
 }
@@ -269,11 +271,13 @@ impl BackendValidator<'_> {
             module_name,
             function.def_id
         ));
+        self.current_closure_owner = Some(BackendClosureEntryOwner::Source(function.def_id));
         self.validate_function_signature(&function.params, function.return_type, function.span);
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
             self.validate_function_body(body, function.return_type);
         }
+        self.current_closure_owner = None;
         self.current_item = None;
     }
 
@@ -290,11 +294,21 @@ impl BackendValidator<'_> {
             function.def_id,
             function.args
         ));
+        self.current_closure_owner = Some(BackendClosureEntryOwner::FunctionInstance(
+            FunctionInstanceKey {
+                def_id: function.def_id,
+                arg_module_id: function.arg_module_id,
+                self_arg: function.self_arg,
+                args: function.args.clone(),
+                const_args: function.const_args.clone(),
+            },
+        ));
         self.validate_function_signature(&function.params, function.return_type, function.span);
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
             self.validate_function_body(body, function.return_type);
         }
+        self.current_closure_owner = None;
         self.current_item = None;
     }
 
@@ -308,6 +322,7 @@ impl BackendValidator<'_> {
             "closure entry {} in {}::{:?}#{}",
             entry.symbol, module_name, entry.key.closure_id.owner, entry.key.closure_id.ordinal
         ));
+        self.current_closure_owner = Some(entry.key.owner.clone());
         self.validate_runtime_type(entry.abi.state_type, entry.span);
         self.validate_runtime_type(entry.abi.state_pointer_type, entry.span);
         for param in &entry.abi.params {
@@ -349,6 +364,7 @@ impl BackendValidator<'_> {
                 ));
             }
         }
+        self.current_closure_owner = None;
         self.current_item = None;
     }
 
