@@ -518,6 +518,10 @@ commit as the corresponding implementation batch.
 - [x] Phase C const integer comparison now orders mixed signed/unsigned values
       without narrowing large `u128` inputs, while typed bitwise-not uses
       overflow-free sign extension and rejects invalid width metadata.
+- [x] Phase C closure summaries now preserve capture-slot identity within known
+      closure states, so selecting one captured value cannot pull unrelated
+      captures into return or escape facts; flattened cross-function closure
+      states retain a documented conservative fallback.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.

@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Interprocedural escape analysis for closures and non-owning callable views.
+//!
+//! The analysis computes a finite, monotone summary for every source function
+//! and nested closure, then replays the bodies with the stable summaries to
+//! diagnose stack-backed callable views and closure states that capture local
+//! addresses. It deliberately does not model general pointer lifetimes.
+
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nia_body_ir::{
@@ -15,29 +22,43 @@ mod discovery;
 
 use discovery::collect_body_closures;
 
+/// Parameter-level escape facts published for a source function.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ClosureEscapeSummary {
+    /// Zero-based parameters whose values may be returned on either channel.
     pub returned_parameters: BTreeSet<usize>,
+    /// Zero-based parameters that may be retained by a store or call.
     pub escaping_parameters: BTreeSet<usize>,
+    /// Parameters whose addresses may become part of returned closure state.
     pub returned_captured_address_parameters: BTreeSet<usize>,
+    /// Parameters whose addresses may enter closure state retained elsewhere.
     pub escaping_captured_address_parameters: BTreeSet<usize>,
 }
 
+/// Closure escape summaries and diagnostics for one checked program graph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClosureCheck {
+    /// Escape summaries keyed by source function identity.
     pub summaries: HashMap<GlobalDefId, ClosureEscapeSummary>,
+    /// Invalid lexical escapes found after summary convergence.
     pub diagnostics: Vec<ClosureCheckDiagnostic>,
 }
 
+/// A closure-safety diagnostic paired with the function that owns its span.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClosureCheckDiagnostic {
+    /// Function used to map the diagnostic span back to its source module.
     pub owner: GlobalDefId,
+    /// The user-facing closure-safety diagnostic.
     pub diagnostic: Diagnostic,
 }
 
+/// A typed source function supplied to closure escape analysis.
 #[derive(Debug, Clone, Copy)]
 pub struct ClosureCheckFunction<'a> {
+    /// Stable identity of the source function.
     pub def_id: GlobalDefId,
+    /// Checked typed body owned by `def_id`.
     pub body: &'a TypedBody,
 }
 
@@ -60,7 +81,7 @@ enum InputSource {
     Parameter(usize),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Provenance {
     Input(InputSource),
     StackAddress {
@@ -73,6 +94,11 @@ enum Provenance {
     CallableClosure {
         closure_id: ClosureId,
         stack_backed: bool,
+    },
+    ClosureCapture {
+        closure_id: ClosureId,
+        index: usize,
+        origin: Box<Provenance>,
     },
 }
 
@@ -122,6 +148,11 @@ enum EscapeKind {
     Scope,
 }
 
+/// Computes closure escape summaries and reports invalid lexical escapes.
+///
+/// `functions` must contain the complete source-function set for the program
+/// being checked. Nested closures are discovered from those bodies before the
+/// summary fixed point begins.
 pub fn check_closure_safety(
     functions: &[ClosureCheckFunction<'_>],
     type_store: &TypeStore,
@@ -419,12 +450,19 @@ impl<'a> Analyzer<'a> {
                 self.closure_scopes
                     .entry(*closure_id)
                     .or_insert(self.scope_depth);
-                ValueProvenance::from_value(capture_address_origins(
+                ValueProvenance::from_value(
                     captures
                         .iter()
-                        .map(|capture| self.analyze_expr(&capture.value, env).all())
-                        .fold(Provenances::new(), union),
-                ))
+                        .enumerate()
+                        .flat_map(|(index, capture)| {
+                            closure_capture_origins(
+                                *closure_id,
+                                index,
+                                self.analyze_expr(&capture.value, env).all(),
+                            )
+                        })
+                        .collect(),
+                )
             }
             TypedExprKind::Range(range) => ValueProvenance::from_value(
                 range
@@ -776,7 +814,8 @@ impl<'a> Analyzer<'a> {
                         Provenance::Input(_)
                         | Provenance::StackAddress { .. }
                         | Provenance::CapturedInputAddress(_)
-                        | Provenance::CapturedStackAddress { .. } => None,
+                        | Provenance::CapturedStackAddress { .. }
+                        | Provenance::ClosureCapture { .. } => None,
                     })
                     .collect::<BTreeSet<_>>();
                 let mut result = ValueProvenance::default();
@@ -847,32 +886,32 @@ impl<'a> Analyzer<'a> {
         };
         let mut result = Provenances::new();
         for source in &summary.returned_inputs {
-            result.extend(input_origins(*source, captures, args));
+            result.extend(input_origins(key, *source, captures, args));
         }
         let mut error = Provenances::new();
         for source in &summary.returned_error_inputs {
-            error.extend(input_origins(*source, captures, args));
+            error.extend(input_origins(key, *source, captures, args));
         }
         for source in &summary.escaping_inputs {
             self.record_escape(
-                &input_origins(*source, captures, args),
+                &input_origins(key, *source, captures, args),
                 span,
                 EscapeKind::Call,
             );
         }
         for source in &summary.returned_captured_addresses {
             result.extend(capture_address_origins(input_origins(
-                *source, captures, args,
+                key, *source, captures, args,
             )));
         }
         for source in &summary.returned_error_captured_addresses {
             error.extend(capture_address_origins(input_origins(
-                *source, captures, args,
+                key, *source, captures, args,
             )));
         }
         for source in &summary.escaping_captured_addresses {
             self.record_escape(
-                &capture_address_origins(input_origins(*source, captures, args)),
+                &capture_address_origins(input_origins(key, *source, captures, args)),
                 span,
                 EscapeKind::Call,
             );
@@ -937,18 +976,18 @@ impl<'a> Analyzer<'a> {
     }
 
     fn record_return(&mut self, value: &ValueProvenance, span: Span) {
-        self.returned.extend(&value.value);
-        self.returned_errors.extend(&value.error);
+        self.returned.extend(value.value.iter().cloned());
+        self.returned_errors.extend(value.error.iter().cloned());
         self.report_escaping_state(&value.all(), span, EscapeKind::Return);
     }
 
     fn record_error_return(&mut self, error: &Provenances, span: Span) {
-        self.returned_errors.extend(error);
+        self.returned_errors.extend(error.iter().cloned());
         self.report_escaping_state(error, span, EscapeKind::Return);
     }
 
     fn record_escape(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
-        self.escaped.extend(value);
+        self.escaped.extend(value.iter().cloned());
         self.report_escaping_state(value, span, kind);
     }
 
@@ -956,18 +995,8 @@ impl<'a> Analyzer<'a> {
         let Some(sink) = &mut self.diagnostics else {
             return;
         };
-        let stack_closure = value.iter().any(|origin| {
-            matches!(
-                origin,
-                Provenance::CallableClosure {
-                    stack_backed: true,
-                    ..
-                }
-            )
-        });
-        let captured_stack_address = value
-            .iter()
-            .any(|origin| matches!(origin, Provenance::CapturedStackAddress { .. }));
+        let stack_closure = value.iter().any(contains_stack_backed_callable);
+        let captured_stack_address = value.iter().any(contains_captured_stack_address);
         if (stack_closure || captured_stack_address)
             && sink.reported.insert((sink.owner, span, kind))
         {
@@ -996,26 +1025,8 @@ impl<'a> Analyzer<'a> {
     fn report_scope_exit(&mut self, value: &Provenances, span: Span, depth: usize) {
         let escaping = value
             .iter()
-            .filter_map(|origin| match origin {
-                Provenance::CallableClosure {
-                    closure_id,
-                    stack_backed: true,
-                } if self
-                    .closure_scopes
-                    .get(closure_id)
-                    .is_some_and(|closure_depth| *closure_depth >= depth) =>
-                {
-                    Some(*origin)
-                }
-                Provenance::CapturedStackAddress { scope_depth } if *scope_depth >= depth => {
-                    Some(*origin)
-                }
-                Provenance::Input(_)
-                | Provenance::StackAddress { .. }
-                | Provenance::CapturedInputAddress(_)
-                | Provenance::CapturedStackAddress { .. }
-                | Provenance::CallableClosure { .. } => None,
-            })
+            .filter(|origin| provenance_expires_at(origin, &self.closure_scopes, depth))
+            .cloned()
             .collect();
         self.report_escaping_state(&escaping, span, EscapeKind::Scope);
     }
@@ -1107,6 +1118,7 @@ fn input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
             | Provenance::CapturedInputAddress(_)
             | Provenance::CapturedStackAddress { .. }
             | Provenance::CallableClosure { .. } => None,
+            Provenance::ClosureCapture { origin, .. } => input_source(origin),
         })
         .collect()
 }
@@ -1120,6 +1132,7 @@ fn captured_input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
             | Provenance::StackAddress { .. }
             | Provenance::CapturedStackAddress { .. }
             | Provenance::CallableClosure { .. } => None,
+            Provenance::ClosureCapture { origin, .. } => captured_input_source(origin),
         })
         .collect()
 }
@@ -1144,7 +1157,26 @@ fn capture_address_origins(origins: Provenances) -> Provenances {
             }
             Provenance::CapturedInputAddress(_)
             | Provenance::CapturedStackAddress { .. }
-            | Provenance::CallableClosure { .. } => origin,
+            | Provenance::CallableClosure { .. }
+            | Provenance::ClosureCapture { .. } => origin,
+        })
+        .collect()
+}
+
+fn closure_capture_origins(
+    closure_id: ClosureId,
+    index: usize,
+    origins: Provenances,
+) -> Provenances {
+    // Capture slots are part of closure identity. Keeping the slot on each
+    // origin lets a summary for `Capture(0)` select only that capture instead
+    // of conservatively treating every field in the state as interchangeable.
+    capture_address_origins(origins)
+        .into_iter()
+        .map(|origin| Provenance::ClosureCapture {
+            closure_id,
+            index,
+            origin: Box::new(origin),
         })
         .collect()
 }
@@ -1189,10 +1221,107 @@ fn is_integer_type(type_store: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
     )
 }
 
-fn input_origins(source: InputSource, captures: &Provenances, args: &[Provenances]) -> Provenances {
+fn input_origins(
+    key: CallableKey,
+    source: InputSource,
+    captures: &Provenances,
+    args: &[Provenances],
+) -> Provenances {
     match source {
-        InputSource::Capture(_) => captures.clone(),
+        InputSource::Capture(index) => {
+            let CallableKey::Closure(closure_id) = key else {
+                return captures.clone();
+            };
+            let has_slots = captures.iter().any(|origin| {
+                matches!(
+                    origin,
+                    Provenance::ClosureCapture {
+                        closure_id: candidate,
+                        ..
+                    } if *candidate == closure_id
+                )
+            });
+            if !has_slots {
+                // Summaries crossing a function boundary currently publish
+                // flattened parameter facts. Retain the conservative fallback
+                // until those products carry closure-state field provenance.
+                return captures.clone();
+            }
+            captures
+                .iter()
+                .filter_map(|origin| match origin {
+                    Provenance::ClosureCapture {
+                        closure_id: candidate,
+                        index: candidate_index,
+                        origin,
+                    } if *candidate == closure_id && *candidate_index == index => {
+                        Some(origin.as_ref().clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
         InputSource::Parameter(index) => args.get(index).cloned().unwrap_or_default(),
+    }
+}
+
+fn input_source(origin: &Provenance) -> Option<InputSource> {
+    match origin {
+        Provenance::Input(source) => Some(*source),
+        Provenance::ClosureCapture { origin, .. } => input_source(origin),
+        Provenance::StackAddress { .. }
+        | Provenance::CapturedInputAddress(_)
+        | Provenance::CapturedStackAddress { .. }
+        | Provenance::CallableClosure { .. } => None,
+    }
+}
+
+fn captured_input_source(origin: &Provenance) -> Option<InputSource> {
+    match origin {
+        Provenance::CapturedInputAddress(source) => Some(*source),
+        Provenance::ClosureCapture { origin, .. } => captured_input_source(origin),
+        Provenance::Input(_)
+        | Provenance::StackAddress { .. }
+        | Provenance::CapturedStackAddress { .. }
+        | Provenance::CallableClosure { .. } => None,
+    }
+}
+
+fn contains_stack_backed_callable(origin: &Provenance) -> bool {
+    match origin {
+        Provenance::CallableClosure {
+            stack_backed: true, ..
+        } => true,
+        Provenance::ClosureCapture { origin, .. } => contains_stack_backed_callable(origin),
+        _ => false,
+    }
+}
+
+fn contains_captured_stack_address(origin: &Provenance) -> bool {
+    match origin {
+        Provenance::CapturedStackAddress { .. } => true,
+        Provenance::ClosureCapture { origin, .. } => contains_captured_stack_address(origin),
+        _ => false,
+    }
+}
+
+fn provenance_expires_at(
+    origin: &Provenance,
+    closure_scopes: &HashMap<ClosureId, usize>,
+    depth: usize,
+) -> bool {
+    match origin {
+        Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        } => closure_scopes
+            .get(closure_id)
+            .is_some_and(|closure_depth| *closure_depth >= depth),
+        Provenance::CapturedStackAddress { scope_depth } => *scope_depth >= depth,
+        Provenance::ClosureCapture { origin, .. } => {
+            provenance_expires_at(origin, closure_scopes, depth)
+        }
+        _ => false,
     }
 }
 
@@ -1244,4 +1373,73 @@ fn join_environment(target: &mut Environment, source: &Environment) {
 fn union(mut lhs: Provenances, rhs: Provenances) -> Provenances {
     lhs.extend(rhs);
     lhs
+}
+
+#[cfg(test)]
+mod tests {
+    use nia_ids::{DefId, ModuleIdAllocator};
+
+    use super::*;
+
+    fn closure_id() -> ClosureId {
+        let module_id = ModuleIdAllocator::new().allocate();
+        ClosureId {
+            owner: GlobalDefId {
+                module_id,
+                def_id: DefId(1),
+            },
+            ordinal: 0,
+        }
+    }
+
+    #[test]
+    fn known_closure_capture_lookup_selects_only_the_requested_slot() {
+        let closure_id = closure_id();
+        let selected = Provenance::CapturedInputAddress(InputSource::Parameter(0));
+        let ignored = Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        };
+        let captures = Provenances::from([
+            Provenance::ClosureCapture {
+                closure_id,
+                index: 0,
+                origin: Box::new(selected.clone()),
+            },
+            Provenance::ClosureCapture {
+                closure_id,
+                index: 1,
+                origin: Box::new(ignored),
+            },
+        ]);
+
+        assert_eq!(
+            input_origins(
+                CallableKey::Closure(closure_id),
+                InputSource::Capture(0),
+                &captures,
+                &[],
+            ),
+            Provenances::from([selected]),
+        );
+    }
+
+    #[test]
+    fn flattened_closure_capture_lookup_remains_conservative() {
+        let closure_id = closure_id();
+        let captures = Provenances::from([
+            Provenance::CapturedInputAddress(InputSource::Parameter(0)),
+            Provenance::CapturedInputAddress(InputSource::Parameter(1)),
+        ]);
+
+        assert_eq!(
+            input_origins(
+                CallableKey::Closure(closure_id),
+                InputSource::Capture(0),
+                &captures,
+                &[],
+            ),
+            captures,
+        );
+    }
 }

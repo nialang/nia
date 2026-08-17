@@ -373,6 +373,31 @@ fn leak(storage: &mut u8, base: i32) Owner {
 }
 
 #[test]
+fn closure_summary_preserves_the_selected_capture_slot() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn select(first: &Fn(i32) i32, second: &Fn(i32) i32) &Fn(i32) i32 {
+    let choose = \[first, second] -> { first };
+    choose()
+}
+
+fn preserve(external: &Fn(i32) i32, base: i32) &Fn(i32) i32 {
+    let local = \[base] value: i32 -> { base + value };
+    select(external, &local)
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "unselected capture contaminated the returned callable: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry = fixture.entry_id();
