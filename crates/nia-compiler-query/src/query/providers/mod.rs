@@ -11,7 +11,7 @@ use nia_program_signatures::{
     ProgramNonFunctionSignatureMaps, ProgramSignatureContext, ProgramSignatureResolvers,
     ProgramTraitMethodIndex,
 };
-use nia_symbol::{SymbolId, SymbolMap};
+use nia_symbol::SymbolId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

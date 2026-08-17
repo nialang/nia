@@ -492,6 +492,13 @@ commit as the corresponding implementation batch.
       signatures and persistent caches, then rebuild separate type/const
       substitutions through one documented owner helper. Normalization and
       layout regressions cover interleaved type/const aliases end to end.
+- [x] Phase B extern ABI checking now expands local and imported const-generic
+      aliases with the canonical type/const substitution mapping before
+      classifying nested fields, so diagnostics describe the forbidden concrete
+      representation instead of rejecting valid alias argument structure.
+- [x] Phase B layout-root closure now substitutes aggregate fields with the
+      canonical recursive type/const algorithm; mixed generic structs and
+      unions no longer skip all nested roots or retain symbolic array lengths.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
