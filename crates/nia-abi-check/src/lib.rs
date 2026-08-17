@@ -484,12 +484,37 @@ impl AbiChecker<'_> {
                         // Walk its fields here so a foreign `extern struct`
                         // cannot smuggle bools, Nia aggregates, or other
                         // forbidden representations through one nominal value.
-                        nominal_stack.push(*def_id);
+                        let Some((substitutions, const_substitutions)) =
+                            generic_argument_substitutions(
+                                &signature.generic_params,
+                                args,
+                                const_args,
+                            )
+                        else {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::STATIC_CHECK,
+                                span,
+                                format!("{context_desc} has invalid extern struct arguments"),
+                            ));
+                            return;
+                        };
+                        let append = self.type_store.append_for_module(self.defs.module_id);
                         let fields = signature
                             .fields
                             .iter()
-                            .map(|field| (field.span, field.ty))
+                            .map(|field| {
+                                let ty = nia_ty::substitute_ty(
+                                    self.type_store,
+                                    &append,
+                                    field.ty,
+                                    &|name| substitutions.get(name).copied(),
+                                    &|name| const_substitutions.get(name).cloned(),
+                                    None,
+                                );
+                                (field.span, ty)
+                            })
                             .collect::<Vec<_>>();
+                        nominal_stack.push(*def_id);
                         for (field_span, field_ty) in fields {
                             self.check_extern_ty_inner(
                                 field_span,
@@ -718,13 +743,19 @@ extern fn consume(header: Header);
         let defs = collect_module_defs(module_id, &module);
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
+        let type_name = SymbolId::from_stable_hash(stable_hash("T"));
+        let const_name = SymbolId::from_stable_hash(stable_hash("N"));
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
         let imported_ty = append.intern(TyKind::Nominal {
             def_id: GlobalDefId {
                 module_id: foreign_module_id,
                 def_id: DefId(0),
             },
-            args: Vec::new(),
-            const_args: Vec::new(),
+            args: vec![append.primitive(PrimitiveTy::Bool)],
+            const_args: vec![nia_ty::ConstGenericArg {
+                ty: usize_ty,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+            }],
         });
         let mut signatures = ItemSignatures {
             functions: HashMap::new(),
@@ -767,13 +798,27 @@ extern fn consume(header: Header);
                 def_id: DefId(0),
             },
             StructSignature {
-                generics: Vec::new(),
-                generic_params: Vec::new(),
+                generics: vec![type_name, const_name],
+                generic_params: vec![
+                    nia_item_signatures::GenericParamSignature {
+                        name: type_name,
+                        kind: nia_item_signatures::GenericParamSignatureKind::Type,
+                    },
+                    nia_item_signatures::GenericParamSignature {
+                        name: const_name,
+                        kind: nia_item_signatures::GenericParamSignatureKind::Const {
+                            ty: usize_ty,
+                        },
+                    },
+                ],
                 where_predicates: Vec::new(),
                 fields: vec![FieldSignature {
                     def_id: DefId(0),
                     name: SymbolId::from_stable_hash(stable_hash("flag")),
-                    ty: append.primitive(PrimitiveTy::Bool),
+                    ty: append.intern(TyKind::Array {
+                        elem: append.intern(TyKind::GenericParam(type_name)),
+                        len: ArrayLenTy::GenericParam(const_name),
+                    }),
                     span: Span::default(),
                 }],
                 is_tuple: false,
