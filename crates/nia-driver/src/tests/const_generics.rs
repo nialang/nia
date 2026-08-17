@@ -176,6 +176,85 @@ fn main() i32 {
 }
 
 #[test]
+fn codegen_materializes_const_generic_trait_method_impl_arguments() {
+    let root = temp_dir("codegen_materializes_const_generic_trait_method_impl_arguments");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Make[N: usize] {
+    fn make(& self) [u8; N];
+}
+
+struct Box {}
+
+extend[N: usize] Box : Make[N] {
+    fn make(& self) [u8; N] {
+        [0u8; N]
+    }
+}
+
+fn build[N: usize](value: & Box) [u8; N]
+where Box: Make[N] {
+    value.make()
+}
+
+fn main(value: & Box) [u8; 3] {
+    build[3](value)
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.function_instances)
+            .any(|instance| instance.name == sym("make") && instance.const_args.len() == 1)
+    );
+}
+
+#[test]
+fn codegen_preserves_interleaved_function_generic_order() {
+    let root = temp_dir("codegen_preserves_interleaved_function_generic_order");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn choose[T, N: usize, U](left: T, right: U) U {
+    right
+}
+
+fn main() i64 {
+    choose[i32, 3, i64](1, 9i64)
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.function_instances)
+            .any(|instance| {
+                instance.name == sym("choose")
+                    && instance.args.len() == 2
+                    && instance.const_args.len() == 1
+                    && matches!(
+                        program.type_store.get(instance.return_type),
+                        Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I64))
+                    )
+            })
+    );
+}
+
+#[test]
 fn const_generic_const_fn_result_can_drive_nominal_arg_and_extend_value() {
     let root = temp_dir("const_generic_const_fn_result_can_drive_nominal_arg_and_extend_value");
     write(

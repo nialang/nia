@@ -212,14 +212,14 @@ impl<'a> ModuleLowerer<'a> {
                     self.const_generic_expr_from_arg(arg)
                 }
                 FunctionExprKind::Global(def_id) => {
-                    if let Some((arg_module_id, args)) =
+                    if let Some((arg_module_id, args, const_args)) =
                         self.global_instance_args_for_def(def_id, substitutions)
                     {
                         FunctionExprKind::GlobalInstance {
                             def_id,
                             arg_module_id,
                             args,
-                            const_args: Vec::new(),
+                            const_args,
                         }
                     } else {
                         FunctionExprKind::Global(def_id)
@@ -240,18 +240,30 @@ impl<'a> ModuleLowerer<'a> {
                             .collect::<Vec<_>>();
                         self.canonicalize_instance_args(&instantiated_args)
                     },
-                    const_args,
+                    const_args: const_args
+                        .into_iter()
+                        .map(|arg| {
+                            self.instantiate_const_generic_arg_with_id(
+                                &arg,
+                                substitutions,
+                                &mut HashSet::new(),
+                            )
+                        })
+                        .collect(),
                 },
                 FunctionExprKind::Function(def_id) => {
-                    if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
-                        && !args.is_empty()
+                    let args = self.effective_instance_type_args_for_def(def_id, substitutions);
+                    let const_args =
+                        self.effective_instance_const_args_for_def(def_id, substitutions);
+                    if let (Some(args), Some(const_args)) = (args, const_args)
+                        && (!args.is_empty() || !const_args.is_empty())
                     {
                         FunctionExprKind::FunctionInstance {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: None,
                             args,
-                            const_args: Vec::new(),
+                            const_args,
                         }
                     } else {
                         FunctionExprKind::Function(def_id)
@@ -275,7 +287,16 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id: self.current_arg_module_id(),
                         self_arg: self.canonicalize_instance_self_arg(self_arg),
                         args: self.canonicalize_instance_args(&args),
-                        const_args,
+                        const_args: const_args
+                            .into_iter()
+                            .map(|arg| {
+                                self.instantiate_const_generic_arg_with_id(
+                                    &arg,
+                                    substitutions,
+                                    &mut HashSet::new(),
+                                )
+                            })
+                            .collect(),
                     }
                 }
                 FunctionExprKind::EnumVariant { variant, fields } => {
@@ -728,15 +749,17 @@ impl<'a> ModuleLowerer<'a> {
                 state: Box::new(self.instantiate_expr(*state, substitutions)),
             },
             FunctionCallee::Function(def_id) => {
-                if let Some(args) = self.effective_instance_args_for_def(def_id, substitutions)
-                    && !args.is_empty()
+                let args = self.effective_instance_type_args_for_def(def_id, substitutions);
+                let const_args = self.effective_instance_const_args_for_def(def_id, substitutions);
+                if let (Some(args), Some(const_args)) = (args, const_args)
+                    && (!args.is_empty() || !const_args.is_empty())
                 {
                     FunctionCallee::FunctionInstance {
                         def_id,
                         arg_module_id: self.current_arg_module_id(),
                         self_arg: None,
                         args,
-                        const_args: Vec::new(),
+                        const_args,
                     }
                 } else {
                     FunctionCallee::Function(def_id)
@@ -760,7 +783,16 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: self.canonicalize_instance_self_arg(self_arg),
                     args: self.canonicalize_instance_args(&args),
-                    const_args,
+                    const_args: const_args
+                        .into_iter()
+                        .map(|arg| {
+                            self.instantiate_const_generic_arg_with_id(
+                                &arg,
+                                substitutions,
+                                &mut HashSet::new(),
+                            )
+                        })
+                        .collect(),
                 }
             }
             FunctionCallee::Method {
@@ -779,7 +811,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
                 let args = if args.is_empty() {
-                    self.effective_instance_args_for_def(def_id, substitutions)
+                    self.effective_instance_type_args_for_def(def_id, substitutions)
                         .unwrap_or_default()
                 } else {
                     self.canonicalize_instance_args(&args)
@@ -1343,14 +1375,14 @@ impl<'a> ModuleLowerer<'a> {
             base: match place.base {
                 FunctionPlaceBase::Local(local_id) => FunctionPlaceBase::Local(local_id),
                 FunctionPlaceBase::Global(def_id) => {
-                    if let Some((arg_module_id, args)) =
+                    if let Some((arg_module_id, args, const_args)) =
                         self.global_instance_args_for_def(def_id, substitutions)
                     {
                         FunctionPlaceBase::GlobalInstance {
                             def_id,
                             arg_module_id,
                             args,
-                            const_args: Vec::new(),
+                            const_args,
                         }
                     } else {
                         FunctionPlaceBase::Global(def_id)
@@ -1371,7 +1403,16 @@ impl<'a> ModuleLowerer<'a> {
                             .collect::<Vec<_>>();
                         self.canonicalize_instance_args(&instantiated_args)
                     },
-                    const_args,
+                    const_args: const_args
+                        .into_iter()
+                        .map(|arg| {
+                            self.instantiate_const_generic_arg_with_id(
+                                &arg,
+                                substitutions,
+                                &mut HashSet::new(),
+                            )
+                        })
+                        .collect(),
                 },
                 FunctionPlaceBase::Deref(expr) => {
                     FunctionPlaceBase::Deref(Box::new(self.instantiate_expr(*expr, substitutions)))

@@ -350,29 +350,26 @@ impl ModuleLowerer<'_> {
             module_id: def_id.module_id,
             def_id: owner,
         };
-        let owner_generics = if owner_def_id.module_id == self.input.module_id {
-            self.input
-                .signatures
-                .functions
-                .get(&owner)
-                .map(|signature| signature.generics.as_slice())?
+        if owner_def_id.module_id == self.input.module_id {
+            self.input.signatures.functions.get(&owner).map(|_| ())?
         } else {
             self.input
                 .program
                 .functions()
                 .get(&owner_def_id)
-                .map(|signature| signature.signature.generics.as_slice())?
-        };
-        let effective_generics = self
-            .effective_generics(owner_def_id, owner_generics)
-            .to_vec();
+                .map(|_| ())?
+        }
         let imported_args = args
             .iter()
             .map(|arg| self.normalize_instance_arg_type(*arg))
             .collect::<Vec<_>>();
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            owner_def_id,
+            &imported_args,
+            &const_args,
+        );
         let substitutions =
-            ModuleLowerer::generic_substitutions(&effective_generics, &imported_args);
-        let substitutions = self.intern_type_substitutions(&substitutions);
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         let ty = self
             .input
             .semantic_facts
