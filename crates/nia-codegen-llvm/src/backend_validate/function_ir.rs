@@ -7,7 +7,7 @@ use nia_function_ir::{
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{ConstGenericValue, PrimitiveTy, TyKind};
+use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind};
 
 use super::{BackendValidator, FunctionInstanceRef};
 
@@ -15,6 +15,8 @@ struct DynamicTraitCallContract<'a> {
     object_ty: nia_ids::InternedTyId,
     trait_id: nia_ty::TraitId,
     method_id: nia_ids::GlobalDefId,
+    trait_args: &'a [nia_ids::InternedTyId],
+    trait_const_args: &'a [ConstGenericArg],
     slot: usize,
     params: &'a [nia_ids::InternedTyId],
     return_type: nia_ids::InternedTyId,
@@ -23,6 +25,13 @@ struct DynamicTraitCallContract<'a> {
     args: &'a [FunctionExpr],
     result_ty: nia_ids::InternedTyId,
     span: Span,
+}
+
+#[derive(Clone, Copy)]
+struct VtableTraitInstance<'a> {
+    trait_id: nia_ty::TraitId,
+    args: &'a [nia_ids::InternedTyId],
+    const_args: &'a [ConstGenericArg],
 }
 
 struct CallTargetSignature {
@@ -910,6 +919,8 @@ impl BackendValidator<'_> {
                 object_ty,
                 trait_id,
                 method_id,
+                trait_args,
+                trait_const_args,
                 slot,
                 params,
                 return_type,
@@ -927,6 +938,8 @@ impl BackendValidator<'_> {
                     object_ty: *object_ty,
                     trait_id: *trait_id,
                     method_id: *method_id,
+                    trait_args,
+                    trait_const_args,
                     slot: *slot,
                     params,
                     return_type: *return_type,
@@ -1348,6 +1361,8 @@ impl BackendValidator<'_> {
             object_ty,
             trait_id,
             method_id,
+            trait_args,
+            trait_const_args,
             slot,
             params,
             return_type,
@@ -1368,6 +1383,12 @@ impl BackendValidator<'_> {
                 span,
                 "receiver type does not match its trait-object type",
             );
+        }
+        for arg in trait_args {
+            self.validate_type(*arg, span);
+        }
+        for arg in trait_const_args {
+            self.validate_type(arg.ty, span);
         }
         if !self.same_type(result_ty, return_type) {
             self.invalid_dynamic_trait_call(
@@ -1392,9 +1413,17 @@ impl BackendValidator<'_> {
             );
         }
 
-        let Some(target) =
-            self.validate_dynamic_trait_slot(object_ty, trait_id, method_id, slot, span)
-        else {
+        let Some(target) = self.validate_dynamic_trait_slot(
+            object_ty,
+            VtableTraitInstance {
+                trait_id,
+                args: trait_args,
+                const_args: trait_const_args,
+            },
+            method_id,
+            slot,
+            span,
+        ) else {
             return;
         };
         let Some((target_params, target_return_type)) =
@@ -1436,34 +1465,47 @@ impl BackendValidator<'_> {
     fn validate_dynamic_trait_slot(
         &mut self,
         object_ty: nia_ids::InternedTyId,
-        trait_id: nia_ty::TraitId,
+        trait_instance: VtableTraitInstance<'_>,
         method_id: nia_ids::GlobalDefId,
         slot: usize,
         span: Span,
     ) -> Option<nia_backend_ir::BackendTraitObjectVtableFunction> {
         // The slot is part of the typed call contract, not merely an indexing
-        // hint. Resolve it against the exact object vtable first, then the
-        // trait index for equivalent handles, so a malformed slot cannot turn
-        // into an unchecked LLVM GEP.
-        let vtable = self
+        // hint. Calls on the original object use absolute slots in its complete
+        // table; explicitly upcast views use slots relative to the target
+        // supertrait segment. Keep those two representations distinct so a
+        // malformed slot cannot turn into an unchecked LLVM GEP.
+        let exact_vtable = self
             .index
             .trait_object_vtables_for_object_ty(object_ty)
             .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
             .or_else(|| {
                 self.index
-                    .trait_object_vtables_for_trait(trait_id)
+                    .trait_object_vtables_for_trait(trait_instance.trait_id)
                     .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
-            })
-            .or_else(|| {
-                // An upcast receiver keeps the source vtable metadata while
-                // its typed view names a supertrait object. Such a vtable is
-                // not indexed under the target object type, so validate the
-                // method identity against the emitted source tables as well.
-                self.index.trait_object_vtables().find(|vtable| {
-                    Self::dynamic_trait_slot_entry(vtable, trait_id, method_id, slot).is_some()
-                })
             });
-        let Some(vtable) = vtable else {
+        if let Some(vtable) = exact_vtable {
+            let Some(entry) =
+                self.dynamic_trait_slot_entry(vtable, trait_instance, method_id, slot)
+            else {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "backend IR dynamic trait call has an invalid vtable method slot",
+                ));
+                return None;
+            };
+            return Some(entry.function.clone());
+        }
+
+        // An explicitly upcast receiver names the target trait-object type but
+        // retains a pointer into a source vtable. Its call slot is relative to
+        // the first target-supertrait entry, unlike calls on the original
+        // object whose slots are absolute in that object's complete table.
+        let upcast_entry = self.index.trait_object_vtables().find_map(|vtable| {
+            self.dynamic_trait_upcast_slot_entry(vtable, trait_instance, method_id, slot)
+        });
+        let Some(entry) = upcast_entry else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -1471,34 +1513,58 @@ impl BackendValidator<'_> {
             ));
             return None;
         };
-        let Some(entry) = Self::dynamic_trait_slot_entry(vtable, trait_id, method_id, slot) else {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                "backend IR dynamic trait call has an invalid vtable method slot",
-            ));
-            return None;
-        };
         Some(entry.function.clone())
     }
 
-    fn dynamic_trait_slot_entry(
-        vtable: &nia_backend_ir::BackendTraitObjectVtable,
-        trait_id: nia_ids::TraitId,
+    fn dynamic_trait_slot_entry<'a>(
+        &self,
+        vtable: &'a nia_backend_ir::BackendTraitObjectVtable,
+        trait_instance: VtableTraitInstance<'_>,
         method_id: nia_ids::GlobalDefId,
         slot: usize,
-    ) -> Option<&nia_backend_ir::BackendTraitObjectVtableEntry> {
+    ) -> Option<&'a nia_backend_ir::BackendTraitObjectVtableEntry> {
+        vtable.entries.iter().find(|entry| {
+            self.vtable_entry_matches_trait_instance(entry, trait_instance)
+                && entry.method_id == method_id
+                && entry.slot == slot
+        })
+    }
+
+    fn dynamic_trait_upcast_slot_entry<'a>(
+        &self,
+        vtable: &'a nia_backend_ir::BackendTraitObjectVtable,
+        trait_instance: VtableTraitInstance<'_>,
+        method_id: nia_ids::GlobalDefId,
+        slot: usize,
+    ) -> Option<&'a nia_backend_ir::BackendTraitObjectVtableEntry> {
         let first_slot = vtable
             .entries
             .iter()
-            .filter(|entry| entry.trait_id == trait_id)
+            .filter(|entry| self.vtable_entry_matches_trait_instance(entry, trait_instance))
             .map(|entry| entry.slot)
             .min()?;
         vtable.entries.iter().find(|entry| {
-            entry.trait_id == trait_id
+            self.vtable_entry_matches_trait_instance(entry, trait_instance)
                 && entry.method_id == method_id
                 && entry.slot.checked_sub(first_slot) == Some(slot)
         })
+    }
+
+    fn vtable_entry_matches_trait_instance(
+        &self,
+        entry: &nia_backend_ir::BackendTraitObjectVtableEntry,
+        trait_instance: VtableTraitInstance<'_>,
+    ) -> bool {
+        entry.trait_id == trait_instance.trait_id
+            && self.same_type_args(&entry.trait_args, trait_instance.args)
+            && entry.trait_const_args.len() == trait_instance.const_args.len()
+            && entry
+                .trait_const_args
+                .iter()
+                .zip(trait_instance.const_args)
+                .all(|(entry_arg, call_arg)| {
+                    entry_arg.value == call_arg.value && self.same_type(entry_arg.ty, call_arg.ty)
+                })
     }
 
     fn dynamic_trait_target_signature(

@@ -330,9 +330,12 @@ impl<'a> Encoder<'a> {
         self.ty(item.key.object_ty);
         self.trait_id(item.trait_id);
         self.types(&item.trait_args);
+        self.const_args(&item.trait_const_args);
         self.len(item.entries.len());
         for entry in &item.entries {
             self.trait_id(entry.trait_id);
+            self.types(&entry.trait_args);
+            self.const_args(&entry.trait_const_args);
             self.global_def(entry.method_id);
             self.symbol(entry.method_name);
             self.usize(entry.slot);

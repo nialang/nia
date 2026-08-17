@@ -317,6 +317,7 @@ impl<'a> MembershipBuilder<'a> {
             );
             self.add_types([item.key.self_ty, item.key.object_ty]);
             self.add_types(item.trait_args.iter().copied());
+            self.add_types(item.trait_const_args.iter().map(|arg| arg.ty));
         }
     }
 
@@ -326,6 +327,8 @@ impl<'a> MembershipBuilder<'a> {
             return;
         }
         for entry in &item.entries {
+            self.add_types(entry.trait_args.iter().copied());
+            self.add_types(entry.trait_const_args.iter().map(|arg| arg.ty));
             match &entry.function {
                 BackendTraitObjectVtableFunction::Function(def_id) => {
                     if let Some(function) = self.index.function(*def_id) {

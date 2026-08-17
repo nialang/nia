@@ -2,7 +2,7 @@
 use super::ModuleCodegen;
 use nia_backend_ir::BackendTraitObjectVtable;
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_ty::{TraitId, TyKind};
+use nia_ty::{ConstGenericArg, TraitId, TyKind};
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(crate) fn trait_object_vtable(
@@ -36,6 +36,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         object_ty: InternedTyId,
         trait_id: TraitId,
         method_id: GlobalDefId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
         slot: usize,
     ) -> usize {
         let Some(TyKind::TraitObject {
@@ -49,7 +51,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return slot;
         }
         self.trait_object_vtable_metadata(object_ty)
-            .and_then(|vtable| vtable_slot(vtable, trait_id, method_id))
+            .and_then(|vtable| {
+                self.vtable_slot(vtable, trait_id, method_id, trait_args, trait_const_args)
+            })
             .unwrap_or(slot)
     }
 
@@ -60,13 +64,22 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> usize {
         let Some(TyKind::TraitObject {
             trait_id: target_trait,
+            trait_args,
+            trait_const_args,
             ..
         }) = self.ty_kind(target_ty)
         else {
             return 0;
         };
         self.trait_object_vtable_metadata(source_ty)
-            .and_then(|vtable| first_vtable_slot_for_trait(vtable, *target_trait))
+            .and_then(|vtable| {
+                self.first_vtable_slot_for_trait(
+                    vtable,
+                    *target_trait,
+                    trait_args,
+                    trait_const_args,
+                )
+            })
             .unwrap_or(0)
     }
 
@@ -87,6 +100,53 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
             })
     }
+
+    fn vtable_slot(
+        &self,
+        vtable: &BackendTraitObjectVtable,
+        trait_id: TraitId,
+        method_id: GlobalDefId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+    ) -> Option<usize> {
+        vtable
+            .entries
+            .iter()
+            .find(|entry| {
+                entry.trait_id == trait_id
+                    && entry.method_id == method_id
+                    && self.same_type_args(&entry.trait_args, trait_args)
+                    && self.same_const_args(&entry.trait_const_args, trait_const_args)
+            })
+            .map(|entry| entry.slot)
+    }
+
+    fn first_vtable_slot_for_trait(
+        &self,
+        vtable: &BackendTraitObjectVtable,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+    ) -> Option<usize> {
+        vtable
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.trait_id == trait_id
+                    && self.same_type_args(&entry.trait_args, trait_args)
+                    && self.same_const_args(&entry.trait_const_args, trait_const_args)
+            })
+            .map(|entry| entry.slot)
+            .min()
+    }
+
+    fn same_const_args(&self, left: &[ConstGenericArg], right: &[ConstGenericArg]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| left.value == right.value && self.same_type(left.ty, right.ty))
+    }
 }
 
 /// Converts a vtable entry count to LLVM's array-length representation.
@@ -103,30 +163,6 @@ pub(crate) fn checked_vtable_slot_array_len(slot: usize) -> Option<u32> {
 /// Converts a host slot index to the width used by LLVM's integer index.
 pub(crate) fn checked_vtable_index(slot: usize) -> Option<u64> {
     u64::try_from(slot).ok()
-}
-
-fn vtable_slot(
-    vtable: &BackendTraitObjectVtable,
-    trait_id: TraitId,
-    method_id: GlobalDefId,
-) -> Option<usize> {
-    vtable
-        .entries
-        .iter()
-        .find(|entry| entry.trait_id == trait_id && entry.method_id == method_id)
-        .map(|entry| entry.slot)
-}
-
-fn first_vtable_slot_for_trait(
-    vtable: &BackendTraitObjectVtable,
-    trait_id: TraitId,
-) -> Option<usize> {
-    vtable
-        .entries
-        .iter()
-        .filter(|entry| entry.trait_id == trait_id)
-        .map(|entry| entry.slot)
-        .min()
 }
 
 #[cfg(test)]

@@ -12,7 +12,14 @@ struct DynamicTraitMethodSearch<'a> {
     // recursive walk so codegen indexes the same slot order that type checking
     // recorded.
     next_slot: &'a mut usize,
-    visiting: &'a mut Vec<TraitId>,
+    visiting: &'a mut Vec<DynamicTraitInstanceKey>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct DynamicTraitInstanceKey {
+    trait_id: TraitId,
+    trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<ConstGenericArg>,
 }
 
 struct TraitMethodCandidateSource<'a> {
@@ -693,10 +700,15 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
         trait_const_args: Vec<ConstGenericArg>,
     ) {
-        if search.visiting.contains(&trait_id) {
+        let visit_key = DynamicTraitInstanceKey {
+            trait_id,
+            trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
+        };
+        if search.visiting.contains(&visit_key) {
             return;
         }
-        search.visiting.push(trait_id);
+        search.visiting.push(visit_key);
         let TraitId::Source(source_trait_id) = trait_id else {
             search.visiting.pop();
             return;

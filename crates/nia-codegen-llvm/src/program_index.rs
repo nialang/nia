@@ -1030,6 +1030,7 @@ mod tests {
             },
             trait_id: TraitId::Source(trait_def),
             trait_args: vec![i32_ty],
+            trait_const_args: Vec::new(),
             entries: Vec::new(),
             span: Span::default(),
         };

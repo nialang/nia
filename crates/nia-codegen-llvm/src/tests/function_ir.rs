@@ -1564,7 +1564,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
 }
 
 #[test]
-fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
+fn validates_backend_ir_vtable_payload_and_function_refs_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
@@ -1619,12 +1619,15 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
                     module_id,
                     def_id: DefId(0),
                 }),
-                trait_args: Vec::new(),
+                trait_args: vec![i32_ty],
+                trait_const_args: Vec::new(),
                 entries: vec![BackendTraitObjectVtableEntry {
                     trait_id: TraitId::Source(GlobalDefId {
                         module_id,
                         def_id: DefId(0),
                     }),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     method_id: missing_fn,
                     method_name: known::SHOW,
                     slot: 0,
@@ -1641,6 +1644,13 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("vtable trait arguments do not match its object type")),
+        "{:?}",
+        output.diagnostics
+    );
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
@@ -1851,8 +1861,11 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
                 },
                 trait_id: TraitId::Source(trait_def),
                 trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
                 entries: vec![BackendTraitObjectVtableEntry {
                     trait_id: TraitId::Source(trait_def),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
                     method_id: method_def,
                     method_name: known::SHOW,
                     slot: 0,
