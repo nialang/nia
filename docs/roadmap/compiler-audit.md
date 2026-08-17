@@ -598,6 +598,11 @@ commit as the corresponding implementation batch.
       envelope directly to its staged file, and compares publication collisions
       byte-for-byte through fixed buffers. Output snapshots and whole-record
       encoding/collision allocations are no longer proportional to payload size.
+- [x] Phase D executable static-archive inputs now derive both compiler-emit
+      and linker cache identities from one no-follow regular-file handle using
+      fixed buffers and exact observed-length checks. Link orchestration no
+      longer retains every archive in memory, and compatibility regressions
+      preserve both registered fingerprint domains.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

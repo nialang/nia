@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    env, fs, io,
+    env, fs,
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 
@@ -586,9 +587,54 @@ impl StaticArchiveLinkInput {
         }
     }
 
+    /// Fingerprints exactly `length` bytes from an already opened archive.
+    /// A short read or trailing growth byte is rejected so callers can avoid a
+    /// whole-archive allocation without weakening link-result identity.
+    pub fn from_reader(
+        package: impl Into<String>,
+        name: impl Into<String>,
+        path: impl Into<PathBuf>,
+        reader: &mut impl Read,
+        length: u64,
+    ) -> io::Result<Self> {
+        let mut fingerprint = QueryFingerprintBuilder::new(STATIC_ARCHIVE_LINK_INPUT_DOMAIN);
+        let mut writer = fingerprint.bytes_writer(length);
+        stream_fingerprint_bytes(reader, &mut writer, length)?;
+        writer.finish()?;
+        Ok(Self {
+            package: package.into(),
+            name: name.into(),
+            path: path.into(),
+            fingerprint: finish_link_fingerprint(fingerprint),
+        })
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+fn stream_fingerprint_bytes(
+    reader: &mut impl Read,
+    writer: &mut nia_query::QueryFingerprintBytesWriter<'_>,
+    length: u64,
+) -> io::Result<()> {
+    let mut buffer = [0; 64 * 1024];
+    let mut remaining = length;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        reader.read_exact(&mut buffer[..chunk_len])?;
+        writer.write_chunk(&buffer[..chunk_len])?;
+        remaining -= chunk_len as u64;
+    }
+    let mut trailing = [0; 1];
+    if reader.read(&mut trailing)? != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "static archive grew while it was fingerprinted",
+        ));
+    }
+    Ok(())
 }
 
 impl Default for LinkOptions {
@@ -1435,6 +1481,40 @@ mod tests {
     use std::sync::Mutex;
 
     include!("tests/linker/test_support.rs");
+
+    #[test]
+    fn streamed_static_archive_identity_matches_bytes_and_rejects_length_changes() {
+        let expected = StaticArchiveLinkInput::from_bytes("root", "support", "lib.a", b"archive");
+        let streamed = StaticArchiveLinkInput::from_reader(
+            "root",
+            "support",
+            "lib.a",
+            &mut io::Cursor::new(b"archive"),
+            7,
+        )
+        .expect("stream archive identity");
+        assert_eq!(streamed, expected);
+
+        let growth = StaticArchiveLinkInput::from_reader(
+            "root",
+            "support",
+            "lib.a",
+            &mut io::Cursor::new(b"archive!"),
+            7,
+        )
+        .expect_err("archive growth must be rejected");
+        assert_eq!(growth.kind(), io::ErrorKind::InvalidData);
+
+        let truncation = StaticArchiveLinkInput::from_reader(
+            "root",
+            "support",
+            "lib.a",
+            &mut io::Cursor::new(b"archive"),
+            8,
+        )
+        .expect_err("archive truncation must be rejected");
+        assert_eq!(truncation.kind(), io::ErrorKind::UnexpectedEof);
+    }
 
     #[path = "linker/fingerprint_contracts.rs"]
     mod fingerprint_contracts;
