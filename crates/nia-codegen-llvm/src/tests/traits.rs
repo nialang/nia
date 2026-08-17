@@ -157,6 +157,115 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_const_generic_trait_object_and_supertrait_dispatch() {
+    let root = temp_dir("emits_const_generic_trait_object_and_supertrait_dispatch");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Base[N: usize] {
+    fn value(& self) usize { 8usize }
+}
+
+trait Scaled[N: usize] : Base[N] {
+    fn doubled(& self) usize;
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Base[N] {}
+
+extend[N: usize] Meter : Scaled[N] {
+    fn doubled(& self) usize { 16usize }
+}
+
+fn read(value: & Scaled[8]) usize {
+    value.value() + value.doubled()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("vtable"));
+    assert!(ir.contains("call i64"));
+}
+
+#[test]
+fn emits_upcast_to_distinct_const_generic_supertrait_instance() {
+    let root = temp_dir("emits_upcast_to_distinct_const_generic_supertrait_instance");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Base[N: usize] {
+    fn value(& self) usize;
+}
+
+trait Both : Base[4] + Base[8] {}
+
+struct Meter {}
+
+extend Meter : Base[4] {
+    fn value(& self) usize { 4usize }
+}
+
+extend Meter : Base[8] {
+    fn value(& self) usize { 8usize }
+}
+
+extend Meter : Both {}
+
+fn as_eight(value: & Both) & Base[8] {
+    value
+}
+
+fn main() usize {
+    let meter = Meter {};
+    let both: & Both = & meter;
+    as_eight(both).value()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let vtable = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.trait_object_vtables)
+        .next()
+        .expect("trait-object vtable");
+    let entry_const_args = vtable
+        .entries
+        .iter()
+        .map(|entry| match &entry.trait_const_args[0].value {
+            nia_ty::ConstGenericValue::Int(value) => value.bits() as u64,
+            other => panic!("expected concrete integer const argument, got {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(entry_const_args, vec![4, 8]);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("traitobj.upcast.metadata.offset"), "{ir}");
+    assert!(ir.contains("vtable.fn"), "{ir}");
+}
+
+#[test]
 fn emits_array_reference_element_trait_object_coercions() {
     let root = temp_dir("emits_array_reference_element_trait_object_coercions");
     let main = root.join("main.nia");

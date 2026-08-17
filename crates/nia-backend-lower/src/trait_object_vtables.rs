@@ -13,6 +13,34 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;
 
+/// Complete instantiated identity of one trait segment in a vtable traversal.
+///
+/// Type and const arguments stay in separate vectors in backend identities, so
+/// recursive supertrait expansion must carry both together with the trait id.
+#[derive(Clone, Copy)]
+struct TraitVtableInstance<'a> {
+    trait_id: nia_ids::TraitId,
+    args: &'a [InternedTyId],
+    const_args: &'a [nia_ty::ConstGenericArg],
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct TraitVtableInstanceKey {
+    trait_id: nia_ids::TraitId,
+    args: Vec<InternedTyId>,
+    const_args: Vec<nia_ty::ConstGenericArg>,
+}
+
+impl TraitVtableInstance<'_> {
+    fn key(self) -> TraitVtableInstanceKey {
+        TraitVtableInstanceKey {
+            trait_id: self.trait_id,
+            args: self.args.to_vec(),
+            const_args: self.const_args.to_vec(),
+        }
+    }
+}
+
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn collect_trait_object_vtables_from_concrete_body(
         &mut self,
@@ -397,6 +425,7 @@ impl<'a> ModuleLowerer<'a> {
         let Some(TyKind::TraitObject {
             trait_id,
             trait_args,
+            trait_const_args,
             ..
         }) = self.ty_kind(key.object_ty).cloned()
         else {
@@ -406,8 +435,11 @@ impl<'a> ModuleLowerer<'a> {
         let mut next_slot = 0;
         self.push_trait_object_vtable_entries(
             key.self_ty,
-            trait_id,
-            &trait_args,
+            TraitVtableInstance {
+                trait_id,
+                args: &trait_args,
+                const_args: &trait_const_args,
+            },
             &mut entries,
             &mut next_slot,
             &mut Vec::new(),
@@ -416,6 +448,7 @@ impl<'a> ModuleLowerer<'a> {
             key,
             trait_id,
             trait_args,
+            trait_const_args,
             entries,
             span,
         })
@@ -439,17 +472,17 @@ impl<'a> ModuleLowerer<'a> {
     fn push_trait_object_vtable_entries(
         &mut self,
         self_ty: InternedTyId,
-        trait_id: nia_ids::TraitId,
-        trait_args: &[InternedTyId],
+        trait_instance: TraitVtableInstance<'_>,
         entries: &mut Vec<BackendTraitObjectVtableEntry>,
         next_slot: &mut usize,
-        visiting: &mut Vec<nia_ids::TraitId>,
+        visiting: &mut Vec<TraitVtableInstanceKey>,
     ) {
-        if visiting.contains(&trait_id) {
+        let visit_key = trait_instance.key();
+        if visiting.contains(&visit_key) {
             return;
         }
-        visiting.push(trait_id);
-        let nia_ids::TraitId::Source(source_trait_id) = trait_id else {
+        visiting.push(visit_key);
+        let nia_ids::TraitId::Source(source_trait_id) = trait_instance.trait_id else {
             visiting.pop();
             return;
         };
@@ -465,19 +498,17 @@ impl<'a> ModuleLowerer<'a> {
                 module_id: source_trait_id.module_id,
                 def_id: method.def_id,
             };
-            let Some((def_id, arg_module_id, self_arg, args)) = self
+            let Some((def_id, arg_module_id, self_arg, args, const_args)) = self
                 .resolve_trait_method_impl(
                     source_trait_id,
-                    trait_args,
-                    &[],
+                    trait_instance.args,
+                    trait_instance.const_args,
                     method_id,
                     &method.name,
                     self_ty,
                 )
-                .and_then(|(def_id, args, const_args)| {
-                    const_args
-                        .is_empty()
-                        .then_some((def_id, self.input.module_id, None, args))
+                .map(|(def_id, args, const_args)| {
+                    (def_id, self.input.module_id, None, args, const_args)
                 })
                 .or_else(|| {
                     if self.trait_method_has_default(method_id) {
@@ -490,7 +521,8 @@ impl<'a> ModuleLowerer<'a> {
                             method_id,
                             source_trait_id.module_id,
                             Some(self_ty),
-                            trait_args.to_vec(),
+                            trait_instance.args.to_vec(),
+                            trait_instance.const_args.to_vec(),
                         ))
                     } else {
                         None
@@ -499,44 +531,62 @@ impl<'a> ModuleLowerer<'a> {
             else {
                 continue;
             };
-            let function = if self_arg.is_none() && args.is_empty() {
+            let function = if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
                 BackendTraitObjectVtableFunction::Function(def_id)
             } else {
                 let args = self.canonicalize_instance_args(&args);
+                let const_args = const_args
+                    .iter()
+                    .map(|arg| self.canonicalize_instance_const_arg(arg))
+                    .collect();
                 BackendTraitObjectVtableFunction::FunctionInstance {
                     def_id,
                     arg_module_id,
                     self_arg,
                     args,
-                    const_args: Vec::new(),
+                    const_args,
                 }
             };
             entries.push(BackendTraitObjectVtableEntry {
-                trait_id,
+                trait_id: trait_instance.trait_id,
+                trait_args: trait_instance.args.to_vec(),
+                trait_const_args: trait_instance.const_args.to_vec(),
                 method_id,
                 method_name: method.name,
                 slot,
                 function,
             });
         }
+        // A trait declaration may interleave type and const parameters, while
+        // instantiated identities store them in separate vectors. Rebuild both
+        // maps from declaration kinds before expanding supertraits so `Base[N]`
+        // receives the same concrete `N` as the object trait.
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            source_trait_id,
+            trait_instance.args,
+            trait_instance.const_args,
+        );
         let substitutions =
-            ModuleLowerer::generic_substitutions(&trait_signature.generics, trait_args);
+            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         for supertrait in &trait_signature.supertraits {
             let supertrait =
                 self.normalized_type_from_module(source_trait_id.module_id, supertrait.ty);
-            let supertrait = self.instantiate_ty(supertrait, &substitutions);
+            let supertrait = self.instantiate_ty_with_id(supertrait, substitutions);
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
-                ..
+                const_args: supertrait_const_args,
             }) = self.ty_kind(supertrait).cloned()
             else {
                 continue;
             };
             self.push_trait_object_vtable_entries(
                 self_ty,
-                nia_ids::TraitId::Source(supertrait_id),
-                &supertrait_args,
+                TraitVtableInstance {
+                    trait_id: nia_ids::TraitId::Source(supertrait_id),
+                    args: &supertrait_args,
+                    const_args: &supertrait_const_args,
+                },
                 entries,
                 next_slot,
                 visiting,
@@ -584,6 +634,7 @@ mod tests {
                 def_id: nia_defs::DefId(0),
             }),
             trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
             entries: Vec::new(),
             span: Span::default(),
         };

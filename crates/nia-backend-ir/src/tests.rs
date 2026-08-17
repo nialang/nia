@@ -343,6 +343,7 @@ fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
         },
         trait_id,
         trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
         entries: Vec::new(),
         span: Span::default(),
     };

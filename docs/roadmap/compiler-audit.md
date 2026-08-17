@@ -475,6 +475,15 @@ commit as the corresponding implementation batch.
       interleaved parameters and nested const-generic references retain exact
       argument order and concrete const identity through backend IR; extension
       methods use their effective impl/method generic ownership metadata.
+- [x] Phase B trait-object vtables now retain const arguments in their explicit
+      table and per-entry payloads, impl/default-method instance identities,
+      fingerprints, and dependency membership; kind-aware supertrait expansion
+      propagates interleaved type/const substitutions and keys cycle guards by
+      the complete trait instance. Pre-LLVM validation and LLVM slot selection
+      distinguish absolute source-object slots from relative upcast slots and
+      disambiguate repeated const-generic supertraits. Driver and LLVM
+      regressions cover impl, default-method, supertrait dispatch, and an
+      upcast across two instances of the same const-generic supertrait.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

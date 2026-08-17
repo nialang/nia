@@ -1200,23 +1200,40 @@ pub struct BackendFunctionInstance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Program-wide identity of a concrete trait-object vtable.
+///
+/// `object_ty` contains the complete trait instance, including type, const, and
+/// associated-type arguments. Keeping it in the key makes distinct concrete
+/// trait objects distinct even when they share the same erased receiver type.
 pub struct BackendTraitObjectVtableKey {
     pub self_ty: InternedTyId,
     pub object_ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Concrete dispatch metadata for one `(self type, trait-object type)` pair.
+///
+/// The explicit trait arguments mirror `key.object_ty`. They let validators,
+/// fingerprints, and dependency discovery consume the instantiated trait
+/// contract without decoding the type interner again.
 pub struct BackendTraitObjectVtable {
     pub key: BackendTraitObjectVtableKey,
     pub trait_id: TraitId,
     pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<ConstGenericArg>,
     pub entries: Vec<BackendTraitObjectVtableEntry>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One method slot together with the exact trait segment that owns it.
+///
+/// A vtable may contain multiple instantiations of the same supertrait, so the
+/// trait id alone is not sufficient to identify a slot.
 pub struct BackendTraitObjectVtableEntry {
     pub trait_id: TraitId,
+    pub trait_args: Vec<InternedTyId>,
+    pub trait_const_args: Vec<ConstGenericArg>,
     pub method_id: GlobalDefId,
     pub method_name: SymbolId,
     pub slot: usize,

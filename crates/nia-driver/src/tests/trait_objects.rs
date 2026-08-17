@@ -281,6 +281,76 @@ fn main() i32 {
 }
 
 #[test]
+fn const_generic_trait_object_preserves_impl_and_supertrait_instances() {
+    let root = temp_dir("const_generic_trait_object_preserves_impl_and_supertrait_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base[N: usize] {
+    fn value(& self) usize {
+        8usize
+    }
+}
+
+trait Scaled[N: usize] : Base[N] {
+    fn doubled(& self) usize;
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Base[N] {}
+
+extend[N: usize] Meter : Scaled[N] {
+    fn doubled(& self) usize {
+        16usize
+    }
+}
+
+fn read(value: & Scaled[8]) usize {
+    value.value() + value.doubled()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let vtable = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.trait_object_vtables)
+        .next()
+        .expect("const-generic trait-object vtable");
+    assert_eq!(const_arg_bits(&vtable.trait_const_args), vec![8]);
+    assert_eq!(vtable.entries.len(), 2);
+    for entry in &vtable.entries {
+        assert_eq!(const_arg_bits(&entry.trait_const_args), vec![8]);
+        let nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+            const_args, ..
+        } = &entry.function
+        else {
+            panic!("const-generic vtable method must reference a function instance");
+        };
+        assert_eq!(const_arg_bits(const_args), vec![8]);
+    }
+}
+
+fn const_arg_bits(args: &[nia_ty::ConstGenericArg]) -> Vec<u64> {
+    args.iter()
+        .map(|arg| match &arg.value {
+            nia_ty::ConstGenericValue::Int(value) => value.bits() as u64,
+            other => panic!("expected concrete integer const argument, got {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
 fn mutable_pointer_coerces_to_mutable_trait_object_and_dispatches_method() {
     let root = temp_dir("mutable_pointer_coerces_to_mutable_trait_object_and_dispatches_method");
     write(

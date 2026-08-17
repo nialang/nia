@@ -103,13 +103,6 @@ impl<'a> ModuleLowerer<'a> {
         Some(self.instantiate_ty_with_id_inner(target, substitutions, active_projections))
     }
 
-    pub(crate) fn generic_substitutions(
-        generics: &[SymbolId],
-        args: &[InternedTyId],
-    ) -> SymbolMap<InternedTyId> {
-        generics.iter().cloned().zip(args.iter().copied()).collect()
-    }
-
     /// Rebuilds type and const substitutions from declaration-kind metadata.
     ///
     /// Instance identities store type and const arguments in separate vectors,

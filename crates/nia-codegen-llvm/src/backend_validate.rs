@@ -457,6 +457,30 @@ impl BackendValidator<'_> {
         self.current_item = Some(format!("trait object vtable {:?}", vtable.key));
         self.validate_trait_object_self_type(vtable.key.self_ty, vtable.span);
         self.validate_runtime_type(vtable.key.object_ty, vtable.span);
+        let payload_matches_object = matches!(
+            self.ty_kind(vtable.key.object_ty).cloned(),
+            Some(TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            }) if trait_id == vtable.trait_id
+                && self.same_type_args(&trait_args, &vtable.trait_args)
+                && trait_const_args.len() == vtable.trait_const_args.len()
+                && trait_const_args.iter().zip(&vtable.trait_const_args).all(
+                    |(object_arg, payload_arg)| {
+                        object_arg.value == payload_arg.value
+                            && self.same_type(object_arg.ty, payload_arg.ty)
+                    }
+                )
+        );
+        if !payload_matches_object {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                vtable.span,
+                "backend IR vtable trait arguments do not match its object type",
+            ));
+        }
         if entries {
             for entry in &vtable.entries {
                 match &entry.function {
