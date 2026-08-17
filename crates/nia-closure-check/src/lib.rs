@@ -1109,7 +1109,10 @@ impl<'a> Analyzer<'a> {
         if !seen.insert(ty) {
             return true;
         }
-        match self.type_store.get(ty) {
+        // `seen` is the active structural path, not a global visited set.
+        // Reusing a scalar in sibling tuple/error fields is not recursion and
+        // must not make an otherwise value-only aggregate retain provenance.
+        let may_carry = match self.type_store.get(ty) {
             Some(
                 TyKind::Pointer { .. }
                 | TyKind::VolatilePointer { .. }
@@ -1149,7 +1152,9 @@ impl<'a> Analyzer<'a> {
                 | TyKind::TraitObjectPointee { .. },
             )
             | None => false,
-        }
+        };
+        seen.remove(&ty);
+        may_carry
     }
 }
 
@@ -1657,6 +1662,33 @@ mod tests {
                     closure_id,
                     stack_backed: true,
                 })
+        );
+    }
+
+    #[test]
+    fn repeated_value_types_do_not_look_like_recursive_borrowed_state() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        let pair_ty = append.intern(TyKind::Tuple(vec![i32_ty, i32_ty]));
+        let summaries = HashMap::new();
+        let analyzer = Analyzer::new(&types, &summaries, None);
+        let origins = Provenances::from([Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        }]);
+
+        assert!(
+            analyzer
+                .filter_origins_for_type(origins, pair_ty)
+                .is_empty()
         );
     }
 }

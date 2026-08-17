@@ -458,6 +458,31 @@ fn main(external: &Fn(i32) i32, base: i32) () {
 }
 
 #[test]
+fn repeated_scalar_tuple_return_does_not_retain_callable_provenance() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+extern fn erase(callback: &Fn(i32) i32) (i32, i32);
+
+fn main(base: i32) (i32, i32) {
+    let local = \[base] value: i32 -> { base + value };
+    erase(&local)
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
 fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry = fixture.entry_id();

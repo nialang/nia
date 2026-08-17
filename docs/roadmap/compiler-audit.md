@@ -528,6 +528,9 @@ commit as the corresponding implementation batch.
 - [x] Phase C closure loop analysis now includes repeated `while` condition
       effects in the backedge fixed point, so condition-side provenance updates
       after the first iteration reach the body and exit environment.
+- [x] Phase C closure type filtering now distinguishes active structural cycles
+      from repeated sibling types, preventing value-only tuples and error
+      unions from spuriously retaining callable or captured-address provenance.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.
