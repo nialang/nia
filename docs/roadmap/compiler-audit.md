@@ -450,6 +450,10 @@ commit as the corresponding implementation batch.
       argument, result, parameter, and return contracts against the canonical
       function or function-instance signature selected by the vtable; malformed
       ABI metadata and the existing dynamic-dispatch matrix cover the boundary.
+- [x] Phase B backend validation now checks direct, function-instance, method,
+      callable-view, function-pointer, builtin-method, and builtin-operator call
+      contracts before LLVM; generic method instances also preserve their named
+      extern and variadic flags instead of swapping positional tuple fields.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

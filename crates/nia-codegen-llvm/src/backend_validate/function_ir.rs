@@ -25,6 +25,22 @@ struct DynamicTraitCallContract<'a> {
     span: Span,
 }
 
+struct CallTargetSignature {
+    params: Vec<nia_backend_ir::BackendParam>,
+    return_type: nia_ids::InternedTyId,
+    is_variadic: bool,
+}
+
+struct TypedCallContract<'a> {
+    kind: &'static str,
+    args: &'a [FunctionExpr],
+    params: &'a [nia_ids::InternedTyId],
+    return_type: nia_ids::InternedTyId,
+    is_variadic: bool,
+    result_ty: nia_ids::InternedTyId,
+    span: Span,
+}
+
 impl BackendValidator<'_> {
     pub(super) fn validate_function_body(
         &mut self,
@@ -764,55 +780,90 @@ impl BackendValidator<'_> {
             FunctionCallee::ClosureEntry { state, .. } => {
                 self.validate_expr(state);
             }
-            FunctionCallee::Function(def_id) => self.validate_function_ref(
-                *def_id,
-                span,
-                "backend IR call references missing function",
-            ),
+            FunctionCallee::Function(def_id) => {
+                self.validate_function_ref(
+                    *def_id,
+                    span,
+                    "backend IR call references missing function",
+                );
+                if let Some(signature) = self.function_call_signature(*def_id) {
+                    self.validate_call_signature(
+                        "function",
+                        call_args,
+                        &signature,
+                        call_result_ty,
+                        span,
+                    );
+                }
+            }
             FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
                 self_arg,
                 args,
                 const_args,
-            } => self.validate_function_instance_ref(
-                FunctionInstanceRef {
+            } => {
+                let instance = FunctionInstanceRef {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
                     self_arg: *self_arg,
                     args,
                     const_args,
-                },
-                span,
-                "backend IR call references missing function instance",
-            ),
+                };
+                self.validate_function_instance_ref(
+                    instance,
+                    span,
+                    "backend IR call references missing function instance",
+                );
+                if let Some(signature) = self.function_instance_call_signature(instance) {
+                    self.validate_call_signature(
+                        "function-instance",
+                        call_args,
+                        &signature,
+                        call_result_ty,
+                        span,
+                    );
+                }
+            }
             FunctionCallee::Method {
                 def_id,
                 arg_module_id,
                 self_arg,
                 args,
                 const_args,
+                receiver_kind,
                 receiver,
-                ..
             } => {
                 self.validate_expr(receiver);
-                if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
+                let signature = if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
                     self.validate_function_ref(
                         *def_id,
                         span,
                         "backend IR method call references missing function",
                     );
+                    self.function_call_signature(*def_id)
                 } else {
+                    let instance = FunctionInstanceRef {
+                        def_id: *def_id,
+                        arg_module_id: *arg_module_id,
+                        self_arg: *self_arg,
+                        args,
+                        const_args,
+                    };
                     self.validate_function_instance_ref(
-                        FunctionInstanceRef {
-                            def_id: *def_id,
-                            arg_module_id: *arg_module_id,
-                            self_arg: *self_arg,
-                            args,
-                            const_args,
-                        },
+                        instance,
                         span,
                         "backend IR method call references missing function instance",
+                    );
+                    self.function_instance_call_signature(instance)
+                };
+                if let Some(signature) = signature {
+                    self.validate_method_call_signature(
+                        call_args,
+                        call_result_ty,
+                        *receiver_kind,
+                        &signature,
+                        span,
                     );
                 }
             }
@@ -852,6 +903,13 @@ impl BackendValidator<'_> {
             } => {
                 self.validate_type(*self_ty, span);
                 self.validate_expr(receiver);
+                if !call_args.is_empty() {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-method",
+                        "builtin methods do not accept value arguments",
+                    );
+                }
             }
             FunctionCallee::BuiltinPlaceMethod {
                 trait_id,
@@ -918,12 +976,227 @@ impl BackendValidator<'_> {
                     ),
                 ));
             }
-            FunctionCallee::Callable(expr) | FunctionCallee::FunctionPointer(expr) => {
+            FunctionCallee::Callable(expr) => {
                 self.validate_expr(expr);
+                let Some(TyKind::Callable {
+                    params,
+                    return_type,
+                    ..
+                }) = self.index.ty_kind(expr.ty).cloned()
+                else {
+                    self.invalid_call_contract(
+                        span,
+                        "callable",
+                        "callee expression does not have callable type",
+                    );
+                    return;
+                };
+                self.validate_typed_call_signature(TypedCallContract {
+                    kind: "callable",
+                    args: call_args,
+                    params: &params,
+                    return_type,
+                    is_variadic: false,
+                    result_ty: call_result_ty,
+                    span,
+                });
+            }
+            FunctionCallee::FunctionPointer(expr) => {
+                self.validate_expr(expr);
+                let Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                }) = self.index.ty_kind(expr.ty).cloned()
+                else {
+                    self.invalid_call_contract(
+                        span,
+                        "function-pointer",
+                        "callee expression does not have function-pointer type",
+                    );
+                    return;
+                };
+                self.validate_typed_call_signature(TypedCallContract {
+                    kind: "function-pointer",
+                    args: call_args,
+                    params: &params,
+                    return_type,
+                    is_variadic,
+                    result_ty: call_result_ty,
+                    span,
+                });
             }
             // Intrinsic value operators are intentionally selected in LLVM codegen; backend
             // lowering only rewrites them when a source-level extension method wins dispatch.
-            FunctionCallee::BuiltinOperator(_) => {}
+            FunctionCallee::BuiltinOperator(operator) => {
+                let expected = match operator.op {
+                    nia_function_ir::FunctionBuiltinOperatorOp::Unary(_) => 1,
+                    nia_function_ir::FunctionBuiltinOperatorOp::Binary(_) => 2,
+                };
+                if call_args.len() != expected {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-operator",
+                        "argument count does not match operator arity",
+                    );
+                }
+            }
+        }
+    }
+
+    fn function_call_signature(&self, def_id: nia_ids::GlobalDefId) -> Option<CallTargetSignature> {
+        self.index
+            .function(def_id)
+            .map(|function| CallTargetSignature {
+                params: function.params.clone(),
+                return_type: function.return_type,
+                is_variadic: function.is_variadic,
+            })
+    }
+
+    fn function_instance_call_signature(
+        &self,
+        instance: FunctionInstanceRef<'_>,
+    ) -> Option<CallTargetSignature> {
+        let FunctionInstanceRef {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+        } = instance;
+        self.index
+            .function_instance(def_id, arg_module_id, self_arg, args, const_args)
+            .or_else(|| {
+                self.index.function_instances_for(def_id).find(|item| {
+                    self.same_optional_type(item.self_arg, self_arg)
+                        && self.same_type_args(&item.args, args)
+                        && item.const_args.as_slice() == const_args
+                })
+            })
+            .map(|function| CallTargetSignature {
+                params: function.params.clone(),
+                return_type: function.return_type,
+                is_variadic: function.is_variadic,
+            })
+    }
+
+    fn validate_method_call_signature(
+        &mut self,
+        args: &[FunctionExpr],
+        result_ty: nia_ids::InternedTyId,
+        receiver_kind: nia_ids::ReceiverKind,
+        signature: &CallTargetSignature,
+        span: Span,
+    ) {
+        let Some(target_receiver) = signature.params.first() else {
+            self.invalid_call_contract(
+                span,
+                "method",
+                "target signature has no receiver parameter",
+            );
+            return;
+        };
+        if target_receiver.receiver != Some(receiver_kind) {
+            self.invalid_call_contract(
+                span,
+                "method",
+                "receiver kind does not match target signature",
+            );
+        }
+        let value_signature = CallTargetSignature {
+            params: signature.params[1..].to_vec(),
+            return_type: signature.return_type,
+            is_variadic: signature.is_variadic,
+        };
+        self.validate_call_signature("method", args, &value_signature, result_ty, span);
+    }
+
+    fn validate_call_signature(
+        &mut self,
+        kind: &'static str,
+        args: &[FunctionExpr],
+        signature: &CallTargetSignature,
+        result_ty: nia_ids::InternedTyId,
+        span: Span,
+    ) {
+        let param_tys = signature
+            .params
+            .iter()
+            .map(|param| param.passing_ty)
+            .collect::<Vec<_>>();
+        self.validate_typed_call_signature(TypedCallContract {
+            kind,
+            args,
+            params: &param_tys,
+            return_type: signature.return_type,
+            is_variadic: signature.is_variadic,
+            result_ty,
+            span,
+        });
+    }
+
+    fn validate_typed_call_signature(&mut self, call: TypedCallContract<'_>) {
+        let TypedCallContract {
+            kind,
+            args,
+            params,
+            return_type,
+            is_variadic,
+            result_ty,
+            span,
+        } = call;
+        if args.len() < params.len() || (!is_variadic && args.len() != params.len()) {
+            self.invalid_call_contract(
+                span,
+                kind,
+                "argument count does not match target signature",
+            );
+        }
+        if args
+            .iter()
+            .zip(params)
+            .any(|(arg, param)| !self.call_argument_type_matches(arg.ty, *param))
+        {
+            self.invalid_call_contract(span, kind, "argument type does not match target signature");
+        }
+        if !self.same_type(result_ty, return_type) {
+            self.invalid_call_contract(span, kind, "result type does not match target signature");
+        }
+    }
+
+    fn invalid_call_contract(&mut self, span: Span, kind: &'static str, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR {kind} call has an invalid ABI contract: {message}"),
+        ));
+    }
+
+    fn call_argument_type_matches(
+        &self,
+        actual: nia_ids::InternedTyId,
+        expected: nia_ids::InternedTyId,
+    ) -> bool {
+        if self.same_type(actual, expected) {
+            return true;
+        }
+        let Some(TyKind::Pointer {
+            is_readonly: expected_readonly,
+            elem: expected_elem,
+        }) = self.index.ty_kind(expected)
+        else {
+            return false;
+        };
+        match self.index.ty_kind(actual) {
+            Some(TyKind::Pointer {
+                is_readonly: actual_readonly,
+                elem: actual_elem,
+            }) => {
+                (*expected_readonly || !*actual_readonly)
+                    && self.same_type(*actual_elem, *expected_elem)
+            }
+            _ => self.same_type(actual, *expected_elem),
         }
     }
 
@@ -968,7 +1241,7 @@ impl BackendValidator<'_> {
         if args
             .iter()
             .zip(params)
-            .any(|(arg, param)| !self.same_type(arg.ty, *param))
+            .any(|(arg, param)| !self.call_argument_type_matches(arg.ty, *param))
         {
             self.invalid_dynamic_trait_call(
                 span,
