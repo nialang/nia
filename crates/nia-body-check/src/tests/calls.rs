@@ -879,6 +879,7 @@ fn main() () {
     _ = std::builtin::atomic_load[i32](&value, 3usize);
     std::builtin::atomic_store[i32](&mut value, 1i32, 2usize);
     _ = std::builtin::cmpxchg_strong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
+    _ = std::builtin::cmpxchg_strong[i32](&mut value, 0i32, 1i32, 3usize, 2usize);
     std::builtin::fence(1usize);
 }
 "#,
@@ -906,6 +907,16 @@ fn main() () {
         messages.iter().any(|message| {
             message.contains("atomic ordering `Release` is invalid for cmpxchg failure")
         }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message
+                .contains("failure ordering cannot be stronger than or incomparable"))
+            .count(),
+        1,
         "{:?}",
         checked.diagnostics
     );

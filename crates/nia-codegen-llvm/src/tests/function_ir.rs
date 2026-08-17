@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 use nia_backend_ir::BackendEnumVariantPayload;
-use nia_function_ir::FunctionArrayElements;
+use nia_function_ir::{AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic};
 
 fn single_module_program(
     module_id: ModuleId,
@@ -745,6 +745,235 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
             output.diagnostics
         );
     }
+}
+
+#[test]
+fn validates_atomic_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let unit_ty = interner.intern(TyKind::Tuple(Vec::new()));
+    let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
+    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let mutable_i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let mutable_bool_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: bool_ty,
+    });
+    let mutable_ptr_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: mutable_i32_ptr_ty,
+    });
+    let readonly_f32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: f32_ty,
+    });
+    let span = Span::default();
+    let null = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let integer = || FunctionExpr {
+        span,
+        ty: i32_ty,
+        kind: FunctionExprKind::Integer("1".to_string()),
+    };
+    let boolean = || FunctionExpr {
+        span,
+        ty: bool_ty,
+        kind: FunctionExprKind::Bool(true),
+    };
+    let atomic = |ty, atomic| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Atomic(atomic),
+    };
+    let ops = vec![
+        FunctionOp::Expr(atomic(
+            bool_ty,
+            FunctionAtomic::Load {
+                ty: i32_ty,
+                ptr: Box::new(null(mutable_bool_ptr_ty)),
+                order: AtomicOrder::Release,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            optional_i32_ty,
+            FunctionAtomic::Cmpxchg {
+                ty: i32_ty,
+                ptr: Box::new(null(mutable_i32_ptr_ty)),
+                expected: Box::new(integer()),
+                desired: Box::new(integer()),
+                success: AtomicOrder::Release,
+                failure: AtomicOrder::Acquire,
+                weak: true,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            unit_ty,
+            FunctionAtomic::Store {
+                ty: i32_ty,
+                ptr: Box::new(null(readonly_i32_ptr_ty)),
+                value: Box::new(boolean()),
+                order: AtomicOrder::Acquire,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            i32_ty,
+            FunctionAtomic::Rmw {
+                ty: i32_ty,
+                ptr: Box::new(null(mutable_i32_ptr_ty)),
+                op: AtomicRmwOp::Add,
+                value: Box::new(integer()),
+                order: AtomicOrder::Unordered,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            mutable_i32_ptr_ty,
+            FunctionAtomic::Rmw {
+                ty: mutable_i32_ptr_ty,
+                ptr: Box::new(null(mutable_ptr_ptr_ty)),
+                op: AtomicRmwOp::Add,
+                value: Box::new(null(mutable_i32_ptr_ty)),
+                order: AtomicOrder::Monotonic,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            bool_ty,
+            FunctionAtomic::Cmpxchg {
+                ty: i32_ty,
+                ptr: Box::new(null(mutable_i32_ptr_ty)),
+                expected: Box::new(boolean()),
+                desired: Box::new(integer()),
+                success: AtomicOrder::Monotonic,
+                failure: AtomicOrder::SeqCst,
+                weak: false,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            unit_ty,
+            FunctionAtomic::Fence {
+                order: AtomicOrder::Monotonic,
+            },
+        )),
+        FunctionOp::Expr(atomic(
+            f32_ty,
+            FunctionAtomic::Load {
+                ty: f32_ty,
+                ptr: Box::new(null(readonly_f32_ptr_ty)),
+                order: AtomicOrder::Acquire,
+            },
+        )),
+    ];
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_atomics"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops,
+                terminator: FunctionTerminator::Tail {
+                    value: Some(integer()),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (f32_ty, TypeLayout { size: 4, align: 4 }),
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (unit_ty, TypeLayout { size: 0, align: 1 }),
+                (optional_i32_ty, TypeLayout { size: 8, align: 4 }),
+                (readonly_i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                (mutable_i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                (mutable_bool_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                (mutable_ptr_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                (readonly_f32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "pointer pointee does not match",
+        "load type does not match",
+        "mutating operation has a readonly pointer",
+        "store value type does not match",
+        "cmpxchg expected value type does not match",
+        "cmpxchg result must be optional",
+        "cmpxchg failure ordering is stronger than or incomparable",
+        "non-exchange RMW operation requires an integer-like",
+        "ordering is invalid for the operation",
+        "value type is not a pointer-width",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+    assert_eq!(
+        output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("cmpxchg failure ordering is stronger than or incomparable"))
+            .count(),
+        2,
+        "{:?}",
+        output.diagnostics
+    );
 }
 
 #[test]

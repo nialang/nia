@@ -309,7 +309,7 @@ impl BackendValidator<'_> {
         }
     }
 
-    fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
+    pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
         if let Some(layout) = self.layout_cache.borrow().get(&ty) {
             return layout.clone();
         }
