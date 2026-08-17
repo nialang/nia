@@ -92,12 +92,52 @@ pub(crate) struct CompilerEmitCacheLinkInput {
 }
 
 impl CompilerEmitCacheLinkInput {
+    #[cfg(test)]
     pub(crate) fn from_bytes(artifact: crate::ArtifactKey, bytes: &[u8]) -> Self {
         Self {
             artifact,
             fingerprint: bytes_fingerprint(COMPILER_EMIT_LINK_INPUT_CONTENT_DOMAIN, bytes),
             byte_len: bytes.len(),
         }
+    }
+
+    /// Streams the archive identity using the opened handle's observed size.
+    /// Keeping the byte length in the registered encoding preserves existing
+    /// cache keys while eliminating the archive-sized coordinator buffer.
+    pub(crate) fn from_reader(
+        artifact: crate::ArtifactKey,
+        reader: &mut impl Read,
+        length: u64,
+    ) -> io::Result<Self> {
+        let byte_len = usize::try_from(length).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "static archive is too large for this host",
+            )
+        })?;
+        let mut fingerprint = QueryFingerprintBuilder::new(COMPILER_EMIT_LINK_INPUT_CONTENT_DOMAIN);
+        let mut writer = fingerprint.bytes_writer(length);
+        let mut buffer = [0; 64 * 1024];
+        let mut remaining = length;
+        while remaining != 0 {
+            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            reader.read_exact(&mut buffer[..chunk_len])?;
+            writer.write_chunk(&buffer[..chunk_len])?;
+            remaining -= chunk_len as u64;
+        }
+        writer.finish()?;
+        let mut trailing = [0; 1];
+        if reader.read(&mut trailing)? != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "static archive grew while it was fingerprinted",
+            ));
+        }
+        Ok(Self {
+            artifact,
+            fingerprint: fingerprint.finish(),
+            byte_len,
+        })
     }
 }
 
@@ -759,6 +799,38 @@ mod tests {
             .expect("fixed-width executable cache reference")
     }
 
+    fn link_artifact() -> crate::ArtifactKey {
+        crate::ArtifactKey::new(crate::PackageKey::new("root").unwrap(), "support").unwrap()
+    }
+
+    #[test]
+    fn streamed_link_input_identity_matches_bytes_and_rejects_length_changes() {
+        let expected = CompilerEmitCacheLinkInput::from_bytes(link_artifact(), b"archive");
+        let streamed = CompilerEmitCacheLinkInput::from_reader(
+            link_artifact(),
+            &mut Cursor::new(b"archive"),
+            7,
+        )
+        .expect("stream archive identity");
+        assert_eq!(streamed, expected);
+
+        let growth = CompilerEmitCacheLinkInput::from_reader(
+            link_artifact(),
+            &mut Cursor::new(b"archive!"),
+            7,
+        )
+        .expect_err("archive growth must be rejected");
+        assert_eq!(growth.kind(), io::ErrorKind::InvalidData);
+
+        let truncation = CompilerEmitCacheLinkInput::from_reader(
+            link_artifact(),
+            &mut Cursor::new(b"archive"),
+            8,
+        )
+        .expect_err("archive truncation must be rejected");
+        assert_eq!(truncation.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
     fn identity() -> CompilerEmitCacheIdentity {
         let mut action = Vec::new();
         write_text(&mut action, "root");
@@ -791,7 +863,7 @@ mod tests {
         let output = b"output".to_vec();
         let link_environment = vec![0; ExecutableCacheEnvironment::ENCODED_LEN];
         let link_inputs = link_inputs_identity(&[CompilerEmitCacheLinkInput::from_bytes(
-            crate::ArtifactKey::new(crate::PackageKey::new("root").unwrap(), "support").unwrap(),
+            link_artifact(),
             b"archive",
         )]);
         let components = EmitFingerprintComponents {

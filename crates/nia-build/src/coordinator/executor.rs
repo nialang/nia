@@ -6,6 +6,10 @@
 //! publication uses the manifest returned by the completed compiler request.
 
 use super::*;
+use std::io::{Seek as _, SeekFrom};
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt as _;
 
 #[derive(Clone)]
 pub(super) struct DriverActionExecutor {
@@ -475,23 +479,69 @@ impl DriverActionExecutor {
         for archive_key in static_archives {
             let archive = self.artifact(action, archive_key)?;
             let path = self.resolve_path(action, &archive.output)?;
-            let bytes =
-                fs::read(&path).map_err(|error| CoordinatorError::StaticArchiveLinkInputIo {
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(unix)]
+            options.custom_flags(libc::O_NOFOLLOW);
+            let mut file = options.open(&path).map_err(|error| {
+                CoordinatorError::StaticArchiveLinkInputIo {
                     action: action.key.clone(),
                     path: path.clone(),
                     operation: "read",
                     error,
-                })?;
-            cache_link_inputs.push(CompilerEmitCacheLinkInput::from_bytes(
-                archive_key.clone(),
-                &bytes,
-            ));
-            linker_inputs.push(StaticArchiveLinkInput::from_bytes(
+                }
+            })?;
+            let metadata =
+                file.metadata()
+                    .map_err(|error| CoordinatorError::StaticArchiveLinkInputIo {
+                        action: action.key.clone(),
+                        path: path.clone(),
+                        operation: "inspect",
+                        error,
+                    })?;
+            if !metadata.is_file() {
+                return Err(CoordinatorError::StaticArchiveLinkInputIo {
+                    action: action.key.clone(),
+                    path,
+                    operation: "inspect",
+                    error: io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "static archive link input must be a regular file",
+                    ),
+                });
+            }
+            let length = metadata.len();
+            let cache_input =
+                CompilerEmitCacheLinkInput::from_reader(archive_key.clone(), &mut file, length)
+                    .map_err(|error| CoordinatorError::StaticArchiveLinkInputIo {
+                        action: action.key.clone(),
+                        path: path.clone(),
+                        operation: "fingerprint",
+                        error,
+                    })?;
+            file.seek(SeekFrom::Start(0)).map_err(|error| {
+                CoordinatorError::StaticArchiveLinkInputIo {
+                    action: action.key.clone(),
+                    path: path.clone(),
+                    operation: "rewind",
+                    error,
+                }
+            })?;
+            let linker_input = StaticArchiveLinkInput::from_reader(
                 archive_key.package().as_str(),
                 archive_key.name(),
+                path.clone(),
+                &mut file,
+                length,
+            )
+            .map_err(|error| CoordinatorError::StaticArchiveLinkInputIo {
+                action: action.key.clone(),
                 path,
-                &bytes,
-            ));
+                operation: "fingerprint",
+                error,
+            })?;
+            cache_link_inputs.push(cache_input);
+            linker_inputs.push(linker_input);
         }
         let link_options = LinkOptions::default().with_static_archives(linker_inputs);
         // Lookup may use the precheck closure; publication must bind the
