@@ -71,6 +71,22 @@ pub(super) fn lower_source_with_body_mutation_extensions_const_mutation_and_opti
         mutate_extensions,
         mutate_const,
         |_, _, _, _, _| {},
+        |_, _| {},
         optimization,
+    )
+}
+
+pub(super) fn lower_source_with_signature_mutation(
+    source: &str,
+    mutate_signatures: impl FnOnce(&mut ItemSignatures, &nia_defs::DefCollection),
+) -> TestBackendLowering {
+    lower_source_with_body_check_mutation_and_optimization(
+        source,
+        |_| {},
+        |_, _, _, _, _| {},
+        |_, _| {},
+        |_, _, _, _, _| {},
+        mutate_signatures,
+        nia_opt::OptimizationPolicy::default(),
     )
 }

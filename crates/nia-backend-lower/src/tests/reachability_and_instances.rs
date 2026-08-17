@@ -149,6 +149,7 @@ fn main() i32 {
                 }),
             );
         },
+        |_, _| {},
         policy,
     );
     let module = &lowering.program.modules[0];
@@ -239,6 +240,7 @@ fn main() i32 {
                 ])),
             );
         },
+        |_, _| {},
         policy,
     );
     let module = &lowering.program.modules[0];
@@ -321,6 +323,7 @@ fn main() i32 {
                 }),
             );
         },
+        |_, _| {},
         policy,
     );
     let module = &lowering.program.modules[0];
