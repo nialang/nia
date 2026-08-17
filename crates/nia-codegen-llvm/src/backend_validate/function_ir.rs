@@ -491,40 +491,132 @@ impl BackendValidator<'_> {
                 }
                 self.validate_expr(array);
             }
-            FunctionExprKind::ArrayLiteral { elems } => match elems {
-                FunctionArrayElements::List(elems) => {
-                    for elem in elems {
-                        self.validate_expr(elem);
+            FunctionExprKind::ArrayLiteral { elems } => {
+                let array_contract = match self.index.ty_kind(expr.ty).cloned() {
+                    Some(TyKind::Array { len, elem }) => Some((len, elem)),
+                    _ => {
+                        self.invalid_literal_contract(
+                            expr.span,
+                            "array",
+                            "expression type is not an array",
+                        );
+                        None
+                    }
+                };
+                match elems {
+                    FunctionArrayElements::List(elems) => {
+                        if let Some((len, elem_ty)) = &array_contract {
+                            if self
+                                .array_len_value(len)
+                                .is_some_and(|expected| u64::try_from(elems.len()) != Ok(expected))
+                            {
+                                self.invalid_literal_contract(
+                                    expr.span,
+                                    "array",
+                                    "element count does not match its type length",
+                                );
+                            }
+                            if elems.iter().any(|elem| !self.same_type(elem.ty, *elem_ty)) {
+                                self.invalid_literal_contract(
+                                    expr.span,
+                                    "array",
+                                    "element type does not match its array type",
+                                );
+                            }
+                        }
+                        for elem in elems {
+                            self.validate_expr(elem);
+                        }
+                    }
+                    FunctionArrayElements::Repeat { value, count } => {
+                        self.validate_array_len(count, expr.span);
+                        if let Some((len, elem_ty)) = &array_contract {
+                            if self.array_len_value(len) != self.array_len_value(count) {
+                                self.invalid_literal_contract(
+                                    expr.span,
+                                    "array repeat",
+                                    "count does not match its type length",
+                                );
+                            }
+                            self.validate_projection_result_type(
+                                value.ty,
+                                *elem_ty,
+                                expr.span,
+                                "array repeat element",
+                            );
+                        }
+                        self.validate_expr(value);
                     }
                 }
-                FunctionArrayElements::Repeat { value, .. } => self.validate_expr(value),
-            },
+            }
             FunctionExprKind::Tuple(elems) => {
+                // Closure capture state deliberately reuses tuple construction
+                // in function IR; its capture list is therefore the tuple-like
+                // element contract at this backend boundary.
+                match self.index.ty_kind(expr.ty).cloned() {
+                    Some(
+                        TyKind::Tuple(expected)
+                        | TyKind::ClosureState {
+                            captures: expected, ..
+                        },
+                    ) => {
+                        if elems.len() != expected.len() {
+                            self.invalid_literal_contract(
+                                expr.span,
+                                "tuple",
+                                "element count does not match its type arity",
+                            );
+                        }
+                        if elems
+                            .iter()
+                            .zip(expected)
+                            .any(|(elem, expected)| !self.same_type(elem.ty, expected))
+                        {
+                            self.invalid_literal_contract(
+                                expr.span,
+                                "tuple",
+                                "element type does not match its tuple type",
+                            );
+                        }
+                    }
+                    _ => self.invalid_literal_contract(
+                        expr.span,
+                        "tuple",
+                        "expression type is not a tuple",
+                    ),
+                }
                 for elem in elems {
                     self.validate_expr(elem);
                 }
             }
             FunctionExprKind::TupleField { value, index } => {
                 self.validate_expr(value);
-                match self.index.ty_kind(value.ty) {
+                let expected_ty = match self.index.ty_kind(value.ty) {
                     Some(
                         TyKind::Tuple(elems)
                         | TyKind::ClosureState {
                             captures: elems, ..
                         },
-                    ) if *index < elems.len() => {}
+                    ) if *index < elems.len() => Some(elems[*index]),
                     Some(TyKind::Tuple(_) | TyKind::ClosureState { .. }) => {
                         self.diagnostics.push(Diagnostic::internal_error_at(
                             nia_diagnostic::codes::INVALID_BACKEND_IR,
                             expr.span,
                             "backend IR tuple projection is out of bounds",
-                        ))
+                        ));
+                        None
                     }
-                    _ => self.diagnostics.push(Diagnostic::internal_error_at(
-                        nia_diagnostic::codes::INVALID_BACKEND_IR,
-                        expr.span,
-                        "backend IR tuple projection target is not a tuple",
-                    )),
+                    _ => {
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            nia_diagnostic::codes::INVALID_BACKEND_IR,
+                            expr.span,
+                            "backend IR tuple projection target is not a tuple",
+                        ));
+                        None
+                    }
+                };
+                if let Some(expected_ty) = expected_ty {
+                    self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "tuple");
                 }
             }
             FunctionExprKind::StructLiteral { def_id, fields } => {
@@ -534,7 +626,17 @@ impl BackendValidator<'_> {
                     "backend IR struct literal references missing struct",
                 );
                 for field in fields {
-                    self.validate_field_init(expr.ty, field.field, field.span);
+                    if let Some(expected_ty) =
+                        self.validate_field_init(expr.ty, field.field, field.span)
+                        && self.has_direct_aggregate_field_contract(expr.ty)
+                    {
+                        self.validate_projection_result_type(
+                            field.value.ty,
+                            expected_ty,
+                            field.span,
+                            "aggregate field initializer",
+                        );
+                    }
                     self.validate_expr(&field.value);
                 }
             }
@@ -544,7 +646,17 @@ impl BackendValidator<'_> {
                     expr.span,
                     "backend IR union literal references missing union",
                 );
-                self.validate_field_init(expr.ty, field.field, field.span);
+                if let Some(expected_ty) =
+                    self.validate_field_init(expr.ty, field.field, field.span)
+                    && self.has_direct_aggregate_field_contract(expr.ty)
+                {
+                    self.validate_projection_result_type(
+                        field.value.ty,
+                        expected_ty,
+                        field.span,
+                        "union field initializer",
+                    );
+                }
                 self.validate_expr(&field.value);
             }
             FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
@@ -665,6 +777,9 @@ impl BackendValidator<'_> {
             FunctionExprKind::Index { lhs, index } => {
                 self.validate_expr(lhs);
                 self.validate_expr(index);
+                if let Some(expected_ty) = self.array_elem_ty(lhs.ty) {
+                    self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "index");
+                }
             }
             FunctionExprKind::Slice { lhs, range, .. } => {
                 self.validate_expr(lhs);
@@ -724,6 +839,46 @@ impl BackendValidator<'_> {
                 );
             }
         }
+    }
+
+    fn validate_projection_result_type(
+        &mut self,
+        actual_ty: nia_ids::InternedTyId,
+        expected_ty: nia_ids::InternedTyId,
+        span: Span,
+        kind: &'static str,
+    ) {
+        if !self.same_type(actual_ty, expected_ty) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR {kind} result type does not match its selected value"),
+            ));
+        }
+    }
+
+    fn has_direct_aggregate_field_contract(&self, ty: nia_ids::InternedTyId) -> bool {
+        // Generic declarations can be validated before their concrete instance
+        // fields are published, in which case aggregate lookup intentionally
+        // falls back to symbolic declaration fields. Keep strict value-type
+        // equality at the direct monomorphic boundary; field identity is still
+        // validated for every generic and const-generic aggregate above.
+        matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Nominal {
+                args,
+                const_args,
+                ..
+            }) if args.is_empty() && const_args.is_empty()
+        )
+    }
+
+    fn invalid_literal_contract(&mut self, span: Span, kind: &'static str, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR {kind} literal has an invalid type contract: {message}"),
+        ));
     }
 
     fn validate_local_type(

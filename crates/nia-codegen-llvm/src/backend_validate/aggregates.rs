@@ -13,21 +13,21 @@ impl BackendValidator<'_> {
         base_ty: InternedTyId,
         field: Option<GlobalDefId>,
         span: Span,
-    ) {
+    ) -> Option<InternedTyId> {
         let Some(field) = field else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 "backend IR aggregate literal has invalid field",
             ));
-            return;
+            return None;
         };
         self.validate_aggregate_field(
             base_ty,
             field,
             span,
             "backend IR aggregate literal references missing field",
-        );
+        )
     }
 
     pub(super) fn validate_aggregate_field(

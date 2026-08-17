@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 use nia_backend_ir::BackendEnumVariantPayload;
+use nia_function_ir::FunctionArrayElements;
 
 fn single_module_program(
     module_id: ModuleId,
@@ -493,6 +494,257 @@ fn validates_terminator_type_contracts_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+}
+
+#[test]
+fn validates_projection_and_field_initializer_types_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
+    let array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(1),
+        elem: i32_ty,
+    });
+    let struct_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let field_id = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let struct_ty = interner.intern(TyKind::Nominal {
+        def_id: struct_id,
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
+    let span = Span::default();
+    let integer = || FunctionExpr {
+        span,
+        ty: i32_ty,
+        kind: FunctionExprKind::Integer("1".to_string()),
+    };
+    let body = |ty, value| FunctionBody {
+        span,
+        locals: Vec::new(),
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(value),
+                span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty,
+    };
+    let function = |def_id, name, return_type, value| BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(def_id),
+        },
+        name: sym(name),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(body(return_type, value)),
+        span,
+    };
+    let functions = vec![
+        function(
+            2,
+            "bad_init",
+            struct_ty,
+            FunctionExpr {
+                span,
+                ty: struct_ty,
+                kind: FunctionExprKind::StructLiteral {
+                    def_id: struct_id,
+                    fields: vec![FunctionFieldInit {
+                        field: Some(field_id),
+                        name: "value".to_string(),
+                        value: FunctionExpr {
+                            span,
+                            ty: bool_ty,
+                            kind: FunctionExprKind::Bool(true),
+                        },
+                        span,
+                    }],
+                },
+            },
+        ),
+        function(
+            4,
+            "bad_tuple",
+            bool_ty,
+            FunctionExpr {
+                span,
+                ty: bool_ty,
+                kind: FunctionExprKind::TupleField {
+                    value: Box::new(FunctionExpr {
+                        span,
+                        ty: tuple_ty,
+                        kind: FunctionExprKind::Tuple(vec![integer()]),
+                    }),
+                    index: 0,
+                },
+            },
+        ),
+        function(
+            5,
+            "bad_index",
+            bool_ty,
+            FunctionExpr {
+                span,
+                ty: bool_ty,
+                kind: FunctionExprKind::Index {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: array_ty,
+                        kind: FunctionExprKind::ArrayLiteral {
+                            elems: FunctionArrayElements::List(vec![integer()]),
+                        },
+                    }),
+                    index: Box::new(FunctionExpr {
+                        span,
+                        ty: usize_ty,
+                        kind: FunctionExprKind::BuiltinValue(
+                            nia_function_ir::FunctionBuiltinValue::Usize(0),
+                        ),
+                    }),
+                },
+            },
+        ),
+        function(
+            6,
+            "bad_tuple_literal",
+            tuple_ty,
+            FunctionExpr {
+                span,
+                ty: tuple_ty,
+                kind: FunctionExprKind::Tuple(vec![FunctionExpr {
+                    span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Bool(true),
+                }]),
+            },
+        ),
+        function(
+            7,
+            "bad_array_literal",
+            array_ty,
+            FunctionExpr {
+                span,
+                ty: array_ty,
+                kind: FunctionExprKind::ArrayLiteral {
+                    elems: FunctionArrayElements::List(vec![
+                        FunctionExpr {
+                            span,
+                            ty: bool_ty,
+                            kind: FunctionExprKind::Bool(true),
+                        },
+                        integer(),
+                    ]),
+                },
+            },
+        ),
+        function(
+            8,
+            "bad_array_repeat",
+            array_ty,
+            FunctionExpr {
+                span,
+                ty: array_ty,
+                kind: FunctionExprKind::ArrayLiteral {
+                    elems: FunctionArrayElements::Repeat {
+                        value: Box::new(integer()),
+                        count: ArrayLenTy::ConstValue(2),
+                    },
+                },
+            },
+        ),
+    ];
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (usize_ty, TypeLayout { size: 8, align: 8 }),
+                (tuple_ty, TypeLayout { size: 4, align: 4 }),
+                (array_ty, TypeLayout { size: 4, align: 4 }),
+                (struct_ty, TypeLayout { size: 4, align: 4 }),
+            ],
+            structs: vec![(
+                struct_id,
+                StructLayout {
+                    layout: TypeLayout { size: 4, align: 4 },
+                    fields: vec![FieldLayout {
+                        def_id: field_id.def_id,
+                        offset: 0,
+                        layout: TypeLayout { size: 4, align: 4 },
+                    }],
+                },
+            )],
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        vec![BackendStruct {
+            def_id: struct_id,
+            name: sym("Box"),
+            generics: Vec::new(),
+            fields: vec![BackendField {
+                def_id: field_id,
+                name: sym("value"),
+                ty: i32_ty,
+                span,
+            }],
+            is_extern: false,
+            span,
+        }],
+        Vec::new(),
+        Vec::new(),
+        functions,
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "aggregate field initializer result type does not match",
+        "tuple result type does not match",
+        "index result type does not match",
+        "tuple literal has an invalid type contract: element type",
+        "array literal has an invalid type contract: element count",
+        "array literal has an invalid type contract: element type",
+        "array repeat literal has an invalid type contract: count",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
 }
 
 #[test]
