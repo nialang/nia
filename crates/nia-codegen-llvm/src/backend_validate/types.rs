@@ -251,7 +251,7 @@ impl BackendValidator<'_> {
         }
     }
 
-    fn validate_array_len(&mut self, len: &ArrayLenTy, span: Span) {
+    pub(super) fn validate_array_len(&mut self, len: &ArrayLenTy, span: Span) {
         match len {
             ArrayLenTy::ConstValue(_) => {}
             ArrayLenTy::ConstExpr(id) => {

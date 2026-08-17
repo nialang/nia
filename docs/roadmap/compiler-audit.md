@@ -434,6 +434,10 @@ commit as the corresponding implementation batch.
       values against the enclosing function signature, and `Never`-terminating
       bodies without rejecting valid defer-tail or trap lowering; malformed
       terminator contracts have a pre-LLVM regression test.
+- [x] Phase B backend value validation now checks tuple and index projection
+      result types plus tuple, array, repeat-array, and direct aggregate
+      field initializer contracts before LLVM. A malformed-IR matrix covers
+      element types, arity/count metadata, and selected-value types.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both
