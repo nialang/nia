@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::{
     FunctionArrayElements, FunctionAtomic, FunctionBlock, FunctionBody, FunctionCallee,
@@ -9,7 +9,7 @@ use crate::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
-use nia_ty::{ConstGenericArg, TyKind};
+use nia_ty::{ConstGenericArg, TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionInstanceRef {
@@ -61,6 +61,15 @@ pub struct TraitObjectVtableRef {
     pub object_ty: InternedTyId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Dynamic-dispatch identity available without a concrete receiver type.
+pub struct DynamicTraitCallRef {
+    /// Erased receiver view used at the call site.
+    pub object_ty: InternedTyId,
+    /// Trait segment containing the selected method slot.
+    pub trait_id: TraitId,
+}
+
 impl GlobalInstanceRef {
     pub fn key(&self) -> GlobalInstanceKey {
         GlobalInstanceKey {
@@ -93,6 +102,13 @@ pub struct FunctionBodyRefs {
     pub global_instances: Vec<GlobalInstanceRef>,
     pub types: BTreeSet<InternedTyId>,
     pub trait_object_vtables: BTreeSet<TraitObjectVtableRef>,
+    /// Erased object and trait identities used by dynamic calls.
+    ///
+    /// Unlike a coercion, a call does not name the concrete `self` type, and an
+    /// upcast may dispatch through a supertrait segment in a source vtable.
+    /// Codegen readiness uses both identities to wait for every candidate table
+    /// and its target declarations before validating the call contract.
+    pub dynamic_trait_calls: HashSet<DynamicTraitCallRef>,
 }
 
 impl FunctionBodyRefs {
@@ -104,6 +120,7 @@ impl FunctionBodyRefs {
         self.global_instances.extend(other.global_instances);
         self.types.extend(other.types);
         self.trait_object_vtables.extend(other.trait_object_vtables);
+        self.dynamic_trait_calls.extend(other.dynamic_trait_calls);
     }
 }
 
@@ -531,6 +548,7 @@ fn collect_function_refs_from_callee(
         }
         FunctionCallee::DynamicTraitMethod {
             object_ty,
+            trait_id,
             trait_args,
             trait_const_args,
             params,
@@ -539,6 +557,10 @@ fn collect_function_refs_from_callee(
             ..
         } => {
             refs.types.extend([*object_ty, *return_type]);
+            refs.dynamic_trait_calls.insert(DynamicTraitCallRef {
+                object_ty: *object_ty,
+                trait_id: *trait_id,
+            });
             refs.types.extend(trait_args.iter().copied());
             refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
             refs.types.extend(params.iter().copied());
@@ -701,6 +723,8 @@ mod tests {
         let global_value = global(module_id, 5);
         let global_place = global(module_id, 6);
         let global_instance = global(module_id, 7);
+        let dynamic_trait = TraitId::Source(global(module_id, 8));
+        let dynamic_method = global(module_id, 9);
 
         let instance_expr = expr(
             ty,
@@ -811,6 +835,28 @@ mod tests {
                 ops: vec![
                     FunctionOp::Expr(instance_expr),
                     FunctionOp::Expr(call),
+                    FunctionOp::Expr(expr(
+                        ty,
+                        FunctionExprKind::Call {
+                            callee: FunctionCallee::DynamicTraitMethod {
+                                object_ty,
+                                trait_id: dynamic_trait,
+                                method_id: dynamic_method,
+                                method_name: nia_symbol::SymbolId::EMPTY,
+                                trait_args: Vec::new(),
+                                trait_const_args: Vec::new(),
+                                slot: 0,
+                                params: Vec::new(),
+                                return_type: ty,
+                                receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
+                                receiver: Box::new(expr(
+                                    object_ty,
+                                    FunctionExprKind::Global(global_value),
+                                )),
+                            },
+                            args: Vec::new(),
+                        },
+                    )),
                     FunctionOp::Expr(asm),
                     FunctionOp::Expr(expr(
                         object_ty,
@@ -844,6 +890,13 @@ mod tests {
             BTreeSet::from([TraitObjectVtableRef {
                 self_ty: vtable_self_ty,
                 object_ty,
+            }])
+        );
+        assert_eq!(
+            refs.dynamic_trait_calls,
+            HashSet::from([DynamicTraitCallRef {
+                object_ty,
+                trait_id: dynamic_trait,
             }])
         );
         assert_eq!(

@@ -211,6 +211,8 @@ pub struct BackendModuleOwnerDirectory {
     global_instances: HashMap<BackendGlobalInstanceKey, ModuleId>,
     function_instances: HashMap<FunctionInstanceKey, ModuleId>,
     vtables: HashMap<BackendTraitObjectVtableKey, ModuleId>,
+    vtables_by_object_ty: HashMap<InternedTyId, Vec<BackendTraitObjectVtableKey>>,
+    vtables_by_trait: HashMap<TraitId, Vec<BackendTraitObjectVtableKey>>,
 }
 
 impl BackendModuleOwnerDirectory {
@@ -289,7 +291,31 @@ impl BackendModuleOwnerDirectory {
                         .is_none(),
                     "Nia ICE: backend vtable has multiple module owners"
                 );
+                directory
+                    .vtables_by_object_ty
+                    .entry(item.key.object_ty)
+                    .or_default()
+                    .push(item.key.clone());
+                let mut traits = item
+                    .entries
+                    .iter()
+                    .map(|entry| entry.trait_id)
+                    .chain(std::iter::once(item.trait_id))
+                    .collect::<HashSet<_>>();
+                for trait_id in traits.drain() {
+                    directory
+                        .vtables_by_trait
+                        .entry(trait_id)
+                        .or_default()
+                        .push(item.key.clone());
+                }
             }
+        }
+        for keys in directory.vtables_by_object_ty.values_mut() {
+            keys.sort_by_key(|key| (key.self_ty, key.object_ty));
+        }
+        for keys in directory.vtables_by_trait.values_mut() {
+            keys.sort_by_key(|key| (key.self_ty, key.object_ty));
         }
         directory
     }
@@ -362,6 +388,31 @@ impl BackendModuleOwnerDirectory {
 
     pub fn vtable_owner(&self, key: &BackendTraitObjectVtableKey) -> Option<ModuleId> {
         self.vtables.get(key).copied()
+    }
+
+    /// Iterates all planned vtable identities for an erased object type.
+    ///
+    /// The directory is built before independently finalized modules are
+    /// published, so this lookup is stable across readiness completion order.
+    pub fn vtable_keys_for_object_ty(
+        &self,
+        object_ty: InternedTyId,
+    ) -> impl Iterator<Item = &BackendTraitObjectVtableKey> {
+        self.vtables_by_object_ty
+            .get(&object_ty)
+            .into_iter()
+            .flatten()
+    }
+
+    /// Iterates planned vtables containing slots for a trait.
+    ///
+    /// This index includes supertrait segments, allowing readiness to find the
+    /// source vtable retained by an explicitly upcast object view.
+    pub fn vtable_keys_for_trait(
+        &self,
+        trait_id: TraitId,
+    ) -> impl Iterator<Item = &BackendTraitObjectVtableKey> {
+        self.vtables_by_trait.get(&trait_id).into_iter().flatten()
     }
 }
 
