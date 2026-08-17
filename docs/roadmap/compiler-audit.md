@@ -631,6 +631,11 @@ commit as the corresponding implementation batch.
       domain. Cache hits stream directly into an atomic staged executable,
       verify integrity before installation, and restore executable permissions
       without coordinator allocations proportional to the binary size.
+- [x] Phase D static-archive orchestration now streams the archive tool's output
+      into a sibling staged destination with exact opened-length validation and
+      atomic installation. The Driver no longer materializes the temporary
+      archive with `fs::read`, and missing, growing, or truncated tool outputs
+      leave an existing destination untouched.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     env, fmt, fs, io,
+    io::{Read, Write},
     mem::size_of,
     path::{Path, PathBuf},
     process::Command,
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use nia_compiler_query::{
@@ -52,6 +56,8 @@ const EXECUTABLE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
 const EXECUTABLE_CACHE_ENVIRONMENT_LEN: usize = 6 * size_of::<u64>();
 const STATIC_ARCHIVE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
 const STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN: usize = size_of::<[u64; 8]>();
+const DRIVER_FILE_STREAM_BYTES: usize = 64 * 1024;
+static DRIVER_OUTPUT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutableCacheEnvironment {
@@ -1303,20 +1309,10 @@ impl Driver {
                 .status()
             {
                 Ok(status) if status.success() => {
-                    let bytes = match fs::read(&temporary_archive) {
-                        Ok(bytes) => bytes,
-                        Err(error) => {
-                            return DriverOutput::from_error(DriverError::Io {
-                                path: temporary_archive,
-                                operation: "read temporary static archive",
-                                error,
-                            });
-                        }
-                    };
-                    if let Err(error) = write_output_file(&output, &bytes) {
+                    if let Err(error) = install_streamed_output(&temporary_archive, &output) {
                         return DriverOutput::from_error(DriverError::Io {
                             path: output,
-                            operation: "write static archive",
+                            operation: "install temporary static archive",
                             error,
                         });
                     }
@@ -1997,6 +1993,61 @@ fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::write(path, bytes)
 }
 
+/// Copies one tool-produced file into a sibling staging file before replacing
+/// the destination. The opened source length is enforced across the stream, so
+/// arbitrarily large archives do not require a coordinator-sized allocation
+/// and a failed or truncated copy cannot damage an existing output.
+fn install_streamed_output(source: &Path, output: &Path) -> io::Result<()> {
+    let mut source_file = fs::File::open(source)?;
+    let metadata = source_file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "tool output must be a regular file",
+        ));
+    }
+    let length = metadata.len();
+    let parent = output
+        .parent()
+        .ok_or_else(|| io::Error::other("invalid driver output path"))?;
+    if !parent.as_os_str().is_empty() {
+        fs::create_dir_all(parent)?;
+    }
+    let staged = output.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        DRIVER_OUTPUT_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| {
+        let mut staged_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staged)?;
+        let mut buffer = [0; DRIVER_FILE_STREAM_BYTES];
+        let mut remaining = length;
+        while remaining != 0 {
+            let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+            source_file.read_exact(&mut buffer[..chunk_len])?;
+            staged_file.write_all(&buffer[..chunk_len])?;
+            remaining -= chunk_len as u64;
+        }
+        let mut trailing = [0; 1];
+        if source_file.read(&mut trailing)? != 0 || source_file.metadata()?.len() != length {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "tool output changed length while it was installed",
+            ));
+        }
+        staged_file.sync_all()?;
+        drop(staged_file);
+        fs::rename(&staged, output)
+    })();
+    if result.is_err() || staged.exists() {
+        let _ = fs::remove_file(&staged);
+    }
+    result
+}
+
 fn object_file_name(index: usize, module_name: &str) -> String {
     let stem = Path::new(module_name)
         .file_stem()
@@ -2051,5 +2102,38 @@ impl TempDir {
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod streamed_output_tests {
+    use super::*;
+
+    #[test]
+    fn large_tool_output_is_streamed_and_atomically_installed() {
+        let root = TempDir::new("nia_driver_streamed_output");
+        fs::create_dir_all(root.path()).expect("create test root");
+        let source = root.path().join("source.a");
+        let output = root.path().join("nested/output.a");
+        let payload = vec![0x6b; DRIVER_FILE_STREAM_BYTES * 5 + 29];
+        fs::write(&source, &payload).expect("write source");
+
+        install_streamed_output(&source, &output).expect("install output");
+
+        assert_eq!(fs::read(output).expect("read output"), payload);
+    }
+
+    #[test]
+    fn missing_tool_output_preserves_existing_destination() {
+        let root = TempDir::new("nia_driver_missing_output");
+        fs::create_dir_all(root.path()).expect("create test root");
+        let output = root.path().join("output.a");
+        fs::write(&output, b"existing").expect("write existing output");
+
+        let error = install_streamed_output(&root.path().join("missing.a"), &output)
+            .expect_err("missing source must fail");
+
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(fs::read(output).expect("read existing output"), b"existing");
     }
 }
