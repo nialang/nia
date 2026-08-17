@@ -522,6 +522,9 @@ commit as the corresponding implementation batch.
       closure states, so selecting one captured value cannot pull unrelated
       captures into return or escape facts; flattened cross-function closure
       states retain a documented conservative fallback.
+- [x] Phase C closure call analysis now follows runtime callee/receiver-before-
+      argument evaluation order, preventing callee-side assignments from
+      hiding stack-backed arguments from escape summaries and diagnostics.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.

@@ -398,6 +398,36 @@ fn preserve(external: &Fn(i32) i32, base: i32) &Fn(i32) i32 {
 }
 
 #[test]
+fn expression_callee_is_analyzed_before_its_arguments() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+extern fn retain(callback: &Fn(i32) i32) ();
+
+fn consume(callback: &Fn(i32) i32) () {
+    retain(callback);
+}
+
+fn main(external: &Fn(i32) i32, base: i32) () {
+    let local = \[base] value: i32 -> { base + value };
+    let mut selected = external;
+    ({ selected = &local; consume })(selected);
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
 fn closure_safety_diagnostics_keep_owner_path_and_reach_all_program_products() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
     let entry = fixture.entry_id();
