@@ -495,7 +495,9 @@ commit as the corresponding implementation batch.
 - [x] Phase B extern ABI checking now expands local and imported const-generic
       aliases with the canonical type/const substitution mapping before
       classifying nested fields, so diagnostics describe the forbidden concrete
-      representation instead of rejecting valid alias argument structure.
+      representation instead of rejecting valid alias argument structure;
+      imported generic extern-struct fields are likewise instantiated before
+      recursive ABI classification.
 - [x] Phase B layout-root closure now substitutes aggregate fields with the
       canonical recursive type/const algorithm; mixed generic structs and
       unions no longer skip all nested roots or retain symbolic array lengths.
