@@ -13,6 +13,25 @@ enum ExternalIdentityKind {
     Input,
 }
 
+const EXTERNAL_DIRECTORY_IDENTITY_STREAM_BYTES: usize = 64 * 1024;
+const EXTERNAL_DIRECTORY_IDENTITY_MAGIC: &[u8] = b"NIA-DIR1\0";
+
+struct ExternalDirectoryIdentityPlan {
+    path: PathBuf,
+    encoded_len: u64,
+    entries: Vec<ExternalDirectoryIdentityEntry>,
+}
+
+struct ExternalDirectoryIdentityEntry {
+    name: Vec<u8>,
+    kind: ExternalDirectoryIdentityEntryKind,
+}
+
+enum ExternalDirectoryIdentityEntryKind {
+    File { path: PathBuf, length: u64 },
+    Directory(Box<ExternalDirectoryIdentityPlan>),
+}
+
 pub(super) struct ResolvedExternalCommand<'a> {
     pub(super) program: &'a str,
     pub(super) arguments: &'a [String],
@@ -120,8 +139,7 @@ pub(super) fn read_external_identity_input(
         );
     }
     if metadata.is_dir() {
-        return read_external_identity_directory(action, path, operation)
-            .map(|bytes| ExternalCommandContentIdentity::input_from_bytes(&bytes));
+        return read_external_identity_directory(action, path, operation);
     }
     Err(CoordinatorError::ExternalCommandIo {
         action: action.key.clone(),
@@ -175,41 +193,17 @@ fn read_external_identity_regular_file(
     })
 }
 
-fn read_external_identity_regular_bytes(
+fn read_external_identity_directory(
     action: &PlanAction,
     path: &Path,
     operation: &'static str,
-) -> Result<Vec<u8>, CoordinatorError> {
-    let result = (|| -> io::Result<Vec<u8>> {
-        let mut options = fs::OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        options.custom_flags(libc::O_NOFOLLOW);
-        let mut file = options.open(path)?;
-        let metadata = file.metadata()?;
-        if !metadata.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "cache input tree entry must be a regular file",
-            ));
-        }
-        let expected_len = usize::try_from(metadata.len()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "cache input file is too large for this host",
-            )
-        })?;
-        let mut bytes = Vec::with_capacity(expected_len);
-        Read::by_ref(&mut file)
-            .take(metadata.len().saturating_add(1))
-            .read_to_end(&mut bytes)?;
-        if bytes.len() != expected_len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "cache input file changed length while it was read",
-            ));
-        }
-        Ok(bytes)
+) -> Result<ExternalCommandContentIdentity, CoordinatorError> {
+    let result = (|| -> io::Result<ExternalCommandContentIdentity> {
+        let plan = plan_external_identity_directory(path)?;
+        ExternalCommandContentIdentity::input_from_encoder(plan.encoded_len, |writer| {
+            let mut buffer = [0; EXTERNAL_DIRECTORY_IDENTITY_STREAM_BYTES];
+            stream_external_identity_directory(&plan, writer, &mut buffer)
+        })
     })();
     result.map_err(|error| CoordinatorError::ExternalCommandIo {
         action: action.key.clone(),
@@ -219,71 +213,178 @@ fn read_external_identity_regular_bytes(
     })
 }
 
-fn read_external_identity_directory(
-    action: &PlanAction,
-    path: &Path,
-    operation: &'static str,
-) -> Result<Vec<u8>, CoordinatorError> {
+/// Plans the exact legacy directory encoding without retaining file payloads.
+/// The second pass can therefore stream the same bytes into the fingerprint
+/// while using memory proportional to directory metadata rather than tree data.
+fn plan_external_identity_directory(path: &Path) -> io::Result<ExternalDirectoryIdentityPlan> {
+    if !fs::symlink_metadata(path)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("cache input directory `{}` changed type", path.display()),
+        ));
+    }
     // Sort traversal so identity is independent of filesystem enumeration
     // order. Symlinks are rejected because their targets escape the declared
     // input tree and can change without changing the logical input path.
-    let mut entries = fs::read_dir(path)
-        .map_err(|error| CoordinatorError::ExternalCommandIo {
-            action: action.key.clone(),
-            path: path.to_path_buf(),
-            operation,
-            error,
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| CoordinatorError::ExternalCommandIo {
-            action: action.key.clone(),
-            path: path.to_path_buf(),
-            operation,
-            error,
-        })?;
+    let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
     entries.sort_by(|left, right| {
         left.file_name()
             .as_encoded_bytes()
             .cmp(right.file_name().as_encoded_bytes())
     });
-    let mut encoded = b"NIA-DIR1\0".to_vec();
-    encoded.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+    let mut encoded_len = u64::try_from(EXTERNAL_DIRECTORY_IDENTITY_MAGIC.len() + 8).unwrap();
+    let mut planned = Vec::with_capacity(entries.len());
     for entry in entries {
         let name = entry.file_name();
-        let name_bytes = name.as_encoded_bytes();
-        encoded.extend_from_slice(&(name_bytes.len() as u64).to_le_bytes());
-        encoded.extend_from_slice(name_bytes);
+        let name = name.as_encoded_bytes().to_vec();
+        let name_len = u64::try_from(name.len()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory entry name is too large",
+            )
+        })?;
+        encoded_len = checked_directory_identity_len(encoded_len, 8)?;
+        encoded_len = checked_directory_identity_len(encoded_len, name_len)?;
+        encoded_len = checked_directory_identity_len(encoded_len, 1)?;
         let child = entry.path();
-        let metadata =
-            fs::symlink_metadata(&child).map_err(|error| CoordinatorError::ExternalCommandIo {
-                action: action.key.clone(),
-                path: child.clone(),
-                operation,
-                error,
-            })?;
+        let metadata = fs::symlink_metadata(&child)?;
         if metadata.is_file() {
-            encoded.push(0);
-            let bytes = read_external_identity_regular_bytes(action, &child, operation)?;
-            encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-            encoded.extend_from_slice(&bytes);
-        } else if metadata.is_dir() {
-            encoded.push(1);
-            let nested = read_external_identity_directory(action, &child, operation)?;
-            encoded.extend_from_slice(&(nested.len() as u64).to_le_bytes());
-            encoded.extend_from_slice(&nested);
-        } else {
-            return Err(CoordinatorError::ExternalCommandIo {
-                action: action.key.clone(),
-                path: child,
-                operation,
-                error: io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "cache input tree contains a non-regular entry",
-                ),
+            encoded_len = checked_directory_identity_len(encoded_len, 8)?;
+            encoded_len = checked_directory_identity_len(encoded_len, metadata.len())?;
+            planned.push(ExternalDirectoryIdentityEntry {
+                name,
+                kind: ExternalDirectoryIdentityEntryKind::File {
+                    path: child,
+                    length: metadata.len(),
+                },
             });
+        } else if metadata.is_dir() {
+            let nested = plan_external_identity_directory(&child)?;
+            encoded_len = checked_directory_identity_len(encoded_len, 8)?;
+            encoded_len = checked_directory_identity_len(encoded_len, nested.encoded_len)?;
+            planned.push(ExternalDirectoryIdentityEntry {
+                name,
+                kind: ExternalDirectoryIdentityEntryKind::Directory(Box::new(nested)),
+            });
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "cache input tree contains non-regular entry `{}`",
+                    child.display()
+                ),
+            ));
         }
     }
-    Ok(encoded)
+    Ok(ExternalDirectoryIdentityPlan {
+        path: path.to_path_buf(),
+        encoded_len,
+        entries: planned,
+    })
+}
+
+fn checked_directory_identity_len(current: u64, added: u64) -> io::Result<u64> {
+    current.checked_add(added).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cache input directory identity is too large",
+        )
+    })
+}
+
+fn stream_external_identity_directory(
+    plan: &ExternalDirectoryIdentityPlan,
+    writer: &mut QueryFingerprintBytesWriter<'_>,
+    buffer: &mut [u8],
+) -> io::Result<()> {
+    let current_names = sorted_external_directory_names(&plan.path)?;
+    if !current_names
+        .iter()
+        .map(Vec::as_slice)
+        .eq(plan.entries.iter().map(|entry| entry.name.as_slice()))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "cache input directory `{}` changed while it was fingerprinted",
+                plan.path.display()
+            ),
+        ));
+    }
+    writer.write_chunk(EXTERNAL_DIRECTORY_IDENTITY_MAGIC)?;
+    writer.write_chunk(&(plan.entries.len() as u64).to_le_bytes())?;
+    for entry in &plan.entries {
+        writer.write_chunk(&(entry.name.len() as u64).to_le_bytes())?;
+        writer.write_chunk(&entry.name)?;
+        match &entry.kind {
+            ExternalDirectoryIdentityEntryKind::File { path, length } => {
+                writer.write_chunk(&[0])?;
+                writer.write_chunk(&length.to_le_bytes())?;
+                stream_external_identity_file(path, *length, writer, buffer)?;
+            }
+            ExternalDirectoryIdentityEntryKind::Directory(nested) => {
+                writer.write_chunk(&[1])?;
+                writer.write_chunk(&nested.encoded_len.to_le_bytes())?;
+                stream_external_identity_directory(nested, writer, buffer)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn sorted_external_directory_names(path: &Path) -> io::Result<Vec<Vec<u8>>> {
+    if !fs::symlink_metadata(path)?.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("cache input directory `{}` changed type", path.display()),
+        ));
+    }
+    let mut names = fs::read_dir(path)?
+        .map(|entry| entry.map(|entry| entry.file_name().as_encoded_bytes().to_vec()))
+        .collect::<Result<Vec<_>, _>>()?;
+    names.sort();
+    Ok(names)
+}
+
+fn stream_external_identity_file(
+    path: &Path,
+    expected_len: u64,
+    writer: &mut QueryFingerprintBytesWriter<'_>,
+    buffer: &mut [u8],
+) -> io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != expected_len {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "cache input file `{}` changed while it was fingerprinted",
+                path.display()
+            ),
+        ));
+    }
+    let mut remaining = expected_len;
+    while remaining != 0 {
+        let chunk_len = usize::try_from(remaining.min(buffer.len() as u64)).unwrap();
+        file.read_exact(&mut buffer[..chunk_len])?;
+        writer.write_chunk(&buffer[..chunk_len])?;
+        remaining -= chunk_len as u64;
+    }
+    let mut trailing = [0; 1];
+    if file.read(&mut trailing)? != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "cache input file `{}` grew while it was fingerprinted",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn read_staged_external_outputs(

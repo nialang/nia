@@ -557,8 +557,11 @@ commit as the corresponding implementation batch.
       revalidates under the mutation lock without an unbounded reread.
 - [x] Phase D regular-file external-command tool/input identities now stream
       fingerprints from one opened handle and reject length growth or truncation;
-      Unix declared inputs also use no-follow opens. Directory identities still
-      require a flat streaming encoding instead of recursive nested buffers.
+      Unix declared inputs also use no-follow opens.
+- [x] Phase D external-command directory identities now plan only sorted entry
+      metadata, then stream the registered recursive byte format through one
+      fixed buffer. File payloads and nested encodings no longer accumulate in
+      memory, and a compatibility regression proves cache-key parity.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

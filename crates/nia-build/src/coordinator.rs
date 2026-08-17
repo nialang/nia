@@ -43,7 +43,7 @@ use nia_driver::{
     SourcePath,
 };
 use nia_linker::{ArchiveOptions, LinkOptions, StaticArchiveLinkInput};
-use nia_query::QuerySession;
+use nia_query::{QueryFingerprintBytesWriter, QuerySession};
 use nia_target_config::TargetConfig;
 
 use crate::{
