@@ -39,6 +39,17 @@ pub(crate) struct FunctionBodyInstantiation<'a> {
     pub(crate) const_substitutions: &'a SymbolMap<nia_ty::ConstGenericArg>,
 }
 
+fn classify_effective_generic_names(
+    generics: &[SymbolId],
+    const_generics: &[SymbolId],
+) -> Vec<(SymbolId, bool)> {
+    let const_generics = const_generics.iter().copied().collect::<HashSet<_>>();
+    generics
+        .iter()
+        .map(|name| (*name, const_generics.contains(name)))
+        .collect()
+}
+
 impl<'a> ModuleLowerer<'a> {
     fn normalized_program_type_for_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
         if matches!(self.ty_kind(ty), Some(TyKind::Error)) {
@@ -118,20 +129,17 @@ impl<'a> ModuleLowerer<'a> {
         let mut const_index = 0;
         let mut substitutions = SymbolMap::default();
         let mut const_substitutions = SymbolMap::default();
-        for generic in &generic_params {
-            match generic.kind {
-                nia_ast::GenericParamKind::Type => {
-                    if let Some(arg) = args.get(type_index).copied() {
-                        substitutions.insert(generic.name, arg);
-                    }
-                    type_index += 1;
+        for (name, is_const) in generic_params {
+            if is_const {
+                if let Some(arg) = const_args.get(const_index).cloned() {
+                    const_substitutions.insert(name, arg);
                 }
-                nia_ast::GenericParamKind::Const { .. } => {
-                    if let Some(arg) = const_args.get(const_index).cloned() {
-                        const_substitutions.insert(generic.name, arg);
-                    }
-                    const_index += 1;
+                const_index += 1;
+            } else {
+                if let Some(arg) = args.get(type_index).copied() {
+                    substitutions.insert(name, arg);
                 }
+                type_index += 1;
             }
         }
         (substitutions, const_substitutions)
@@ -140,7 +148,26 @@ impl<'a> ModuleLowerer<'a> {
     fn effective_generic_params_for_def(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<Vec<nia_ast::GenericParam>> {
+    ) -> Option<Vec<(SymbolId, bool)>> {
+        if let Some(method) = self.input.program.extension_methods().method_by_id(def_id) {
+            return Some(classify_effective_generic_names(
+                &method.effective_generics,
+                &method.effective_const_generics,
+            ));
+        }
+        if let Some(method) = self
+            .input
+            .extensions
+            .targets()
+            .iter()
+            .flat_map(|target| &target.methods)
+            .find(|method| method.def_id == def_id)
+        {
+            return Some(classify_effective_generic_names(
+                &method.effective_generics,
+                &method.effective_const_generics,
+            ));
+        }
         let def = crate::program_def(self.input, def_id)?;
         let mut generic_params = def
             .parent
@@ -156,7 +183,17 @@ impl<'a> ModuleLowerer<'a> {
             .map(|parent| parent.generic_params)
             .unwrap_or_default();
         generic_params.extend(def.generic_params);
-        Some(generic_params)
+        Some(
+            generic_params
+                .into_iter()
+                .map(|generic| {
+                    (
+                        generic.name,
+                        matches!(generic.kind, nia_ast::GenericParamKind::Const { .. }),
+                    )
+                })
+                .collect(),
+        )
     }
 
     pub(crate) fn effective_generics(
@@ -1301,8 +1338,8 @@ impl<'a> ModuleLowerer<'a> {
         }
         generic_params
             .iter()
-            .filter(|generic| matches!(generic.kind, nia_ast::GenericParamKind::Type))
-            .map(|generic| self.type_substitution(substitutions, &generic.name))
+            .filter(|(_, is_const)| !is_const)
+            .map(|(name, _)| self.type_substitution(substitutions, name))
             .collect::<Option<Vec<_>>>()
             .map(|args| self.canonicalize_instance_args(&args))
     }
@@ -1315,8 +1352,8 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<Vec<nia_ty::ConstGenericArg>> {
         self.effective_generic_params_for_def(def_id)?
             .iter()
-            .filter(|generic| matches!(generic.kind, nia_ast::GenericParamKind::Const { .. }))
-            .map(|generic| self.const_substitution(substitutions, &generic.name))
+            .filter(|(_, is_const)| *is_const)
+            .map(|(name, _)| self.const_substitution(substitutions, name))
             .collect::<Option<Vec<_>>>()
             .map(|args| {
                 args.iter()
