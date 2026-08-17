@@ -672,10 +672,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ));
             }
         };
-        if lanes > 64 {
+        let result_ty = self.module.usize_llvm_type(expr.span)?;
+        if lanes > result_ty.bit_width() {
             return Err(self.error(
                 expr.span,
-                "std::builtin::bitmask supports at most 64 SIMD mask lanes",
+                "std::builtin::bitmask mask exceeds the target usize width",
             ));
         }
         let vector = self.emit_expr(vector)?;
@@ -685,11 +686,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_bit_cast(vector, packed_ty, "bitmask.pack")
             .map_err(|_| self.error(expr.span, "failed to pack SIMD mask"))?
             .into_int_value()?;
-        if lanes == 64 {
+        if lanes == result_ty.bit_width() {
             return Ok(packed.into());
         }
         self.builder
-            .build_int_z_extend(packed, self.module.context.i64_type(), "bitmask")
+            .build_int_z_extend(packed, result_ty, "bitmask")
             .map(Into::into)
             .map_err(|_| self.error(expr.span, "failed to widen SIMD mask"))
     }
