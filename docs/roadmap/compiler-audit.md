@@ -531,6 +531,9 @@ commit as the corresponding implementation batch.
 - [x] Phase C closure type filtering now distinguishes active structural cycles
       from repeated sibling types, preventing value-only tuples and error
       unions from spuriously retaining callable or captured-address provenance.
+- [x] Phase C closure defer analysis now delays registered expressions until
+      scope exit and applies them in LIFO order after the tail value, matching
+      Function IR and exposing later callable-state updates to deferred escapes.
 - [x] Phase D compiler check/emit action-cache metadata now shares a 64 MiB
       read/write bound; oversized entries are detected from file metadata,
       retired under the mutation lock, and never read into unbounded buffers.
