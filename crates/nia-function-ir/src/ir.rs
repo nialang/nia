@@ -361,18 +361,23 @@ pub enum FunctionExprKind {
         op: UnaryOp,
         expr: Box<FunctionExpr>,
     },
+    /// Constructs an `Optional` value with the `Some` discriminant.
     OptionalSome {
         expr: Box<FunctionExpr>,
     },
+    /// Constructs an `ErrorUnion` value carrying its success payload.
     ErrorOk {
         expr: Box<FunctionExpr>,
     },
+    /// Constructs an `ErrorUnion` value carrying its error payload.
     ErrorErr {
         expr: Box<FunctionExpr>,
     },
+    /// Extracts the one-byte discriminant from an optional or error union.
     TaggedUnionTag {
         expr: Box<FunctionExpr>,
     },
+    /// Extracts the active payload from an optional or error union.
     TaggedUnionPayload {
         expr: Box<FunctionExpr>,
     },
@@ -419,14 +424,17 @@ pub enum FunctionExprKind {
         callee: FunctionCallee,
         args: Vec<FunctionExpr>,
     },
+    /// Loads a field from a nominal aggregate or a pointer to one.
     Field {
         lhs: Box<FunctionExpr>,
         field: nia_ids::GlobalDefId,
     },
+    /// Loads one element from an array, pointer, or slice base.
     Index {
         lhs: Box<FunctionExpr>,
         index: Box<FunctionExpr>,
     },
+    /// Creates a fat slice view over an array, pointer, or existing slice.
     Slice {
         lhs: Box<FunctionExpr>,
         range: FunctionSliceRange,
@@ -451,8 +459,11 @@ pub enum FunctionBitIntrinsicOp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSliceRange {
+    /// Optional lower bound; omitted bounds start at zero.
     pub start: Option<Box<FunctionExpr>>,
+    /// Optional upper bound; omitted bounds use the source length.
     pub end: Option<Box<FunctionExpr>>,
+    /// Whether the upper bound is inclusive and must be incremented.
     pub inclusive: bool,
 }
 

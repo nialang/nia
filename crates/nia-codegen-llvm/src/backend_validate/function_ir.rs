@@ -62,6 +62,24 @@ enum AtomicOrderContext {
     Fence,
 }
 
+#[derive(Clone, Copy)]
+enum TaggedUnionConstructor {
+    OptionalSome,
+    ErrorOk,
+    ErrorErr,
+}
+
+#[derive(Clone, Copy)]
+enum TaggedUnionProjection {
+    Tag,
+    Payload,
+}
+
+struct SliceSourceInfo {
+    elem: nia_ids::InternedTyId,
+    readonly: bool,
+}
+
 impl AtomicOrderContext {
     fn allows(self, order: AtomicOrder) -> bool {
         match self {
@@ -833,12 +851,47 @@ impl BackendValidator<'_> {
                     self.validate_expr(&relocation.pointee);
                 }
             }
-            FunctionExprKind::OptionalSome { expr }
-            | FunctionExprKind::ErrorOk { expr }
-            | FunctionExprKind::ErrorErr { expr }
-            | FunctionExprKind::TaggedUnionTag { expr }
-            | FunctionExprKind::TaggedUnionPayload { expr }
-            | FunctionExprKind::Try { expr }
+            FunctionExprKind::OptionalSome { expr: inner } => {
+                self.validate_tagged_union_constructor(
+                    expr.ty,
+                    inner,
+                    TaggedUnionConstructor::OptionalSome,
+                    expr.span,
+                );
+            }
+            FunctionExprKind::ErrorOk { expr: inner } => {
+                self.validate_tagged_union_constructor(
+                    expr.ty,
+                    inner,
+                    TaggedUnionConstructor::ErrorOk,
+                    expr.span,
+                );
+            }
+            FunctionExprKind::ErrorErr { expr: inner } => {
+                self.validate_tagged_union_constructor(
+                    expr.ty,
+                    inner,
+                    TaggedUnionConstructor::ErrorErr,
+                    expr.span,
+                );
+            }
+            FunctionExprKind::TaggedUnionTag { expr: inner } => {
+                self.validate_tagged_union_projection(
+                    expr.ty,
+                    inner,
+                    TaggedUnionProjection::Tag,
+                    expr.span,
+                );
+            }
+            FunctionExprKind::TaggedUnionPayload { expr: inner } => {
+                self.validate_tagged_union_projection(
+                    expr.ty,
+                    inner,
+                    TaggedUnionProjection::Payload,
+                    expr.span,
+                );
+            }
+            FunctionExprKind::Try { expr }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. } => self.validate_expr(expr),
@@ -900,12 +953,14 @@ impl BackendValidator<'_> {
             }
             FunctionExprKind::Field { lhs, field } => {
                 self.validate_expr(lhs);
-                self.validate_aggregate_field(
+                if let Some(expected_ty) = self.validate_aggregate_field(
                     lhs.ty,
                     *field,
                     expr.span,
                     "backend IR field expression references missing field",
-                );
+                ) {
+                    self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "field");
+                }
             }
             FunctionExprKind::Index { lhs, index } => {
                 self.validate_expr(lhs);
@@ -914,13 +969,19 @@ impl BackendValidator<'_> {
                     self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "index");
                 }
             }
-            FunctionExprKind::Slice { lhs, range, .. } => {
-                self.validate_expr(lhs);
+            FunctionExprKind::Slice {
+                lhs,
+                range,
+                is_readonly,
+            } => {
+                self.validate_slice_contract(expr.ty, lhs, *is_readonly, expr.span);
                 if let Some(start) = &range.start {
                     self.validate_expr(start);
+                    self.validate_slice_bound(start);
                 }
                 if let Some(end) = &range.end {
                     self.validate_expr(end);
+                    self.validate_slice_bound(end);
                 }
             }
             FunctionExprKind::Error
@@ -1298,6 +1359,90 @@ impl BackendValidator<'_> {
         }
     }
 
+    fn validate_tagged_union_constructor(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        inner: &FunctionExpr,
+        constructor: TaggedUnionConstructor,
+        span: Span,
+    ) {
+        self.validate_expr(inner);
+        let expected_payload = match (constructor, self.index.ty_kind(result_ty)) {
+            (TaggedUnionConstructor::OptionalSome, Some(TyKind::Optional { elem })) => Some(*elem),
+            (TaggedUnionConstructor::ErrorOk, Some(TyKind::ErrorUnion { value, .. })) => {
+                Some(*value)
+            }
+            (TaggedUnionConstructor::ErrorErr, Some(TyKind::ErrorUnion { error, .. })) => {
+                Some(*error)
+            }
+            _ => None,
+        };
+        let Some(expected_payload) = expected_payload else {
+            self.invalid_tagged_union(
+                span,
+                "constructor result is not the matching Optional or ErrorUnion type",
+            );
+            return;
+        };
+        if !self.same_type(inner.ty, expected_payload) {
+            self.invalid_tagged_union(span, "constructor payload type does not match its result");
+        }
+    }
+
+    fn validate_tagged_union_projection(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        inner: &FunctionExpr,
+        projection: TaggedUnionProjection,
+        span: Span,
+    ) {
+        self.validate_expr(inner);
+        let Some(kind) = self.index.ty_kind(inner.ty) else {
+            self.invalid_tagged_union(span, "projection input has no runtime type");
+            return;
+        };
+        match (projection, kind) {
+            (TaggedUnionProjection::Tag, TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => {
+                if !matches!(
+                    self.index.ty_kind(result_ty),
+                    Some(TyKind::Primitive(PrimitiveTy::U8))
+                ) {
+                    self.invalid_tagged_union(span, "tag projection result is not u8");
+                }
+            }
+            (TaggedUnionProjection::Payload, TyKind::Optional { elem }) => {
+                if !self.same_type(result_ty, *elem) {
+                    self.invalid_tagged_union(
+                        span,
+                        "optional payload result does not match its element",
+                    );
+                }
+            }
+            (TaggedUnionProjection::Payload, TyKind::ErrorUnion { error, value }) => {
+                if !self.same_type(result_ty, *error) && !self.same_type(result_ty, *value) {
+                    self.invalid_tagged_union(
+                        span,
+                        "error-union payload result matches neither error nor value type",
+                    );
+                }
+            }
+            (TaggedUnionProjection::Tag, _) => {
+                self.invalid_tagged_union(span, "tag projection input is not a tagged union");
+            }
+            (TaggedUnionProjection::Payload, _) => {
+                self.invalid_tagged_union(span, "payload projection input is not a tagged union");
+            }
+        }
+    }
+
+    fn invalid_tagged_union(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR tagged-union expression has an invalid contract: {message}"),
+        ));
+    }
+
     fn is_cast_integer_type(&self, ty: nia_ids::InternedTyId) -> bool {
         match self.index.ty_kind(ty) {
             Some(TyKind::Primitive(
@@ -1529,6 +1674,85 @@ impl BackendValidator<'_> {
                 format!("backend IR {kind} result type does not match its selected value"),
             ));
         }
+    }
+
+    fn validate_slice_contract(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        lhs: &FunctionExpr,
+        requested_readonly: bool,
+        span: Span,
+    ) {
+        self.validate_expr(lhs);
+        let Some(source) = self.slice_source_info(lhs.ty) else {
+            self.invalid_slice(span, "slice input is not an array, pointer, or slice");
+            return;
+        };
+        let Some(TyKind::Slice {
+            is_readonly,
+            elem: result_elem,
+        }) = self.index.ty_kind(result_ty)
+        else {
+            self.invalid_slice(span, "slice result is not a Slice type");
+            return;
+        };
+        if !self.same_type(*result_elem, source.elem) {
+            self.invalid_slice(span, "slice result element does not match its input");
+        }
+        if *is_readonly != requested_readonly {
+            self.invalid_slice(
+                span,
+                "slice result readonly metadata does not match the expression",
+            );
+        }
+        if source.readonly && !*is_readonly {
+            self.invalid_slice(span, "slice drops readonly access from its input");
+        }
+    }
+
+    fn validate_slice_bound(&mut self, bound: &FunctionExpr) {
+        if !self.is_integer_type(bound.ty) {
+            self.invalid_slice(bound.span, "slice range bound is not an integer");
+        }
+    }
+
+    fn slice_source_info(&self, ty: nia_ids::InternedTyId) -> Option<SliceSourceInfo> {
+        match self.index.ty_kind(ty) {
+            Some(TyKind::Array { elem, .. }) => Some(SliceSourceInfo {
+                elem: *elem,
+                readonly: false,
+            }),
+            Some(TyKind::Pointer { is_readonly, elem })
+            | Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                if let Some(TyKind::Array {
+                    elem: array_elem, ..
+                }) = self.index.ty_kind(*elem)
+                {
+                    Some(SliceSourceInfo {
+                        elem: *array_elem,
+                        readonly: *is_readonly,
+                    })
+                } else {
+                    Some(SliceSourceInfo {
+                        elem: *elem,
+                        readonly: *is_readonly,
+                    })
+                }
+            }
+            Some(TyKind::Slice { is_readonly, elem }) => Some(SliceSourceInfo {
+                elem: *elem,
+                readonly: *is_readonly,
+            }),
+            _ => None,
+        }
+    }
+
+    fn invalid_slice(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR slice expression has an invalid contract: {message}"),
+        ));
     }
 
     fn has_direct_aggregate_field_contract(&self, ty: nia_ids::InternedTyId) -> bool {

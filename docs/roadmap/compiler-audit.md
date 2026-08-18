@@ -466,6 +466,12 @@ commit as the corresponding implementation batch.
       scalar-versus-vector shape, enum/integer and pointer/integer categories,
       volatile-pointer support, and rejects malformed casts before LLVM chooses
       typed pointer, float, or integer builders.
+- [x] Phase B tagged-union expression validation now checks Optional/ErrorUnion
+      constructor payloads, discriminant `u8` projections, and branch payload
+      projections before LLVM extracts aggregate fields. Field projections now
+      enforce selected-field result types, while slices validate source/result
+      element identity, readonly propagation, and integer range bounds; focused
+      malformed-IR matrices cover each independent mismatch.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both
