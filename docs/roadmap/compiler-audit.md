@@ -492,6 +492,10 @@ commit as the corresponding implementation batch.
       complete-array pointee type, readonly metadata, and origin module before
       LLVM publishes promoted storage; malformed producer cases cover each
       independent metadata mismatch.
+- [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
+      ownership, closure-entry ABI tables, promoted union relocation
+      invariants, and inline-assembly operand ordering at the shared producer
+      and backend consumer boundary.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both
