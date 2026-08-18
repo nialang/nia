@@ -401,6 +401,7 @@ impl_type_wrapper!(
 impl_type_wrapper!("Non-owning LLVM function signature handle.", FunctionType);
 
 impl<'ctx> VoidType<'ctx> {
+    /// Creates a function signature returning `void`.
     pub fn fn_type(
         self,
         params: &[BasicMetadataTypeEnum<'ctx>],
@@ -424,6 +425,7 @@ impl<'ctx> VoidType<'ctx> {
 macro_rules! impl_basic_type_methods {
     ($name:ident) => {
         impl<'ctx> $name<'ctx> {
+            /// Creates a function signature returning this type.
             pub fn fn_type(
                 self,
                 params: &[BasicMetadataTypeEnum<'ctx>],
@@ -443,6 +445,7 @@ macro_rules! impl_basic_type_methods {
                 })
             }
 
+            /// Creates a fixed-size array of this element type.
             pub fn array_type(self, len: u32) -> ArrayType<'ctx> {
                 ArrayType::new(unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) })
             }
@@ -459,14 +462,17 @@ impl_basic_type_methods!(VectorType);
 impl_basic_type_methods!(ScalableVectorType);
 
 impl<'ctx> IntType<'ctx> {
+    /// Returns this integer type's bit width.
     pub fn bit_width(self) -> u32 {
         unsafe { LLVMGetIntTypeWidth(self.as_type_ref()) }
     }
 
+    /// Creates an integer constant from its low 64 bits.
     pub fn const_int(self, value: u64, sign_extend: bool) -> IntValue<'ctx> {
         IntValue::new(unsafe { LLVMConstInt(self.as_type_ref(), value, bool_to_llvm(sign_extend)) })
     }
 
+    /// Creates an unsigned integer constant up to 128 bits wide.
     pub fn const_u128(self, value: u128) -> IntValue<'ctx> {
         if self.bit_width() <= 64 {
             return self.const_int(value as u64, false);
@@ -478,6 +484,7 @@ impl<'ctx> IntType<'ctx> {
         })
     }
 
+    /// Creates an array constant from integer elements of this type.
     pub fn const_array(self, values: &[IntValue<'ctx>]) -> ArrayValue<'ctx> {
         let mut values = values
             .iter()
@@ -488,26 +495,31 @@ impl<'ctx> IntType<'ctx> {
         })
     }
 
+    /// Creates the zero constant.
     pub fn const_zero(self) -> IntValue<'ctx> {
         self.const_int(0, false)
     }
 
+    /// Creates an undefined value of this type.
     pub fn get_undef(self) -> IntValue<'ctx> {
         IntValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 }
 
 impl<'ctx> IntValue<'ctx> {
+    /// Constant-folds a bitcast to another integer type.
     pub fn const_bitcast(self, target_ty: IntType<'ctx>) -> IntValue<'ctx> {
         IntValue::new(unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) })
     }
 }
 
 impl<'ctx> FloatType<'ctx> {
+    /// Creates a floating-point constant, rounded to this type's precision.
     pub fn const_float(self, value: f64) -> FloatValue<'ctx> {
         FloatValue::new(unsafe { LLVMConstReal(self.as_type_ref(), value) })
     }
 
+    /// Creates an array constant from floating-point elements of this type.
     pub fn const_array(self, values: &[FloatValue<'ctx>]) -> ArrayValue<'ctx> {
         let mut values = values
             .iter()
@@ -518,32 +530,39 @@ impl<'ctx> FloatType<'ctx> {
         })
     }
 
+    /// Creates positive floating-point zero.
     pub fn const_zero(self) -> FloatValue<'ctx> {
         self.const_float(0.0)
     }
 
+    /// Creates an undefined value of this type.
     pub fn get_undef(self) -> FloatValue<'ctx> {
         FloatValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 }
 
 impl<'ctx> PointerType<'ctx> {
+    /// Creates a null pointer constant.
     pub fn const_zero(self) -> PointerValue<'ctx> {
         self.const_null()
     }
 
+    /// Creates a null pointer constant.
     pub fn const_null(self) -> PointerValue<'ctx> {
         PointerValue::new(unsafe { LLVMConstPointerNull(self.as_type_ref()) })
     }
 
+    /// Constant-folds an integer-to-pointer conversion.
     pub fn const_int_to_ptr(self, value: IntValue<'ctx>) -> PointerValue<'ctx> {
         PointerValue::new(unsafe { LLVMConstIntToPtr(value.as_value_ref(), self.as_type_ref()) })
     }
 
+    /// Creates an undefined pointer value.
     pub fn get_undef(self) -> PointerValue<'ctx> {
         PointerValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 
+    /// Creates an array constant from pointer elements of this type.
     pub fn const_array(self, values: &[PointerValue<'ctx>]) -> ArrayValue<'ctx> {
         let mut values = values
             .iter()
@@ -556,10 +575,12 @@ impl<'ctx> PointerType<'ctx> {
 }
 
 impl<'ctx> StructType<'ctx> {
+    /// Converts this typed handle to the shared basic-type enum.
     pub fn as_basic_type_enum(self) -> BasicTypeEnum<'ctx> {
         BasicTypeEnum::StructType(self)
     }
 
+    /// Defines or replaces the physical fields of a named struct type.
     pub fn set_body(self, fields: &[BasicTypeEnum<'ctx>], packed: bool) {
         let mut fields = fields
             .iter()
@@ -575,14 +596,17 @@ impl<'ctx> StructType<'ctx> {
         };
     }
 
+    /// Returns the number of physical struct fields.
     pub fn count_fields(self) -> u32 {
         unsafe { LLVMCountStructElementTypes(self.as_type_ref()) }
     }
 
+    /// Reports whether field alignment padding is disabled.
     pub fn is_packed(self) -> bool {
         unsafe { LLVMIsPackedStruct(self.as_type_ref()) != 0 }
     }
 
+    /// Returns a field type, or `None` when `index` is out of bounds.
     pub fn get_field_type_at_index(self, index: u32) -> Option<LlvmResult<BasicTypeEnum<'ctx>>> {
         if index >= self.count_fields() {
             None
@@ -593,6 +617,7 @@ impl<'ctx> StructType<'ctx> {
         }
     }
 
+    /// Creates a constant using this named struct's physical field order.
     pub fn const_named_struct(self, values: &[BasicValueEnum<'ctx>]) -> StructValue<'ctx> {
         let mut values = values
             .iter()
@@ -603,14 +628,17 @@ impl<'ctx> StructType<'ctx> {
         })
     }
 
+    /// Creates a recursively zero-initialized struct constant.
     pub fn const_zero(self) -> StructValue<'ctx> {
         StructValue::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
 
+    /// Creates an undefined struct value.
     pub fn get_undef(self) -> StructValue<'ctx> {
         StructValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 
+    /// Creates an array constant from struct elements of this type.
     pub fn const_array(self, values: &[StructValue<'ctx>]) -> ArrayValue<'ctx> {
         let mut values = values
             .iter()
@@ -623,26 +651,32 @@ impl<'ctx> StructType<'ctx> {
 }
 
 impl<'ctx> ArrayType<'ctx> {
+    /// Returns the fixed array length used by Nia's 32-bit length model.
     pub fn len(self) -> u32 {
         unsafe { llvm_sys::core::LLVMGetArrayLength2(self.as_type_ref()) as u32 }
     }
 
+    /// Returns the array element type.
     pub fn get_element_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMGetElementType(self.as_type_ref()) })
     }
 
+    /// Reports whether the array has zero elements.
     pub fn is_empty(self) -> bool {
         self.len() == 0
     }
 
+    /// Creates a recursively zero-initialized array constant.
     pub fn const_zero(self) -> ArrayValue<'ctx> {
         ArrayValue::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
 
+    /// Creates an undefined array value.
     pub fn get_undef(self) -> ArrayValue<'ctx> {
         ArrayValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 
+    /// Creates a nested array constant from elements of this array type.
     pub fn const_array(self, values: &[ArrayValue<'ctx>]) -> ArrayValue<'ctx> {
         let elem_ty = unsafe { LLVMGetElementType(self.as_type_ref()) };
         let mut values = values
@@ -656,18 +690,22 @@ impl<'ctx> ArrayType<'ctx> {
 }
 
 impl<'ctx> VectorType<'ctx> {
+    /// Returns the fixed vector lane count.
     pub fn len(self) -> u32 {
         unsafe { LLVMGetVectorSize(self.as_type_ref()) }
     }
 
+    /// Reports whether the vector has zero lanes.
     pub fn is_empty(self) -> bool {
         self.len() == 0
     }
 
+    /// Returns the vector lane type.
     pub fn get_element_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMGetElementType(self.as_type_ref()) })
     }
 
+    /// Creates a vector constant after checking lane count and lane types.
     pub fn const_vector(self, values: &[BasicValueEnum<'ctx>]) -> LlvmResult<VectorValue<'ctx>> {
         if values.len() != self.len() as usize {
             return Err(LlvmError::ice(
@@ -692,26 +730,31 @@ impl<'ctx> VectorType<'ctx> {
         }))
     }
 
+    /// Creates a zero-initialized vector constant.
     pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
 
+    /// Creates an undefined vector value.
     pub fn get_undef(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 }
 
 impl<'ctx> ScalableVectorType<'ctx> {
+    /// Creates a zero-initialized scalable-vector constant.
     pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
 
+    /// Creates an undefined scalable-vector value.
     pub fn get_undef(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 }
 
 impl<'ctx> FunctionType<'ctx> {
+    /// Returns `None` for void signatures or the typed return value type.
     pub fn get_return_type(self) -> LlvmResult<Option<BasicTypeEnum<'ctx>>> {
         classify_return_type(unsafe { LLVMGetReturnType(self.as_type_ref()) })
     }
@@ -778,6 +821,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         }
     }
 
+    /// Creates the type's canonical zero value.
     pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         Ok(match self {
             Self::ArrayType(t) => t.const_zero().into(),
@@ -790,10 +834,12 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         })
     }
 
+    /// Creates a fixed-size array of this element type.
     pub fn array_type(self, len: u32) -> ArrayType<'ctx> {
         ArrayType::new(unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) })
     }
 
+    /// Creates a function signature returning this type.
     pub fn fn_type(
         self,
         params: &[BasicMetadataTypeEnum<'ctx>],
@@ -813,14 +859,17 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         })
     }
 
+    /// Creates a fixed-width vector of this lane type.
     pub fn vector_type(self, len: u32) -> VectorType<'ctx> {
         VectorType::new(unsafe { LLVMVectorType(self.as_type_ref(), len) })
     }
 
+    /// Reports whether this enum contains a pointer type.
     pub fn is_pointer_type(self) -> bool {
         matches!(self, Self::PointerType(_))
     }
 
+    /// Extracts an array type or reports an invariant failure.
     pub fn into_array_type(self) -> LlvmResult<ArrayType<'ctx>> {
         match self {
             Self::ArrayType(value) => Ok(value),
@@ -828,6 +877,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         }
     }
 
+    /// Extracts a floating-point type or reports an invariant failure.
     pub fn into_float_type(self) -> LlvmResult<FloatType<'ctx>> {
         match self {
             Self::FloatType(value) => Ok(value),
@@ -835,6 +885,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         }
     }
 
+    /// Extracts an integer type or reports an invariant failure.
     pub fn into_int_type(self) -> LlvmResult<IntType<'ctx>> {
         match self {
             Self::IntType(value) => Ok(value),
@@ -842,6 +893,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         }
     }
 
+    /// Extracts a pointer type or reports an invariant failure.
     pub fn into_pointer_type(self) -> LlvmResult<PointerType<'ctx>> {
         match self {
             Self::PointerType(value) => Ok(value),
@@ -849,6 +901,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         }
     }
 
+    /// Extracts a struct type or reports an invariant failure.
     pub fn into_struct_type(self) -> LlvmResult<StructType<'ctx>> {
         match self {
             Self::StructType(value) => Ok(value),
@@ -856,6 +909,7 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         }
     }
 
+    /// Extracts a fixed-width vector type or reports an invariant failure.
     pub fn into_vector_type(self) -> LlvmResult<VectorType<'ctx>> {
         match self {
             Self::VectorType(value) => Ok(value),
@@ -1001,22 +1055,26 @@ impl<'ctx> AggregateValue<'ctx> for StructValue<'ctx> {}
 impl<'ctx> AggregateValue<'ctx> for ArrayValue<'ctx> {}
 
 impl<'ctx> IntValue<'ctx> {
+    /// Returns this value's integer type.
     pub fn get_type(self) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMTypeOf(self.raw) })
     }
 }
 
 impl<'ctx> FloatValue<'ctx> {
+    /// Returns this value's floating-point type.
     pub fn get_type(self) -> FloatType<'ctx> {
         FloatType::new(unsafe { LLVMTypeOf(self.raw) })
     }
 }
 
 impl<'ctx> PointerValue<'ctx> {
+    /// Returns this value's opaque pointer type.
     pub fn get_type(self) -> PointerType<'ctx> {
         PointerType::new(unsafe { LLVMTypeOf(self.raw) })
     }
 
+    /// Constant-folds a pointer bitcast.
     pub fn const_bitcast(self, target_ty: PointerType<'ctx>) -> PointerValue<'ctx> {
         PointerValue::new(unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) })
     }
@@ -1075,10 +1133,12 @@ impl<'ctx> PointerValue<'ctx> {
 }
 
 impl<'ctx> StructValue<'ctx> {
+    /// Returns this value's struct type.
     pub fn get_type(self) -> StructType<'ctx> {
         StructType::new(unsafe { LLVMTypeOf(self.raw) })
     }
 
+    /// Views the value as an instruction when it was produced by one.
     pub fn as_instruction(self) -> Option<InstructionValue<'ctx>> {
         let value = unsafe { LLVMIsAInstruction(self.raw) };
         if value.is_null() {
@@ -1090,6 +1150,7 @@ impl<'ctx> StructValue<'ctx> {
 }
 
 impl<'ctx> ArrayValue<'ctx> {
+    /// Returns this value's fixed-size array type.
     pub fn get_type(self) -> ArrayType<'ctx> {
         ArrayType::new(unsafe { LLVMTypeOf(self.raw) })
     }
@@ -1135,30 +1196,37 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Returns the value's typed LLVM type.
     pub fn get_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMTypeOf(self.as_value_ref()) })
     }
 
+    /// Reports whether this is an integer value.
     pub fn is_int_value(self) -> bool {
         matches!(self, Self::IntValue(_))
     }
 
+    /// Reports whether this is a floating-point value.
     pub fn is_float_value(self) -> bool {
         matches!(self, Self::FloatValue(_))
     }
 
+    /// Reports whether this is a pointer value.
     pub fn is_pointer_value(self) -> bool {
         matches!(self, Self::PointerValue(_))
     }
 
+    /// Reports whether this is a struct value.
     pub fn is_struct_value(self) -> bool {
         matches!(self, Self::StructValue(_))
     }
 
+    /// Reports whether this is a fixed or scalable vector value.
     pub fn is_vector_value(self) -> bool {
         matches!(self, Self::VectorValue(_) | Self::ScalableVectorValue(_))
     }
 
+    /// Extracts an array value or reports an invariant failure.
     pub fn into_array_value(self) -> LlvmResult<ArrayValue<'ctx>> {
         match self {
             Self::ArrayValue(value) => Ok(value),
@@ -1166,6 +1234,7 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Extracts a fixed-width vector value or reports an invariant failure.
     pub fn into_vector_value(self) -> LlvmResult<VectorValue<'ctx>> {
         match self {
             Self::VectorValue(value) => Ok(value),
@@ -1173,6 +1242,7 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Extracts a floating-point value or reports an invariant failure.
     pub fn into_float_value(self) -> LlvmResult<FloatValue<'ctx>> {
         match self {
             Self::FloatValue(value) => Ok(value),
@@ -1180,6 +1250,7 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Extracts an integer value or reports an invariant failure.
     pub fn into_int_value(self) -> LlvmResult<IntValue<'ctx>> {
         match self {
             Self::IntValue(value) => Ok(value),
@@ -1187,6 +1258,7 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Extracts a pointer value or reports an invariant failure.
     pub fn into_pointer_value(self) -> LlvmResult<PointerValue<'ctx>> {
         match self {
             Self::PointerValue(value) => Ok(value),
@@ -1194,6 +1266,7 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Extracts a struct value or reports an invariant failure.
     pub fn into_struct_value(self) -> LlvmResult<StructValue<'ctx>> {
         match self {
             Self::StructValue(value) => Ok(value),
@@ -1201,6 +1274,7 @@ impl<'ctx> BasicValueEnum<'ctx> {
         }
     }
 
+    /// Views this value as an instruction when it was produced by one.
     pub fn as_instruction_value(self) -> Option<InstructionValue<'ctx>> {
         let value = unsafe { LLVMIsAInstruction(self.as_value_ref()) };
         if value.is_null() {
