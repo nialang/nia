@@ -227,6 +227,12 @@ impl BackendValidator<'_> {
                     *span,
                     "stored value type does not match its body local",
                 );
+                if !self.local_is_mutable_binding(*local_id) {
+                    self.invalid_local_storage(
+                        *span,
+                        "store-local target is not mutable temporary storage",
+                    );
+                }
             }
             FunctionOp::Expr(value) => self.validate_expr(value),
             FunctionOp::MemoryIntrinsic(memory) => self.validate_memory_intrinsic(memory),
@@ -2650,6 +2656,21 @@ impl BackendValidator<'_> {
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             span,
             format!("backend IR contains an invalid local type contract: {message}"),
+        ));
+    }
+
+    fn local_is_mutable_binding(&self, local_id: nia_ids::LocalId) -> bool {
+        self.local_kinds
+            .last()
+            .and_then(|locals| locals.get(&local_id))
+            .is_some_and(|kind| *kind == nia_function_ir::FunctionLocalKind::MutableBinding)
+    }
+
+    fn invalid_local_storage(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR contains an invalid local storage contract: {message}"),
         ));
     }
 

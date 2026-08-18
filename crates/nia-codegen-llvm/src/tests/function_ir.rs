@@ -5584,13 +5584,22 @@ fn validates_function_ir_local_storage_type_contracts_before_llvm() {
         local_names: Default::default(),
         function_body: Some(FunctionBody {
             span,
-            locals: vec![FunctionLocal {
-                id: LocalId(0),
-                name: local_name("value"),
-                kind: FunctionLocalKind::MutableBinding,
-                ty: i32_ty,
-                span,
-            }],
+            locals: vec![
+                FunctionLocal {
+                    id: LocalId(0),
+                    name: local_name("value"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: i32_ty,
+                    span,
+                },
+                FunctionLocal {
+                    id: LocalId(1),
+                    name: local_name("immutable"),
+                    kind: FunctionLocalKind::ImmutableBinding,
+                    ty: i32_ty,
+                    span,
+                },
+            ],
             scopes: vec![FunctionScope {
                 id: FunctionScopeId(0),
                 parent: None,
@@ -5618,6 +5627,15 @@ fn validates_function_ir_local_storage_type_contracts_before_llvm() {
                     FunctionOp::StoreLocal {
                         local_id: LocalId(0),
                         value: bool_expr(),
+                        span,
+                    },
+                    FunctionOp::StoreLocal {
+                        local_id: LocalId(1),
+                        value: FunctionExpr {
+                            span,
+                            ty: i32_ty,
+                            kind: FunctionExprKind::Integer("1".to_string()),
+                        },
                         span,
                     },
                 ],
@@ -5663,6 +5681,7 @@ fn validates_function_ir_local_storage_type_contracts_before_llvm() {
         "binding type does not match its body local",
         "binding initializer type does not match its binding",
         "stored value type does not match its body local",
+        "store-local target is not mutable temporary storage",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
