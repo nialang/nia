@@ -789,6 +789,10 @@ commit as the corresponding implementation batch.
 - [x] Phase B static aggregate initializers now require every struct field
       exactly once and exactly one declared union field, preventing missing or
       duplicate fields from being hidden by layout-ordered constant emission.
+- [x] Phase B LLVM inline-assembly and shared basic type/value wrappers now
+      reject null FFI results before constructing typed handles or querying
+      their LLVM kind. Fallible wrapper APIs therefore produce diagnostics
+      instead of panicking or passing null back into LLVM type inspection.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
