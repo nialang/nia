@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
+use nia_ast::{BinaryOp, UnaryOp};
 use nia_backend_ir::BackendEnumVariantPayload;
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic, FunctionBitIntrinsicOp,
@@ -1420,6 +1421,136 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         "bit intrinsic has an invalid contract: result type",
         "char conversion has an invalid contract: operand type",
         "char conversion has an invalid contract: result type",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
+fn validates_unary_and_binary_operator_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let vector_i32_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 4,
+    });
+    let pointer_i32_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let span = Span::default();
+    let value = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let unary = |ty, op, inner| {
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::Unary {
+                op,
+                expr: Box::new(value(inner)),
+            },
+        })
+    };
+    let binary = |ty, lhs, op, rhs| {
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(value(lhs)),
+                op,
+                rhs: Box::new(value(rhs)),
+            },
+        })
+    };
+    let ops = vec![
+        unary(bool_ty, UnaryOp::Neg, bool_ty),
+        unary(bool_ty, UnaryOp::Deref, i32_ty),
+        unary(i32_ty, UnaryOp::BitNot, f32_ty),
+        binary(i32_ty, bool_ty, BinaryOp::Add, i32_ty),
+        binary(bool_ty, i32_ty, BinaryOp::Add, i32_ty),
+        binary(i32_ty, i32_ty, BinaryOp::Eq, f32_ty),
+        binary(bool_ty, i32_ty, BinaryOp::And, bool_ty),
+        binary(i32_ty, i32_ty, BinaryOp::Shl, f32_ty),
+        unary(i32_ty, UnaryOp::Deref, pointer_i32_ty),
+        binary(vector_i32_ty, vector_i32_ty, BinaryOp::Add, vector_i32_ty),
+    ];
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_operators"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops,
+                terminator: FunctionTerminator::Tail {
+                    value: Some(value(i32_ty)),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "negation operand is not numeric",
+        "deref operand is not a pointer",
+        "bitwise unary operand is not integer-like",
+        "binary operands do not have a compatible type",
+        "binary operand type is not supported",
+        "binary result type does not match",
+        "logical operator requires bool operands",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),

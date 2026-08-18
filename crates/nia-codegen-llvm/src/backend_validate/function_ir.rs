@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_ast::{BinaryOp, UnaryOp};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionBody, FunctionCallee,
@@ -832,8 +833,7 @@ impl BackendValidator<'_> {
                     self.validate_expr(&relocation.pointee);
                 }
             }
-            FunctionExprKind::Unary { expr, .. }
-            | FunctionExprKind::OptionalSome { expr }
+            FunctionExprKind::OptionalSome { expr }
             | FunctionExprKind::ErrorOk { expr }
             | FunctionExprKind::ErrorErr { expr }
             | FunctionExprKind::TaggedUnionTag { expr }
@@ -859,6 +859,9 @@ impl BackendValidator<'_> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.validate_expr(state);
             }
+            FunctionExprKind::Unary { op, expr: inner } => {
+                self.validate_unary(expr.ty, *op, inner, expr.span);
+            }
             FunctionExprKind::ClosureFunctionPointer { .. } => match self.index.ty_kind(expr.ty) {
                 Some(TyKind::FunctionPointer {
                     is_variadic: false, ..
@@ -870,9 +873,8 @@ impl BackendValidator<'_> {
                 )),
             },
             FunctionExprKind::AddrOf(place) => self.validate_place(place),
-            FunctionExprKind::Binary { lhs, rhs, .. } => {
-                self.validate_expr(lhs);
-                self.validate_expr(rhs);
+            FunctionExprKind::Binary { lhs, op, rhs } => {
+                self.validate_binary(expr.ty, lhs, *op, rhs, expr.span);
             }
             FunctionExprKind::ExtractElement { vector, index } => {
                 self.validate_vector_element(expr.ty, vector, index, None, expr.span);
@@ -1169,6 +1171,210 @@ impl BackendValidator<'_> {
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             span,
             format!("backend IR {kind} has an invalid contract: {message}"),
+        ));
+    }
+
+    fn validate_unary(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        op: UnaryOp,
+        inner: &FunctionExpr,
+        span: Span,
+    ) {
+        self.validate_expr(inner);
+        match op {
+            UnaryOp::Ref | UnaryOp::RefReadOnly => {
+                if !matches!(
+                    inner.kind,
+                    FunctionExprKind::Function(_) | FunctionExprKind::FunctionInstance { .. }
+                ) {
+                    self.invalid_operator(
+                        span,
+                        "reference unary operation requires a function item",
+                    );
+                }
+                if !matches!(
+                    self.index.ty_kind(result_ty),
+                    Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+                ) {
+                    self.invalid_operator(span, "function reference result is not pointer-like");
+                }
+            }
+            UnaryOp::Deref => {
+                let expected = match self.index.ty_kind(inner.ty) {
+                    Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. }) => {
+                        Some(*elem)
+                    }
+                    _ => None,
+                };
+                if let Some(expected) = expected {
+                    if !self.same_type(result_ty, expected) {
+                        self.invalid_operator(span, "deref result type does not match its pointee");
+                    }
+                } else {
+                    self.invalid_operator(span, "deref operand is not a pointer");
+                }
+            }
+            UnaryOp::Neg => {
+                if !self.is_numeric_operator_type(inner.ty) {
+                    self.invalid_operator(span, "negation operand is not numeric");
+                }
+                if !self.same_type(result_ty, inner.ty) {
+                    self.invalid_operator(span, "negation result type does not match its operand");
+                }
+            }
+            UnaryOp::Not => {
+                if !self.is_bool_type(inner.ty) {
+                    self.invalid_operator(span, "logical not operand is not bool");
+                }
+                if !self.same_type(result_ty, inner.ty) {
+                    self.invalid_operator(
+                        span,
+                        "logical not result type does not match its operand",
+                    );
+                }
+            }
+            UnaryOp::BitNot => {
+                if !self.is_integer_operator_type(inner.ty) {
+                    self.invalid_operator(span, "bitwise unary operand is not integer-like");
+                }
+                if !self.same_type(result_ty, inner.ty) {
+                    self.invalid_operator(
+                        span,
+                        "bitwise unary result type does not match its operand",
+                    );
+                }
+            }
+        }
+    }
+
+    fn validate_binary(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        lhs: &FunctionExpr,
+        op: BinaryOp,
+        rhs: &FunctionExpr,
+        span: Span,
+    ) {
+        self.validate_expr(lhs);
+        self.validate_expr(rhs);
+        if matches!(op, BinaryOp::And | BinaryOp::Or) {
+            if !self.is_bool_type(lhs.ty)
+                || !self.is_bool_type(rhs.ty)
+                || !self.is_bool_type(result_ty)
+            {
+                self.invalid_operator(span, "logical operator requires bool operands and result");
+            }
+            return;
+        }
+
+        let matching_operands = if matches!(op, BinaryOp::Shl | BinaryOp::Shr) {
+            match self.index.ty_kind(lhs.ty) {
+                Some(TyKind::Vector { .. }) => self.same_type(lhs.ty, rhs.ty),
+                _ => self.is_integer_operator_type(rhs.ty),
+            }
+        } else {
+            self.same_type(lhs.ty, rhs.ty)
+        };
+        if !matching_operands {
+            self.invalid_operator(span, "binary operands do not have a compatible type");
+        }
+
+        let valid_operand = match op {
+            BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Rem
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => self.is_numeric_operator_type(lhs.ty) || self.is_char_type(lhs.ty),
+            BinaryOp::Eq | BinaryOp::Ne => self.is_comparable_operator_type(lhs.ty),
+            BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
+                self.is_integer_operator_type(lhs.ty)
+            }
+            BinaryOp::Shl | BinaryOp::Shr => self.is_integer_operator_type(lhs.ty),
+            BinaryOp::And | BinaryOp::Or => true,
+        };
+        if !valid_operand {
+            self.invalid_operator(
+                span,
+                "binary operand type is not supported by the operation",
+            );
+        }
+
+        let comparison = matches!(
+            op,
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne
+        );
+        let expected_result = if comparison {
+            match self.index.ty_kind(lhs.ty) {
+                Some(TyKind::Vector { lanes, .. }) => self
+                    .index
+                    .ty_kind(result_ty)
+                    .is_some_and(|kind| matches!(kind, TyKind::Vector { elem: PrimitiveTy::Bool, lanes: result_lanes } if result_lanes == lanes)),
+                _ => self.is_bool_type(result_ty),
+            }
+        } else {
+            self.same_type(result_ty, lhs.ty)
+        };
+        if !expected_result {
+            self.invalid_operator(span, "binary result type does not match the operation");
+        }
+    }
+
+    fn is_bool_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Bool))
+        )
+    }
+
+    fn is_char_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Char))
+        )
+    }
+
+    fn is_comparable_operator_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        self.is_numeric_operator_type(ty)
+            || self.is_bool_type(ty)
+            || self.is_char_type(ty)
+            || match self.index.ty_kind(ty) {
+                Some(TyKind::Nominal { def_id, .. }) => self.index.has_enum(*def_id),
+                Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => true,
+                _ => false,
+            }
+    }
+
+    fn is_integer_operator_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        match self.index.ty_kind(ty) {
+            Some(TyKind::Primitive(primitive)) => primitive.is_integer(),
+            Some(TyKind::Nominal { def_id, .. }) => self.index.has_enum(*def_id),
+            Some(TyKind::Vector { elem, .. }) => elem.is_integer(),
+            _ => false,
+        }
+    }
+
+    fn is_numeric_operator_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        self.is_integer_operator_type(ty)
+            || matches!(
+                self.index.ty_kind(ty),
+                Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                    | Some(TyKind::Vector {
+                        elem: PrimitiveTy::F32 | PrimitiveTy::F64,
+                        ..
+                    })
+            )
+    }
+
+    fn invalid_operator(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR operator has an invalid contract: {message}"),
         ));
     }
 
