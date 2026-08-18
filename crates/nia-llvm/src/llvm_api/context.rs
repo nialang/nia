@@ -128,24 +128,22 @@ impl Context {
         Ok(PointerValue::new(raw))
     }
 
-    pub fn create_enum_attribute(&self, kind_id: u32, val: u64) -> Attribute {
-        Attribute {
-            raw: unsafe { LLVMCreateEnumAttribute(self.raw, kind_id, val) },
-        }
+    /// Creates an enum attribute and rejects a null LLVM result.
+    pub fn create_enum_attribute(&self, kind_id: u32, val: u64) -> LlvmResult<Attribute> {
+        Attribute::new(unsafe { LLVMCreateEnumAttribute(self.raw, kind_id, val) })
     }
 
-    pub fn create_string_attribute(&self, key: &str, value: &str) -> Attribute {
-        Attribute {
-            raw: unsafe {
-                LLVMCreateStringAttribute(
-                    self.raw,
-                    key.as_ptr() as *const _,
-                    key.len() as u32,
-                    value.as_ptr() as *const _,
-                    value.len() as u32,
-                )
-            },
-        }
+    /// Creates a string attribute and rejects a null LLVM result.
+    pub fn create_string_attribute(&self, key: &str, value: &str) -> LlvmResult<Attribute> {
+        Attribute::new(unsafe {
+            LLVMCreateStringAttribute(
+                self.raw,
+                key.as_ptr() as *const _,
+                key.len() as u32,
+                value.as_ptr() as *const _,
+                value.len() as u32,
+            )
+        })
     }
 
     pub fn void_type<'ctx>(&'ctx self) -> VoidType<'ctx> {
