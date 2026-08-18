@@ -758,6 +758,10 @@ commit as the corresponding implementation batch.
 - [x] Phase B inline assembly now validates its unit effect result, scalar
       operand boundary, canonical constraints and clobbers, plus exact writable
       output storage before constructing an LLVM inline-assembly call.
+- [x] Phase B local value expressions now resolve their body-local storage type
+      and reject unrelated or readonly-to-mutable views while preserving the
+      source-approved mutable-to-readonly pointer, volatile-pointer, and slice
+      coercions represented directly in function IR.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

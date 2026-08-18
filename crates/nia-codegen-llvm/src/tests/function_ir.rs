@@ -6056,6 +6056,10 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
         is_readonly: false,
         elem: i32_ty,
     });
+    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
     let span = Span::default();
     let local_place = |local_id, ty, elems| FunctionPlace {
         span,
@@ -6099,6 +6103,20 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
                     name: local_name("values"),
                     kind: FunctionLocalKind::MutableBinding,
                     ty: i32_array_ty,
+                    span,
+                },
+                FunctionLocal {
+                    id: LocalId(2),
+                    name: local_name("mutable_pointer"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: i32_ptr_ty,
+                    span,
+                },
+                FunctionLocal {
+                    id: LocalId(3),
+                    name: local_name("readonly_pointer"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: readonly_i32_ptr_ty,
                     span,
                 },
             ],
@@ -6148,6 +6166,23 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
                             vec![nia_function_ir::FunctionPlaceElem::TupleField(0)],
                         ),
                     ),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: bool_ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    }),
+                    // Reading mutable pointer storage through a readonly view is
+                    // the one qualifier coercion represented directly on local IR.
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: readonly_i32_ptr_ty,
+                        kind: FunctionExprKind::Local(LocalId(2)),
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ptr_ty,
+                        kind: FunctionExprKind::Local(LocalId(3)),
+                    }),
                 ],
                 terminator: FunctionTerminator::Tail {
                     value: Some(FunctionExpr {
@@ -6174,6 +6209,7 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
                 (i32_array_ty, TypeLayout { size: 4, align: 4 }),
                 (bool_ptr_ty, TypeLayout { size: 8, align: 8 }),
                 (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                (readonly_i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
             ],
             structs: Vec::new(),
             unions: Vec::new(),
@@ -6203,6 +6239,18 @@ fn validates_backend_ir_place_type_contracts_before_llvm() {
             output.diagnostics
         );
     }
+    assert_eq!(
+        output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("local value has an invalid type contract"))
+            .count(),
+        2,
+        "{:?}",
+        output.diagnostics
+    );
 }
 
 #[test]
