@@ -808,14 +808,22 @@ impl FunctionBuiltinOperator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A typed addressable path rooted in local, global, or dereferenced storage.
+///
+/// `ty` is the final selected value type after applying `elems`; it may be a
+/// readonly-qualified view of mutable storage. Backend consumers must derive
+/// the path from the base type rather than trusting this summary type alone.
 pub struct FunctionPlace {
     pub span: Span,
     pub ty: InternedTyId,
+    /// Storage root from which projection begins.
     pub base: FunctionPlaceBase,
+    /// Declaration-ordered projections applied from left to right.
     pub elems: Vec<FunctionPlaceElem>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Root storage for a [`FunctionPlace`].
 pub enum FunctionPlaceBase {
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
@@ -830,6 +838,7 @@ pub enum FunctionPlaceBase {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One typed projection in an addressable storage path.
 pub enum FunctionPlaceElem {
     Field(nia_ids::GlobalDefId),
     TupleField(usize),

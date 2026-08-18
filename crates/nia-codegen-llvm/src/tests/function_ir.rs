@@ -5687,6 +5687,176 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
 }
 
 #[test]
+fn validates_backend_ir_place_type_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i32_array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(1),
+        elem: i32_ty,
+    });
+    let bool_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: bool_ty,
+    });
+    let i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let span = Span::default();
+    let local_place = |local_id, ty, elems| FunctionPlace {
+        span,
+        ty,
+        base: FunctionPlaceBase::Local(local_id),
+        elems,
+    };
+    let addr = |ty, place| {
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::AddrOf(place),
+        })
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: vec![
+                FunctionLocal {
+                    id: LocalId(0),
+                    name: local_name("value"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: i32_ty,
+                    span,
+                },
+                FunctionLocal {
+                    id: LocalId(1),
+                    name: local_name("values"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: i32_array_ty,
+                    span,
+                },
+            ],
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![
+                    addr(i32_ty, local_place(LocalId(0), i32_ty, Vec::new())),
+                    addr(
+                        i32_ptr_ty,
+                        FunctionPlace {
+                            span,
+                            ty: i32_ty,
+                            base: FunctionPlaceBase::Deref(Box::new(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::Integer("1".to_string()),
+                            })),
+                            elems: Vec::new(),
+                        },
+                    ),
+                    addr(
+                        bool_ptr_ty,
+                        local_place(
+                            LocalId(1),
+                            bool_ty,
+                            vec![nia_function_ir::FunctionPlaceElem::Index(Box::new(
+                                FunctionExpr {
+                                    span,
+                                    ty: f32_ty,
+                                    kind: FunctionExprKind::Float("0.0".to_string()),
+                                },
+                            ))],
+                        ),
+                    ),
+                    addr(
+                        i32_ptr_ty,
+                        local_place(
+                            LocalId(0),
+                            i32_ty,
+                            vec![nia_function_ir::FunctionPlaceElem::TupleField(0)],
+                        ),
+                    ),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Integer("0".to_string()),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (f32_ty, TypeLayout { size: 4, align: 4 }),
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (i32_array_ty, TypeLayout { size: 4, align: 4 }),
+                (bool_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "address-of result is not a pointer",
+        "deref base is not a pointer",
+        "index is not an integer",
+        "result type does not match the selected storage",
+        "tuple projection target is not a tuple",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_backend_ir_unresolved_trait_method_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

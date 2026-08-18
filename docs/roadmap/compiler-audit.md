@@ -496,6 +496,10 @@ commit as the corresponding implementation batch.
       typed view against published storage metadata, including only the
       source-approved mutable-to-readonly qualifier coercion, before LLVM loads
       the selected global.
+- [x] Phase B place validation now derives each addressable path from its real
+      local/global/deref base, checks pointer and integer-index preconditions,
+      and verifies final projection plus address-of result types before LLVM
+      forms typed GEPs or loads.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer
