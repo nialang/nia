@@ -124,15 +124,22 @@ pub enum FunctionOp {
     /// This internal write may initialize an immutable source binding; source
     /// mutability governs later assignment expressions, not CFG construction.
     StoreLocal {
+        /// Local storage slot being written.
         local_id: LocalId,
+        /// Value merged into the slot.
         value: FunctionExpr,
+        /// Source span of the write.
         span: Span,
     },
+    /// Effect-only bulk memory operation.
     MemoryIntrinsic(Box<FunctionMemoryIntrinsic>),
+    /// Effectful expression evaluated for its side effects.
     Expr(FunctionExpr),
+    /// Nested deferred CFG.
     Defer(FunctionDeferBody),
 }
 
+/// Local binding declaration and optional initializer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionBinding {
     /// Local table entry initialized by this binding.
@@ -252,6 +259,7 @@ pub enum FunctionTerminator {
     },
     /// Transitional propagation node consumed into a CFG terminator by function lowering.
     /// It is invalid at the backend boundary.
+    /// Expression-level propagation of an optional or error union.
     Try {
         /// Optional or error-union value being propagated.
         value: FunctionExpr,
@@ -260,6 +268,7 @@ pub enum FunctionTerminator {
         // Error conversion is absent for optionals and for identical error
         // payloads. Keep the uncommon second expression out-of-line so every
         // basic block does not inherit the size of two full expression trees.
+        /// Optional conversion expression for the propagated error.
         error_conversion: Option<Box<FunctionExpr>>,
         /// Local receiving the successful payload.
         success_local: LocalId,
@@ -319,6 +328,7 @@ pub enum FunctionTryKind {
     ErrorUnion,
 }
 
+/// ABI discriminants for optional values.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionOptionalTag {
@@ -335,6 +345,7 @@ impl FunctionOptionalTag {
     }
 }
 
+/// ABI discriminants for error-union values.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionErrorUnionTag {
@@ -351,6 +362,7 @@ impl FunctionErrorUnionTag {
     }
 }
 
+/// Loop header used by a loop terminator.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionForHeader {
     /// Loop has no condition and repeats until an explicit break.
@@ -400,83 +412,117 @@ pub enum FunctionExprKind {
     Local(LocalId),
     /// Loads a global through its declared storage type or a readonly-qualified view.
     Global(nia_ids::GlobalDefId),
+    /// Loads a const-generic argument value.
     ConstGeneric(ConstGenericArg),
     /// Loads one concrete generic global instance through its published storage type.
     GlobalInstance {
+        /// Defining global identity.
         def_id: nia_ids::GlobalDefId,
+        /// Module supplying generic argument resolution context.
         arg_module_id: nia_ids::ModuleId,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
     /// Materializes a non-generic function as its exact source-level function pointer type.
     Function(nia_ids::GlobalDefId),
     /// Materializes one concrete generic function instance as its exact function pointer type.
     FunctionInstance {
+        /// Defining function identity.
         def_id: nia_ids::GlobalDefId,
+        /// Module supplying generic argument resolution context.
         arg_module_id: nia_ids::ModuleId,
+        /// Optional receiver substitution.
         self_arg: Option<InternedTyId>,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
     /// Constructs an enum variant, storing payload fields in declaration order.
     EnumVariant {
+        /// Variant definition identity.
         variant: nia_ids::GlobalDefId,
+        /// Payload fields in declaration order.
         fields: Vec<FunctionExpr>,
     },
     /// Produces a variant's backing integer tag for pattern comparisons.
     EnumVariantTag(nia_ids::GlobalDefId),
     /// Extracts an enum tag from either its aggregate representation or backing integer.
     EnumTag {
+        /// Enum value whose discriminant is loaded.
         value: Box<FunctionExpr>,
     },
     /// Loads one payload field from a value known to have the selected variant.
     EnumPayloadField {
+        /// Enum value known to carry the selected variant.
         value: Box<FunctionExpr>,
+        /// Selected variant identity.
         variant: nia_ids::GlobalDefId,
+        /// Declaration-order payload field index.
         field: usize,
     },
+    /// Target-independent builtin value construction.
     BuiltinValue(FunctionBuiltinValue),
+    /// Deliberate trap expression.
     Trap,
     /// Constructs a range whose bound presence and types follow its `RangeTyKind`.
     Range(FunctionRange),
     /// Extracts one statically present bound from a range value.
     RangeBound {
+        /// Range value being projected.
         range: Box<FunctionExpr>,
+        /// Bound selected from the range.
         bound: FunctionRangeBound,
     },
+    /// Checked inline assembly operation.
     InlineAsm(FunctionInlineAsm),
+    /// Checked atomic operation.
     Atomic(FunctionAtomic),
     /// Loads `ty` at byte alignment from a readonly or mutable `u8` pointer.
     LoadUnaligned {
+        /// Result type loaded from memory.
         ty: InternedTyId,
+        /// Byte pointer source.
         ptr: Box<FunctionExpr>,
     },
     /// Broadcasts one scalar lane into the result SIMD vector type.
     Splat {
+        /// Scalar lane to broadcast.
         value: Box<FunctionExpr>,
     },
     /// Extracts one lane using an integer index; the result is the lane type.
     ExtractElement {
+        /// SIMD vector source.
         vector: Box<FunctionExpr>,
+        /// Integer lane index.
         index: Box<FunctionExpr>,
     },
     /// Replaces one lane and returns the same SIMD vector type.
     InsertElement {
+        /// SIMD vector source.
         vector: Box<FunctionExpr>,
+        /// Integer lane index.
         index: Box<FunctionExpr>,
+        /// Replacement lane value.
         value: Box<FunctionExpr>,
     },
     /// Packs bool lanes, up to the target `usize` width, into a `usize` result.
     Bitmask {
+        /// Boolean SIMD vector source.
         vector: Box<FunctionExpr>,
     },
     /// Applies an LLVM integer bit-counting intrinsic without changing type.
     BitIntrinsic {
+        /// Bit-counting operation.
         op: FunctionBitIntrinsicOp,
+        /// Integer value being inspected.
         value: Box<FunctionExpr>,
     },
     /// Converts a `u32` scalar to `Optional[char]` after validity checks.
     CharFromU32 {
+        /// Unicode scalar candidate.
         value: Box<FunctionExpr>,
     },
     /// Materializes promoted array storage and returns a pointer to the complete array value.
@@ -484,26 +530,39 @@ pub enum FunctionExprKind {
     /// The result pointer element is the type of `array`; `is_readonly` mirrors
     /// the result pointer qualifier and records whether the promotion is frozen.
     StaticArrayPointer {
+        /// Stable promoted allocation identity.
         allocation: PromotedAllocationId,
+        /// Complete array value to promote.
         array: Box<FunctionExpr>,
+        /// Whether the resulting pointer is readonly.
         is_readonly: bool,
     },
+    /// Constructs an array value.
     ArrayLiteral {
+        /// Explicit or repeated element representation.
         elems: FunctionArrayElements,
     },
+    /// Constructs a tuple value.
     Tuple(Vec<FunctionExpr>),
+    /// Projects one tuple field.
     TupleField {
+        /// Tuple value being projected.
         value: Box<FunctionExpr>,
+        /// Declaration-order field index.
         index: usize,
     },
     /// Initializes every declared field of one exact nominal struct instance.
     StructLiteral {
+        /// Nominal struct identity.
         def_id: nia_ids::GlobalDefId,
+        /// Field initializers in declaration or canonical order.
         fields: Vec<FunctionFieldInit>,
     },
     /// Initializes the selected storage member of one exact nominal union instance.
     UnionLiteral {
+        /// Nominal union identity.
         def_id: nia_ids::GlobalDefId,
+        /// Exactly one selected field initializer.
         field: Box<FunctionFieldInit>,
     },
     /// Reconstructs the byte representation of a const-evaluated union.
@@ -513,44 +572,59 @@ pub enum FunctionExprKind {
     /// replaces the covered initialized bytes. Function IR validation enforces
     /// these structural rules before backend target-width validation.
     UnionStorageLiteral {
+        /// Byte image, with `None` for uninitialized bytes.
         bytes: Vec<Option<u8>>,
+        /// Sorted non-overlapping pointer relocations.
         relocations: Vec<FunctionUnionRelocation>,
     },
     /// A typed unary operation; references to ordinary places are lowered to
     /// [`FunctionExprKind::AddrOf`] before this backend boundary.
     Unary {
+        /// Unary operator.
         op: UnaryOp,
+        /// Operand expression.
         expr: Box<FunctionExpr>,
     },
     /// Constructs an `Optional` value with the `Some` discriminant.
     OptionalSome {
+        /// Payload expression.
         expr: Box<FunctionExpr>,
     },
     /// Constructs an `ErrorUnion` value carrying its success payload.
     ErrorOk {
+        /// Success payload expression.
         expr: Box<FunctionExpr>,
     },
     /// Constructs an `ErrorUnion` value carrying its error payload.
     ErrorErr {
+        /// Error payload expression.
         expr: Box<FunctionExpr>,
     },
     /// Extracts the one-byte discriminant from an optional or error union.
     TaggedUnionTag {
+        /// Optional or error-union value.
         expr: Box<FunctionExpr>,
     },
     /// Extracts the active payload from an optional or error union.
     TaggedUnionPayload {
+        /// Optional or error-union value.
         expr: Box<FunctionExpr>,
     },
+    /// Expression-level propagation of an optional or error union.
     Try {
+        /// Value whose failure branch is propagated.
         expr: Box<FunctionExpr>,
     },
+    /// Takes the address of a typed place.
     AddrOf(FunctionPlace),
     /// A typed scalar/vector operation whose result is either the operand type
     /// or a bool mask for comparisons.
     Binary {
+        /// Left operand.
         lhs: Box<FunctionExpr>,
+        /// Binary operator.
         op: BinaryOp,
+        /// Right operand.
         rhs: Box<FunctionExpr>,
     },
     /// Writes `rhs` into an exactly typed, writable place and evaluates to unit.
@@ -558,27 +632,38 @@ pub enum FunctionExprKind {
     /// Compound forms apply the corresponding builtin binary operation to the
     /// current place value and `rhs`; that operation must produce `place.ty`.
     Assign {
+        /// Writable destination place.
         place: FunctionPlace,
+        /// Assignment operator.
         op: AssignOp,
+        /// Right-hand value.
         rhs: Box<FunctionExpr>,
     },
     /// Evaluates its operand for effects and produces unit.
     Discard(Box<FunctionExpr>),
     /// Converts between source-approved numeric, enum, and pointer categories.
     Cast {
+        /// Source expression.
         expr: Box<FunctionExpr>,
+        /// Destination type.
         ty: InternedTyId,
     },
     /// Repoints an existing trait object at a supertrait vtable.
     TraitObjectUpcast {
+        /// Existing trait-object value.
         expr: Box<FunctionExpr>,
+        /// Source object type.
         source_ty: InternedTyId,
+        /// Target supertrait object type.
         target_ty: InternedTyId,
     },
     /// Builds a trait object from a pointer/slice data view and a concrete vtable.
     TraitObjectCoercion {
+        /// Data pointer or slice expression.
         expr: Box<FunctionExpr>,
+        /// Complete target object type.
         target_ty: InternedTyId,
+        /// Concrete receiver type used for vtable selection.
         self_ty: InternedTyId,
     },
     /// Pairs a closure-state pointer with its generated entry as a callable fat pointer.
@@ -586,31 +671,44 @@ pub enum FunctionExprKind {
     /// The state, closure identity, callable signature, and owner-qualified
     /// backend entry must describe the same closure instance.
     CallableCoercion {
+        /// Captured state pointer.
         state: Box<FunctionExpr>,
+        /// Source closure identity.
         closure_id: ClosureId,
     },
     /// Selects the generated adapter for a non-capturing closure.
     ClosureFunctionPointer {
+        /// Source closure identity.
         closure_id: ClosureId,
     },
+    /// Calls a resolved callee with evaluated arguments.
     Call {
+        /// Selected callee shape.
         callee: FunctionCallee,
+        /// Arguments in ABI order.
         args: Vec<FunctionExpr>,
     },
     /// Loads a field from a nominal aggregate or a pointer to one.
     Field {
+        /// Aggregate or aggregate-pointer source.
         lhs: Box<FunctionExpr>,
+        /// Selected field identity.
         field: nia_ids::GlobalDefId,
     },
     /// Loads one element from an array, pointer, or slice base.
     Index {
+        /// Array, pointer, or slice source.
         lhs: Box<FunctionExpr>,
+        /// Integer index expression.
         index: Box<FunctionExpr>,
     },
     /// Creates a fat slice view over an array, pointer, or existing slice.
     Slice {
+        /// Array, pointer, or slice source.
         lhs: Box<FunctionExpr>,
+        /// Range bounds.
         range: FunctionSliceRange,
+        /// Whether the resulting data view is readonly.
         is_readonly: bool,
     },
 }
@@ -628,6 +726,7 @@ pub struct FunctionUnionRelocation {
     pub pointee: Box<FunctionExpr>,
 }
 
+/// Integer bit-counting intrinsic selected by a function expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBitIntrinsicOp {
     /// Count trailing zero bits.
@@ -638,6 +737,7 @@ pub enum FunctionBitIntrinsicOp {
     Popcount,
 }
 
+/// Slice bounds attached to a slice expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSliceRange {
     /// Optional lower bound; omitted bounds start at zero.
@@ -648,6 +748,7 @@ pub struct FunctionSliceRange {
     pub inclusive: bool,
 }
 
+/// Bounds attached to a range value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionRange {
     /// Present only for range kinds with a lower bound.
@@ -658,6 +759,7 @@ pub struct FunctionRange {
     pub inclusive: bool,
 }
 
+/// Bound selector for range projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionRangeBound {
     /// Lower bound of a range.
@@ -681,85 +783,137 @@ pub struct FunctionInlineAsm {
     pub options: Vec<FunctionAsmOption>,
 }
 
+/// Target-independent builtin value query or constant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionBuiltinValue {
     /// A target-width `usize` constant.
     Usize(u64),
     /// The target layout size or alignment of a runtime-representable type.
     Layout {
+        /// Layout query kind.
         builtin: LayoutBuiltin,
+        /// Type being queried.
         ty: InternedTyId,
     },
     /// The byte offset of a declared field in its aggregate type.
     FieldOffset {
+        /// Aggregate type containing the field.
         ty: InternedTyId,
+        /// Field whose offset is requested.
         field: nia_ids::GlobalDefId,
     },
     /// A target-typed integer bit pattern produced by constant evaluation.
     Int(IntConst),
 }
 
+/// Inline assembly option affecting optimizer assumptions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionAsmOption {
+    /// Assembly may not be removed or reordered as a pure operation.
     Volatile,
 }
 
+/// Checked atomic operation lowered to the target memory model.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionAtomic {
+    /// Atomic load.
     Load {
+        /// Loaded value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<FunctionExpr>,
+        /// Memory ordering.
         order: AtomicOrder,
     },
+    /// Atomic store.
     Store {
+        /// Stored value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<FunctionExpr>,
+        /// Value to store.
         value: Box<FunctionExpr>,
+        /// Memory ordering.
         order: AtomicOrder,
     },
+    /// Atomic read-modify-write operation.
     Rmw {
+        /// Updated value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<FunctionExpr>,
+        /// RMW operation.
         op: AtomicRmwOp,
+        /// Operand value.
         value: Box<FunctionExpr>,
+        /// Memory ordering.
         order: AtomicOrder,
     },
+    /// Atomic compare-and-exchange operation.
     Cmpxchg {
+        /// Compared value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<FunctionExpr>,
+        /// Expected old value.
         expected: Box<FunctionExpr>,
+        /// Desired replacement value.
         desired: Box<FunctionExpr>,
+        /// Ordering on success.
         success: AtomicOrder,
+        /// Ordering on failure.
         failure: AtomicOrder,
+        /// Whether spurious failure is permitted.
         weak: bool,
     },
+    /// Atomic fence.
     Fence {
+        /// Fence ordering.
         order: AtomicOrder,
     },
 }
 
+/// Memory ordering accepted by function IR atomic operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtomicOrder {
+    /// Unordered operation.
     Unordered,
+    /// Monotonic operation.
     Monotonic,
+    /// Acquire ordering.
     Acquire,
+    /// Release ordering.
     Release,
+    /// Acquire-release ordering.
     AcqRel,
+    /// Sequentially consistent ordering.
     SeqCst,
 }
 
+/// Read-modify-write operation selected for an atomic update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtomicRmwOp {
+    /// Exchange old and new values.
     Xchg,
+    /// Add operand.
     Add,
+    /// Subtract operand.
     Sub,
+    /// Bitwise and.
     And,
+    /// Bitwise nand.
     Nand,
+    /// Bitwise or.
     Or,
+    /// Bitwise xor.
     Xor,
+    /// Signed maximum.
     Max,
+    /// Signed minimum.
     Min,
+    /// Unsigned maximum.
     UMax,
+    /// Unsigned minimum.
     UMin,
 }
 
@@ -824,75 +978,130 @@ pub enum FunctionCallee {
     },
     /// Monomorphic function definition.
     Function(nia_ids::GlobalDefId),
+    /// Concrete generic function instance.
     FunctionInstance {
+        /// Defining function identity.
         def_id: nia_ids::GlobalDefId,
+        /// Module supplying generic argument context.
         arg_module_id: nia_ids::ModuleId,
+        /// Optional receiver substitution.
         self_arg: Option<InternedTyId>,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
+    /// Method call with a statically selected function body.
     Method {
+        /// Defining method identity.
         def_id: nia_ids::GlobalDefId,
+        /// Module supplying generic argument context.
         arg_module_id: nia_ids::ModuleId,
+        /// Optional receiver substitution.
         self_arg: Option<InternedTyId>,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
+        /// Receiver passing mode.
         receiver_kind: ReceiverKind,
+        /// Receiver expression.
         receiver: Box<FunctionExpr>,
     },
+    /// Trait method call through a statically selected implementation.
     TraitMethod {
+        /// Trait identity containing the method.
         trait_id: nia_ids::GlobalDefId,
+        /// Selected method identity.
         method_id: nia_ids::GlobalDefId,
+        /// Method name for diagnostics.
         method_name: SymbolId,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Required to select the correct const-generic extension impl.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Method type arguments.
         args: Vec<InternedTyId>,
+        /// Receiver passing mode.
         receiver_kind: ReceiverKind,
+        /// Receiver expression.
         receiver: Box<FunctionExpr>,
     },
+    /// Trait-associated function call without a receiver.
     TraitAssociatedFunction {
+        /// Trait identity containing the associated function.
         trait_id: nia_ids::GlobalDefId,
+        /// Selected method identity.
         method_id: nia_ids::GlobalDefId,
+        /// Method name for diagnostics.
         method_name: SymbolId,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Required to select the correct const-generic extension impl.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Method type arguments.
         args: Vec<InternedTyId>,
     },
+    /// Dynamic dispatch through a trait-object vtable slot.
     DynamicTraitMethod {
+        /// Erased object type used for vtable lookup.
         object_ty: InternedTyId,
+        /// Trait segment containing the selected slot.
         trait_id: TraitId,
+        /// Declared method identity.
         method_id: nia_ids::GlobalDefId,
+        /// Method name for diagnostics.
         method_name: SymbolId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Retains the complete trait-object identity for vtable dispatch.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Vtable slot index.
         slot: usize,
+        /// ABI parameter types.
         params: Vec<InternedTyId>,
+        /// ABI return type.
         return_type: InternedTyId,
+        /// Receiver passing mode.
         receiver_kind: ReceiverKind,
+        /// Dynamic receiver expression.
         receiver: Box<FunctionExpr>,
     },
+    /// Builtin method call.
     BuiltinMethod {
+        /// Builtin method kind.
         method: FunctionBuiltinMethod,
+        /// Receiver type.
         self_ty: InternedTyId,
+        /// Receiver expression.
         receiver: Box<FunctionExpr>,
     },
+    /// Builtin method requiring an addressable receiver.
     BuiltinPlaceMethod {
+        /// Builtin trait containing the method.
         trait_id: BuiltinTrait,
+        /// Builtin method identity.
         method: BuiltinTraitMethod,
+        /// Receiver type.
         self_ty: InternedTyId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
+        /// Receiver place expression.
         receiver: Box<FunctionExpr>,
     },
+    /// Operator dispatched through a builtin trait.
     BuiltinOperator(FunctionBuiltinOperator),
+    /// Callable fat-pointer expression.
     Callable(Box<FunctionExpr>),
+    /// Function-pointer expression.
     FunctionPointer(Box<FunctionExpr>),
 }
 
+/// Builtin operator trait and operation pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FunctionBuiltinOperator {
     /// Builtin trait implementing the operator.
@@ -976,7 +1185,9 @@ impl FunctionBuiltinOperator {
 /// readonly-qualified view of mutable storage. Backend consumers must derive
 /// the path from the base type rather than trusting this summary type alone.
 pub struct FunctionPlace {
+    /// Source span of the place expression.
     pub span: Span,
+    /// Final projected type.
     pub ty: InternedTyId,
     /// Storage root from which projection begins.
     pub base: FunctionPlaceBase,
@@ -987,24 +1198,37 @@ pub struct FunctionPlace {
 #[derive(Debug, Clone, PartialEq)]
 /// Root storage for a [`FunctionPlace`].
 pub enum FunctionPlaceBase {
+    /// Local storage root.
     Local(LocalId),
+    /// Non-generic global storage root.
     Global(nia_ids::GlobalDefId),
+    /// Generic global instance storage root.
     GlobalInstance {
+        /// Defining global identity.
         def_id: nia_ids::GlobalDefId,
+        /// Module supplying generic argument context.
         arg_module_id: nia_ids::ModuleId,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
+    /// Dereferenced pointer expression.
     Deref(Box<FunctionExpr>),
+    /// Recovery base rejected by validation.
     Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 /// One typed projection in an addressable storage path.
 pub enum FunctionPlaceElem {
+    /// Named aggregate field projection.
     Field(nia_ids::GlobalDefId),
+    /// Tuple field projection.
     TupleField(usize),
+    /// Indexed array/pointer/slice projection.
     Index(Box<FunctionExpr>),
+    /// Recovery projection rejected by validation.
     Error,
 }
 
