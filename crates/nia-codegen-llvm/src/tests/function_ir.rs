@@ -5003,7 +5003,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
 }
 
 #[test]
-fn validates_closure_entry_call_contract_before_llvm() {
+fn validates_closure_entry_call_and_view_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
@@ -5028,6 +5028,31 @@ fn validates_closure_entry_call_contract_before_llvm() {
     let state_pointer_ty = interner.intern(TyKind::Pointer {
         is_readonly: true,
         elem: state_ty,
+    });
+    let callable_ty = interner.intern(TyKind::Callable {
+        is_readonly: true,
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let mutable_callable_ty = interner.intern(TyKind::Callable {
+        is_readonly: false,
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let wrong_callable_ty = interner.intern(TyKind::Callable {
+        is_readonly: true,
+        params: vec![bool_ty],
+        return_type: i32_ty,
+    });
+    let closure_fn_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let variadic_closure_fn_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+        is_variadic: true,
     });
     let integer = || FunctionExpr {
         span,
@@ -5085,6 +5110,69 @@ fn validates_closure_entry_call_contract_before_llvm() {
                                 }),
                             },
                             args: vec![integer()],
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: wrong_callable_ty,
+                        kind: FunctionExprKind::CallableCoercion {
+                            state: Box::new(FunctionExpr {
+                                span,
+                                ty: state_pointer_ty,
+                                kind: FunctionExprKind::Null,
+                            }),
+                            closure_id,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: mutable_callable_ty,
+                        kind: FunctionExprKind::CallableCoercion {
+                            state: Box::new(FunctionExpr {
+                                span,
+                                ty: state_pointer_ty,
+                                kind: FunctionExprKind::Null,
+                            }),
+                            closure_id,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::CallableCoercion {
+                            state: Box::new(FunctionExpr {
+                                span,
+                                ty: state_pointer_ty,
+                                kind: FunctionExprKind::Null,
+                            }),
+                            closure_id,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: variadic_closure_fn_ty,
+                        kind: FunctionExprKind::ClosureFunctionPointer { closure_id },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: closure_fn_ty,
+                        kind: FunctionExprKind::ClosureFunctionPointer {
+                            closure_id: nia_ids::ClosureId {
+                                owner: main_id,
+                                ordinal: 1,
+                            },
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: callable_ty,
+                        kind: FunctionExprKind::CallableCoercion {
+                            state: Box::new(FunctionExpr {
+                                span,
+                                ty: state_pointer_ty,
+                                kind: FunctionExprKind::Null,
+                            }),
+                            closure_id,
                         },
                     }),
                 ],
@@ -5164,6 +5252,11 @@ fn validates_closure_entry_call_contract_before_llvm() {
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (state_ty, TypeLayout { size: 0, align: 1 }),
                     (state_pointer_ty, TypeLayout { size: 8, align: 8 }),
+                    (callable_ty, TypeLayout { size: 16, align: 8 }),
+                    (mutable_callable_ty, TypeLayout { size: 16, align: 8 }),
+                    (wrong_callable_ty, TypeLayout { size: 16, align: 8 }),
+                    (closure_fn_ty, TypeLayout { size: 8, align: 8 }),
+                    (variadic_closure_fn_ty, TypeLayout { size: 8, align: 8 }),
                 ],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -5196,6 +5289,11 @@ fn validates_closure_entry_call_contract_before_llvm() {
         "closure-entry call has an invalid ABI contract: argument count",
         "closure-entry call has an invalid ABI contract: result type",
         "closure-entry call has an invalid ABI contract: call references a missing generated entry",
+        "callable signature does not match closure state",
+        "mutable callable has a readonly state pointer",
+        "result is not callable",
+        "closure function-pointer result is not a non-variadic function pointer",
+        "generated closure entry is missing",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),

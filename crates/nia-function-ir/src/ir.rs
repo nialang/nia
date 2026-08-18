@@ -466,10 +466,15 @@ pub enum FunctionExprKind {
         target_ty: InternedTyId,
         self_ty: InternedTyId,
     },
+    /// Pairs a closure-state pointer with its generated entry as a callable fat pointer.
+    ///
+    /// The state, closure identity, callable signature, and owner-qualified
+    /// backend entry must describe the same closure instance.
     CallableCoercion {
         state: Box<FunctionExpr>,
         closure_id: ClosureId,
     },
+    /// Selects the generated adapter for a non-capturing closure.
     ClosureFunctionPointer {
         closure_id: ClosureId,
     },

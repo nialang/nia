@@ -503,6 +503,10 @@ commit as the corresponding implementation batch.
 - [x] Phase B assignment validation now requires a unit result, an exactly
       typed writable local/global/deref target, and plain or compound RHS
       contracts matching the store and builtin binary operation LLVM emits.
+- [x] Phase B closure-view validation now ties callable state pointers and
+      non-capturing function-pointer adapters to the owner-qualified generated
+      closure entry, checking identity, mutability direction, and full ABI
+      signatures before LLVM materializes either view.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer
