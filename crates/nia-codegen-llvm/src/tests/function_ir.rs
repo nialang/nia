@@ -6229,6 +6229,189 @@ fn validates_backend_ir_assignment_contracts_before_llvm() {
 }
 
 #[test]
+fn validates_backend_ir_trait_object_expression_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let source_trait = GlobalDefId {
+        module_id,
+        def_id: DefId(10),
+    };
+    let target_trait = GlobalDefId {
+        module_id,
+        def_id: DefId(11),
+    };
+    let object = |trait_id, is_readonly| {
+        interner.intern(TyKind::TraitObject {
+            is_readonly,
+            trait_id: TraitId::Source(trait_id),
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: Vec::new(),
+        })
+    };
+    let source_object_ty = object(source_trait, true);
+    let target_object_ty = object(target_trait, true);
+    let mutable_target_object_ty = object(target_trait, false);
+    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let span = Span::default();
+    let local = |id, ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Local(LocalId(id)),
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: vec![
+                FunctionLocal {
+                    id: LocalId(0),
+                    name: local_name("object"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: source_object_ty,
+                    span,
+                },
+                FunctionLocal {
+                    id: LocalId(1),
+                    name: local_name("pointer"),
+                    kind: FunctionLocalKind::MutableBinding,
+                    ty: readonly_i32_ptr_ty,
+                    span,
+                },
+            ],
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::TraitObjectUpcast {
+                            expr: Box::new(local(0, source_object_ty)),
+                            source_ty: source_object_ty,
+                            target_ty: target_object_ty,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: mutable_target_object_ty,
+                        kind: FunctionExprKind::TraitObjectUpcast {
+                            expr: Box::new(local(0, source_object_ty)),
+                            source_ty: source_object_ty,
+                            target_ty: mutable_target_object_ty,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: mutable_target_object_ty,
+                        kind: FunctionExprKind::TraitObjectCoercion {
+                            expr: Box::new(local(1, readonly_i32_ptr_ty)),
+                            target_ty: mutable_target_object_ty,
+                            self_ty: bool_ty,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::TraitObjectCoercion {
+                            expr: Box::new(local(1, readonly_i32_ptr_ty)),
+                            target_ty: i32_ty,
+                            self_ty: i32_ty,
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: target_object_ty,
+                        kind: FunctionExprKind::TraitObjectCoercion {
+                            expr: Box::new(local(1, readonly_i32_ptr_ty)),
+                            target_ty: target_object_ty,
+                            self_ty: i32_ty,
+                        },
+                    }),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Integer("0".to_string()),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (source_object_ty, TypeLayout { size: 16, align: 8 }),
+                (target_object_ty, TypeLayout { size: 16, align: 8 }),
+                (mutable_target_object_ty, TypeLayout { size: 16, align: 8 }),
+                (readonly_i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "upcast result type does not match target metadata",
+        "upcast cannot strengthen readonly access",
+        "coercion self type does not match source element",
+        "coercion target is not a trait object",
+        "coercion cannot strengthen readonly access",
+        "coercion target vtable is missing",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_backend_ir_unresolved_trait_method_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
