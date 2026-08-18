@@ -19,6 +19,13 @@ pub(crate) fn is_pure_expr_op(op: &FunctionOp) -> bool {
     matches!(op, FunctionOp::Expr(expr) if is_pure_discardable_expr(expr))
 }
 
+/// Classifies whether evaluating an expression can be discarded without
+/// changing observable behavior.
+///
+/// The walk is intentionally conservative: loads and aggregate projections
+/// are pure only when every nested operand is pure, while address-taking,
+/// calls, atomics, inline assembly, assignments, and traps always retain the
+/// operation. This keeps cleanup independent of target-specific alias facts.
 pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
     match &expr.kind {
         FunctionExprKind::Error => false,
