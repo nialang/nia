@@ -44,16 +44,22 @@ impl Context {
         Self { raw }
     }
 
+    /// Creates an instruction builder owned by this context.
+    ///
+    /// LLVM documents context and builder allocation as infallible. Keep the
+    /// assertion here because there is no useful recoverable error contract
+    /// for a context that cannot allocate its own builder.
     pub fn create_builder<'ctx>(&'ctx self) -> Builder<'ctx> {
         let raw = unsafe { LLVMCreateBuilderInContext(self.raw) };
         assert!(!raw.is_null());
         Builder::new(raw)
     }
 
+    /// Creates a module, surfacing invalid names or a null LLVM result.
     pub fn create_module<'ctx>(&'ctx self, name: &str) -> LlvmResult<Module<'ctx>> {
         let name = to_c_string(name)?;
         let raw = unsafe { LLVMModuleCreateWithNameInContext(name.as_ptr(), self.raw) };
-        assert!(!raw.is_null());
+        let raw = require_handle(raw, "module")?;
         Ok(Module::new(raw))
     }
 
@@ -222,9 +228,11 @@ impl Context {
         name: &str,
     ) -> LlvmResult<BasicBlock<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(BasicBlock::new(unsafe {
+        let raw = unsafe {
             LLVMAppendBasicBlockInContext(self.raw, function.as_value_ref(), name.as_ptr())
-        }))
+        };
+        let raw = require_handle(raw, "basic block")?;
+        Ok(BasicBlock::new(raw))
     }
 
     pub fn const_string<'ctx>(
@@ -246,5 +254,33 @@ impl Context {
 impl Drop for Context {
     fn drop(&mut self) {
         unsafe { LLVMContextDispose(self.raw) };
+    }
+}
+
+/// Converts an LLVM allocation result into a recoverable error before a typed
+/// wrapper's non-null constructor is called.
+fn require_handle<T>(raw: *mut T, kind: &str) -> LlvmResult<*mut T> {
+    if raw.is_null() {
+        Err(LlvmError::error(format!(
+            "LLVM returned a null {kind} handle"
+        )))
+    } else {
+        Ok(raw)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_null_context_allocations_before_wrapper_construction() {
+        let error = require_handle::<llvm_sys::LLVMModule>(std::ptr::null_mut(), "module")
+            .expect_err("null module handle");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null module handle".to_string())
+        );
     }
 }

@@ -90,6 +90,7 @@ impl<'ctx> Module<'ctx> {
     ) -> LlvmResult<FunctionValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMAddFunction(self.raw, name.as_ptr(), ty.as_type_ref()) };
+        let value = require_handle(value, "function")?;
         let func = FunctionValue::new(value);
         if let Some(linkage) = linkage {
             unsafe { LLVMSetLinkage(value, linkage.into()) };
@@ -124,6 +125,7 @@ impl<'ctx> Module<'ctx> {
     ) -> LlvmResult<GlobalValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMAddGlobal(self.raw, ty.as_type_ref(), name.as_ptr()) };
+        let value = require_handle(value, "global")?;
         Ok(GlobalValue::new(value))
     }
 
@@ -298,5 +300,32 @@ impl<'ctx> Drop for Module<'ctx> {
         if !self.raw.is_null() {
             unsafe { LLVMDisposeModule(self.raw) };
         }
+    }
+}
+
+/// Converts a module-level LLVM allocation result into a recoverable error.
+fn require_handle<T>(raw: *mut T, kind: &str) -> LlvmResult<*mut T> {
+    if raw.is_null() {
+        Err(LlvmError::error(format!(
+            "LLVM returned a null {kind} handle"
+        )))
+    } else {
+        Ok(raw)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_null_module_allocations_before_wrapper_construction() {
+        let error = require_handle::<llvm_sys::LLVMValue>(std::ptr::null_mut(), "function")
+            .expect_err("null function handle");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null function handle".to_string())
+        );
     }
 }
