@@ -507,6 +507,10 @@ commit as the corresponding implementation batch.
       non-capturing function-pointer adapters to the owner-qualified generated
       closure entry, checking identity, mutability direction, and full ABI
       signatures before LLVM materializes either view.
+- [x] Phase B index-expression validation now rejects non-integer indices and
+      non-indexable bases before LLVM computes element addresses, while still
+      checking the selected element result type for valid arrays, pointers, and
+      slices.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer
