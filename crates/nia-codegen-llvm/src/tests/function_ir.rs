@@ -6286,6 +6286,93 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
 }
 
 #[test]
+fn validates_static_global_address_pointee_and_mutability_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let readonly_bool_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: bool_ty,
+    });
+    let mutable_i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let source_global = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let span = Span::default();
+    let address_global = |def_id, name, ty| BackendGlobal {
+        def_id: GlobalDefId { module_id, def_id },
+        name: sym(name),
+        link_name: None,
+        ty,
+        is_let: true,
+        is_extern: false,
+        init: Some(StaticInit::AddrOfGlobal {
+            global: source_global,
+            path: Vec::new(),
+        }),
+        span,
+    };
+    let globals = vec![
+        BackendGlobal {
+            def_id: source_global,
+            name: sym("value"),
+            link_name: None,
+            ty: i32_ty,
+            is_let: true,
+            is_extern: false,
+            init: Some(StaticInit::Int(0.into())),
+            span,
+        },
+        address_global(DefId(1), "wrong_pointee", readonly_bool_ptr_ty),
+        address_global(DefId(2), "wrong_mutability", mutable_i32_ptr_ty),
+    ];
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(
+        single_module_program(
+            module_id,
+            BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (bool_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (readonly_bool_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                    (mutable_i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            Vec::new(),
+            Vec::new(),
+            globals,
+            Vec::new(),
+        ),
+        type_store,
+    );
+    assert!(output.modules.is_empty());
+    for message in [
+        "global address pointee type does not match its path",
+        "global address exposes immutable storage as mutable",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

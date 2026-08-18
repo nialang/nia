@@ -783,6 +783,9 @@ commit as the corresponding implementation batch.
       function-pointer signature, including semantic parameter types, return
       type, and variadic status, before LLVM can erase mismatches with a
       constant pointer bitcast.
+- [x] Phase B static global addresses now require data-pointer destinations
+      whose pointee type matches the selected global/path and whose mutability
+      cannot expose immutable storage as writable.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

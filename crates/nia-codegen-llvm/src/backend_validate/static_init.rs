@@ -149,7 +149,6 @@ impl BackendValidator<'_> {
             }
             StaticInit::Struct(fields) => self.validate_static_struct_init(ty, fields, span),
             StaticInit::AddrOfGlobal { global, path } => {
-                self.validate_static_pointer_target(ty, span, "global address");
                 let Some(global_item) = self.index.global(*global) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -160,7 +159,13 @@ impl BackendValidator<'_> {
                     ));
                     return;
                 };
-                self.validate_static_address_path(global_item.ty, path, span);
+                self.validate_static_global_address(
+                    ty,
+                    global_item.is_let,
+                    global_item.ty,
+                    path,
+                    span,
+                );
             }
             StaticInit::AddrOfFunction { function, args } => {
                 self.validate_static_function_address_signature(ty, *function, args, span);
@@ -195,18 +200,41 @@ impl BackendValidator<'_> {
         ));
     }
 
-    fn validate_static_pointer_target(&mut self, ty: InternedTyId, span: Span, kind: &'static str) {
-        if !matches!(
-            self.ty_kind(ty),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
-        ) {
+    fn validate_static_global_address(
+        &mut self,
+        target_ty: InternedTyId,
+        source_is_let: bool,
+        source_ty: InternedTyId,
+        path: &[StaticAddressElem],
+        span: Span,
+    ) {
+        let Some(TyKind::Pointer {
+            is_readonly,
+            elem: target_elem,
+        }) = self.ty_kind(target_ty).cloned()
+        else {
             self.invalid_static_address(
-                ty,
+                target_ty,
                 span,
-                match kind {
-                    "global address" => "global address target is not pointer-like",
-                    _ => "function address target is not pointer-like",
-                },
+                "global address target is not a data pointer",
+            );
+            return;
+        };
+        if source_is_let && !is_readonly {
+            self.invalid_static_address(
+                target_ty,
+                span,
+                "global address exposes immutable storage as mutable",
+            );
+        }
+        let Some(source_elem) = self.validate_static_address_path(source_ty, path, span) else {
+            return;
+        };
+        if !self.same_type(target_elem, source_elem) {
+            self.invalid_static_address(
+                target_ty,
+                span,
+                "global address pointee type does not match its path",
             );
         }
     }
@@ -406,7 +434,7 @@ impl BackendValidator<'_> {
         mut current_ty: InternedTyId,
         path: &[StaticAddressElem],
         span: Span,
-    ) {
+    ) -> Option<InternedTyId> {
         for elem in path {
             match elem {
                 StaticAddressElem::Field(field) => {
@@ -417,6 +445,8 @@ impl BackendValidator<'_> {
                         "backend IR static address path references missing field",
                     ) {
                         current_ty = field_ty;
+                    } else {
+                        return None;
                     }
                 }
                 StaticAddressElem::Index(_) => {
@@ -426,7 +456,7 @@ impl BackendValidator<'_> {
                             span,
                             "backend IR static address path indexes non-array type",
                         ));
-                        continue;
+                        return None;
                     };
                     current_ty = elem_ty;
                 }
@@ -436,8 +466,10 @@ impl BackendValidator<'_> {
                         span,
                         "backend IR static address path contains invalid element",
                     ));
+                    return None;
                 }
             }
         }
+        Some(current_ty)
     }
 }
