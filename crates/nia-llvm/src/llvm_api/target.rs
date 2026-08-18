@@ -22,27 +22,35 @@ use std::sync::OnceLock;
 use super::{LlvmError, LlvmResult, Module, OptimizationLevel, to_c_string};
 
 #[derive(Debug)]
+/// Owned LLVM target machine used to configure modules and emit objects.
 pub struct TargetMachine {
     raw: LLVMTargetMachineRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Stable inputs required to recreate a target machine for cached codegen.
 pub struct TargetMachineIdentity {
+    /// LLVM target triple, such as `x86_64-unknown-linux-gnu`.
     pub triple: String,
+    /// CPU model passed to LLVM's target machine constructor.
     pub cpu: String,
+    /// LLVM feature string, including enabled and disabled target features.
     pub features: String,
 }
 
 impl TargetMachine {
+    /// Creates a native target machine at LLVM's default optimization level.
     pub fn native() -> LlvmResult<Self> {
         Self::native_with_opt_level(OptimizationLevel::Default)
     }
 
+    /// Creates a native target machine at `opt_level`.
     pub fn native_with_opt_level(opt_level: OptimizationLevel) -> LlvmResult<Self> {
         let identity = Self::native_identity()?;
         Self::for_identity(&identity, opt_level)
     }
 
+    /// Reads the current host triple, CPU, and feature identity from LLVM.
     pub fn native_identity() -> LlvmResult<TargetMachineIdentity> {
         initialize_native_target()?;
         Ok(TargetMachineIdentity {
@@ -52,6 +60,7 @@ impl TargetMachine {
         })
     }
 
+    /// Recreates a target machine from an exact previously captured identity.
     pub fn for_identity(
         identity: &TargetMachineIdentity,
         opt_level: OptimizationLevel,
@@ -64,6 +73,7 @@ impl TargetMachine {
         )
     }
 
+    /// Creates a target machine from explicit LLVM target inputs.
     pub fn for_triple(
         triple: &str,
         cpu: &str,
@@ -136,6 +146,10 @@ impl TargetMachine {
         Ok(())
     }
 
+    /// Emits `module` as an in-memory native object file.
+    ///
+    /// The module must already be configured for this target machine. The
+    /// returned bytes are copied out of LLVM-owned storage before it is freed.
     pub fn emit_object<'ctx>(&self, module: &Module<'ctx>) -> LlvmResult<Vec<u8>> {
         let mut message = ptr::null_mut();
         let mut buffer = ptr::null_mut();

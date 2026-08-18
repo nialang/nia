@@ -30,6 +30,10 @@ use super::{
 };
 
 #[derive(Debug)]
+/// Owned LLVM module tied to the lifetime of its originating context.
+///
+/// Dropping the wrapper disposes the module unless ownership was transferred
+/// with [`Module::into_raw`].
 pub struct Module<'ctx> {
     pub(super) raw: LLVMModuleRef,
     _marker: PhantomData<&'ctx Context>,
@@ -44,16 +48,22 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
+    /// Borrows the raw module handle without transferring ownership.
     pub fn as_mut_ptr(&self) -> LLVMModuleRef {
         self.raw
     }
 
+    /// Transfers ownership of the raw module handle to the caller.
+    ///
+    /// The caller must eventually pass the handle to the appropriate LLVM
+    /// disposer or to an API that explicitly consumes it.
     pub fn into_raw(mut self) -> LLVMModuleRef {
         let raw = self.raw;
         self.raw = ptr::null_mut();
         raw
     }
 
+    /// Serializes the module to copied LLVM bitcode bytes.
     pub fn bitcode(&self) -> LlvmResult<Vec<u8>> {
         let buffer = unsafe { LLVMWriteBitcodeToMemoryBuffer(self.raw) };
         if buffer.is_null() {
@@ -82,6 +92,7 @@ impl<'ctx> Module<'ctx> {
         Ok(bytes)
     }
 
+    /// Declares a function and applies an optional linkage.
     pub fn add_function(
         &self,
         name: &str,
@@ -98,6 +109,7 @@ impl<'ctx> Module<'ctx> {
         Ok(func)
     }
 
+    /// Looks up a named function, returning `None` when it is absent.
     pub fn get_function(&self, name: &str) -> LlvmResult<Option<FunctionValue<'ctx>>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMGetNamedFunction(self.raw, name.as_ptr()) };
@@ -108,6 +120,7 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
+    /// Returns the first function in LLVM module order.
     pub fn get_first_function(&self) -> Option<FunctionValue<'ctx>> {
         let value = unsafe { LLVMGetFirstFunction(self.raw) };
         if value.is_null() {
@@ -117,6 +130,10 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
+    /// Declares a global value of `ty`.
+    ///
+    /// The address-space argument is reserved until the wrapper adopts LLVM's
+    /// address-space-aware global constructor.
     pub fn add_global(
         &self,
         ty: BasicTypeEnum<'ctx>,
@@ -129,6 +146,7 @@ impl<'ctx> Module<'ctx> {
         Ok(GlobalValue::new(value))
     }
 
+    /// Looks up a named global, returning `None` when it is absent.
     pub fn get_global(&self, name: &str) -> LlvmResult<Option<GlobalValue<'ctx>>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMGetNamedGlobal(self.raw, name.as_ptr()) };
@@ -139,12 +157,16 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
+    /// Sets the module target triple after validating it as a C string.
     pub fn set_triple(&self, triple: &str) -> LlvmResult<()> {
         let triple = to_c_string(triple)?;
         unsafe { llvm_sys::core::LLVMSetTarget(self.raw, triple.as_ptr()) };
         Ok(())
     }
 
+    /// Links `source` into this module and transfers its ownership to LLVM.
+    ///
+    /// LLVM consumes the source module on both success and failure.
     pub fn link_in(&mut self, source: Module<'ctx>) -> LlvmResult<()> {
         let source = source.into_raw();
         let failed = unsafe { LLVMLinkModules2(self.raw, source) } != 0;
@@ -167,6 +189,7 @@ impl<'ctx> Module<'ctx> {
         unsafe { LLVMSetModuleDataLayout(self.raw, target_data) };
     }
 
+    /// Runs LLVM's structural verifier and returns its owned diagnostic text.
     pub fn verify(&self) -> LlvmResult<()> {
         let mut message = ptr::null_mut();
         let failed = unsafe {
@@ -194,6 +217,7 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
+    /// Renders the module as textual LLVM IR.
     pub fn ir_string(&self) -> LlvmResult<String> {
         #[cfg(windows)]
         {
@@ -264,6 +288,10 @@ impl<'ctx> Module<'ctx> {
         Ok(rendered)
     }
 
+    /// Gets or inserts an intrinsic declaration for the supplied overloads.
+    ///
+    /// Returns `None` when `name` is not a known LLVM intrinsic or LLVM cannot
+    /// produce its declaration.
     pub fn get_intrinsic_declaration(
         &self,
         name: &str,
@@ -293,6 +321,7 @@ impl<'ctx> Module<'ctx> {
 }
 
 impl<'ctx> FunctionValue<'ctx> {
+    /// Returns the next function in the owning module's iteration order.
     pub fn get_next_function(self) -> Option<FunctionValue<'ctx>> {
         let value = unsafe { LLVMGetNextFunction(self.raw) };
         if value.is_null() {
