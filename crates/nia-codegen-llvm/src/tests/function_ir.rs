@@ -4904,22 +4904,40 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             unions: Vec::new(),
             union_instances: Vec::new(),
             enums: Vec::new(),
-            globals: vec![BackendGlobal {
-                def_id: GlobalDefId {
-                    module_id,
-                    def_id: DefId(0),
+            globals: vec![
+                BackendGlobal {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(0),
+                    },
+                    name: sym("ptr"),
+                    link_name: None,
+                    ty: ptr_ty,
+                    is_let: true,
+                    is_extern: false,
+                    init: Some(StaticInit::AddrOfGlobal {
+                        global: missing_global,
+                        path: Vec::new(),
+                    }),
+                    span,
                 },
-                name: sym("ptr"),
-                link_name: None,
-                ty: ptr_ty,
-                is_let: true,
-                is_extern: false,
-                init: Some(StaticInit::AddrOfGlobal {
-                    global: missing_global,
-                    path: Vec::new(),
-                }),
-                span,
-            }],
+                BackendGlobal {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(1),
+                    },
+                    name: sym("bad_address"),
+                    link_name: None,
+                    ty: i32_ty,
+                    is_let: true,
+                    is_extern: false,
+                    init: Some(StaticInit::AddrOfGlobal {
+                        global: missing_global,
+                        path: Vec::new(),
+                    }),
+                    span,
+                },
+            ],
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
@@ -4938,6 +4956,13 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
             .contains("static initializer references missing global")),
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("global address target is not pointer-like")),
         "{:?}",
         output.diagnostics
     );

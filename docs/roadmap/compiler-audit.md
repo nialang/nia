@@ -776,7 +776,9 @@ commit as the corresponding implementation batch.
       rejected before LLVM constant construction can fail or truncate them.
 - [x] Phase B static initializers now validate scalar variant/type identity,
       finite float and Unicode scalar payloads, typed char/byte arrays, and null
-      pointer destinations before module-level LLVM constant emission.
+      pointer destinations before module-level LLVM constant emission. Address
+      initializers also require pointer-like destination types before relocation
+      lookup and path validation.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
