@@ -1040,10 +1040,19 @@ fn exited_scopes_between(
         Some(scope) => scope_chain_to_root(scopes, scope)?,
         None => Vec::new(),
     };
-    let lca = from_chain
-        .iter()
-        .find(|scope| to_chain.contains(scope))
-        .copied();
+    // A real edge may enter a child scope or leave to an ancestor, but it
+    // cannot jump between unrelated roots. Returning `None` for that shape
+    // lets lowering surface the malformed CFG before codegen invents a defer
+    // unwinding sequence for an unrelated destination.
+    let lca = match to {
+        Some(_) => Some(
+            from_chain
+                .iter()
+                .find(|scope| to_chain.contains(scope))
+                .copied()?,
+        ),
+        None => None,
+    };
     Some(
         from_chain
             .into_iter()

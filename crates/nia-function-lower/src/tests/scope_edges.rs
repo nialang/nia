@@ -79,6 +79,21 @@ fn sibling_scope_edge_exits_only_source_scope() {
 }
 
 #[test]
+fn unrelated_root_scope_edge_is_rejected() {
+    let mut body = manual_function_body_for_scope_edges();
+    body.scopes.push(FunctionScope {
+        id: FunctionScopeId(3),
+        parent: None,
+        span: Span::default(),
+    });
+
+    assert_eq!(
+        body.exited_scopes_between(FunctionScopeId(1), Some(FunctionScopeId(3))),
+        None
+    );
+}
+
+#[test]
 fn return_edge_exits_scope_chain_to_function_boundary() {
     let body = manual_function_body_for_scope_edges();
 
