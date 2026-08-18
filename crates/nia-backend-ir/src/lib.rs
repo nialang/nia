@@ -567,6 +567,11 @@ impl BackendModuleReadiness {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Identity of a code-generation unit during one compiler invocation.
+///
+/// Source units retain the owning module and a deterministic bucket ordinal;
+/// [`CompilerBuiltins`](Self::CompilerBuiltins) is reserved for runtime support
+/// emitted outside any source module.
 pub enum CodegenUnitId {
     SourceModule { module_id: ModuleId, ordinal: u32 },
     CompilerBuiltins,
@@ -579,6 +584,11 @@ impl CodegenUnitId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Persistable identity used to sort and match code-generation units.
+///
+/// A source key deliberately uses [`SourceIdentity`] instead of the transient
+/// [`ModuleId`], so clean and incremental builds agree even when module slots
+/// are allocated in a different order.
 pub enum CodegenUnitKey {
     SourceModule {
         source_identity: SourceIdentity,
@@ -588,13 +598,16 @@ pub enum CodegenUnitKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable two-word fingerprint associated with one code-generation unit.
 pub struct CodegenUnitFingerprint([u64; 2]);
 
 impl CodegenUnitFingerprint {
+    /// Creates a fingerprint from the already-canonical hash parts.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(parts)
     }
 
+    /// Returns the hash parts for persistence or comparison.
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
@@ -610,12 +623,18 @@ impl CodegenUnitKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Canonical set of modules needed before a code-generation unit can lower.
+///
+/// Construction sorts and deduplicates module ids, making dependency
+/// comparisons independent of discovery order. The caller must include the
+/// unit's owner; an empty set would make readiness accounting unsound.
 pub struct CodegenUnitDependencies {
     unit: CodegenUnitId,
     modules: Vec<ModuleId>,
 }
 
 impl CodegenUnitDependencies {
+    /// Creates a canonical, non-empty dependency set.
     pub fn new(unit: CodegenUnitId, modules: impl IntoIterator<Item = ModuleId>) -> Self {
         let modules = modules.into_iter().collect::<BTreeSet<_>>();
         assert!(
@@ -628,26 +647,31 @@ impl CodegenUnitDependencies {
         }
     }
 
+    /// Returns the unit whose dependencies are described.
     pub fn unit(&self) -> CodegenUnitId {
         self.unit
     }
 
+    /// Returns module ids in ascending order without duplicates.
     pub fn modules(&self) -> &[ModuleId] {
         &self.modules
     }
 
+    /// Tests membership using the canonical ordering.
     pub fn contains(&self, module_id: ModuleId) -> bool {
         self.modules.binary_search(&module_id).is_ok()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Canonical set of modules still missing before a unit may be emitted.
 pub struct CodegenUnitPendingModules {
     unit: CodegenUnitId,
     modules: Vec<ModuleId>,
 }
 
 impl CodegenUnitPendingModules {
+    /// Creates a non-empty pending set after sorting and deduplication.
     pub fn new(unit: CodegenUnitId, modules: impl IntoIterator<Item = ModuleId>) -> Self {
         let modules = modules.into_iter().collect::<BTreeSet<_>>();
         assert!(
@@ -660,16 +684,19 @@ impl CodegenUnitPendingModules {
         }
     }
 
+    /// Returns the blocked code-generation unit.
     pub fn unit(&self) -> CodegenUnitId {
         self.unit
     }
 
+    /// Returns the missing module ids in ascending order.
     pub fn modules(&self) -> &[ModuleId] {
         &self.modules
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One stable code-generation unit and its reusable object/fingerprint pair.
 pub struct IncrementalLinkInput<T> {
     pub key: CodegenUnitKey,
     pub fingerprint: CodegenUnitFingerprint,
@@ -677,11 +704,17 @@ pub struct IncrementalLinkInput<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Ordered incremental linker inputs.
+///
+/// The constructor enforces strictly ascending [`CodegenUnitKey`] values. This
+/// turns duplicate or nondeterministically ordered cache entries into an ICE
+/// before they can alter linker input order.
 pub struct IncrementalLinkInputs<T> {
     inputs: Vec<IncrementalLinkInput<T>>,
 }
 
 impl<T> IncrementalLinkInputs<T> {
+    /// Validates and stores already-sorted incremental inputs.
     pub fn new(inputs: Vec<IncrementalLinkInput<T>>) -> Self {
         for pair in inputs.windows(2) {
             assert!(
@@ -692,18 +725,22 @@ impl<T> IncrementalLinkInputs<T> {
         Self { inputs }
     }
 
+    /// Borrows the stable input sequence.
     pub fn as_slice(&self) -> &[IncrementalLinkInput<T>] {
         &self.inputs
     }
 
+    /// Returns the number of inputs.
     pub fn len(&self) -> usize {
         self.inputs.len()
     }
 
+    /// Reports whether no inputs are present.
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty()
     }
 
+    /// Consumes the wrapper and returns its validated vector.
     pub fn into_vec(self) -> Vec<IncrementalLinkInput<T>> {
         self.inputs
     }
@@ -716,6 +753,12 @@ impl<T> Default for IncrementalLinkInputs<T> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Deterministic mapping from source modules to code-generation partitions.
+///
+/// Each non-empty module is one unit until it reaches the split threshold;
+/// larger modules use four stable buckets. Definitions are sorted by stable
+/// identity before bucketing, and vtables are kept in bucket zero so their
+/// emission remains available to every partition.
 pub struct CodegenPartitionPlan {
     partitions: Vec<CodegenPartition>,
 }
@@ -725,6 +768,7 @@ impl CodegenPartitionPlan {
         Self::from_module_iter(modules)
     }
 
+    /// Builds a plan for one module that has just become ready.
     pub fn for_ready_module(module: &BackendModule) -> Self {
         Self::from_module_iter([module])
     }
@@ -763,10 +807,12 @@ impl CodegenPartitionPlan {
         Self { partitions }
     }
 
+    /// Returns partitions in ascending stable-key order.
     pub fn partitions(&self) -> &[CodegenPartition] {
         &self.partitions
     }
 
+    /// Asserts that this plan exactly matches the program's current modules.
     pub fn validate_program(&self, program: &BackendProgram) {
         let modules = &program.modules;
         let expected = Self::from_modules(modules);
@@ -778,6 +824,11 @@ impl CodegenPartitionPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Definitions assigned to one source code-generation partition.
+///
+/// Public accessors expose indexes into the owning [`BackendModule`]. The
+/// partition id and key must describe the same module and ordinal; consumers
+/// should resolve the owner through [`BackendProgram::module_for_partition`].
 pub struct CodegenPartition {
     pub id: CodegenUnitId,
     pub key: CodegenUnitKey,
@@ -798,26 +849,32 @@ impl CodegenPartition {
         }
     }
 
+    /// Returns non-extern global indexes assigned to this partition.
     pub fn global_definitions(&self) -> &[usize] {
         &self.definitions.globals
     }
 
+    /// Returns all materialized global-instance indexes assigned here.
     pub fn global_instance_definitions(&self) -> &[usize] {
         &self.definitions.global_instances
     }
 
+    /// Returns monomorphic, body-bearing function indexes assigned here.
     pub fn function_definitions(&self) -> &[usize] {
         &self.definitions.functions
     }
 
+    /// Returns body-bearing function-instance indexes assigned here.
     pub fn function_instance_definitions(&self) -> &[usize] {
         &self.definitions.function_instances
     }
 
+    /// Returns generated closure-entry indexes assigned here.
     pub fn closure_entry_definitions(&self) -> &[usize] {
         &self.definitions.closure_entries
     }
 
+    /// Returns trait-object-vtable indexes assigned to this partition.
     pub fn vtable_definitions(&self) -> &[usize] {
         &self.definitions.vtables
     }
