@@ -355,6 +355,8 @@ pub enum FunctionExprKind {
         bytes: Vec<Option<u8>>,
         relocations: Vec<FunctionUnionRelocation>,
     },
+    /// A typed unary operation; references to ordinary places are lowered to
+    /// [`FunctionExprKind::AddrOf`] before this backend boundary.
     Unary {
         op: UnaryOp,
         expr: Box<FunctionExpr>,
@@ -378,6 +380,8 @@ pub enum FunctionExprKind {
         expr: Box<FunctionExpr>,
     },
     AddrOf(FunctionPlace),
+    /// A typed scalar/vector operation whose result is either the operand type
+    /// or a bool mask for comparisons.
     Binary {
         lhs: Box<FunctionExpr>,
         op: BinaryOp,

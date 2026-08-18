@@ -456,6 +456,12 @@ commit as the corresponding implementation batch.
       per-variant contract and a malformed-IR matrix covers all mismatch axes.
       Bitmask lane limits and result widening now follow the target `usize`
       width instead of assuming LP64.
+- [x] Phase B operator validation now checks unary dereference/reference shape,
+      numeric and integer operand classes, compatible binary operands, logical
+      bool-only operations, comparison masks, and result types before LLVM
+      selects scalar/vector or short-circuit builders. A malformed operator
+      matrix covers arithmetic, comparison, logical, shift, and dereference
+      boundaries.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both
