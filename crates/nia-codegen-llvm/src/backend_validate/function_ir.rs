@@ -550,7 +550,11 @@ impl BackendValidator<'_> {
         self.current_subject = None;
         match &expr.kind {
             FunctionExprKind::Global(def_id) => {
-                if !self.index.has_global(*def_id) {
+                if let Some(global) = self.index.global(*def_id) {
+                    if !self.projection_result_compatible(expr.ty, global.ty) {
+                        self.invalid_global_value_type(expr.span, "global");
+                    }
+                } else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         expr.span,
@@ -564,11 +568,14 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
-                if self
-                    .index
-                    .global_instance(*def_id, *arg_module_id, args, const_args)
-                    .is_none()
+                if let Some(global) =
+                    self.index
+                        .global_instance(*def_id, *arg_module_id, args, const_args)
                 {
+                    if !self.projection_result_compatible(expr.ty, global.ty) {
+                        self.invalid_global_value_type(expr.span, "global instance");
+                    }
+                } else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         expr.span,
@@ -1936,6 +1943,14 @@ impl BackendValidator<'_> {
             ) => self.same_type(*actual_elem, *selected_elem),
             _ => false,
         }
+    }
+
+    fn invalid_global_value_type(&mut self, span: Span, kind: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR {kind} expression type does not match its storage type"),
+        ));
     }
 
     fn validate_slice_contract(

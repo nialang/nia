@@ -1884,6 +1884,10 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         error: bool_ty,
         value: i32_ty,
     });
+    let global_id = GlobalDefId {
+        module_id,
+        def_id: DefId(50),
+    };
     let span = Span::default();
     let value = |ty| FunctionExpr {
         span,
@@ -2107,6 +2111,11 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
                 is_readonly: true,
             },
         }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::Global(global_id),
+        }),
     ];
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -2158,7 +2167,16 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         },
         Vec::new(),
         Vec::new(),
-        Vec::new(),
+        vec![BackendGlobal {
+            def_id: global_id,
+            name: sym("typed_global"),
+            link_name: None,
+            ty: i32_ty,
+            is_let: true,
+            is_extern: false,
+            init: Some(StaticInit::Int(0.into())),
+            span,
+        }],
         vec![function],
     );
     drop(interner);
@@ -2193,6 +2211,7 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         "result pointer element does not match the promoted array",
         "readonly metadata does not match its result",
         "promoted value is not an array",
+        "global expression type does not match its storage type",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
