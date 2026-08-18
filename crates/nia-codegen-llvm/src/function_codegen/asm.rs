@@ -42,17 +42,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         let has_sideeffects =
             asm.options.contains(&FunctionAsmOption::Volatile) || output_tys.is_empty();
-        let inline_asm = self.module.context.create_inline_asm(
-            fn_ty,
-            asm.code.clone(),
-            constraints.join(","),
-            InlineAsmOptions {
-                sideeffects: has_sideeffects,
-                alignstack: false,
-                dialect: Some(InlineAsmDialect::Intel),
-                can_throw: false,
-            },
-        );
+        let inline_asm = self
+            .module
+            .context
+            .create_inline_asm(
+                fn_ty,
+                asm.code.clone(),
+                constraints.join(","),
+                InlineAsmOptions {
+                    sideeffects: has_sideeffects,
+                    alignstack: false,
+                    dialect: Some(InlineAsmDialect::Intel),
+                    can_throw: false,
+                },
+            )
+            .map_err(|_| self.error(self.function.span, "failed to create inline assembly"))?;
         let call = self
             .builder
             .build_indirect_call(fn_ty, inline_asm, &input_values, "asm")
