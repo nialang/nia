@@ -164,6 +164,12 @@ pub enum FunctionMemoryIntrinsicOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// The final control-flow action of a [`FunctionBlock`].
+///
+/// Backend consumers additionally require every [`FunctionTerminator::Switch`]
+/// arm to carry a compile-time integer pattern. Function lowering emits only
+/// checked scalar constants and enum tags there; arbitrary value expressions
+/// are structurally valid function IR but must not cross the LLVM boundary.
 pub enum FunctionTerminator {
     Error {
         span: Span,
@@ -220,6 +226,11 @@ pub enum FunctionTerminator {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One constant case and destination of a [`FunctionTerminator::Switch`].
+///
+/// The pattern has the switch target's integer-like type. Its value must be
+/// constant after function lowering, and no two arms may have the same bit
+/// pattern at that type's target-dependent width.
 pub struct FunctionSwitchArm {
     pub pattern: FunctionExpr,
     pub target: FunctionBlockId,

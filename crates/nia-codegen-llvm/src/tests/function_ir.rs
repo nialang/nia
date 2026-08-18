@@ -6,6 +6,7 @@ use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput,
     FunctionAtomic, FunctionBitIntrinsicOp, FunctionInlineAsm, FunctionMemoryIntrinsic,
     FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionSliceRange,
+    FunctionSwitchArm,
 };
 
 fn single_module_program(
@@ -595,6 +596,136 @@ fn validates_terminator_type_contracts_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+}
+
+#[test]
+fn validates_switch_case_constants_and_uniqueness_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i8_ty = interner.primitive(PrimitiveTy::I8);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let case = |kind| FunctionExpr {
+        span,
+        ty: i8_ty,
+        kind,
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: vec![FunctionLocal {
+                id: LocalId(0),
+                name: local_name("value"),
+                kind: FunctionLocalKind::ImmutableBinding,
+                ty: i8_ty,
+                span,
+            }],
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![
+                FunctionBlock {
+                    id: FunctionBlockId(0),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Switch {
+                        target: case(FunctionExprKind::Local(LocalId(0))),
+                        arms: vec![
+                            FunctionSwitchArm {
+                                pattern: case(FunctionExprKind::Local(LocalId(0))),
+                                target: FunctionBlockId(1),
+                            },
+                            FunctionSwitchArm {
+                                pattern: case(FunctionExprKind::Integer("-1".to_string())),
+                                target: FunctionBlockId(1),
+                            },
+                            FunctionSwitchArm {
+                                pattern: case(FunctionExprKind::BuiltinValue(
+                                    nia_function_ir::FunctionBuiltinValue::Int(
+                                        nia_ty::IntConst::unsigned(255),
+                                    ),
+                                )),
+                                target: FunctionBlockId(1),
+                            },
+                        ],
+                        default: Some(FunctionBlockId(1)),
+                        fallback: FunctionBlockId(1),
+                        span,
+                    },
+                },
+                FunctionBlock {
+                    id: FunctionBlockId(1),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: FunctionTerminator::Tail {
+                        value: Some(FunctionExpr {
+                            span,
+                            ty: i32_ty,
+                            kind: FunctionExprKind::Integer("0".to_string()),
+                        }),
+                        span,
+                    },
+                },
+            ],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(
+        single_module_program(
+            module_id,
+            BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (i8_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![function],
+        ),
+        type_store,
+    );
+    assert!(output.modules.is_empty());
+    for message in [
+        "switch arm pattern is not a compile-time integer constant",
+        "switch contains duplicate case values",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
 }
 
 #[test]

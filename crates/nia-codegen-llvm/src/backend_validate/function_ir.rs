@@ -13,7 +13,7 @@ use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind};
 
-use crate::literals::assign_to_binary_op;
+use crate::literals::{assign_to_binary_op, decode_byte_char_literal, parse_int_literal};
 
 use super::{BackendValidator, FunctionInstanceRef};
 
@@ -323,6 +323,7 @@ impl BackendValidator<'_> {
             }
             FunctionTerminator::Switch { target, arms, .. } => {
                 self.validate_expr(target);
+                let mut case_values = HashSet::new();
                 for arm in arms {
                     self.validate_expr(&arm.pattern);
                     if !self.same_type(target.ty, arm.pattern.ty) {
@@ -330,6 +331,17 @@ impl BackendValidator<'_> {
                             arm.pattern.span,
                             "switch arm pattern type does not match its target",
                         );
+                    }
+                    match self.switch_case_value(&arm.pattern) {
+                        Some(value) if !case_values.insert(value) => self.invalid_terminator(
+                            arm.pattern.span,
+                            "switch contains duplicate case values",
+                        ),
+                        Some(_) => {}
+                        None => self.invalid_terminator(
+                            arm.pattern.span,
+                            "switch arm pattern is not a compile-time integer constant",
+                        ),
                     }
                 }
                 if !self.is_integer_type(target.ty) {
@@ -446,6 +458,53 @@ impl BackendValidator<'_> {
                     | PrimitiveTy::Char
             ))
         )
+    }
+
+    /// Returns the case's LLVM integer bit pattern at its target width.
+    ///
+    /// Function lowering normally reduces integer and boolean patterns to
+    /// `Integer` and enum patterns to `EnumVariantTag`. The other literal forms
+    /// are retained because they are also directly representable LLVM integer
+    /// constants. Keeping this allowlist here prevents a runtime expression
+    /// from reaching `LLVMBuildSwitch`, whose case operands must be constants.
+    fn switch_case_value(&self, pattern: &FunctionExpr) -> Option<u128> {
+        use nia_function_ir::FunctionBuiltinValue;
+
+        let value = match &pattern.kind {
+            FunctionExprKind::Integer(text) => parse_int_literal(text)? as u128,
+            FunctionExprKind::Char(value) => u128::from(*value),
+            FunctionExprKind::ByteChar(text) => u128::from(decode_byte_char_literal(text)?),
+            FunctionExprKind::Bool(value) => u128::from(*value),
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => value.bits(),
+            FunctionExprKind::EnumVariantTag(variant) => {
+                let info = self.index.enum_variant_info(*variant)?;
+                info.variant.value.unwrap_or(info.index as i128) as u128
+            }
+            _ => return None,
+        };
+        let bits = self.switch_integer_bits(pattern.ty)?;
+        let mask = if bits == u128::BITS {
+            u128::MAX
+        } else {
+            (1_u128 << bits) - 1
+        };
+        Some(value & mask)
+    }
+
+    fn switch_integer_bits(&self, ty: nia_ids::InternedTyId) -> Option<u32> {
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
+            return None;
+        };
+        match primitive {
+            PrimitiveTy::Bool => Some(1),
+            PrimitiveTy::Char => Some(32),
+            PrimitiveTy::Isize | PrimitiveTy::Usize => self
+                .target
+                .pointer_size
+                .checked_mul(8)
+                .and_then(|bits| u32::try_from(bits).ok()),
+            _ => primitive.integer_bits(0),
+        }
     }
 
     fn is_unit_or_never(&self, ty: nia_ids::InternedTyId) -> bool {
