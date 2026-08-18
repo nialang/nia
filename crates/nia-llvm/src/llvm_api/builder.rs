@@ -438,9 +438,9 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<InstructionValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(InstructionValue::new(unsafe {
-            LLVMBuildFence(self.raw, ordering.into(), sync_scope, name.as_ptr())
-        }))
+        let instruction =
+            unsafe { LLVMBuildFence(self.raw, ordering.into(), sync_scope, name.as_ptr()) };
+        Ok(InstructionValue::new(require_value(instruction, "fence")?))
     }
 
     pub fn build_atomicrmw<V: BasicValue<'ctx>>(
@@ -471,7 +471,7 @@ impl<'ctx> Builder<'ctx> {
         failure: AtomicOrdering,
         weak: bool,
     ) -> LlvmResult<StructValue<'ctx>> {
-        let value = StructValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildAtomicCmpXchg(
                 self.raw,
                 ptr.as_value_ref(),
@@ -481,7 +481,8 @@ impl<'ctx> Builder<'ctx> {
                 failure.into(),
                 0,
             )
-        });
+        };
+        let value = StructValue::new(require_value(value, "atomic compare-exchange")?);
         if weak && let Some(inst) = value.as_instruction() {
             inst.set_weak(true);
         }
@@ -609,7 +610,7 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(IntValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildICmp(
                 self.raw,
                 pred.into(),
@@ -617,7 +618,8 @@ impl<'ctx> Builder<'ctx> {
                 rhs.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(IntValue::new(require_value(value, "integer comparison")?))
     }
 
     pub fn build_basic_int_add(
@@ -809,7 +811,7 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(IntValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildFCmp(
                 self.raw,
                 pred.into(),
@@ -817,7 +819,8 @@ impl<'ctx> Builder<'ctx> {
                 rhs.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(IntValue::new(require_value(value, "floating comparison")?))
     }
 
     pub fn build_basic_float_add(
@@ -886,9 +889,8 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn build_int_neg(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(IntValue::new(unsafe {
-            LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr())
-        }))
+        let value = unsafe { LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr()) };
+        Ok(IntValue::new(require_value(value, "integer negation")?))
     }
 
     pub fn build_float_neg(
@@ -897,16 +899,14 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<FloatValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(FloatValue::new(unsafe {
-            LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr())
-        }))
+        let value = unsafe { LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr()) };
+        Ok(FloatValue::new(require_value(value, "floating negation")?))
     }
 
     pub fn build_not(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(IntValue::new(unsafe {
-            LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr())
-        }))
+        let value = unsafe { LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr()) };
+        Ok(IntValue::new(require_value(value, "integer not")?))
     }
 
     pub fn build_basic_neg(
@@ -1034,14 +1034,15 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildPointerCast(
                 self.raw,
                 value.as_value_ref(),
                 target.as_type_ref(),
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(value, "pointer cast")?))
     }
 
     pub fn build_ptr_to_int(
@@ -1051,14 +1052,18 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(IntValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildPtrToInt(
                 self.raw,
                 value.as_value_ref(),
                 target.as_type_ref(),
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(IntValue::new(require_value(
+            value,
+            "pointer-to-integer cast",
+        )?))
     }
 
     pub fn build_int_to_ptr(
@@ -1068,14 +1073,18 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildIntToPtr(
                 self.raw,
                 value.as_value_ref(),
                 target.as_type_ref(),
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(
+            value,
+            "integer-to-pointer cast",
+        )?))
     }
 
     pub fn build_int_z_extend(
@@ -1207,14 +1216,15 @@ fn build_int_bin<'ctx>(
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
     let name = to_c_string(name)?;
-    Ok(IntValue::new(unsafe {
+    let value = unsafe {
         f(
             builder,
             lhs.as_value_ref(),
             rhs.as_value_ref(),
             name.as_ptr(),
         )
-    }))
+    };
+    Ok(IntValue::new(require_value(value, "integer operation")?))
 }
 
 fn build_float_bin<'ctx>(
@@ -1225,14 +1235,15 @@ fn build_float_bin<'ctx>(
     name: &str,
 ) -> LlvmResult<FloatValue<'ctx>> {
     let name = to_c_string(name)?;
-    Ok(FloatValue::new(unsafe {
+    let value = unsafe {
         f(
             builder,
             lhs.as_value_ref(),
             rhs.as_value_ref(),
             name.as_ptr(),
         )
-    }))
+    };
+    Ok(FloatValue::new(require_value(value, "floating operation")?))
 }
 
 fn build_basic_bin<'ctx>(
@@ -1261,14 +1272,15 @@ fn cast_int<'ctx>(
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
     let name = to_c_string(name)?;
-    Ok(IntValue::new(unsafe {
+    let value = unsafe {
         f(
             builder,
             value.as_value_ref(),
             target.as_type_ref(),
             name.as_ptr(),
         )
-    }))
+    };
+    Ok(IntValue::new(require_value(value, "integer cast")?))
 }
 
 fn cast_basic<'ctx>(
@@ -1297,14 +1309,15 @@ fn cast_float<'ctx, V: AsValueRef>(
     name: &str,
 ) -> LlvmResult<FloatValue<'ctx>> {
     let name = to_c_string(name)?;
-    Ok(FloatValue::new(unsafe {
+    let value = unsafe {
         f(
             builder,
             value.as_value_ref(),
             target.as_type_ref(),
             name.as_ptr(),
         )
-    }))
+    };
+    Ok(FloatValue::new(require_value(value, "floating cast")?))
 }
 
 fn cast_int_from_float<'ctx>(
@@ -1315,14 +1328,18 @@ fn cast_int_from_float<'ctx>(
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
     let name = to_c_string(name)?;
-    Ok(IntValue::new(unsafe {
+    let value = unsafe {
         f(
             builder,
             value.as_value_ref(),
             target.as_type_ref(),
             name.as_ptr(),
         )
-    }))
+    };
+    Ok(IntValue::new(require_value(
+        value,
+        "floating-to-integer cast",
+    )?))
 }
 
 #[cfg(test)]
