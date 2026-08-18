@@ -462,6 +462,10 @@ commit as the corresponding implementation batch.
       selects scalar/vector or short-circuit builders. A malformed operator
       matrix covers arithmetic, comparison, logical, shift, and dereference
       boundaries.
+- [x] Phase B cast validation now checks target/result metadata, numeric
+      scalar-versus-vector shape, enum/integer and pointer/integer categories,
+      volatile-pointer support, and rejects malformed casts before LLVM chooses
+      typed pointer, float, or integer builders.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

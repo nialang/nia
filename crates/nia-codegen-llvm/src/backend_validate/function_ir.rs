@@ -840,9 +840,11 @@ impl BackendValidator<'_> {
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
             | FunctionExprKind::Discard(expr)
-            | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. } => self.validate_expr(expr),
+            FunctionExprKind::Cast { expr: inner, ty } => {
+                self.validate_cast(expr.ty, *ty, inner, expr.span);
+            }
             FunctionExprKind::LoadUnaligned { ty, ptr } => {
                 self.validate_load_unaligned(expr.ty, *ty, ptr, expr.span)
             }
@@ -1245,6 +1247,141 @@ impl BackendValidator<'_> {
                     );
                 }
             }
+        }
+    }
+
+    fn validate_cast(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        target_ty: nia_ids::InternedTyId,
+        inner: &FunctionExpr,
+        span: Span,
+    ) {
+        self.validate_expr(inner);
+        self.current_subject = Some("cast target");
+        self.validate_runtime_type(target_ty, span);
+        self.current_subject = None;
+        if !self.same_type(result_ty, target_ty) {
+            self.invalid_operator(span, "cast result type does not match its target metadata");
+        }
+        if self.same_type(inner.ty, target_ty) {
+            return;
+        }
+
+        let source_pointer = self.is_pointer_like_type(inner.ty);
+        let target_pointer = self.is_pointer_like_type(target_ty);
+        let source_pointer_int = self.is_pointer_integer_type(inner.ty);
+        let target_pointer_int = self.is_pointer_integer_type(target_ty);
+        let source_integer = self.is_cast_integer_type(inner.ty);
+        let target_integer = self.is_cast_integer_type(target_ty);
+        let source_float = self.is_cast_float_type(inner.ty);
+        let target_float = self.is_cast_float_type(target_ty);
+        let numeric = (source_integer || source_float) && (target_integer || target_float);
+        let char_to_u32 = matches!(
+            self.index.ty_kind(inner.ty),
+            Some(TyKind::Primitive(PrimitiveTy::Char))
+        ) && matches!(
+            self.index.ty_kind(target_ty),
+            Some(TyKind::Primitive(PrimitiveTy::U32))
+        );
+        let enum_cast = (self.is_enum_type(inner.ty) && target_integer)
+            || (source_integer && self.is_enum_type(target_ty));
+        let pointer_cast = (source_pointer && target_pointer)
+            || (source_pointer && target_pointer_int)
+            || (source_pointer_int && target_pointer);
+        if !(numeric || char_to_u32 || enum_cast || pointer_cast) {
+            self.invalid_operator(span, "cast source and target categories are incompatible");
+            return;
+        }
+        if numeric && !self.cast_shapes_match(inner.ty, target_ty) {
+            self.invalid_operator(span, "numeric cast changes scalar/vector shape");
+        }
+    }
+
+    fn is_cast_integer_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        match self.index.ty_kind(ty) {
+            Some(TyKind::Primitive(
+                PrimitiveTy::I8
+                | PrimitiveTy::I16
+                | PrimitiveTy::I32
+                | PrimitiveTy::I64
+                | PrimitiveTy::I128
+                | PrimitiveTy::Isize
+                | PrimitiveTy::U8
+                | PrimitiveTy::U16
+                | PrimitiveTy::U32
+                | PrimitiveTy::U64
+                | PrimitiveTy::U128
+                | PrimitiveTy::Usize,
+            )) => true,
+            Some(TyKind::Vector { elem, .. }) => matches!(
+                elem,
+                PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize
+                    | PrimitiveTy::U8
+                    | PrimitiveTy::U16
+                    | PrimitiveTy::U32
+                    | PrimitiveTy::U64
+                    | PrimitiveTy::U128
+                    | PrimitiveTy::Usize
+                    | PrimitiveTy::Bool
+            ),
+            _ => false,
+        }
+    }
+
+    fn is_cast_float_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                | Some(TyKind::Vector {
+                    elem: PrimitiveTy::F32 | PrimitiveTy::F64,
+                    ..
+                })
+        )
+    }
+
+    fn is_pointer_like_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.index.ty_kind(ty),
+            Some(
+                TyKind::Pointer { .. }
+                    | TyKind::VolatilePointer { .. }
+                    | TyKind::FunctionPointer { .. }
+            )
+        )
+    }
+
+    fn is_pointer_integer_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Isize | PrimitiveTy::Usize))
+        )
+    }
+
+    fn is_enum_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Nominal { def_id, .. }) if self.index.has_enum(*def_id)
+        )
+    }
+
+    fn cast_shapes_match(
+        &self,
+        source: nia_ids::InternedTyId,
+        target: nia_ids::InternedTyId,
+    ) -> bool {
+        match (self.index.ty_kind(source), self.index.ty_kind(target)) {
+            (
+                Some(TyKind::Vector { lanes: source, .. }),
+                Some(TyKind::Vector { lanes: target, .. }),
+            ) => source == target,
+            (Some(TyKind::Vector { .. }), _) | (_, Some(TyKind::Vector { .. })) => false,
+            _ => true,
         }
     }
 

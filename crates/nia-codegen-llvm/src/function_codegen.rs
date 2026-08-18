@@ -1198,7 +1198,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn is_pointer_like(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.ty_kind(ty),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+            Some(
+                TyKind::Pointer { .. }
+                    | TyKind::VolatilePointer { .. }
+                    | TyKind::FunctionPointer { .. },
+            )
         )
     }
 
