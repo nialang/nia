@@ -755,6 +755,9 @@ commit as the corresponding implementation batch.
       the exact published source-level function-pointer signature. Validation
       rejects non-pointer result types plus parameter, return, and variadic
       mismatches before LLVM materializes the referenced symbol.
+- [x] Phase B inline assembly now validates its unit effect result, scalar
+      operand boundary, canonical constraints and clobbers, plus exact writable
+      output storage before constructing an LLVM inline-assembly call.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

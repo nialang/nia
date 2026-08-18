@@ -640,14 +640,7 @@ impl BackendValidator<'_> {
             FunctionExprKind::RangeBound { range, bound } => {
                 self.validate_range_bound(expr.ty, range, *bound, expr.span);
             }
-            FunctionExprKind::InlineAsm(asm) => {
-                for input in &asm.inputs {
-                    self.validate_expr(&input.value);
-                }
-                for output in &asm.outputs {
-                    self.validate_place(&output.place);
-                }
-            }
+            FunctionExprKind::InlineAsm(asm) => self.validate_inline_asm(expr.ty, asm, expr.span),
             FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic, expr.ty, expr.span),
             FunctionExprKind::StaticArrayPointer {
                 allocation,
@@ -3316,6 +3309,102 @@ impl BackendValidator<'_> {
                 "variadic flag does not match the published signature",
             );
         }
+    }
+
+    fn validate_inline_asm(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        asm: &nia_function_ir::FunctionInlineAsm,
+        span: Span,
+    ) {
+        if !matches!(self.ty_kind(result_ty), Some(kind) if kind.is_unit()) {
+            self.invalid_inline_asm(span, "expression result type is not unit");
+        }
+        for input in &asm.inputs {
+            self.validate_expr(&input.value);
+            if !self.is_inline_asm_operand_type(input.value.ty) {
+                self.invalid_inline_asm(input.span, "input operand type is not scalar");
+            }
+            if !Self::is_inline_asm_input_constraint(&input.constraint) {
+                self.invalid_inline_asm(input.span, "input constraint is not canonical");
+            }
+        }
+        for output in &asm.outputs {
+            let selected_ty = self.validate_place(&output.place);
+            if !self.is_inline_asm_operand_type(output.place.ty) {
+                self.invalid_inline_asm(output.span, "output operand type is not scalar");
+            }
+            if selected_ty.is_some_and(|ty| !self.same_type(output.place.ty, ty)) {
+                self.invalid_inline_asm(output.span, "output type is only a readonly storage view");
+            }
+            if !self.place_is_writable(&output.place) {
+                self.invalid_inline_asm(output.span, "output storage is not writable");
+            }
+            if !Self::is_inline_asm_output_constraint(&output.constraint) {
+                self.invalid_inline_asm(output.span, "output constraint is not canonical");
+            }
+        }
+        for clobber in &asm.clobbers {
+            if !Self::is_inline_asm_register_name(clobber) {
+                self.invalid_inline_asm(span, "clobber name contains constraint syntax");
+            }
+        }
+    }
+
+    fn is_inline_asm_operand_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        match self.ty_kind(ty) {
+            Some(TyKind::Primitive(primitive)) => *primitive != PrimitiveTy::Never,
+            Some(
+                TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::FunctionPointer { .. },
+            ) => true,
+            // A payload-free enum lowers to its integer tag. Payload enums and
+            // all other aggregates would ask LLVM inline assembly to carry a
+            // struct value directly, which its constraint interface forbids.
+            Some(TyKind::Nominal { def_id, .. }) => {
+                self.index.enum_item(*def_id).is_some_and(|item| {
+                    item.variants.iter().all(|variant| {
+                        matches!(
+                            variant.payload,
+                            nia_backend_ir::BackendEnumVariantPayload::Unit
+                        )
+                    })
+                })
+            }
+            _ => false,
+        }
+    }
+
+    fn is_inline_asm_input_constraint(constraint: &str) -> bool {
+        matches!(constraint, "r" | "f")
+            || constraint
+                .strip_prefix('{')
+                .and_then(|constraint| constraint.strip_suffix('}'))
+                .is_some_and(Self::is_inline_asm_register_name)
+    }
+
+    fn is_inline_asm_output_constraint(constraint: &str) -> bool {
+        constraint
+            .strip_prefix('=')
+            .is_some_and(Self::is_inline_asm_input_constraint)
+    }
+
+    fn is_inline_asm_register_name(name: &str) -> bool {
+        !name.is_empty()
+            && !name.chars().any(|character| {
+                character.is_whitespace()
+                    || character.is_control()
+                    || matches!(character, '{' | '}' | ',')
+            })
+    }
+
+    fn invalid_inline_asm(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR inline assembly has an invalid contract: {message}"),
+        ));
     }
 
     fn invalid_function_value_contract(
