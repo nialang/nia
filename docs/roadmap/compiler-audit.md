@@ -500,6 +500,9 @@ commit as the corresponding implementation batch.
       local/global/deref base, checks pointer and integer-index preconditions,
       and verifies final projection plus address-of result types before LLVM
       forms typed GEPs or loads.
+- [x] Phase B assignment validation now requires a unit result, an exactly
+      typed writable local/global/deref target, and plain or compound RHS
+      contracts matching the store and builtin binary operation LLVM emits.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer

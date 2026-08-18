@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{BinaryOp, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionBody, FunctionCallee,
@@ -10,6 +10,8 @@ use nia_function_ir::{
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind};
+
+use crate::literals::assign_to_binary_op;
 
 use super::{BackendValidator, FunctionInstanceRef};
 
@@ -143,6 +145,12 @@ impl BackendValidator<'_> {
                 .map(|local| (local.id, local.ty))
                 .collect(),
         );
+        self.local_kinds.push(
+            body.locals
+                .iter()
+                .map(|local| (local.id, local.kind))
+                .collect(),
+        );
         // `FunctionBody::ty` describes the lowered block expression and may be
         // `Never` for a terminating builtin even when the declared function
         // return type is a concrete value. Propagation contracts use the
@@ -166,6 +174,7 @@ impl BackendValidator<'_> {
             );
         }
         self.body_tys.pop();
+        self.local_kinds.pop();
         self.local_tys.pop();
     }
 
@@ -950,9 +959,8 @@ impl BackendValidator<'_> {
             } => {
                 self.validate_vector_element(expr.ty, vector, index, Some(value), expr.span);
             }
-            FunctionExprKind::Assign { place, rhs, .. } => {
-                self.validate_place(place);
-                self.validate_expr(rhs);
+            FunctionExprKind::Assign { place, op, rhs } => {
+                self.validate_assignment(expr.ty, place, *op, rhs, expr.span);
             }
             FunctionExprKind::Call { callee, args } => {
                 self.validate_callee(callee, args, expr.ty, expr.span);
@@ -1762,9 +1770,20 @@ impl BackendValidator<'_> {
     ) {
         self.validate_expr(lhs);
         self.validate_expr(rhs);
+        self.validate_binary_contract(result_ty, lhs.ty, op, rhs.ty, span);
+    }
+
+    fn validate_binary_contract(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        lhs_ty: nia_ids::InternedTyId,
+        op: BinaryOp,
+        rhs_ty: nia_ids::InternedTyId,
+        span: Span,
+    ) {
         if matches!(op, BinaryOp::And | BinaryOp::Or) {
-            if !self.is_bool_type(lhs.ty)
-                || !self.is_bool_type(rhs.ty)
+            if !self.is_bool_type(lhs_ty)
+                || !self.is_bool_type(rhs_ty)
                 || !self.is_bool_type(result_ty)
             {
                 self.invalid_operator(span, "logical operator requires bool operands and result");
@@ -1773,12 +1792,12 @@ impl BackendValidator<'_> {
         }
 
         let matching_operands = if matches!(op, BinaryOp::Shl | BinaryOp::Shr) {
-            match self.index.ty_kind(lhs.ty) {
-                Some(TyKind::Vector { .. }) => self.same_type(lhs.ty, rhs.ty),
-                _ => self.is_integer_operator_type(rhs.ty),
+            match self.index.ty_kind(lhs_ty) {
+                Some(TyKind::Vector { .. }) => self.same_type(lhs_ty, rhs_ty),
+                _ => self.is_integer_operator_type(rhs_ty),
             }
         } else {
-            self.same_type(lhs.ty, rhs.ty)
+            self.same_type(lhs_ty, rhs_ty)
         };
         if !matching_operands {
             self.invalid_operator(span, "binary operands do not have a compatible type");
@@ -1793,12 +1812,12 @@ impl BackendValidator<'_> {
             | BinaryOp::Lt
             | BinaryOp::Le
             | BinaryOp::Gt
-            | BinaryOp::Ge => self.is_numeric_operator_type(lhs.ty) || self.is_char_type(lhs.ty),
-            BinaryOp::Eq | BinaryOp::Ne => self.is_comparable_operator_type(lhs.ty),
+            | BinaryOp::Ge => self.is_numeric_operator_type(lhs_ty) || self.is_char_type(lhs_ty),
+            BinaryOp::Eq | BinaryOp::Ne => self.is_comparable_operator_type(lhs_ty),
             BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
-                self.is_integer_operator_type(lhs.ty)
+                self.is_integer_operator_type(lhs_ty)
             }
-            BinaryOp::Shl | BinaryOp::Shr => self.is_integer_operator_type(lhs.ty),
+            BinaryOp::Shl | BinaryOp::Shr => self.is_integer_operator_type(lhs_ty),
             BinaryOp::And | BinaryOp::Or => true,
         };
         if !valid_operand {
@@ -1813,7 +1832,7 @@ impl BackendValidator<'_> {
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne
         );
         let expected_result = if comparison {
-            match self.index.ty_kind(lhs.ty) {
+            match self.index.ty_kind(lhs_ty) {
                 Some(TyKind::Vector { lanes, .. }) => self
                     .index
                     .ty_kind(result_ty)
@@ -1821,7 +1840,7 @@ impl BackendValidator<'_> {
                 _ => self.is_bool_type(result_ty),
             }
         } else {
-            self.same_type(result_ty, lhs.ty)
+            self.same_type(result_ty, lhs_ty)
         };
         if !expected_result {
             self.invalid_operator(span, "binary result type does not match the operation");
@@ -3429,7 +3448,7 @@ impl BackendValidator<'_> {
         ));
     }
 
-    fn validate_place(&mut self, place: &FunctionPlace) {
+    fn validate_place(&mut self, place: &FunctionPlace) -> Option<nia_ids::InternedTyId> {
         self.current_subject = Some("place");
         self.validate_runtime_type(place.ty, place.span);
         self.current_subject = None;
@@ -3493,16 +3512,162 @@ impl BackendValidator<'_> {
             FunctionPlaceBase::Error => false,
         };
         if !valid_base {
-            return;
+            return None;
         }
-        if let Some(selected_ty) = self.validate_place_path(place)
-            && !self.projection_result_compatible(place.ty, selected_ty)
-        {
+        let selected_ty = self.validate_place_path(place)?;
+        if !self.projection_result_compatible(place.ty, selected_ty) {
             self.invalid_place(
                 place.span,
                 "result type does not match the selected storage",
             );
         }
+        Some(selected_ty)
+    }
+
+    fn validate_assignment(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        place: &FunctionPlace,
+        op: AssignOp,
+        rhs: &FunctionExpr,
+        span: Span,
+    ) {
+        let selected_ty = self.validate_place(place);
+        self.validate_expr(rhs);
+        if !matches!(self.ty_kind(result_ty), Some(TyKind::Tuple(elems)) if elems.is_empty()) {
+            self.invalid_assignment(span, "result type is not unit");
+        }
+        let Some(selected_ty) = selected_ty else {
+            return;
+        };
+        // Read expressions may expose a readonly view of mutable storage, but a
+        // store must retain the storage's exact type or LLVM can accept a write
+        // whose source-level pointee qualifiers no longer match.
+        if !self.same_type(place.ty, selected_ty) {
+            self.invalid_assignment(span, "target type is only a readonly storage view");
+        }
+        if !self.place_is_writable(place) {
+            self.invalid_assignment(span, "target storage is not writable");
+        }
+        if op == AssignOp::Assign {
+            if !self.same_type(place.ty, rhs.ty) {
+                self.invalid_assignment(span, "right-hand side type does not match the target");
+            }
+        } else if let Some(binary_op) = assign_to_binary_op(op) {
+            self.validate_binary_contract(place.ty, place.ty, binary_op, rhs.ty, span);
+        }
+    }
+
+    fn place_is_writable(&self, place: &FunctionPlace) -> bool {
+        let mut writable = match &place.base {
+            FunctionPlaceBase::Local(local_id) => self
+                .local_kinds
+                .last()
+                .and_then(|locals| locals.get(local_id))
+                .is_some_and(|kind| *kind != nia_function_ir::FunctionLocalKind::ImmutableBinding),
+            FunctionPlaceBase::Global(def_id) => self
+                .index
+                .global(*def_id)
+                .is_some_and(|global| !global.is_let),
+            FunctionPlaceBase::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+                const_args,
+            } => self
+                .index
+                .global_instance(*def_id, *arg_module_id, args, const_args)
+                .is_some_and(|global| !global.is_let),
+            FunctionPlaceBase::Deref(expr) => matches!(
+                self.ty_kind(expr.ty),
+                Some(
+                    TyKind::Pointer {
+                        is_readonly: false,
+                        ..
+                    } | TyKind::VolatilePointer {
+                        is_readonly: false,
+                        ..
+                    }
+                )
+            ),
+            FunctionPlaceBase::Error => false,
+        };
+        let Some(mut current_ty) = self.place_base_ty(place) else {
+            return false;
+        };
+        for elem in &place.elems {
+            match elem {
+                FunctionPlaceElem::Field(field) => {
+                    if let Some(
+                        TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. },
+                    ) = self.ty_kind(current_ty)
+                    {
+                        current_ty = *elem;
+                    }
+                    let Some((def_id, args, const_args)) = self.field_base_type(current_ty) else {
+                        return false;
+                    };
+                    let Some(field_ty) = self
+                        .aggregate_fields(def_id, &args, &const_args)
+                        .and_then(|fields| {
+                            fields.iter().find(|candidate| candidate.def_id == *field)
+                        })
+                        .map(|field| field.ty)
+                    else {
+                        return false;
+                    };
+                    current_ty = field_ty;
+                }
+                FunctionPlaceElem::TupleField(index) => {
+                    let Some(
+                        TyKind::Tuple(elems)
+                        | TyKind::ClosureState {
+                            captures: elems, ..
+                        },
+                    ) = self.ty_kind(current_ty)
+                    else {
+                        return false;
+                    };
+                    let Some(elem) = elems.get(*index) else {
+                        return false;
+                    };
+                    current_ty = *elem;
+                }
+                FunctionPlaceElem::Index(_) => {
+                    let Some(elem_ty) = self.array_elem_ty(current_ty) else {
+                        return false;
+                    };
+                    if matches!(
+                        self.ty_kind(current_ty),
+                        Some(
+                            TyKind::Pointer {
+                                is_readonly: true,
+                                ..
+                            } | TyKind::VolatilePointer {
+                                is_readonly: true,
+                                ..
+                            } | TyKind::Slice {
+                                is_readonly: true,
+                                ..
+                            }
+                        )
+                    ) {
+                        writable = false;
+                    }
+                    current_ty = elem_ty;
+                }
+                FunctionPlaceElem::Error => return false,
+            }
+        }
+        writable
+    }
+
+    fn invalid_assignment(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR assignment has an invalid contract: {message}"),
+        ));
     }
 
     fn validate_addr_of_result(

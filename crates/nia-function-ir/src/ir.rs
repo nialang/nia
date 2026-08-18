@@ -441,6 +441,10 @@ pub enum FunctionExprKind {
         op: BinaryOp,
         rhs: Box<FunctionExpr>,
     },
+    /// Writes `rhs` into an exactly typed, writable place and evaluates to unit.
+    ///
+    /// Compound forms apply the corresponding builtin binary operation to the
+    /// current place value and `rhs`; that operation must produce `place.ty`.
     Assign {
         place: FunctionPlace,
         op: AssignOp,
