@@ -103,7 +103,10 @@ pub struct FunctionBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionOp {
     Binding(FunctionBinding),
-    /// Writes a control-flow result into compiler-owned mutable temporary storage.
+    /// Initializes or merges a control-flow value into exactly typed local storage.
+    ///
+    /// This internal write may initialize an immutable source binding; source
+    /// mutability governs later assignment expressions, not CFG construction.
     StoreLocal {
         local_id: LocalId,
         value: FunctionExpr,
