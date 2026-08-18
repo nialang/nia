@@ -804,6 +804,9 @@ commit as the corresponding implementation batch.
       an invalid builder handle.
 - [x] Phase B LLVM debug metadata factories and declare insertion now validate
       null metadata/instruction returns before constructing typed handles.
+- [x] Phase C function-IR scope unwinding now rejects control-flow edges whose
+      source and destination have unrelated root scopes, while preserving
+      child/ancestor and function-return defer ordering.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
