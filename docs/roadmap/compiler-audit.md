@@ -488,6 +488,10 @@ commit as the corresponding implementation batch.
       layout and field-offset constants, representable layout operands, valid
       aggregate field ownership, and integer-like const-eval results before
       LLVM chooses the result integer type.
+- [x] Phase B promoted static-array pointers now validate their array payload,
+      complete-array pointee type, readonly metadata, and origin module before
+      LLVM publishes promoted storage; malformed producer cases cover each
+      independent metadata mismatch.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

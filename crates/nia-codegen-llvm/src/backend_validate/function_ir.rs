@@ -620,7 +620,9 @@ impl BackendValidator<'_> {
             }
             FunctionExprKind::Atomic(atomic) => self.validate_atomic(atomic, expr.ty, expr.span),
             FunctionExprKind::StaticArrayPointer {
-                allocation, array, ..
+                allocation,
+                array,
+                is_readonly,
             } => {
                 if self.index.module(allocation.module_id()).is_none() {
                     self.diagnostics.push(Diagnostic::internal_error_at(
@@ -629,7 +631,7 @@ impl BackendValidator<'_> {
                         "backend IR static array pointer references a missing origin module",
                     ));
                 }
-                self.validate_expr(array);
+                self.validate_static_array_pointer(expr.ty, array, *is_readonly, expr.span);
             }
             FunctionExprKind::ArrayLiteral { elems } => {
                 let array_contract = match self.index.ty_kind(expr.ty).cloned() {
@@ -2137,6 +2139,40 @@ impl BackendValidator<'_> {
                 self.invalid_range(span, "range bound type does not match its range bound type");
             }
         }
+    }
+
+    fn validate_static_array_pointer(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        array: &FunctionExpr,
+        declared_readonly: bool,
+        span: Span,
+    ) {
+        self.validate_expr(array);
+        if !matches!(self.index.ty_kind(array.ty), Some(TyKind::Array { .. })) {
+            self.invalid_static_array_pointer(span, "promoted value is not an array");
+        }
+        let Some(TyKind::Pointer { is_readonly, elem }) = self.index.ty_kind(result_ty) else {
+            self.invalid_static_array_pointer(span, "result type is not a pointer");
+            return;
+        };
+        if *is_readonly != declared_readonly {
+            self.invalid_static_array_pointer(span, "readonly metadata does not match its result");
+        }
+        if !self.same_type(*elem, array.ty) {
+            self.invalid_static_array_pointer(
+                span,
+                "result pointer element does not match the promoted array",
+            );
+        }
+    }
+
+    fn invalid_static_array_pointer(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR static array pointer has an invalid contract: {message}"),
+        ));
     }
 
     fn validate_range_bound(

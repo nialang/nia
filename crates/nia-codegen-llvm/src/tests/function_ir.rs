@@ -1855,6 +1855,18 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         len: ArrayLenTy::ConstValue(1),
         elem: char_ty,
     });
+    let readonly_bool_array_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: bool_array_ty,
+    });
+    let readonly_bool_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: bool_ty,
+    });
+    let mutable_bool_array_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: bool_array_ty,
+    });
     let range_exclusive_ty = interner.intern(TyKind::Range {
         kind: nia_ty::RangeTyKind::Exclusive,
         bound: Some(usize_ty),
@@ -2059,6 +2071,42 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
                 nia_ty::IntConst::unsigned(1),
             )),
         }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::StaticArrayPointer {
+                allocation: nia_function_ir::PromotedAllocationId::new(module_id, span),
+                array: Box::new(value(bool_array_ty)),
+                is_readonly: true,
+            },
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: readonly_bool_ptr_ty,
+            kind: FunctionExprKind::StaticArrayPointer {
+                allocation: nia_function_ir::PromotedAllocationId::new(module_id, span),
+                array: Box::new(value(bool_array_ty)),
+                is_readonly: true,
+            },
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: mutable_bool_array_ptr_ty,
+            kind: FunctionExprKind::StaticArrayPointer {
+                allocation: nia_function_ir::PromotedAllocationId::new(module_id, span),
+                array: Box::new(value(bool_array_ty)),
+                is_readonly: true,
+            },
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: readonly_bool_array_ptr_ty,
+            kind: FunctionExprKind::StaticArrayPointer {
+                allocation: nia_function_ir::PromotedAllocationId::new(module_id, span),
+                array: Box::new(value(bool_ty)),
+                is_readonly: true,
+            },
+        }),
     ];
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -2141,6 +2189,10 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         "builtin value has an invalid contract: result type is not usize",
         "field base type is not nominal",
         "integer constant result is not integer-like",
+        "static array pointer has an invalid contract: result type is not a pointer",
+        "result pointer element does not match the promoted array",
+        "readonly metadata does not match its result",
+        "promoted value is not an array",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
