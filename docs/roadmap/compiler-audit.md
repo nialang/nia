@@ -492,6 +492,10 @@ commit as the corresponding implementation batch.
       complete-array pointee type, readonly metadata, and origin module before
       LLVM publishes promoted storage; malformed producer cases cover each
       independent metadata mismatch.
+- [x] Phase B global and generic-global-instance expressions now validate their
+      typed view against published storage metadata, including only the
+      source-approved mutable-to-readonly qualifier coercion, before LLVM loads
+      the selected global.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer

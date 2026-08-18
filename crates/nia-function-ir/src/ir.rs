@@ -290,8 +290,10 @@ pub enum FunctionExprKind {
     /// or slice view. Operations that write a local (`Binding` and `StoreLocal`)
     /// retain the stronger storage-type contract.
     Local(LocalId),
+    /// Loads a global through its declared storage type or a readonly-qualified view.
     Global(nia_ids::GlobalDefId),
     ConstGeneric(ConstGenericArg),
+    /// Loads one concrete generic global instance through its published storage type.
     GlobalInstance {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
