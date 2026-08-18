@@ -6101,6 +6101,114 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
 }
 
 #[test]
+fn validates_static_function_address_signatures_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let wrong_params_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![bool_ty],
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let wrong_variadic_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: bool_ty,
+        is_variadic: true,
+    });
+    let function_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let span = Span::default();
+    let globals = [wrong_params_ty, wrong_variadic_ty]
+        .into_iter()
+        .enumerate()
+        .map(|(index, ty)| BackendGlobal {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId((index as u64) + 1),
+            },
+            name: sym(if index == 0 {
+                "wrong_params"
+            } else {
+                "wrong_variadic"
+            }),
+            link_name: None,
+            ty,
+            is_let: true,
+            is_extern: false,
+            init: Some(StaticInit::AddrOfFunction {
+                function: function_id,
+                args: Vec::new(),
+            }),
+            span,
+        })
+        .collect();
+    let function = BackendFunction {
+        def_id: function_id,
+        name: sym("target"),
+        link_name: None,
+        generics: Vec::new(),
+        params: vec![BackendParam {
+            local_id: None,
+            name: None,
+            receiver: None,
+            passing_ty: i32_ty,
+            local_ty: i32_ty,
+            span,
+        }],
+        return_type: bool_ty,
+        is_extern: true,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(
+        single_module_program(
+            module_id,
+            BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (bool_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (wrong_params_ty, TypeLayout { size: 8, align: 8 }),
+                    (wrong_variadic_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            Vec::new(),
+            Vec::new(),
+            globals,
+            vec![function],
+        ),
+        type_store,
+    );
+    assert!(output.modules.is_empty());
+    for message in [
+        "function address parameter types do not match its target",
+        "function address return type does not match its target",
+        "function address variadic flag does not match its target",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_backend_ir_static_address_path_shape_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
