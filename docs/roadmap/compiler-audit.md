@@ -824,6 +824,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase C function-IR scope unwinding now rejects control-flow edges whose
       source and destination have unrelated root scopes, while preserving
       child/ancestor and function-return defer ordering.
+- [x] Phase B LLVM context/module allocation wrappers now check module,
+      function, global, and basic-block handles before typed construction;
+      null-result helper tests and owner-level error contracts prevent FFI
+      allocation failures from becoming wrapper-constructor panics.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
