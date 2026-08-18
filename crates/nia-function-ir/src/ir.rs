@@ -456,11 +456,13 @@ pub enum FunctionExprKind {
         expr: Box<FunctionExpr>,
         ty: InternedTyId,
     },
+    /// Repoints an existing trait object at a supertrait vtable.
     TraitObjectUpcast {
         expr: Box<FunctionExpr>,
         source_ty: InternedTyId,
         target_ty: InternedTyId,
     },
+    /// Builds a trait object from a pointer/slice data view and a concrete vtable.
     TraitObjectCoercion {
         expr: Box<FunctionExpr>,
         target_ty: InternedTyId,
