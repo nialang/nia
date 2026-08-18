@@ -511,6 +511,10 @@ commit as the corresponding implementation batch.
       non-indexable bases before LLVM computes element addresses, while still
       checking the selected element result type for valid arrays, pointers, and
       slices.
+- [x] Phase B trait-object expression validation now checks upcast/coercion
+      source and result identities, readonly direction, concrete data-element
+      types, and required owner-indexed vtables before LLVM rewrites fat-pointer
+      metadata.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer
