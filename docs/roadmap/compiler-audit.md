@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 145 completed entries in this ledger.
+- Implementation batches: 146 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -864,6 +864,11 @@ acceptance item only when its phase-wide evidence is complete.
       signed/unsigned arithmetic, scalar/vector operations, and conversions.
       `cargo rustdoc -p nia-llvm -- -D missing-docs` is now clean, reducing the
       crate's audited baseline from 382 warnings to zero without suppression.
+- [x] Cross-cutting backend-IR Rustdoc now documents the program/module views,
+      write-once concurrent module store, single-consumer readiness protocol,
+      and preplanned owner directory invariants. Its unsuppressed missing-docs
+      baseline fell from 279 warnings to 244; partition and payload schemas
+      remain open, while `nia-backend-lower` is already clean.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Validated, target-independent program representation consumed by codegen.
+//!
+//! Backend lowering publishes modules independently into [`BackendModuleStore`].
+//! The immutable owner directory and single-consumer readiness stream let
+//! parallel codegen discover exact definition owners without making completion
+//! order observable in stable partition identities.
+
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt,
@@ -24,11 +31,14 @@ const SOURCE_CODEGEN_BUCKETS: usize = 4;
 const SOURCE_CODEGEN_SPLIT_THRESHOLD: usize = 8;
 
 #[derive(Debug, PartialEq)]
+/// Complete backend program backed by a fully published module store.
 pub struct BackendProgram {
+    /// Modules in their stable source order.
     pub modules: BackendModules,
 }
 
 impl BackendProgram {
+    /// Builds and synchronously publishes a program from ordered modules.
     pub fn new(modules: Vec<BackendModule>) -> Self {
         let module_ids = modules.iter().map(|module| module.id).collect::<Vec<_>>();
         let store = Arc::new(BackendModuleStore::new(module_ids));
@@ -38,6 +48,7 @@ impl BackendProgram {
         Self::from_module_store(store)
     }
 
+    /// Wraps a module store after asserting every planned owner was published.
     pub fn from_module_store(store: Arc<BackendModuleStore>) -> Self {
         assert!(
             store.is_complete(),
@@ -48,14 +59,17 @@ impl BackendProgram {
         }
     }
 
+    /// Returns shared access to the immutable published module store.
     pub fn module_store(&self) -> Arc<BackendModuleStore> {
         Arc::clone(&self.modules.store)
     }
 
+    /// Derives the deterministic codegen partition plan.
     pub fn codegen_partition_plan(&self) -> CodegenPartitionPlan {
         CodegenPartitionPlan::from_modules(&self.modules)
     }
 
+    /// Resolves and validates the source module owning `partition`.
     pub fn module_for_partition(&self, partition: &CodegenPartition) -> &BackendModule {
         let module_id = match partition.id {
             CodegenUnitId::SourceModule { module_id, .. } => module_id,
@@ -83,23 +97,28 @@ impl BackendProgram {
 }
 
 #[derive(Clone)]
+/// Stable source-ordered view over a shared backend module store.
 pub struct BackendModules {
     store: Arc<BackendModuleStore>,
 }
 
 impl BackendModules {
+    /// Returns the number of planned module positions.
     pub fn len(&self) -> usize {
         self.store.module_ids.len()
     }
 
+    /// Reports whether the program has no source modules.
     pub fn is_empty(&self) -> bool {
         self.store.module_ids.is_empty()
     }
 
+    /// Returns the published module at `position`.
     pub fn get(&self, position: usize) -> Option<&BackendModule> {
         self.store.get_at(position)
     }
 
+    /// Iterates modules in stable source order.
     pub fn iter(&self) -> BackendModulesIter<'_> {
         BackendModulesIter {
             modules: self,
@@ -144,6 +163,7 @@ impl<'a> IntoIterator for &'a BackendModules {
     }
 }
 
+/// Source-ordered iterator over published backend modules.
 pub struct BackendModulesIter<'a> {
     modules: &'a BackendModules,
     position: usize,
@@ -167,6 +187,11 @@ impl<'a> Iterator for BackendModulesIter<'a> {
 impl ExactSizeIterator for BackendModulesIter<'_> {}
 
 #[derive(Debug)]
+/// Write-once concurrent publication store for planned backend modules.
+///
+/// Each registered owner has one [`OnceLock`] slot. Publication records a
+/// completion under the readiness mutex only after the slot becomes visible;
+/// the unique readiness consumer can therefore immediately read every event.
 pub struct BackendModuleStore {
     module_ids: Vec<ModuleId>,
     positions: HashMap<ModuleId, usize>,
@@ -177,16 +202,19 @@ pub struct BackendModuleStore {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One published module notification from the readiness stream.
 pub struct BackendModuleReady {
     position: usize,
     module_id: ModuleId,
 }
 
 impl BackendModuleReady {
+    /// Returns the module's stable source position.
     pub fn position(self) -> usize {
         self.position
     }
 
+    /// Returns the published module owner.
     pub fn module_id(self) -> ModuleId {
         self.module_id
     }
@@ -198,12 +226,17 @@ struct BackendModuleReadinessState {
 }
 
 #[derive(Debug)]
+/// Unique blocking consumer of module publication events.
 pub struct BackendModuleReadiness {
     store: Arc<BackendModuleStore>,
     next: usize,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
+/// Immutable mapping from every backend definition identity to its module.
+///
+/// It is planned before parallel finalization, so codegen dependency discovery
+/// never depends on which module happens to publish first.
 pub struct BackendModuleOwnerDirectory {
     items: HashMap<GlobalDefId, ModuleId>,
     struct_instances: HashMap<BackendStructInstanceKey, ModuleId>,
@@ -216,6 +249,7 @@ pub struct BackendModuleOwnerDirectory {
 }
 
 impl BackendModuleOwnerDirectory {
+    /// Builds the directory and rejects duplicate definition owners.
     pub fn from_modules<'a>(modules: impl IntoIterator<Item = &'a BackendModule>) -> Self {
         let mut directory = Self::default();
         for module in modules {
@@ -320,10 +354,12 @@ impl BackendModuleOwnerDirectory {
         directory
     }
 
+    /// Returns the module owning a non-instantiated item definition.
     pub fn item_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
         self.items.get(&def_id).copied()
     }
 
+    /// Confirms that every finalized definition was present in the plan.
     pub fn validate_finalized_module(&self, module: &BackendModule) {
         let definitions = Self::from_modules([module]);
         for (def_id, owner) in definitions.items {
@@ -370,22 +406,27 @@ impl BackendModuleOwnerDirectory {
         }
     }
 
+    /// Returns the owner of an exact struct instance.
     pub fn struct_instance_owner(&self, key: &BackendStructInstanceKey) -> Option<ModuleId> {
         self.struct_instances.get(key).copied()
     }
 
+    /// Returns the owner of an exact union instance.
     pub fn union_instance_owner(&self, key: &BackendStructInstanceKey) -> Option<ModuleId> {
         self.union_instances.get(key).copied()
     }
 
+    /// Returns the owner of an exact global instance.
     pub fn global_instance_owner(&self, key: &BackendGlobalInstanceKey) -> Option<ModuleId> {
         self.global_instances.get(key).copied()
     }
 
+    /// Returns the owner of an exact function instance.
     pub fn function_instance_owner(&self, key: &FunctionInstanceKey) -> Option<ModuleId> {
         self.function_instances.get(key).copied()
     }
 
+    /// Returns the owner of an exact trait-object vtable.
     pub fn vtable_owner(&self, key: &BackendTraitObjectVtableKey) -> Option<ModuleId> {
         self.vtables.get(key).copied()
     }
@@ -417,6 +458,7 @@ impl BackendModuleOwnerDirectory {
 }
 
 impl BackendModuleStore {
+    /// Registers the unique module owners that may later be published.
     pub fn new(module_ids: impl IntoIterator<Item = ModuleId>) -> Self {
         let module_ids = module_ids.into_iter().collect::<Vec<_>>();
         let mut positions = HashMap::with_capacity(module_ids.len());
@@ -438,10 +480,12 @@ impl BackendModuleStore {
         }
     }
 
+    /// Returns registered owners in stable source order.
     pub fn module_ids(&self) -> &[ModuleId] {
         &self.module_ids
     }
 
+    /// Publishes one registered owner exactly once and signals readiness.
     pub fn publish(&self, module: BackendModule) -> &BackendModule {
         let module_id = module.id;
         let position = *self.positions.get(&module_id).unwrap_or_else(|| {
@@ -466,6 +510,7 @@ impl BackendModuleStore {
         published
     }
 
+    /// Returns a module only after its slot has been published.
     pub fn get(&self, module_id: ModuleId) -> Option<&BackendModule> {
         self.positions
             .get(&module_id)
@@ -476,10 +521,12 @@ impl BackendModuleStore {
         self.slots.get(position).and_then(OnceLock::get)
     }
 
+    /// Reports whether every registered owner has been published.
     pub fn is_complete(&self) -> bool {
         self.slots.iter().all(|slot| slot.get().is_some())
     }
 
+    /// Claims the store's single readiness consumer.
     pub fn take_readiness(self: &Arc<Self>) -> BackendModuleReadiness {
         assert!(
             self.readiness_claimed
@@ -495,6 +542,7 @@ impl BackendModuleStore {
 }
 
 impl BackendModuleReadiness {
+    /// Blocks until the next publication, or returns `None` after completion.
     pub fn wait_next(&mut self) -> Option<BackendModuleReady> {
         let mut readiness = self
             .store
