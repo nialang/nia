@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 147 completed entries in this ledger.
+- Implementation batches: 148 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -875,6 +875,11 @@ acceptance item only when its phase-wide evidence is complete.
       tests cover allocation-independent keys, duplicate rejection, stable
       membership, and malformed linker order; the unsuppressed backend-IR
       missing-docs baseline fell from 244 warnings to 212.
+- [x] Cross-cutting backend-IR payload Rustdoc now documents module ownership,
+      layout snapshots, closure-entry ABI, generic substitutions, static
+      payloads, function parameters, and trait-object dispatch records. The
+      crate's strict `missing-docs` audit is now clean; the remaining backend-IR
+      schema review is limited to any newly introduced public types.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

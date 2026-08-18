@@ -573,7 +573,14 @@ impl BackendModuleReadiness {
 /// [`CompilerBuiltins`](Self::CompilerBuiltins) is reserved for runtime support
 /// emitted outside any source module.
 pub enum CodegenUnitId {
-    SourceModule { module_id: ModuleId, ordinal: u32 },
+    /// Partition belonging to a source module.
+    SourceModule {
+        /// Transient owner module id.
+        module_id: ModuleId,
+        /// Deterministic partition bucket ordinal.
+        ordinal: u32,
+    },
+    /// Runtime/compiler support unit outside source modules.
     CompilerBuiltins,
 }
 
@@ -590,10 +597,14 @@ impl CodegenUnitId {
 /// [`ModuleId`], so clean and incremental builds agree even when module slots
 /// are allocated in a different order.
 pub enum CodegenUnitKey {
+    /// Stable source partition identity.
     SourceModule {
+        /// Stable source identity of the owning module.
         source_identity: SourceIdentity,
+        /// Deterministic partition bucket ordinal.
         ordinal: u32,
     },
+    /// Stable identity for compiler-provided support code.
     CompilerBuiltins,
 }
 
@@ -698,8 +709,11 @@ impl CodegenUnitPendingModules {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// One stable code-generation unit and its reusable object/fingerprint pair.
 pub struct IncrementalLinkInput<T> {
+    /// Stable partition identity used for ordering and cache lookup.
     pub key: CodegenUnitKey,
+    /// Fingerprint of the partition contents and dependencies.
     pub fingerprint: CodegenUnitFingerprint,
+    /// Reusable object payload associated with the fingerprint.
     pub object: T,
 }
 
@@ -830,7 +844,9 @@ impl CodegenPartitionPlan {
 /// partition id and key must describe the same module and ordinal; consumers
 /// should resolve the owner through [`BackendProgram::module_for_partition`].
 pub struct CodegenPartition {
+    /// Transient module/ordinal identity used for owner lookup.
     pub id: CodegenUnitId,
+    /// Stable identity used for sorting and incremental matching.
     pub key: CodegenUnitKey,
     definitions: CodegenPartitionDefinitions,
 }
@@ -1036,24 +1052,42 @@ fn stable_symbol_bucket(symbol: &str) -> usize {
     nia_symbol::stable_hash(symbol) as usize % SOURCE_CODEGEN_BUCKETS
 }
 
+/// Fully lowered payload for one source module.
 #[derive(Debug, PartialEq)]
 pub struct BackendModule {
+    /// Transient owner id used during this compilation.
     pub id: ModuleId,
+    /// Stable source identity used in partition and cache keys.
     pub source_identity: SourceIdentity,
+    /// Human-readable module name retained for diagnostics.
     pub name: String,
+    /// Const-evaluation facts consumed by backend lowering.
     pub const_eval: BackendConstFacts,
+    /// Target layout facts copied across the backend boundary.
     pub layouts: BackendLayouts,
+    /// Nominal struct definitions owned by this module.
     pub structs: Vec<BackendStruct>,
+    /// Nominal union definitions owned by this module.
     pub unions: Vec<BackendUnion>,
+    /// Materialized generic struct instances.
     pub struct_instances: Vec<BackendStructInstance>,
+    /// Materialized generic union instances.
     pub union_instances: Vec<BackendUnionInstance>,
+    /// Enum definitions with evaluated discriminants.
     pub enums: Vec<BackendEnum>,
+    /// Non-generic globals, including extern declarations.
     pub globals: Vec<BackendGlobal>,
+    /// Concrete global instances required by reachable code.
     pub global_instances: Vec<BackendGlobalInstance>,
+    /// Function definitions, optionally carrying a body.
     pub functions: Vec<BackendFunction>,
+    /// Concrete function instances, optionally carrying a body.
     pub function_instances: Vec<BackendFunctionInstance>,
+    /// Generated closure entry points and hidden-state ABI.
     pub closure_entries: Vec<BackendClosureEntry>,
+    /// Materialized trait-object dispatch tables.
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
+    /// Generic definitions instantiated while lowering this module.
     pub generic_instantiations: Vec<BackendGenericInstantiation>,
 }
 
@@ -1062,13 +1096,18 @@ pub struct BackendModule {
 /// distinguishes entries materialized for separate generic instances.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BackendClosureEntryOwner {
+    /// A source function owns the closure entry directly.
     Source(GlobalDefId),
+    /// A concrete function instance supplies its substitutions.
     FunctionInstance(FunctionInstanceKey),
 }
 
+/// Stable identity of a generated closure entry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendClosureEntryKey {
+    /// Source closure identity shared by generic materializations.
     pub closure_id: ClosureId,
+    /// Concrete owner that determines captured substitutions.
     pub owner: BackendClosureEntryOwner,
 }
 
@@ -1078,48 +1117,76 @@ pub struct BackendClosureEntryKey {
 /// in source order and the entry is never variadic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendClosureEntryAbi {
+    /// Type of the closure state value.
     pub state_type: InternedTyId,
+    /// Pointer type used by the hidden state parameter.
     pub state_pointer_type: InternedTyId,
+    /// User-visible parameter types in source order.
     pub params: Vec<InternedTyId>,
+    /// Return type of the generated entry point.
     pub return_type: InternedTyId,
 }
 
+/// Lowered generated function that invokes one closure body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendClosureEntry {
+    /// Stable closure/owner identity used for deduplication.
     pub key: BackendClosureEntryKey,
+    /// Backend symbol emitted for the entry point.
     pub symbol: String,
+    /// ABI including the hidden state pointer.
     pub abi: BackendClosureEntryAbi,
+    /// Local id bound to the hidden state pointer.
     pub state_param: LocalId,
+    /// Local ids for user parameters in ABI order.
     pub params: Vec<LocalId>,
+    /// Names retained for diagnostics and debug metadata.
     pub local_names: HashMap<LocalId, String>,
+    /// Lowered function body for this concrete entry.
     pub function_body: FunctionBody,
+    /// Source span of the closure expression.
     pub span: Span,
 }
 
+/// Evaluated constants needed by backend type construction.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BackendConstFacts {
+    /// Evaluated array lengths keyed by canonical const expression.
     pub array_lengths: HashMap<GlobalConstExprId, u64>,
 }
 
+/// Target-specific layouts required to lower one module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLayouts {
+    /// Target pointer width, alignment and endian layout.
     pub target: nia_layout::TargetDataLayout,
+    /// Layouts for interned types used by this module.
     pub types: Vec<(InternedTyId, TypeLayout)>,
+    /// Layouts for nominal struct definitions.
     pub structs: Vec<(GlobalDefId, StructLayout)>,
+    /// Layouts for nominal union definitions.
     pub unions: Vec<(GlobalDefId, StructLayout)>,
+    /// Layouts for enum definitions.
     pub enums: Vec<(GlobalDefId, nia_layout::EnumLayout)>,
+    /// Layouts for materialized struct instances.
     pub struct_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
+    /// Layouts for materialized union instances.
     pub union_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
 }
 
+/// Identity of one materialized struct or union layout.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendStructInstanceKey {
+    /// Defining nominal type identity.
     pub def_id: GlobalDefId,
+    /// Type arguments in canonical generic-parameter order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with the type arguments.
     pub const_args: Vec<ConstGenericArg>,
 }
 
 impl BackendLayouts {
+    /// Copies module-local layout keys into program-wide backend identities.
     pub fn from_module_layouts(module_id: ModuleId, layouts: &Layouts) -> Self {
         Self {
             target: layouts.target,
@@ -1192,6 +1259,7 @@ impl BackendLayouts {
 }
 
 impl BackendStructInstanceKey {
+    /// Qualifies a module-local layout key with its owning module.
     pub fn from_module_key(module_id: ModuleId, key: &StructLayoutKey) -> Self {
         Self {
             def_id: GlobalDefId {
@@ -1204,154 +1272,263 @@ impl BackendStructInstanceKey {
     }
 }
 
+/// Nominal struct definition after semantic validation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendStruct {
+    /// Program-wide definition identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Declared generic parameters in source order.
     pub generics: Vec<SymbolId>,
+    /// Fields in declaration order.
     pub fields: Vec<BackendField>,
+    /// Whether storage is supplied by foreign code.
     pub is_extern: bool,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Nominal union definition after semantic validation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendUnion {
+    /// Program-wide definition identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Declared generic parameters in source order.
     pub generics: Vec<SymbolId>,
+    /// Union fields in declaration order.
     pub fields: Vec<BackendField>,
+    /// Whether storage is supplied by foreign code.
     pub is_extern: bool,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Concrete struct instance with substitutions and a backend symbol.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendStructInstance {
+    /// Defining nominal type identity.
     pub def_id: GlobalDefId,
+    /// Interned instantiated name.
     pub name: SymbolId,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Stable linker symbol for this instance.
     pub symbol: String,
+    /// Instantiated fields in declaration order.
     pub fields: Vec<BackendField>,
+    /// Whether storage is supplied by foreign code.
     pub is_extern: bool,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Concrete union instance with substitutions and a backend symbol.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendUnionInstance {
+    /// Defining nominal type identity.
     pub def_id: GlobalDefId,
+    /// Interned instantiated name.
     pub name: SymbolId,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Stable linker symbol for this instance.
     pub symbol: String,
+    /// Instantiated fields in declaration order.
     pub fields: Vec<BackendField>,
+    /// Whether storage is supplied by foreign code.
     pub is_extern: bool,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// One validated field shared by nominal definitions and instances.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendField {
+    /// Program-wide field definition identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Lowered field type.
     pub ty: InternedTyId,
+    /// Source field span.
     pub span: Span,
 }
 
+/// Enum definition with its target backing type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendEnum {
+    /// Program-wide definition identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Integer type used to encode discriminants.
     pub backing_type: InternedTyId,
+    /// Variants in declaration order.
     pub variants: Vec<BackendEnumVariant>,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// One enum variant and its optional discriminant/payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendEnumVariant {
+    /// Program-wide variant identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Explicit or evaluated discriminant value.
     pub value: Option<i128>,
+    /// Validated payload shape.
     pub payload: BackendEnumVariantPayload,
+    /// Source variant span.
     pub span: Span,
 }
 
+/// Payload layout of an enum variant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackendEnumVariantPayload {
+    /// No fields or payload.
     Unit,
+    /// Unnamed fields in tuple order.
     Tuple(Vec<InternedTyId>),
+    /// Named fields in declaration order.
     Named(Vec<BackendField>),
 }
 
+/// Non-generic global declaration or definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendGlobal {
+    /// Program-wide definition identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Optional externally visible linker name.
     pub link_name: Option<String>,
+    /// Declared storage type.
     pub ty: InternedTyId,
+    /// Whether the global is immutable after initialization.
     pub is_let: bool,
+    /// Whether storage is supplied by foreign code.
     pub is_extern: bool,
+    /// Validated static initializer, if one is present.
     pub init: Option<StaticInit>,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Identity of one concrete generic global instance.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendGlobalInstanceKey {
+    /// Defining global identity.
     pub def_id: GlobalDefId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
 }
 
+/// Concrete generic global definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendGlobalInstance {
+    /// Defining global identity.
     pub def_id: GlobalDefId,
+    /// Interned instantiated name.
     pub name: SymbolId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Stable linker symbol for this instance.
     pub symbol: String,
+    /// Instantiated storage type.
     pub ty: InternedTyId,
+    /// Whether the global is immutable after initialization.
     pub is_let: bool,
+    /// Validated static initializer.
     pub init: Option<StaticInit>,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Non-generic function declaration or definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendFunction {
+    /// Program-wide definition identity.
     pub def_id: GlobalDefId,
+    /// Interned source name.
     pub name: SymbolId,
+    /// Optional externally visible linker name.
     pub link_name: Option<String>,
+    /// Declared generic parameters in source order.
     pub generics: Vec<SymbolId>,
+    /// ABI parameters in source order.
     pub params: Vec<BackendParam>,
+    /// Declared return type.
     pub return_type: InternedTyId,
+    /// Whether the function uses a foreign calling convention.
     pub is_extern: bool,
+    /// Whether the final parameter is variadic.
     pub is_variadic: bool,
+    /// Backend attributes already validated by semantic lowering.
     pub attributes: Vec<BackendFunctionAttribute>,
+    /// Names retained for diagnostics and debug metadata.
     pub local_names: HashMap<LocalId, String>,
+    /// Lowered body for a definition that is emitted locally.
     pub function_body: Option<FunctionBody>,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Backend attributes that affect function emission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendFunctionAttribute {
+    /// Emit without a compiler-generated prologue or epilogue.
     Naked,
 }
 
+/// Concrete generic function definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendFunctionInstance {
+    /// Defining function identity.
     pub def_id: GlobalDefId,
+    /// Interned instantiated name.
     pub name: SymbolId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Optional receiver substitution for methods.
     pub self_arg: Option<InternedTyId>,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Stable linker symbol for this instance.
     pub symbol: String,
+    /// ABI parameters in source order.
     pub params: Vec<BackendParam>,
+    /// Instantiated return type.
     pub return_type: InternedTyId,
+    /// Whether the function uses a foreign calling convention.
     pub is_extern: bool,
+    /// Whether the final parameter is variadic.
     pub is_variadic: bool,
+    /// Backend attributes already validated by semantic lowering.
     pub attributes: Vec<BackendFunctionAttribute>,
+    /// Names retained for diagnostics and debug metadata.
     pub local_names: HashMap<LocalId, String>,
+    /// Lowered body for an emitted local instance.
     pub function_body: Option<FunctionBody>,
+    /// Source declaration span.
     pub span: Span,
 }
 
@@ -1362,7 +1539,9 @@ pub struct BackendFunctionInstance {
 /// associated-type arguments. Keeping it in the key makes distinct concrete
 /// trait objects distinct even when they share the same erased receiver type.
 pub struct BackendTraitObjectVtableKey {
+    /// Concrete receiver type represented by the table.
     pub self_ty: InternedTyId,
+    /// Complete erased trait-object type, including all arguments.
     pub object_ty: InternedTyId,
 }
 
@@ -1373,11 +1552,17 @@ pub struct BackendTraitObjectVtableKey {
 /// fingerprints, and dependency discovery consume the instantiated trait
 /// contract without decoding the type interner again.
 pub struct BackendTraitObjectVtable {
+    /// Program-wide vtable identity.
     pub key: BackendTraitObjectVtableKey,
+    /// Trait segment represented by the table's primary view.
     pub trait_id: TraitId,
+    /// Type arguments for `trait_id` in canonical order.
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments paired with `trait_args`.
     pub trait_const_args: Vec<ConstGenericArg>,
+    /// Method slots, including inherited supertrait segments.
     pub entries: Vec<BackendTraitObjectVtableEntry>,
+    /// Source span of the trait-object use that required the table.
     pub span: Span,
 }
 
@@ -1387,45 +1572,75 @@ pub struct BackendTraitObjectVtable {
 /// A vtable may contain multiple instantiations of the same supertrait, so the
 /// trait id alone is not sufficient to identify a slot.
 pub struct BackendTraitObjectVtableEntry {
+    /// Trait segment owning this slot.
     pub trait_id: TraitId,
+    /// Type arguments for the owning trait segment.
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments for the owning trait segment.
     pub trait_const_args: Vec<ConstGenericArg>,
+    /// Declared method identity represented by the slot.
     pub method_id: GlobalDefId,
+    /// Interned method name for diagnostics.
     pub method_name: SymbolId,
+    /// ABI slot index in the complete table.
     pub slot: usize,
+    /// Direct function or concrete function instance target.
     pub function: BackendTraitObjectVtableFunction,
 }
 
+/// Dispatch target stored in a trait-object vtable slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendTraitObjectVtableFunction {
+    /// Monomorphic function definition.
     Function(GlobalDefId),
+    /// Concrete generic function instance.
     FunctionInstance {
+        /// Defining function identity.
         def_id: GlobalDefId,
+        /// Module supplying generic argument resolution context.
         arg_module_id: ModuleId,
+        /// Optional receiver substitution for methods.
         self_arg: Option<InternedTyId>,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
 }
 
+/// Record of one generic definition instantiated by backend reachability.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendGenericInstantiation {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Optional receiver substitution for methods.
     pub self_arg: Option<InternedTyId>,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Source span of the instantiation request.
     pub span: Span,
+    /// Original source definition when this is a propagated request.
     pub source_def_id: Option<GlobalDefId>,
 }
 
+/// One validated ABI parameter and its source-local metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendParam {
+    /// Local binding id, absent for an unbound parameter.
     pub local_id: Option<LocalId>,
+    /// Optional source name.
     pub name: Option<SymbolId>,
+    /// Receiver marker for method parameters.
     pub receiver: Option<ReceiverKind>,
+    /// Type passed across the backend ABI.
     pub passing_ty: InternedTyId,
+    /// Source-level type used inside the body.
     pub local_ty: InternedTyId,
+    /// Source parameter span.
     pub span: Span,
 }
 
