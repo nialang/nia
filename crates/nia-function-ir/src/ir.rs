@@ -390,10 +390,12 @@ pub enum FunctionExprKind {
         value: Box<FunctionExpr>,
         index: usize,
     },
+    /// Initializes every declared field of one exact nominal struct instance.
     StructLiteral {
         def_id: nia_ids::GlobalDefId,
         fields: Vec<FunctionFieldInit>,
     },
+    /// Initializes the selected storage member of one exact nominal union instance.
     UnionLiteral {
         def_id: nia_ids::GlobalDefId,
         field: Box<FunctionFieldInit>,
