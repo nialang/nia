@@ -786,6 +786,9 @@ commit as the corresponding implementation batch.
 - [x] Phase B static global addresses now require data-pointer destinations
       whose pointee type matches the selected global/path and whose mutability
       cannot expose immutable storage as writable.
+- [x] Phase B static aggregate initializers now require every struct field
+      exactly once and exactly one declared union field, preventing missing or
+      duplicate fields from being hidden by layout-ordered constant emission.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

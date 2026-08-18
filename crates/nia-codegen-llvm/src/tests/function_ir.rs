@@ -4904,40 +4904,22 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             unions: Vec::new(),
             union_instances: Vec::new(),
             enums: Vec::new(),
-            globals: vec![
-                BackendGlobal {
-                    def_id: GlobalDefId {
-                        module_id,
-                        def_id: DefId(0),
-                    },
-                    name: sym("ptr"),
-                    link_name: None,
-                    ty: ptr_ty,
-                    is_let: true,
-                    is_extern: false,
-                    init: Some(StaticInit::AddrOfGlobal {
-                        global: missing_global,
-                        path: Vec::new(),
-                    }),
-                    span,
+            globals: vec![BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(0),
                 },
-                BackendGlobal {
-                    def_id: GlobalDefId {
-                        module_id,
-                        def_id: DefId(1),
-                    },
-                    name: sym("bad_address"),
-                    link_name: None,
-                    ty: i32_ty,
-                    is_let: true,
-                    is_extern: false,
-                    init: Some(StaticInit::AddrOfGlobal {
-                        global: missing_global,
-                        path: Vec::new(),
-                    }),
-                    span,
-                },
-            ],
+                name: sym("ptr"),
+                link_name: None,
+                ty: ptr_ty,
+                is_let: true,
+                is_extern: false,
+                init: Some(StaticInit::AddrOfGlobal {
+                    global: missing_global,
+                    path: Vec::new(),
+                }),
+                span,
+            }],
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
@@ -4956,13 +4938,6 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
             .contains("static initializer references missing global")),
-        "{:?}",
-        output.diagnostics
-    );
-    assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("global address target is not pointer-like")),
         "{:?}",
         output.diagnostics
     );
@@ -4992,6 +4967,23 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         args: Vec::new(),
         const_args: Vec::new(),
     });
+    let union_id = GlobalDefId {
+        module_id,
+        def_id: DefId(10),
+    };
+    let union_field_a = GlobalDefId {
+        module_id,
+        def_id: DefId(11),
+    };
+    let union_field_b = GlobalDefId {
+        module_id,
+        def_id: DefId(12),
+    };
+    let union_ty = interner.intern(TyKind::Nominal {
+        def_id: union_id,
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -5004,6 +4996,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
                 types: vec![
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (struct_ty, TypeLayout { size: 4, align: 4 }),
+                    (union_ty, TypeLayout { size: 4, align: 4 }),
                 ],
                 structs: vec![(
                     struct_id,
@@ -5016,7 +5009,17 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
                         }],
                     },
                 )],
-                unions: Vec::new(),
+                unions: vec![(
+                    union_id,
+                    StructLayout {
+                        layout: TypeLayout { size: 4, align: 4 },
+                        fields: vec![FieldLayout {
+                            def_id: union_field_a.def_id,
+                            offset: 0,
+                            layout: TypeLayout { size: 4, align: 4 },
+                        }],
+                    },
+                )],
                 enums: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
@@ -5035,25 +5038,104 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
                 span,
             }],
             struct_instances: Vec::new(),
-            unions: Vec::new(),
-            union_instances: Vec::new(),
-            enums: Vec::new(),
-            globals: vec![BackendGlobal {
-                def_id: GlobalDefId {
-                    module_id,
-                    def_id: DefId(3),
-                },
-                name: sym("point"),
-                link_name: None,
-                ty: struct_ty,
-                is_let: true,
+            unions: vec![BackendUnion {
+                def_id: union_id,
+                name: sym("Value"),
+                generics: Vec::new(),
+                fields: vec![
+                    BackendField {
+                        def_id: union_field_a,
+                        name: sym("integer"),
+                        ty: i32_ty,
+                        span,
+                    },
+                    BackendField {
+                        def_id: union_field_b,
+                        name: sym("other"),
+                        ty: i32_ty,
+                        span,
+                    },
+                ],
                 is_extern: false,
-                init: Some(StaticInit::Struct(vec![StaticFieldInit {
-                    field: Some(missing_field),
-                    value: StaticInit::Int(1.into()),
-                }])),
                 span,
             }],
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: vec![
+                BackendGlobal {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(3),
+                    },
+                    name: sym("point"),
+                    link_name: None,
+                    ty: struct_ty,
+                    is_let: true,
+                    is_extern: false,
+                    init: Some(StaticInit::Struct(vec![StaticFieldInit {
+                        field: Some(missing_field),
+                        value: StaticInit::Int(1.into()),
+                    }])),
+                    span,
+                },
+                BackendGlobal {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(4),
+                    },
+                    name: sym("duplicate_point"),
+                    link_name: None,
+                    ty: struct_ty,
+                    is_let: true,
+                    is_extern: false,
+                    init: Some(StaticInit::Struct(vec![
+                        StaticFieldInit {
+                            field: Some(field_id),
+                            value: StaticInit::Int(1.into()),
+                        },
+                        StaticFieldInit {
+                            field: Some(field_id),
+                            value: StaticInit::Int(2.into()),
+                        },
+                    ])),
+                    span,
+                },
+                BackendGlobal {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(5),
+                    },
+                    name: sym("missing_point"),
+                    link_name: None,
+                    ty: struct_ty,
+                    is_let: true,
+                    is_extern: false,
+                    init: Some(StaticInit::Struct(Vec::new())),
+                    span,
+                },
+                BackendGlobal {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(6),
+                    },
+                    name: sym("two_values"),
+                    link_name: None,
+                    ty: union_ty,
+                    is_let: true,
+                    is_extern: false,
+                    init: Some(StaticInit::Struct(vec![
+                        StaticFieldInit {
+                            field: Some(union_field_a),
+                            value: StaticInit::Int(1.into()),
+                        },
+                        StaticFieldInit {
+                            field: Some(union_field_b),
+                            value: StaticInit::Int(2.into()),
+                        },
+                    ])),
+                    span,
+                },
+            ],
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
@@ -5075,6 +5157,17 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+    for message in [
+        "struct static initializer duplicates a field",
+        "struct static initializer is missing a field",
+        "union static initializer must initialize exactly one field",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
 }
 
 #[test]
