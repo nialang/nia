@@ -21,8 +21,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A structural function-IR validation failure with its source span.
 pub struct FunctionIrError {
+    /// Narrowest source span available for the rejected invariant.
     pub span: Span,
+    /// Stable human-readable invariant description.
     pub message: String,
 }
 

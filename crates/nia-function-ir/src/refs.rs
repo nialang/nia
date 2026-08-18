@@ -11,13 +11,20 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, TraitId, TyKind};
 
+/// A reference to one concrete generic function instance found in a body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionInstanceRef {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Optional receiver substitution.
     pub self_arg: Option<InternedTyId>,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Source span of the instantiation use.
     pub span: Span,
 }
 
@@ -31,33 +38,52 @@ pub struct FunctionInstanceRef {
 /// definition and type arguments. Callers must use this key instead of a
 /// definition-only identity when preserving or deduplicating instances.
 pub struct FunctionInstanceKey {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Optional receiver substitution.
     pub self_arg: Option<InternedTyId>,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
 }
 
+/// A reference to one concrete generic global instance found in a body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalInstanceRef {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
+    /// Source span of the instantiation use.
     pub span: Span,
 }
 
+/// Hashable identity of one concrete generic global instance.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GlobalInstanceKey {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Module supplying generic argument resolution context.
     pub arg_module_id: ModuleId,
+    /// Type arguments in canonical order.
     pub args: Vec<InternedTyId>,
+    /// Const arguments paired with `args`.
     pub const_args: Vec<ConstGenericArg>,
 }
 
+/// Identity of a concrete trait-object vtable referenced by a body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TraitObjectVtableRef {
+    /// Concrete receiver type.
     pub self_ty: InternedTyId,
+    /// Complete erased object type.
     pub object_ty: InternedTyId,
 }
 
@@ -71,6 +97,7 @@ pub struct DynamicTraitCallRef {
 }
 
 impl GlobalInstanceRef {
+    /// Projects the cache/deduplication key from this source reference.
     pub fn key(&self) -> GlobalInstanceKey {
         GlobalInstanceKey {
             def_id: self.def_id,
@@ -82,6 +109,7 @@ impl GlobalInstanceRef {
 }
 
 impl FunctionInstanceRef {
+    /// Projects the cache/deduplication key from this source reference.
     pub fn key(&self) -> FunctionInstanceKey {
         FunctionInstanceKey {
             def_id: self.def_id,
@@ -93,14 +121,22 @@ impl FunctionInstanceRef {
     }
 }
 
+/// Deduplicated identities discovered while walking one function body.
 #[derive(Debug, Default, PartialEq)]
 pub struct FunctionBodyRefs {
+    /// Modules whose definitions or type stores are needed.
     pub modules: BTreeSet<ModuleId>,
+    /// Monomorphic functions referenced by value or call.
     pub functions: BTreeSet<GlobalDefId>,
+    /// Monomorphic globals referenced by value or place.
     pub globals: BTreeSet<GlobalDefId>,
+    /// Concrete function instances, retaining each use span.
     pub function_instances: Vec<FunctionInstanceRef>,
+    /// Concrete global instances, retaining each use span.
     pub global_instances: Vec<GlobalInstanceRef>,
+    /// Interned types required by expressions and locals.
     pub types: BTreeSet<InternedTyId>,
+    /// Concrete trait-object vtables referenced by coercion.
     pub trait_object_vtables: BTreeSet<TraitObjectVtableRef>,
     /// Erased object and trait identities used by dynamic calls.
     ///
@@ -112,6 +148,7 @@ pub struct FunctionBodyRefs {
 }
 
 impl FunctionBodyRefs {
+    /// Merges references from another body walk into this accumulator.
     pub fn extend(&mut self, other: Self) {
         self.modules.extend(other.modules);
         self.functions.extend(other.functions);
@@ -125,6 +162,7 @@ impl FunctionBodyRefs {
 }
 
 impl FunctionBody {
+    /// Walks all nested expressions and collects backend-relevant identities.
     pub fn value_refs(&self, types: &nia_ty::TypeStore) -> FunctionBodyRefs {
         let mut refs = FunctionBodyRefs::default();
         collect_function_refs_from_body(self, types, &mut refs);
