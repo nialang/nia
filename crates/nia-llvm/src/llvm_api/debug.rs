@@ -22,7 +22,10 @@ use llvm_sys::debuginfo::{
 use llvm_sys::prelude::{LLVMDIBuilderRef, LLVMMetadataRef};
 use std::marker::PhantomData;
 
-use super::{AsValueRef, BasicBlock, BasicValue, Context, InstructionValue, Module, PointerValue};
+use super::{
+    AsValueRef, BasicBlock, BasicValue, Context, InstructionValue, LlvmError, LlvmResult, Module,
+    PointerValue,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleFlagBehavior {
@@ -214,12 +217,14 @@ pub struct DebugInfoBuilder<'ctx> {
 }
 
 impl<'ctx> DebugInfoBuilder<'ctx> {
-    pub(super) fn new(raw: LLVMDIBuilderRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    pub(super) fn new(raw: LLVMDIBuilderRef) -> LlvmResult<Self> {
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null debug-info builder"));
+        }
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 
     pub fn create_file(&self, filename: &str, directory: &str) -> DIFile<'ctx> {
@@ -589,7 +594,8 @@ impl Context {
 }
 
 impl<'ctx> Module<'ctx> {
-    pub fn create_debug_info_builder(&self) -> DebugInfoBuilder<'ctx> {
+    /// Creates a DIBuilder, surfacing LLVM allocation failure as an error.
+    pub fn create_debug_info_builder(&self) -> LlvmResult<DebugInfoBuilder<'ctx>> {
         DebugInfoBuilder::new(unsafe { LLVMCreateDIBuilder(self.raw) })
     }
 
@@ -609,5 +615,20 @@ impl<'ctx> Module<'ctx> {
                 metadata,
             )
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_null_debug_info_builder() {
+        let error = DebugInfoBuilder::new(std::ptr::null_mut()).expect_err("null DIBuilder");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null debug-info builder".to_string())
+        );
     }
 }
