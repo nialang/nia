@@ -634,12 +634,23 @@ impl<'ctx> ScalableVectorType<'ctx> {
 
 impl<'ctx> FunctionType<'ctx> {
     pub fn get_return_type(self) -> LlvmResult<Option<BasicTypeEnum<'ctx>>> {
-        let ty = unsafe { LLVMGetReturnType(self.as_type_ref()) };
-        if unsafe { LLVMGetTypeKind(ty) } == LLVMTypeKind::LLVMVoidTypeKind {
-            Ok(None)
-        } else {
-            BasicTypeEnum::new(ty).map(Some)
-        }
+        classify_return_type(unsafe { LLVMGetReturnType(self.as_type_ref()) })
+    }
+}
+
+/// Classifies the raw return type before querying its kind. LLVM's C API uses
+/// a null type handle as its failure sentinel, and `LLVMGetTypeKind` requires a
+/// live handle, so the check must happen at this boundary.
+fn classify_return_type<'ctx>(raw: LLVMTypeRef) -> LlvmResult<Option<BasicTypeEnum<'ctx>>> {
+    if raw.is_null() {
+        return Err(LlvmError::error(
+            "LLVM returned a null function return type",
+        ));
+    }
+    if unsafe { LLVMGetTypeKind(raw) } == LLVMTypeKind::LLVMVoidTypeKind {
+        Ok(None)
+    } else {
+        BasicTypeEnum::new(raw).map(Some)
     }
 }
 
@@ -1090,6 +1101,17 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null basic type".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_function_return_type_before_kind_inspection() {
+        let error =
+            classify_return_type::<'static>(std::ptr::null_mut()).expect_err("null return type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null function return type".to_string())
         );
     }
 
