@@ -15,9 +15,11 @@ use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, IntConst, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Stable identity of a basic block within one function body.
 pub struct FunctionBlockId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Stable identity of a lexical scope within one function body.
 pub struct FunctionScopeId(pub u32);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,43 +67,57 @@ pub struct FunctionClosureEntry {
 pub struct FunctionLocal {
     /// Stable key referenced by expressions, places, and ABI parameter mappings.
     pub id: LocalId,
+    /// Source or generated local name.
     pub name: LocalName,
     /// Declares whether the slot is user storage, generated storage, or a parameter.
     pub kind: FunctionLocalKind,
     /// Physical storage type; typed expression views may be more readonly.
     pub ty: InternedTyId,
+    /// Source span that introduced the local.
     pub span: Span,
 }
 
+/// Storage role used by a function local.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionLocalKind {
+    /// ABI parameter initialized by the caller.
     Param,
+    /// Mutable source binding.
     MutableBinding,
+    /// Immutable source binding.
     ImmutableBinding,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 /// One lexical scope in the defer-cleanup ownership tree.
 pub struct FunctionScope {
+    /// Stable scope identity.
     pub id: FunctionScopeId,
     /// Enclosing scope, or `None` for the function root.
     pub parent: Option<FunctionScopeId>,
+    /// Source span that introduced the scope.
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 /// A basic block whose operations execute in order before its terminator.
 pub struct FunctionBlock {
+    /// Stable block identity.
     pub id: FunctionBlockId,
     /// Lexical scope active for exits originating in this block.
     pub scope: FunctionScopeId,
+    /// Source span covering the block's control-flow construct.
     pub span: Span,
+    /// Ordered side-effecting operations executed before the terminator.
     pub ops: Vec<FunctionOp>,
+    /// Final control-flow action for the block.
     pub terminator: FunctionTerminator,
 }
 
+/// Operation executed within a basic block.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionOp {
+    /// Declares and optionally initializes a local binding.
     Binding(FunctionBinding),
     /// Initializes or merges a control-flow value into exactly typed local storage.
     ///
@@ -119,18 +135,28 @@ pub enum FunctionOp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionBinding {
+    /// Local table entry initialized by this binding.
     pub local_id: LocalId,
+    /// Name retained for diagnostics.
     pub name: LocalName,
+    /// Storage type of the binding.
     pub ty: InternedTyId,
+    /// Initial value, absent for deferred/uninitialized bindings.
     pub value: Option<FunctionExpr>,
+    /// Whether the source binding is immutable.
     pub is_let: bool,
 }
 
+/// Nested CFG executed by a `defer` operation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDeferBody {
+    /// Span of the deferred block.
     pub span: Span,
+    /// Private lexical scope table.
     pub scopes: Vec<FunctionScope>,
+    /// Private basic-block table.
     pub blocks: Vec<FunctionBlock>,
+    /// Entry block of the deferred CFG.
     pub entry: FunctionBlockId,
 }
 
@@ -141,25 +167,35 @@ pub struct FunctionDeferBody {
 /// with a slice source of the same element type, while set operations require
 /// both `elem_ty` and their byte source to be `u8`.
 pub struct FunctionMemoryIntrinsic {
+    /// Source span of the intrinsic operation.
     pub span: Span,
+    /// Copy, move, or set operation kind.
     pub op: FunctionMemoryIntrinsicOp,
+    /// Element type of the destination slice.
     pub elem_ty: InternedTyId,
+    /// Mutable destination slice expression.
     pub dest: FunctionExpr,
+    /// Slice or byte source according to `op`.
     pub source: FunctionMemoryIntrinsicSource,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 /// The source shape paired with a [`FunctionMemoryIntrinsic`] operation.
 pub enum FunctionMemoryIntrinsicSource {
+    /// Source slice for copy/move.
     Slice(FunctionExpr),
+    /// Byte value for set.
     Byte(FunctionExpr),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The overlap contract of a [`FunctionMemoryIntrinsic`].
 pub enum FunctionMemoryIntrinsicOp {
+    /// Permit overlapping source/destination ranges.
     Copy,
+    /// Source and destination ranges must not overlap.
     Move,
+    /// Fill destination bytes with one `u8` value.
     Set,
 }
 
@@ -171,56 +207,92 @@ pub enum FunctionMemoryIntrinsicOp {
 /// checked scalar constants and enum tags there; arbitrary value expressions
 /// are structurally valid function IR but must not cross the LLVM boundary.
 pub enum FunctionTerminator {
+    /// Recovery terminator that carries no outgoing edge.
     Error {
+        /// Source span of the recovery node.
         span: Span,
     },
+    /// Unconditional edge to another block.
     Branch {
+        /// Destination block.
         target: FunctionBlockId,
+        /// Source span of the edge.
         span: Span,
     },
+    /// Fallthrough edge produced by structured lowering.
     Next {
+        /// Destination block.
         target: FunctionBlockId,
+        /// Source span of the edge.
         span: Span,
     },
+    /// Conditional edge selected by a boolean expression.
     If {
+        /// Boolean condition.
         cond: FunctionExpr,
+        /// Destination when the condition is true.
         then_target: FunctionBlockId,
+        /// Destination when the condition is false.
         else_target: FunctionBlockId,
+        /// Source span of the branch.
         span: Span,
     },
+    /// Integer dispatch with explicit arms and a fallback edge.
     Switch {
+        /// Integer-like value being matched.
         target: FunctionExpr,
+        /// Constant pattern arms.
         arms: Vec<FunctionSwitchArm>,
+        /// Optional explicit default edge.
         default: Option<FunctionBlockId>,
+        /// Structural fallback retained for later lowering.
         fallback: FunctionBlockId,
+        /// Source span of the switch.
         span: Span,
     },
     /// Transitional propagation node consumed into a CFG terminator by function lowering.
     /// It is invalid at the backend boundary.
     Try {
+        /// Optional or error-union value being propagated.
         value: FunctionExpr,
+        /// Propagation flavor.
         kind: FunctionTryKind,
         // Error conversion is absent for optionals and for identical error
         // payloads. Keep the uncommon second expression out-of-line so every
         // basic block does not inherit the size of two full expression trees.
         error_conversion: Option<Box<FunctionExpr>>,
+        /// Local receiving the successful payload.
         success_local: LocalId,
+        /// Destination for successful propagation.
         success_target: FunctionBlockId,
+        /// Source span of the propagation edge.
         span: Span,
     },
+    /// Loop with explicit body, continue, and break edges.
     Loop {
+        /// Loop condition or infinite marker.
         header: FunctionForHeader,
+        /// Loop body entry block.
         body: FunctionBlockId,
+        /// Continue edge target.
         continue_target: FunctionBlockId,
+        /// Break edge target.
         break_target: FunctionBlockId,
+        /// Source span of the loop.
         span: Span,
     },
+    /// Function return after running exited-scope defers.
     Return {
+        /// Optional returned value.
         value: Option<FunctionExpr>,
+        /// Source span of the return.
         span: Span,
     },
+    /// Tail propagation used by expression lowering.
     Tail {
+        /// Optional tail value.
         value: Option<FunctionExpr>,
+        /// Source span of the tail edge.
         span: Span,
     },
 }
@@ -232,24 +304,32 @@ pub enum FunctionTerminator {
 /// constant after function lowering, and no two arms may have the same bit
 /// pattern at that type's target-dependent width.
 pub struct FunctionSwitchArm {
+    /// Constant pattern expression.
     pub pattern: FunctionExpr,
+    /// Destination block for a matching pattern.
     pub target: FunctionBlockId,
 }
 
+/// Propagation flavor for a [`FunctionTerminator::Try`] node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionTryKind {
+    /// Propagate an optional null case.
     Optional,
+    /// Propagate an error-union error case.
     ErrorUnion,
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionOptionalTag {
+    /// No payload is present.
     Null = 0,
+    /// Payload is present.
     Some = 1,
 }
 
 impl FunctionOptionalTag {
+    /// Returns the ABI discriminant byte.
     pub const fn discriminant(self) -> u8 {
         self as u8
     }
@@ -258,11 +338,14 @@ impl FunctionOptionalTag {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionErrorUnionTag {
+    /// Success payload is present.
     Ok = 0,
+    /// Error payload is present.
     Err = 1,
 }
 
 impl FunctionErrorUnionTag {
+    /// Returns the ABI discriminant byte.
     pub const fn discriminant(self) -> u8 {
         self as u8
     }
@@ -270,19 +353,27 @@ impl FunctionErrorUnionTag {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionForHeader {
+    /// Loop has no condition and repeats until an explicit break.
     Infinite,
+    /// Loop repeats while the condition is true.
     Condition(Box<FunctionExpr>),
 }
 
+/// Typed expression node in function IR.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionExpr {
+    /// Source span of the expression.
     pub span: Span,
+    /// Semantic result type.
     pub ty: InternedTyId,
+    /// Expression operation and operands.
     pub kind: FunctionExprKind,
 }
 
+/// Expression operation in function IR.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionExprKind {
+    /// Recovery expression; rejected before backend lowering.
     Error,
     /// An integer literal whose valid spelling and target range are resolved before LLVM lowering.
     Integer(String),
@@ -539,8 +630,11 @@ pub struct FunctionUnionRelocation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBitIntrinsicOp {
+    /// Count trailing zero bits.
     Ctz,
+    /// Count leading zero bits.
     Clz,
+    /// Count set bits.
     Popcount,
 }
 
@@ -566,7 +660,9 @@ pub struct FunctionRange {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionRangeBound {
+    /// Lower bound of a range.
     Start,
+    /// Upper bound of a range.
     End,
 }
 
@@ -674,6 +770,7 @@ pub struct FunctionAsmInput {
     pub constraint: String,
     /// Scalar value passed directly through LLVM's inline-assembly call boundary.
     pub value: FunctionExpr,
+    /// Source span of the input operand.
     pub span: Span,
 }
 
@@ -684,32 +781,48 @@ pub struct FunctionAsmOutput {
     pub constraint: String,
     /// Exact writable scalar storage updated with the corresponding result.
     pub place: FunctionPlace,
+    /// Source span of the output operand.
     pub span: Span,
 }
 
+/// Array literal represented as explicit elements or a repeated value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionArrayElements {
+    /// Explicit elements in source order.
     List(Vec<FunctionExpr>),
+    /// One value repeated a const-evaluated number of times.
     Repeat {
+        /// Repeated element value.
         value: Box<FunctionExpr>,
+        /// Number of repetitions.
         count: ArrayLenTy,
     },
 }
 
+/// One named or positional aggregate field initializer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionFieldInit {
+    /// Declared field identity, absent for positional syntax.
     pub field: Option<nia_ids::GlobalDefId>,
+    /// Source field name or generated positional label.
     pub name: String,
+    /// Initializer expression.
     pub value: FunctionExpr,
+    /// Source span of the initializer.
     pub span: Span,
 }
 
+/// Callee shape selected after method, trait, and closure resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionCallee {
+    /// Generated closure entry plus its captured state pointer.
     ClosureEntry {
+        /// Source closure identity.
         closure_id: ClosureId,
+        /// Captured state expression.
         state: Box<FunctionExpr>,
     },
+    /// Monomorphic function definition.
     Function(nia_ids::GlobalDefId),
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
@@ -782,27 +895,40 @@ pub enum FunctionCallee {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FunctionBuiltinOperator {
+    /// Builtin trait implementing the operator.
     pub trait_id: BuiltinTrait,
+    /// Unary or binary operator kind.
     pub op: FunctionBuiltinOperatorOp,
 }
 
+/// Builtin methods exposed on slices and range values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBuiltinMethod {
+    /// Slice element count.
     SliceLen,
+    /// Readonly slice data pointer.
     SlicePtr,
+    /// Mutable slice data pointer.
     SlicePtrMut,
+    /// Range lower bound.
     Start,
+    /// Range upper bound.
     End,
+    /// Range iterator adapter.
     Iter,
 }
 
+/// Operator form used to select a builtin trait method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBuiltinOperatorOp {
+    /// Unary operator.
     Unary(UnaryOp),
+    /// Binary operator.
     Binary(BinaryOp),
 }
 
 impl FunctionBuiltinOperatorOp {
+    /// Maps an operator to its builtin trait method, if one exists.
     pub fn method(self) -> Option<BuiltinTraitMethod> {
         match self {
             Self::Unary(op) => match op {
@@ -835,6 +961,7 @@ impl FunctionBuiltinOperatorOp {
 }
 
 impl FunctionBuiltinOperator {
+    /// Returns the method only when it belongs to this operator's trait.
     pub fn method(self) -> Option<BuiltinTraitMethod> {
         self.op
             .method()
@@ -959,14 +1086,17 @@ impl FunctionTerminator {
 }
 
 impl FunctionBody {
+    /// Looks up a block by its stable id.
     pub fn block(&self, id: FunctionBlockId) -> Option<&FunctionBlock> {
         self.blocks.iter().find(|block| block.id == id)
     }
 
+    /// Looks up a lexical scope by its stable id.
     pub fn scope(&self, id: FunctionScopeId) -> Option<&FunctionScope> {
         self.scopes.iter().find(|scope| scope.id == id)
     }
 
+    /// Returns scopes exited by an edge between two blocks.
     pub fn edge_exited_scopes(
         &self,
         from: FunctionBlockId,
@@ -977,11 +1107,13 @@ impl FunctionBody {
         exited_scopes_between(&self.scopes, from, Some(to))
     }
 
+    /// Returns scopes unwound by returning from a block.
     pub fn return_exited_scopes(&self, from: FunctionBlockId) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         exited_scopes_between(&self.scopes, from, None)
     }
 
+    /// Computes scopes exited between explicit source and destination scopes.
     pub fn exited_scopes_between(
         &self,
         from: FunctionScopeId,
@@ -992,14 +1124,17 @@ impl FunctionBody {
 }
 
 impl FunctionDeferBody {
+    /// Looks up a deferred-body block by stable id.
     pub fn block(&self, id: FunctionBlockId) -> Option<&FunctionBlock> {
         self.blocks.iter().find(|block| block.id == id)
     }
 
+    /// Looks up a deferred-body scope by stable id.
     pub fn scope(&self, id: FunctionScopeId) -> Option<&FunctionScope> {
         self.scopes.iter().find(|scope| scope.id == id)
     }
 
+    /// Returns scopes exited by a deferred-body edge.
     pub fn edge_exited_scopes(
         &self,
         from: FunctionBlockId,
@@ -1010,11 +1145,13 @@ impl FunctionDeferBody {
         exited_scopes_between(&self.scopes, from, Some(to))
     }
 
+    /// Returns scopes unwound by returning from a deferred body block.
     pub fn return_exited_scopes(&self, from: FunctionBlockId) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         exited_scopes_between(&self.scopes, from, None)
     }
 
+    /// Computes scopes exited between deferred-body scopes.
     pub fn exited_scopes_between(
         &self,
         from: FunctionScopeId,
