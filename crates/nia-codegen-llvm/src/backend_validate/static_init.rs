@@ -149,6 +149,7 @@ impl BackendValidator<'_> {
             }
             StaticInit::Struct(fields) => self.validate_static_struct_init(ty, fields, span),
             StaticInit::AddrOfGlobal { global, path } => {
+                self.validate_static_pointer_target(ty, span, "global address");
                 let Some(global_item) = self.index.global(*global) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -162,6 +163,7 @@ impl BackendValidator<'_> {
                 self.validate_static_address_path(global_item.ty, path, span);
             }
             StaticInit::AddrOfFunction { function, args } => {
+                self.validate_static_pointer_target(ty, span, "function address");
                 if args.is_empty() {
                     self.validate_function_ref(
                         *function,
@@ -191,6 +193,22 @@ impl BackendValidator<'_> {
             span,
             format!("backend IR static initializer has an invalid scalar contract: {message}"),
         ));
+    }
+
+    fn validate_static_pointer_target(&mut self, ty: InternedTyId, span: Span, kind: &'static str) {
+        if !matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+        ) {
+            self.invalid_static_scalar(
+                ty,
+                span,
+                match kind {
+                    "global address" => "global address target is not pointer-like",
+                    _ => "function address target is not pointer-like",
+                },
+            );
+        }
     }
 
     fn validate_static_array_len(
