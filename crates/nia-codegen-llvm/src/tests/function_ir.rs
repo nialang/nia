@@ -1561,6 +1561,139 @@ fn validates_unary_and_binary_operator_contracts_before_llvm() {
 }
 
 #[test]
+fn validates_cast_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let char_ty = interner.primitive(PrimitiveTy::Char);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let i64_ty = interner.primitive(PrimitiveTy::I64);
+    let u32_ty = interner.primitive(PrimitiveTy::U32);
+    let vector_i32x4_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 4,
+    });
+    let vector_i32x8_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 8,
+    });
+    let vector_i64x4_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I64,
+        lanes: 4,
+    });
+    let vector_i64x8_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I64,
+        lanes: 8,
+    });
+    let pointer_i32_ty = interner.intern(TyKind::Pointer {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let volatile_pointer_i32_ty = interner.intern(TyKind::VolatilePointer {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let span = Span::default();
+    let value = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let cast = |result_ty, target_ty, source_ty| {
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: result_ty,
+            kind: FunctionExprKind::Cast {
+                expr: Box::new(value(source_ty)),
+                ty: target_ty,
+            },
+        })
+    };
+    let ops = vec![
+        cast(bool_ty, i64_ty, i32_ty),
+        cast(i64_ty, i64_ty, f32_ty),
+        cast(i64_ty, i64_ty, pointer_i32_ty),
+        cast(pointer_i32_ty, pointer_i32_ty, i32_ty),
+        cast(vector_i64x8_ty, vector_i64x8_ty, vector_i32x4_ty),
+        cast(vector_i64x4_ty, vector_i64x4_ty, i32_ty),
+        cast(i32_ty, u32_ty, char_ty),
+        cast(pointer_i32_ty, pointer_i32_ty, volatile_pointer_i32_ty),
+        cast(vector_i64x8_ty, vector_i64x8_ty, vector_i32x8_ty),
+    ];
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_casts"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops,
+                terminator: FunctionTerminator::Tail {
+                    value: Some(value(i32_ty)),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "cast result type does not match its target metadata",
+        "cast source and target categories are incompatible",
+        "numeric cast changes scalar/vector shape",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn emits_statement_if_from_function_ir_with_defer_cleanup() {
     let root = temp_dir("emits_statement_if_from_function_ir_with_defer_cleanup");
     let main = root.join("main.nia");

@@ -393,6 +393,7 @@ pub enum FunctionExprKind {
         rhs: Box<FunctionExpr>,
     },
     Discard(Box<FunctionExpr>),
+    /// Converts between source-approved numeric, enum, and pointer categories.
     Cast {
         expr: Box<FunctionExpr>,
         ty: InternedTyId,
