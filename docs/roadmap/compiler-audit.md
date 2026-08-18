@@ -774,6 +774,9 @@ commit as the corresponding implementation batch.
       as well as their types: integer spellings and target-width ranges, finite
       float ranges, byte-character syntax, and Unicode scalar invariants are
       rejected before LLVM constant construction can fail or truncate them.
+- [x] Phase B static initializers now validate scalar variant/type identity,
+      finite float and Unicode scalar payloads, typed char/byte arrays, and null
+      pointer destinations before module-level LLVM constant emission.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

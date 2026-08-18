@@ -3,39 +3,122 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
+use nia_ty::{PrimitiveTy, TyKind};
 
 use super::{BackendValidator, FunctionInstanceRef};
+use crate::literals::parse_float_literal;
 
 impl BackendValidator<'_> {
     pub(super) fn validate_static_init(&mut self, ty: InternedTyId, init: &StaticInit, span: Span) {
         match init {
-            StaticInit::Zero
-            | StaticInit::Int(_)
-            | StaticInit::Float(_)
-            | StaticInit::Bool(_)
-            | StaticInit::Char(_)
-            | StaticInit::Byte(_)
-            | StaticInit::NullPtr => {}
-            StaticInit::Chars(values) => {
-                if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Array { .. })) {
-                    self.diagnostics.push(Diagnostic::internal_error_at(
-                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+            StaticInit::Zero => {}
+            StaticInit::Int(_) => {
+                if !matches!(
+                    self.ty_kind(ty),
+                    Some(TyKind::Primitive(primitive))
+                        if primitive.is_integer()
+                            || matches!(*primitive, PrimitiveTy::Bool | PrimitiveTy::Char)
+                ) {
+                    self.invalid_static_scalar(
+                        ty,
                         span,
-                        "backend IR string static initializer target is not array",
-                    ));
-                } else {
+                        "integer initializer target is not integer-like",
+                    );
+                }
+            }
+            StaticInit::Float(text) => {
+                let valid_type = matches!(
+                    self.ty_kind(ty),
+                    Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+                );
+                let valid_value = parse_float_literal(text).is_some_and(|value| {
+                    value.is_finite()
+                        && (matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::F64)))
+                            || (value as f32).is_finite())
+                });
+                if !valid_type {
+                    self.invalid_static_scalar(
+                        ty,
+                        span,
+                        "float initializer target is not f32 or f64",
+                    );
+                } else if !valid_value {
+                    self.invalid_static_scalar(
+                        ty,
+                        span,
+                        "float initializer spelling or range is invalid",
+                    );
+                }
+            }
+            StaticInit::Bool(_) => {
+                if !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Bool))) {
+                    self.invalid_static_scalar(ty, span, "bool initializer target is not bool");
+                }
+            }
+            StaticInit::Char(value) => {
+                if !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Char))) {
+                    self.invalid_static_scalar(ty, span, "char initializer target is not char");
+                }
+                if char::from_u32(*value).is_none() {
+                    self.invalid_static_scalar(
+                        ty,
+                        span,
+                        "char initializer is not a Unicode scalar",
+                    );
+                }
+            }
+            StaticInit::Byte(_) => {
+                if !matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::U8))) {
+                    self.invalid_static_scalar(ty, span, "byte initializer target is not u8");
+                }
+            }
+            StaticInit::NullPtr => {
+                if !matches!(
+                    self.ty_kind(ty),
+                    Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+                ) {
+                    self.invalid_static_scalar(
+                        ty,
+                        span,
+                        "null pointer initializer target is not a pointer",
+                    );
+                }
+            }
+            StaticInit::Chars(values) => {
+                if matches!(
+                    self.ty_kind(ty),
+                    Some(TyKind::Array { elem, .. })
+                        if matches!(self.ty_kind(*elem), Some(TyKind::Primitive(PrimitiveTy::Char)))
+                ) {
                     self.validate_static_array_len(ty, values.len(), span, "char string");
+                    if values.iter().any(|value| char::from_u32(*value).is_none()) {
+                        self.invalid_static_scalar(
+                            ty,
+                            span,
+                            "char string contains an invalid Unicode scalar",
+                        );
+                    }
+                } else {
+                    self.invalid_static_scalar(
+                        ty,
+                        span,
+                        "char string initializer target is not char array",
+                    );
                 }
             }
             StaticInit::Bytes(values) => {
-                if !matches!(self.ty_kind(ty), Some(nia_ty::TyKind::Array { .. })) {
-                    self.diagnostics.push(Diagnostic::internal_error_at(
-                        nia_diagnostic::codes::INVALID_BACKEND_IR,
-                        span,
-                        "backend IR string static initializer target is not array",
-                    ));
-                } else {
+                if matches!(
+                    self.ty_kind(ty),
+                    Some(TyKind::Array { elem, .. })
+                        if matches!(self.ty_kind(*elem), Some(TyKind::Primitive(PrimitiveTy::U8)))
+                ) {
                     self.validate_static_array_len(ty, values.len(), span, "byte string");
+                } else {
+                    self.invalid_static_scalar(
+                        ty,
+                        span,
+                        "byte string initializer target is not u8 array",
+                    );
                 }
             }
             StaticInit::Array(elems) => {
@@ -100,6 +183,14 @@ impl BackendValidator<'_> {
                 }
             }
         }
+    }
+
+    fn invalid_static_scalar(&mut self, _ty: InternedTyId, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR static initializer has an invalid scalar contract: {message}"),
+        ));
     }
 
     fn validate_static_array_len(
