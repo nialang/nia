@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 144 completed entries in this ledger.
+- Implementation batches: 145 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -859,6 +859,11 @@ acceptance item only when its phase-wide evidence is complete.
       aggregate construction, constant and undef semantics, typed extraction,
       shape queries, and GEP/value views. The unsuppressed missing-docs audit
       fell from 181 warnings to 95, all now isolated to the builder API.
+- [x] Cross-cutting LLVM builder Rustdoc now covers insertion/debug state,
+      memory and CFG operations, unsafe GEP contracts, atomic orderings,
+      signed/unsigned arithmetic, scalar/vector operations, and conversions.
+      `cargo rustdoc -p nia-llvm -- -D missing-docs` is now clean, reducing the
+      crate's audited baseline from 382 warnings to zero without suppression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

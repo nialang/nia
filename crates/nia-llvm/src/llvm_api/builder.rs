@@ -31,6 +31,11 @@ use super::{
     InstructionValue, IntPredicate, IntType, IntValue, LlvmResult, PhiValue, PointerType,
     PointerValue, StructValue, VectorValue, to_c_string,
 };
+/// Owned LLVM instruction builder tied to its originating context.
+///
+/// Every value-producing operation validates LLVM's returned handle before it
+/// constructs a typed wrapper. Callers remain responsible for positioning the
+/// builder in a live basic block.
 pub struct Builder<'ctx> {
     pub(super) raw: LLVMBuilderRef,
     _marker: PhantomData<&'ctx Context>,
@@ -44,6 +49,7 @@ impl<'ctx> Builder<'ctx> {
             _marker: PhantomData,
         }
     }
+    /// Returns the block containing the current insertion point.
     pub fn get_insert_block(&self) -> Option<BasicBlock<'ctx>> {
         let block = unsafe { LLVMGetInsertBlock(self.raw) };
         if block.is_null() {
@@ -53,32 +59,39 @@ impl<'ctx> Builder<'ctx> {
         }
     }
 
+    /// Moves the insertion point to the end of `block`.
     pub fn position_at_end(&self, block: BasicBlock<'ctx>) {
         unsafe { LLVMPositionBuilderAtEnd(self.raw, block.raw) };
     }
 
+    /// Moves the insertion point immediately before `instruction`.
     pub fn position_before(&self, instruction: &InstructionValue<'ctx>) {
         unsafe { LLVMPositionBuilderBefore(self.raw, instruction.raw) };
     }
 
+    /// Clears the insertion point so no block is selected.
     pub fn clear_insertion_position(&self) {
         unsafe { LLVMClearInsertionPosition(self.raw) };
     }
 
+    /// Applies `location` to subsequently emitted instructions.
     pub fn set_current_debug_location(&self, location: DILocation<'ctx>) {
         unsafe { LLVMSetCurrentDebugLocation2(self.raw, location.raw) };
     }
 
+    /// Stops attaching a debug location to new instructions.
     pub fn clear_current_debug_location(&self) {
         unsafe { LLVMSetCurrentDebugLocation2(self.raw, std::ptr::null_mut()) };
     }
 
+    /// Allocates stack storage for one value of `ty`.
     pub fn build_alloca<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr()) };
         Ok(PointerValue::new(require_value(value, "alloca")?))
     }
 
+    /// Stores `value` through `ptr`.
     pub fn build_store<V: BasicValue<'ctx>>(
         &self,
         ptr: PointerValue<'ctx>,
@@ -89,6 +102,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(InstructionValue::new(require_value(instruction, "store")?))
     }
 
+    /// Loads a value of `ty` through `ptr`.
     pub fn build_load<T: AsTypeRef>(
         &self,
         ty: T,
@@ -106,6 +120,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Loads a value while asserting the pointer's byte alignment.
     pub fn build_aligned_load<T: AsTypeRef>(
         &self,
         ty: T,
@@ -120,6 +135,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(value)
     }
 
+    /// Emits a volatile store.
     pub fn build_volatile_store<V: BasicValue<'ctx>>(
         &self,
         ptr: PointerValue<'ctx>,
@@ -130,6 +146,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(inst)
     }
 
+    /// Emits a volatile load of `ty`.
     pub fn build_volatile_load<T: AsTypeRef>(
         &self,
         ty: T,
@@ -174,6 +191,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(PointerValue::new(require_value(value, "GEP")?))
     }
 
+    /// Computes the address of a physical struct field.
     pub fn build_struct_gep<T: AsTypeRef>(
         &self,
         pointee_ty: T,
@@ -194,6 +212,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(PointerValue::new(require_value(value, "struct GEP")?))
     }
 
+    /// Computes the element distance between two pointers of one pointee type.
     pub fn build_ptr_diff<T: AsTypeRef>(
         &self,
         pointee_ty: T,
@@ -214,12 +233,14 @@ impl<'ctx> Builder<'ctx> {
         Ok(IntValue::new(require_value(value, "pointer difference")?))
     }
 
+    /// Creates an empty phi node whose incoming edges are added separately.
     pub fn build_phi<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PhiValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr()) };
         Ok(PhiValue::new(require_value(value, "phi")?))
     }
 
+    /// Calls a directly declared function.
     pub fn build_call(
         &self,
         function: FunctionValue<'ctx>,
@@ -229,6 +250,7 @@ impl<'ctx> Builder<'ctx> {
         self.build_call2(function.get_type(), function.as_value_ref(), args, name)
     }
 
+    /// Calls a function pointer using the explicit signature.
     pub fn build_indirect_call(
         &self,
         function_type: FunctionType<'ctx>,
@@ -269,6 +291,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(CallSiteValue::new(require_value(call, "call")?))
     }
 
+    /// Returns an optional first-class value from the current function.
     pub fn build_return(
         &self,
         value: Option<&dyn BasicValue<'ctx>>,
@@ -282,6 +305,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(InstructionValue::new(require_value(instruction, "return")?))
     }
 
+    /// Terminates the current block as unreachable.
     pub fn build_unreachable(&self) -> LlvmResult<InstructionValue<'ctx>> {
         let instruction = unsafe { LLVMBuildUnreachable(self.raw) };
         Ok(InstructionValue::new(require_value(
@@ -290,6 +314,7 @@ impl<'ctx> Builder<'ctx> {
         )?))
     }
 
+    /// Branches unconditionally to `destination`.
     pub fn build_unconditional_branch(
         &self,
         destination: BasicBlock<'ctx>,
@@ -298,6 +323,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(InstructionValue::new(require_value(instruction, "branch")?))
     }
 
+    /// Branches according to a one-bit integer condition.
     pub fn build_conditional_branch(
         &self,
         comparison: IntValue<'ctx>,
@@ -318,6 +344,7 @@ impl<'ctx> Builder<'ctx> {
         )?))
     }
 
+    /// Emits an integer switch and attaches all constant case edges.
     pub fn build_switch(
         &self,
         value: IntValue<'ctx>,
@@ -339,6 +366,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(InstructionValue::new(inst))
     }
 
+    /// Extracts aggregate field `index`.
     pub fn build_extract_value<AV: AggregateValue<'ctx>>(
         &self,
         aggregate: AV,
@@ -351,6 +379,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Returns an aggregate with field `index` replaced by `value`.
     pub fn build_insert_value<AV: AggregateValue<'ctx>, BV: BasicValue<'ctx>>(
         &self,
         aggregate: AV,
@@ -370,6 +399,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Copies `size` bytes between non-overlapping regions.
     pub fn build_memcpy(
         &self,
         dest: PointerValue<'ctx>,
@@ -391,6 +421,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(PointerValue::new(require_value(value, "memcpy")?))
     }
 
+    /// Fills `size` bytes with the low byte of `value`.
     pub fn build_memset(
         &self,
         dest: PointerValue<'ctx>,
@@ -410,6 +441,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(PointerValue::new(require_value(value, "memset")?))
     }
 
+    /// Copies `size` bytes between regions that may overlap.
     pub fn build_memmove(
         &self,
         dest: PointerValue<'ctx>,
@@ -431,6 +463,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(PointerValue::new(require_value(value, "memmove")?))
     }
 
+    /// Emits an atomic fence with the selected ordering and sync scope.
     pub fn build_fence(
         &self,
         ordering: AtomicOrdering,
@@ -443,6 +476,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(InstructionValue::new(require_value(instruction, "fence")?))
     }
 
+    /// Atomically applies `op` and returns the previous memory value.
     pub fn build_atomicrmw<V: BasicValue<'ctx>>(
         &self,
         op: AtomicRMWBinOp,
@@ -462,6 +496,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Atomically compares with `expected` and conditionally stores `desired`.
     pub fn build_cmpxchg<V: BasicValue<'ctx>>(
         &self,
         ptr: PointerValue<'ctx>,
@@ -489,6 +524,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(value)
     }
 
+    /// Adds two scalar integers.
     pub fn build_int_add(
         &self,
         lhs: IntValue<'ctx>,
@@ -498,6 +534,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildAdd, lhs, rhs, name)
     }
 
+    /// Subtracts two scalar integers.
     pub fn build_int_sub(
         &self,
         lhs: IntValue<'ctx>,
@@ -507,6 +544,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildSub, lhs, rhs, name)
     }
 
+    /// Multiplies two scalar integers.
     pub fn build_int_mul(
         &self,
         lhs: IntValue<'ctx>,
@@ -516,6 +554,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildMul, lhs, rhs, name)
     }
 
+    /// Divides two scalar integers using signed interpretation.
     pub fn build_int_signed_div(
         &self,
         lhs: IntValue<'ctx>,
@@ -525,6 +564,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildSDiv, lhs, rhs, name)
     }
 
+    /// Divides two scalar integers using unsigned interpretation.
     pub fn build_int_unsigned_div(
         &self,
         lhs: IntValue<'ctx>,
@@ -534,6 +574,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildUDiv, lhs, rhs, name)
     }
 
+    /// Computes signed integer remainder.
     pub fn build_int_signed_rem(
         &self,
         lhs: IntValue<'ctx>,
@@ -543,6 +584,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildSRem, lhs, rhs, name)
     }
 
+    /// Computes unsigned integer remainder.
     pub fn build_int_unsigned_rem(
         &self,
         lhs: IntValue<'ctx>,
@@ -552,6 +594,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildURem, lhs, rhs, name)
     }
 
+    /// Computes scalar integer bitwise AND.
     pub fn build_and(
         &self,
         lhs: IntValue<'ctx>,
@@ -561,6 +604,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildAnd, lhs, rhs, name)
     }
 
+    /// Computes scalar integer bitwise OR.
     pub fn build_or(
         &self,
         lhs: IntValue<'ctx>,
@@ -570,6 +614,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildOr, lhs, rhs, name)
     }
 
+    /// Computes scalar integer bitwise XOR.
     pub fn build_xor(
         &self,
         lhs: IntValue<'ctx>,
@@ -579,6 +624,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildXor, lhs, rhs, name)
     }
 
+    /// Shifts a scalar integer left without masking the count.
     pub fn build_left_shift(
         &self,
         lhs: IntValue<'ctx>,
@@ -588,6 +634,7 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildShl, lhs, rhs, name)
     }
 
+    /// Shifts right arithmetically when `signed`, logically otherwise.
     pub fn build_right_shift(
         &self,
         lhs: IntValue<'ctx>,
@@ -602,6 +649,7 @@ impl<'ctx> Builder<'ctx> {
         }
     }
 
+    /// Compares scalar integers using `predicate`'s signedness.
     pub fn build_int_compare(
         &self,
         pred: IntPredicate,
@@ -622,6 +670,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(IntValue::new(require_value(value, "integer comparison")?))
     }
 
+    /// Adds integer scalars or vectors represented by the shared value enum.
     pub fn build_basic_int_add(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -631,6 +680,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildAdd, lhs, rhs, name)
     }
 
+    /// Subtracts integer scalars or vectors.
     pub fn build_basic_int_sub(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -640,6 +690,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildSub, lhs, rhs, name)
     }
 
+    /// Multiplies integer scalars or vectors.
     pub fn build_basic_int_mul(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -649,6 +700,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildMul, lhs, rhs, name)
     }
 
+    /// Performs signed division on integer scalars or vectors.
     pub fn build_basic_int_signed_div(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -658,6 +710,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildSDiv, lhs, rhs, name)
     }
 
+    /// Performs unsigned division on integer scalars or vectors.
     pub fn build_basic_int_unsigned_div(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -667,6 +720,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildUDiv, lhs, rhs, name)
     }
 
+    /// Computes signed remainder on integer scalars or vectors.
     pub fn build_basic_int_signed_rem(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -676,6 +730,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildSRem, lhs, rhs, name)
     }
 
+    /// Computes unsigned remainder on integer scalars or vectors.
     pub fn build_basic_int_unsigned_rem(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -685,6 +740,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildURem, lhs, rhs, name)
     }
 
+    /// Computes bitwise AND on integer scalars or vectors.
     pub fn build_basic_and(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -694,6 +750,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildAnd, lhs, rhs, name)
     }
 
+    /// Computes bitwise OR on integer scalars or vectors.
     pub fn build_basic_or(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -703,6 +760,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildOr, lhs, rhs, name)
     }
 
+    /// Computes bitwise XOR on integer scalars or vectors.
     pub fn build_basic_xor(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -712,6 +770,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildXor, lhs, rhs, name)
     }
 
+    /// Shifts integer scalars or vectors left.
     pub fn build_basic_shl(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -721,6 +780,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildShl, lhs, rhs, name)
     }
 
+    /// Shifts integer scalars or vectors right logically.
     pub fn build_basic_lshr(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -730,6 +790,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildLShr, lhs, rhs, name)
     }
 
+    /// Shifts integer scalars or vectors right arithmetically.
     pub fn build_basic_ashr(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -739,6 +800,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildAShr, lhs, rhs, name)
     }
 
+    /// Compares integer scalars or vectors with `predicate`.
     pub fn build_basic_int_compare(
         &self,
         pred: IntPredicate,
@@ -758,6 +820,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Adds two scalar floating-point values.
     pub fn build_float_add(
         &self,
         lhs: FloatValue<'ctx>,
@@ -767,6 +830,7 @@ impl<'ctx> Builder<'ctx> {
         build_float_bin(self.raw, LLVMBuildFAdd, lhs, rhs, name)
     }
 
+    /// Subtracts two scalar floating-point values.
     pub fn build_float_sub(
         &self,
         lhs: FloatValue<'ctx>,
@@ -776,6 +840,7 @@ impl<'ctx> Builder<'ctx> {
         build_float_bin(self.raw, LLVMBuildFSub, lhs, rhs, name)
     }
 
+    /// Multiplies two scalar floating-point values.
     pub fn build_float_mul(
         &self,
         lhs: FloatValue<'ctx>,
@@ -785,6 +850,7 @@ impl<'ctx> Builder<'ctx> {
         build_float_bin(self.raw, LLVMBuildFMul, lhs, rhs, name)
     }
 
+    /// Divides two scalar floating-point values.
     pub fn build_float_div(
         &self,
         lhs: FloatValue<'ctx>,
@@ -794,6 +860,7 @@ impl<'ctx> Builder<'ctx> {
         build_float_bin(self.raw, LLVMBuildFDiv, lhs, rhs, name)
     }
 
+    /// Computes scalar floating-point remainder.
     pub fn build_float_rem(
         &self,
         lhs: FloatValue<'ctx>,
@@ -803,6 +870,7 @@ impl<'ctx> Builder<'ctx> {
         build_float_bin(self.raw, LLVMBuildFRem, lhs, rhs, name)
     }
 
+    /// Performs an ordered scalar floating-point comparison.
     pub fn build_float_compare(
         &self,
         pred: FloatPredicate,
@@ -823,6 +891,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(IntValue::new(require_value(value, "floating comparison")?))
     }
 
+    /// Adds floating-point scalars or vectors.
     pub fn build_basic_float_add(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -832,6 +901,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildFAdd, lhs, rhs, name)
     }
 
+    /// Subtracts floating-point scalars or vectors.
     pub fn build_basic_float_sub(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -841,6 +911,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildFSub, lhs, rhs, name)
     }
 
+    /// Multiplies floating-point scalars or vectors.
     pub fn build_basic_float_mul(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -850,6 +921,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildFMul, lhs, rhs, name)
     }
 
+    /// Divides floating-point scalars or vectors.
     pub fn build_basic_float_div(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -859,6 +931,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildFDiv, lhs, rhs, name)
     }
 
+    /// Computes remainder on floating-point scalars or vectors.
     pub fn build_basic_float_rem(
         &self,
         lhs: BasicValueEnum<'ctx>,
@@ -868,6 +941,7 @@ impl<'ctx> Builder<'ctx> {
         build_basic_bin(self.raw, LLVMBuildFRem, lhs, rhs, name)
     }
 
+    /// Performs an ordered comparison on floating-point scalars or vectors.
     pub fn build_basic_float_compare(
         &self,
         pred: FloatPredicate,
@@ -887,12 +961,14 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Negates a scalar integer.
     pub fn build_int_neg(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr()) };
         Ok(IntValue::new(require_value(value, "integer negation")?))
     }
 
+    /// Negates a scalar floating-point value.
     pub fn build_float_neg(
         &self,
         value: FloatValue<'ctx>,
@@ -903,12 +979,14 @@ impl<'ctx> Builder<'ctx> {
         Ok(FloatValue::new(require_value(value, "floating negation")?))
     }
 
+    /// Computes scalar integer bitwise NOT.
     pub fn build_not(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr()) };
         Ok(IntValue::new(require_value(value, "integer not")?))
     }
 
+    /// Negates integer scalars or vectors.
     pub fn build_basic_neg(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -918,6 +996,7 @@ impl<'ctx> Builder<'ctx> {
         BasicValueEnum::new(unsafe { LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
 
+    /// Negates floating-point scalars or vectors.
     pub fn build_basic_float_neg(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -927,6 +1006,7 @@ impl<'ctx> Builder<'ctx> {
         BasicValueEnum::new(unsafe { LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
 
+    /// Computes bitwise NOT on integer scalars or vectors.
     pub fn build_basic_not(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -936,6 +1016,7 @@ impl<'ctx> Builder<'ctx> {
         BasicValueEnum::new(unsafe { LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
 
+    /// Selects `then_value` or `else_value` from a scalar/vector condition.
     pub fn build_select(
         &self,
         cond: BasicValueEnum<'ctx>,
@@ -955,6 +1036,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Extracts one vector lane by dynamic integer index.
     pub fn build_extract_element(
         &self,
         vector: VectorValue<'ctx>,
@@ -972,6 +1054,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Returns a vector with one lane replaced.
     pub fn build_insert_element(
         &self,
         vector: VectorValue<'ctx>,
@@ -991,6 +1074,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Rearranges lanes from two vectors according to `mask`.
     pub fn build_shuffle_vector(
         &self,
         lhs: VectorValue<'ctx>,
@@ -1010,6 +1094,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Bitcasts a value without changing its bit representation.
     pub fn build_bit_cast<V: BasicValue<'ctx>, T: AsTypeRef>(
         &self,
         value: V,
@@ -1027,6 +1112,7 @@ impl<'ctx> Builder<'ctx> {
         })
     }
 
+    /// Casts between opaque pointer types/address spaces.
     pub fn build_pointer_cast(
         &self,
         value: PointerValue<'ctx>,
@@ -1045,6 +1131,7 @@ impl<'ctx> Builder<'ctx> {
         Ok(PointerValue::new(require_value(value, "pointer cast")?))
     }
 
+    /// Converts a pointer to an integer of `target` width.
     pub fn build_ptr_to_int(
         &self,
         value: PointerValue<'ctx>,
@@ -1066,6 +1153,7 @@ impl<'ctx> Builder<'ctx> {
         )?))
     }
 
+    /// Converts an integer to an opaque pointer.
     pub fn build_int_to_ptr(
         &self,
         value: IntValue<'ctx>,
@@ -1087,6 +1175,7 @@ impl<'ctx> Builder<'ctx> {
         )?))
     }
 
+    /// Zero-extends a scalar integer.
     pub fn build_int_z_extend(
         &self,
         value: IntValue<'ctx>,
@@ -1096,6 +1185,7 @@ impl<'ctx> Builder<'ctx> {
         cast_int(self.raw, LLVMBuildZExt, value, target, name)
     }
 
+    /// Sign-extends a scalar integer.
     pub fn build_int_s_extend(
         &self,
         value: IntValue<'ctx>,
@@ -1105,6 +1195,7 @@ impl<'ctx> Builder<'ctx> {
         cast_int(self.raw, LLVMBuildSExt, value, target, name)
     }
 
+    /// Truncates a scalar integer to a narrower width.
     pub fn build_int_truncate(
         &self,
         value: IntValue<'ctx>,
@@ -1114,6 +1205,7 @@ impl<'ctx> Builder<'ctx> {
         cast_int(self.raw, LLVMBuildTrunc, value, target, name)
     }
 
+    /// Zero-extends integer scalars or vectors.
     pub fn build_basic_int_z_extend(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -1123,6 +1215,7 @@ impl<'ctx> Builder<'ctx> {
         cast_basic(self.raw, LLVMBuildZExt, value, target, name)
     }
 
+    /// Sign-extends integer scalars or vectors.
     pub fn build_basic_int_s_extend(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -1132,6 +1225,7 @@ impl<'ctx> Builder<'ctx> {
         cast_basic(self.raw, LLVMBuildSExt, value, target, name)
     }
 
+    /// Truncates integer scalars or vectors.
     pub fn build_basic_int_truncate(
         &self,
         value: BasicValueEnum<'ctx>,
@@ -1141,6 +1235,7 @@ impl<'ctx> Builder<'ctx> {
         cast_basic(self.raw, LLVMBuildTrunc, value, target, name)
     }
 
+    /// Converts a signed scalar integer to floating point.
     pub fn build_signed_int_to_float(
         &self,
         value: IntValue<'ctx>,
@@ -1150,6 +1245,7 @@ impl<'ctx> Builder<'ctx> {
         cast_float(self.raw, LLVMBuildSIToFP, value, target, name)
     }
 
+    /// Converts an unsigned scalar integer to floating point.
     pub fn build_unsigned_int_to_float(
         &self,
         value: IntValue<'ctx>,
@@ -1159,6 +1255,7 @@ impl<'ctx> Builder<'ctx> {
         cast_float(self.raw, LLVMBuildUIToFP, value, target, name)
     }
 
+    /// Converts floating point to a signed scalar integer.
     pub fn build_float_to_signed_int(
         &self,
         value: FloatValue<'ctx>,
@@ -1168,6 +1265,7 @@ impl<'ctx> Builder<'ctx> {
         cast_int_from_float(self.raw, LLVMBuildFPToSI, value, target, name)
     }
 
+    /// Converts floating point to an unsigned scalar integer.
     pub fn build_float_to_unsigned_int(
         &self,
         value: FloatValue<'ctx>,
@@ -1177,6 +1275,7 @@ impl<'ctx> Builder<'ctx> {
         cast_int_from_float(self.raw, LLVMBuildFPToUI, value, target, name)
     }
 
+    /// Converts between floating-point widths.
     pub fn build_float_cast(
         &self,
         value: FloatValue<'ctx>,
