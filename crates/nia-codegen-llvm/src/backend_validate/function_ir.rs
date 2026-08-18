@@ -933,7 +933,10 @@ impl BackendValidator<'_> {
                     "closure function pointer expression has a non-function-pointer type",
                 )),
             },
-            FunctionExprKind::AddrOf(place) => self.validate_place(place),
+            FunctionExprKind::AddrOf(place) => {
+                self.validate_place(place);
+                self.validate_addr_of_result(expr.ty, place, expr.span);
+            }
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 self.validate_binary(expr.ty, lhs, *op, rhs, expr.span);
             }
@@ -3430,28 +3433,31 @@ impl BackendValidator<'_> {
         self.current_subject = Some("place");
         self.validate_runtime_type(place.ty, place.span);
         self.current_subject = None;
-        match &place.base {
+        let valid_base = match &place.base {
             FunctionPlaceBase::Local(local_id) => {
-                if !self
+                let exists = self
                     .local_tys
                     .last()
-                    .is_some_and(|local_tys| local_tys.contains_key(local_id))
-                {
+                    .is_some_and(|local_tys| local_tys.contains_key(local_id));
+                if !exists {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         place.span,
                         format!("backend IR place references missing local {local_id:?}"),
                     ));
                 }
+                exists
             }
             FunctionPlaceBase::Global(def_id) => {
-                if !self.index.has_global(*def_id) {
+                let exists = self.index.has_global(*def_id);
+                if !exists {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         place.span,
                         format!("backend IR place references missing global {def_id:?}"),
                     ));
                 }
+                exists
             }
             FunctionPlaceBase::GlobalInstance {
                 def_id,
@@ -3459,39 +3465,71 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
-                if self
+                let exists = self
                     .index
                     .global_instance(*def_id, *arg_module_id, args, const_args)
-                    .is_none()
-                {
+                    .is_some();
+                if !exists {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         place.span,
                         format!("backend IR place references missing global instance {def_id:?}"),
                     ));
                 }
+                exists
             }
-            FunctionPlaceBase::Deref(expr) => self.validate_expr(expr),
-            FunctionPlaceBase::Error => {}
-        }
-        for elem in &place.elems {
-            match elem {
-                FunctionPlaceElem::Index(expr) => self.validate_expr(expr),
-                FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {
-                    if self.place_base_ty(place).is_some() {
-                        self.validate_place_path(place);
-                    }
-                    break;
+            FunctionPlaceBase::Deref(expr) => {
+                self.validate_expr(expr);
+                if matches!(
+                    self.ty_kind(expr.ty),
+                    Some(TyKind::Pointer { .. } | TyKind::VolatilePointer { .. })
+                ) {
+                    true
+                } else {
+                    self.invalid_place(place.span, "deref base is not a pointer");
+                    false
                 }
-                FunctionPlaceElem::Error => {}
             }
+            FunctionPlaceBase::Error => false,
+        };
+        if !valid_base {
+            return;
+        }
+        if let Some(selected_ty) = self.validate_place_path(place)
+            && !self.projection_result_compatible(place.ty, selected_ty)
+        {
+            self.invalid_place(
+                place.span,
+                "result type does not match the selected storage",
+            );
         }
     }
 
-    fn validate_place_path(&mut self, place: &FunctionPlace) {
-        let Some(mut current_ty) = self.place_base_ty(place) else {
+    fn validate_addr_of_result(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        place: &FunctionPlace,
+        span: Span,
+    ) {
+        let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(result_ty) else {
+            self.invalid_place(span, "address-of result is not a pointer");
             return;
         };
+        if !self.same_type(*elem, place.ty) {
+            self.invalid_place(span, "address-of pointee does not match its place type");
+        }
+    }
+
+    fn invalid_place(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR place has an invalid type contract: {message}"),
+        ));
+    }
+
+    fn validate_place_path(&mut self, place: &FunctionPlace) -> Option<nia_ids::InternedTyId> {
+        let mut current_ty = self.place_base_ty(place)?;
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Field(field) => {
@@ -3501,14 +3539,12 @@ impl BackendValidator<'_> {
                     {
                         current_ty = *elem;
                     }
-                    if let Some(field_ty) = self.validate_aggregate_field(
+                    current_ty = self.validate_aggregate_field(
                         current_ty,
                         *field,
                         place.span,
                         "backend IR place references missing field",
-                    ) {
-                        current_ty = field_ty;
-                    }
+                    )?;
                 }
                 FunctionPlaceElem::TupleField(index) => {
                     let Some(
@@ -3518,32 +3554,30 @@ impl BackendValidator<'_> {
                         },
                     ) = self.ty_kind(current_ty)
                     else {
-                        self.diagnostics.push(Diagnostic::internal_error_at(
-                            nia_diagnostic::codes::INVALID_BACKEND_IR,
-                            place.span,
-                            "backend IR tuple place projection target is not a tuple",
-                        ));
-                        continue;
+                        self.invalid_place(place.span, "tuple projection target is not a tuple");
+                        return None;
                     };
-                    if let Some(elem) = elems.get(*index) {
-                        current_ty = *elem;
-                    } else {
-                        self.diagnostics.push(Diagnostic::internal_error_at(
-                            nia_diagnostic::codes::INVALID_BACKEND_IR,
-                            place.span,
-                            "backend IR tuple place projection is out of bounds",
-                        ));
-                    }
+                    let Some(elem) = elems.get(*index) else {
+                        self.invalid_place(place.span, "tuple projection is out of bounds");
+                        return None;
+                    };
+                    current_ty = *elem;
                 }
                 FunctionPlaceElem::Index(expr) => {
                     self.validate_expr(expr);
-                    if let Some(elem_ty) = self.array_elem_ty(current_ty) {
-                        current_ty = elem_ty;
+                    if !self.is_integer_type(expr.ty) {
+                        self.invalid_place(expr.span, "index is not an integer");
                     }
+                    let Some(elem_ty) = self.array_elem_ty(current_ty) else {
+                        self.invalid_place(place.span, "index target is not indexable storage");
+                        return None;
+                    };
+                    current_ty = elem_ty;
                 }
-                FunctionPlaceElem::Error => {}
+                FunctionPlaceElem::Error => return None,
             }
         }
+        Some(current_ty)
     }
 
     fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
