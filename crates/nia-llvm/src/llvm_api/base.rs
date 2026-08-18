@@ -1126,6 +1126,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_null_call_result_type_before_kind_inspection() {
+        let result =
+            classify_call_site_result::<'static>(std::ptr::null_mut(), std::ptr::null_mut())
+                .basic()
+                .expect("null call result type should be an error");
+        let error = result.expect_err("null call result type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null call result type".to_string())
+        );
+    }
+
+    #[test]
     fn rejects_null_attribute_before_attachment() {
         let error = Attribute::new(std::ptr::null_mut()).expect_err("null attribute");
 
@@ -1493,12 +1507,7 @@ impl<'ctx> CallSiteValue<'ctx> {
 
     pub fn try_as_basic_value(self) -> CallSiteTryAsValue<'ctx> {
         let ty = unsafe { LLVMTypeOf(self.raw) };
-        let value = if unsafe { LLVMGetTypeKind(ty) } == LLVMTypeKind::LLVMVoidTypeKind {
-            None
-        } else {
-            Some(BasicValueEnum::new(self.raw))
-        };
-        CallSiteTryAsValue { value }
+        classify_call_site_result(self.raw, ty)
     }
 }
 
@@ -1515,4 +1524,23 @@ impl<'ctx> CallSiteTryAsValue<'ctx> {
         self.value
             .ok_or_else(|| LlvmError::ice("expected non-void call result"))?
     }
+}
+
+/// Classifies a call result only after confirming that LLVM returned a type.
+/// A non-void result is converted through [`BasicValueEnum::new`], which adds
+/// the corresponding value/type checks for the typed wrapper.
+fn classify_call_site_result<'ctx>(
+    value: LLVMValueRef,
+    ty: LLVMTypeRef,
+) -> CallSiteTryAsValue<'ctx> {
+    let value = if ty.is_null() {
+        Some(Err(LlvmError::error(
+            "LLVM returned a null call result type",
+        )))
+    } else if unsafe { LLVMGetTypeKind(ty) } == LLVMTypeKind::LLVMVoidTypeKind {
+        None
+    } else {
+        Some(BasicValueEnum::new(value))
+    };
+    CallSiteTryAsValue { value }
 }
