@@ -302,7 +302,9 @@ pub enum FunctionExprKind {
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
+    /// Materializes a non-generic function as its exact source-level function pointer type.
     Function(nia_ids::GlobalDefId),
+    /// Materializes one concrete generic function instance as its exact function pointer type.
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,

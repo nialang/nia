@@ -751,6 +751,10 @@ commit as the corresponding implementation batch.
       atomic installation. The Driver no longer materializes the temporary
       archive with `fs::read`, and missing, growing, or truncated tool outputs
       leave an existing destination untouched.
+- [x] Phase B backend function and concrete function-instance values now carry
+      the exact published source-level function-pointer signature. Validation
+      rejects non-pointer result types plus parameter, return, and variadic
+      mismatches before LLVM materializes the referenced symbol.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -4068,6 +4068,21 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         return_type: i32_ty,
         is_variadic: false,
     });
+    let wrong_function_params_ty = interner.intern(TyKind::FunctionPointer {
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let wrong_function_return_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: bool_ty,
+        is_variadic: false,
+    });
+    let wrong_function_variadic_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: i32_ty,
+        is_variadic: true,
+    });
     let callable_ty = interner.intern(TyKind::Callable {
         is_readonly: true,
         params: vec![i32_ty],
@@ -4185,6 +4200,37 @@ fn validates_backend_ir_call_signatures_before_llvm() {
                     }),
                     vec![integer(), integer()],
                 )),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Function(target_id),
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: wrong_function_params_ty,
+                    kind: FunctionExprKind::Function(target_id),
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: wrong_function_return_ty,
+                    kind: FunctionExprKind::Function(target_id),
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: wrong_function_variadic_ty,
+                    kind: FunctionExprKind::Function(target_id),
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: wrong_function_params_ty,
+                    kind: FunctionExprKind::FunctionInstance {
+                        def_id: instance_id,
+                        arg_module_id: module_id,
+                        self_arg: None,
+                        args: vec![i32_ty],
+                        const_args: Vec::new(),
+                    },
+                }),
             ],
             terminator: FunctionTerminator::Tail {
                 value: Some(integer()),
@@ -4207,6 +4253,9 @@ fn validates_backend_ir_call_signatures_before_llvm() {
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
                     (function_pointer_ty, TypeLayout { size: 8, align: 8 }),
+                    (wrong_function_params_ty, TypeLayout { size: 8, align: 8 }),
+                    (wrong_function_return_ty, TypeLayout { size: 8, align: 8 }),
+                    (wrong_function_variadic_ty, TypeLayout { size: 8, align: 8 }),
                     (callable_ty, TypeLayout { size: 16, align: 8 }),
                 ],
                 structs: Vec::new(),
@@ -4315,6 +4364,11 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         "builtin-method call has an invalid ABI contract: len receiver type",
         "builtin-method call has an invalid ABI contract: len result type",
         "builtin-operator call has an invalid ABI contract",
+        "function value has an invalid signature contract: value type",
+        "function value has an invalid signature contract: parameter types",
+        "function value has an invalid signature contract: return type",
+        "function value has an invalid signature contract: variadic flag",
+        "function-instance value has an invalid signature contract: parameter types",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
