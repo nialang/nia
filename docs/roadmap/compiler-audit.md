@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 149 completed entries in this ledger.
+- Implementation batches: 150 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -886,6 +886,11 @@ acceptance item only when its phase-wide evidence is complete.
       unwinding APIs. Function-IR tests (15) and strict Clippy pass; its
       unsuppressed missing-docs baseline fell from 402 to 223, with the large
       expression/callee payload surface remaining for follow-up batches.
+- [x] Phase C function-IR expression Rustdoc now documents aggregate and
+      relocation payloads, atomic ordering, inline assembly, trait-object and
+      closure coercions, callee ABI fields, and typed place projections.
+      `cargo rustdoc -p nia-function-ir -- -D missing-docs` is clean; the same
+      15 validation/reference tests and strict Clippy remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
