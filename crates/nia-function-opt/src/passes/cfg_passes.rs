@@ -244,6 +244,9 @@ pub(crate) fn switch_targets_same(
 }
 
 pub(crate) fn merge_empty_jump_blocks(body: &mut FunctionBody) -> bool {
+    // Retarget to a fixed point because replacing one empty jump can expose a
+    // second empty jump. Scope equality is enforced by `empty_jump_targets`;
+    // crossing a lexical boundary would change defer execution order.
     let mut any_changed = false;
     loop {
         let empty_jumps = empty_jump_targets(&body.blocks, Some(body.entry));
@@ -364,6 +367,8 @@ pub(crate) fn retarget_block_id(
 }
 
 pub(crate) fn remove_unreachable_blocks(body: &mut FunctionBody) -> bool {
+    // Reachability includes structural terminator metadata and defer exits,
+    // so blocks referenced only by cleanup control flow are retained.
     let reachable = reachable_blocks(body);
     if reachable.len() == body.blocks.len() {
         return false;
@@ -381,6 +386,8 @@ pub(crate) fn reachable_defer_blocks(body: &FunctionDeferBody) -> HashSet<Functi
 }
 
 pub(crate) fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) -> bool {
+    // Deferred mini-CFGs are optimized recursively after their own branch and
+    // reachability cleanup; they may still reference enclosing blocks.
     let mut changed = false;
     for block in blocks {
         for op in &mut block.ops {

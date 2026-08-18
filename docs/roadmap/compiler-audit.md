@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 151 completed entries in this ledger.
+- Implementation batches: 152 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -896,6 +896,11 @@ acceptance item only when its phase-wide evidence is complete.
       contract of `lower_function_body`. Its strict `missing-docs` audit is
       clean; 55 lowering/validation/scope/match/loop tests and strict Clippy
       pass.
+- [x] Phase C function-opt CFG/purity audit now documents the conservative
+      discardability lattice, fixed-point empty-jump merging, and reachability
+      retention for defer-only control-flow references. Existing optimization
+      matrices cover effect preservation, scope boundaries, nested defers, and
+      policy ordering; 54 tests, strict Clippy, and `-D missing-docs` pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
