@@ -280,8 +280,25 @@ tests.
 
 ## 11. Progress Tracking
 
+This section records implementation batches, not a fixed-size completion
+percentage. The batch ledger grows whenever the audit discovers another
+owner-boundary or regression matrix, so `completed / total` is intentionally
+not a reliable project percentage: completing work can increase both numbers.
+Track the fixed acceptance checklist below separately from this expandable
+ledger, and report the two dimensions together.
+
+Current snapshot (2026-08-18):
+
+- Implementation batches: 135 completed entries in this ledger.
+- Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
+  end of this section).
+- The implementation ledger is evidence of covered batches; phase completion
+  requires the corresponding fixed acceptance item plus the cross-cutting
+  documentation, test-gap, and final validation evidence.
+
 Use this section as the only temporary progress ledger. Update it in the same
-commit as the corresponding implementation batch.
+commit as the corresponding implementation batch, and update the fixed
+acceptance item only when its phase-wide evidence is complete.
 
 - [x] Repository inventory and initial risk map.
 - [x] Trait const arguments preserved through executable reachability.
