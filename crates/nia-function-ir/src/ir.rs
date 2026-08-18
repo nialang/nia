@@ -103,6 +103,7 @@ pub struct FunctionBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionOp {
     Binding(FunctionBinding),
+    /// Writes a control-flow result into compiler-owned mutable temporary storage.
     StoreLocal {
         local_id: LocalId,
         value: FunctionExpr,
