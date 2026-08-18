@@ -6173,6 +6173,18 @@ fn validates_backend_ir_assignment_contracts_before_llvm() {
                         AssignOp::Shl,
                         integer(u8_ty),
                     ),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Discard(Box::new(integer(i32_ty))),
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Try {
+                            expr: Box::new(integer(i32_ty)),
+                        },
+                    }),
                 ],
                 terminator: FunctionTerminator::Tail {
                     value: Some(integer(i32_ty)),
@@ -6219,6 +6231,8 @@ fn validates_backend_ir_assignment_contracts_before_llvm() {
         "binary operand type is not supported by the operation",
         "target storage is not writable",
         "target type is only a readonly storage view",
+        "discard result type is not unit",
+        "propagation expression was not lowered to a CFG terminator",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
