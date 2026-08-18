@@ -41,10 +41,12 @@ pub enum StaticInit {
     },
     Struct(Vec<StaticFieldInit>),
     NullPtr,
+    /// The address of a global or one of its aggregate fields.
     AddrOfGlobal {
         global: GlobalDefId,
         path: Vec<StaticAddressElem>,
     },
+    /// The address of a concrete function or function instance.
     AddrOfFunction {
         function: GlobalDefId,
         args: Vec<InternedTyId>,

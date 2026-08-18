@@ -163,7 +163,7 @@ impl BackendValidator<'_> {
                 self.validate_static_address_path(global_item.ty, path, span);
             }
             StaticInit::AddrOfFunction { function, args } => {
-                self.validate_static_pointer_target(ty, span, "function address");
+                self.validate_static_function_address_signature(ty, *function, args, span);
                 if args.is_empty() {
                     self.validate_function_ref(
                         *function,
@@ -200,13 +200,109 @@ impl BackendValidator<'_> {
             self.ty_kind(ty),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
         ) {
-            self.invalid_static_scalar(
+            self.invalid_static_address(
                 ty,
                 span,
                 match kind {
                     "global address" => "global address target is not pointer-like",
                     _ => "function address target is not pointer-like",
                 },
+            );
+        }
+    }
+
+    fn invalid_static_address(&mut self, _ty: InternedTyId, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR static address initializer has an invalid contract: {message}"),
+        ));
+    }
+
+    /// Checks the source-visible ABI before a static function address is
+    /// bitcast into its destination global. Function-pointer identity carries
+    /// parameter, return, and variadic facts that an LLVM pointer cast cannot
+    /// recover after emission.
+    fn validate_static_function_address_signature(
+        &mut self,
+        ty: InternedTyId,
+        function: nia_ids::GlobalDefId,
+        args: &[InternedTyId],
+        span: Span,
+    ) {
+        let Some(TyKind::FunctionPointer {
+            params: target_params,
+            return_type: target_return,
+            is_variadic: target_variadic,
+        }) = self.ty_kind(ty).cloned()
+        else {
+            self.invalid_static_address(
+                ty,
+                span,
+                "function address target is not a function pointer",
+            );
+            return;
+        };
+
+        let signature = if args.is_empty() {
+            self.index.function(function).map(|item| {
+                (
+                    item.params
+                        .iter()
+                        .map(|param| param.local_ty)
+                        .collect::<Vec<_>>(),
+                    item.return_type,
+                    item.is_variadic,
+                )
+            })
+        } else {
+            self.index
+                .function_instance(function, function.module_id, None, args, &[])
+                .or_else(|| {
+                    self.index.function_instances_for(function).find(|item| {
+                        item.self_arg.is_none()
+                            && item.args.as_slice() == args
+                            && item.const_args.is_empty()
+                    })
+                })
+                .map(|item| {
+                    (
+                        item.params
+                            .iter()
+                            .map(|param| param.local_ty)
+                            .collect::<Vec<_>>(),
+                        item.return_type,
+                        item.is_variadic,
+                    )
+                })
+        };
+        let Some((actual_params, actual_return, actual_variadic)) = signature else {
+            return;
+        };
+        if actual_params.len() != target_params.len()
+            || actual_params
+                .iter()
+                .zip(&target_params)
+                .any(|(actual, target)| !self.same_type(*actual, *target))
+        {
+            self.invalid_static_address(
+                ty,
+                span,
+                "function address parameter types do not match its target",
+            );
+        }
+        if !self.same_type(actual_return, target_return) {
+            self.invalid_static_address(
+                ty,
+                span,
+                "function address return type does not match its target",
+            );
+        }
+        if actual_variadic != target_variadic {
+            self.invalid_static_address(
+                ty,
+                span,
+                "function address variadic flag does not match its target",
             );
         }
     }

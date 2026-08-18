@@ -779,6 +779,10 @@ commit as the corresponding implementation batch.
       pointer destinations before module-level LLVM constant emission. Address
       initializers also require pointer-like destination types before relocation
       lookup and path validation.
+- [x] Phase B static function addresses now require an exact source-level
+      function-pointer signature, including semantic parameter types, return
+      type, and variadic status, before LLVM can erase mismatches with a
+      constant pointer bitcast.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
