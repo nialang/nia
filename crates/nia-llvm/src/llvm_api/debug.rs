@@ -616,6 +616,7 @@ impl<'ctx> Drop for DebugInfoBuilder<'ctx> {
 }
 
 impl Context {
+    /// Returns the debug metadata version understood by the linked LLVM.
     pub fn debug_metadata_version(&self) -> u32 {
         unsafe { LLVMDebugMetadataVersion() }
     }
@@ -627,13 +628,20 @@ impl<'ctx> Module<'ctx> {
         DebugInfoBuilder::new(unsafe { LLVMCreateDIBuilder(self.raw) })
     }
 
+    /// Adds a module flag whose payload is represented by a basic LLVM value.
+    ///
+    /// Conversion to metadata is checked before the handle reaches
+    /// `LLVMAddModuleFlag`, whose C API cannot report a null payload itself.
     pub fn add_basic_value_flag<V: BasicValue<'ctx>>(
         &self,
         key: &str,
         behavior: ModuleFlagBehavior,
         value: V,
-    ) {
-        let metadata = unsafe { LLVMValueAsMetadata(value.as_value_ref()) };
+    ) -> LlvmResult<()> {
+        let metadata = require_metadata(
+            unsafe { LLVMValueAsMetadata(value.as_value_ref()) },
+            "module flag",
+        )?;
         unsafe {
             LLVMAddModuleFlag(
                 self.raw,
@@ -643,6 +651,7 @@ impl<'ctx> Module<'ctx> {
                 metadata,
             )
         };
+        Ok(())
     }
 }
 
@@ -667,6 +676,17 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null DIType metadata handle".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_module_flag_metadata_before_attachment() {
+        let error = require_metadata(std::ptr::null_mut(), "module flag")
+            .expect_err("null module flag metadata");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null module flag metadata handle".to_string())
         );
     }
 }
