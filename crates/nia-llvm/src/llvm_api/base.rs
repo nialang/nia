@@ -648,6 +648,12 @@ pub enum BasicTypeEnum<'ctx> {
 
 impl<'ctx> BasicTypeEnum<'ctx> {
     pub(super) fn new(raw: LLVMTypeRef) -> LlvmResult<Self> {
+        // LLVM type inspection requires a live handle. Check before calling
+        // `LLVMGetTypeKind`; otherwise an upstream null return would cross the
+        // FFI boundary despite this constructor exposing a fallible API.
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null basic type"));
+        }
         match unsafe { LLVMGetTypeKind(raw) } {
             LLVMTypeKind::LLVMArrayTypeKind => Ok(Self::ArrayType(ArrayType::new(raw))),
             LLVMTypeKind::LLVMFloatTypeKind | LLVMTypeKind::LLVMDoubleTypeKind => {
@@ -970,6 +976,12 @@ pub enum BasicValueEnum<'ctx> {
 
 impl<'ctx> BasicValueEnum<'ctx> {
     pub(super) fn new(raw: LLVMValueRef) -> LlvmResult<Self> {
+        // `LLVMTypeOf` does not accept null. Keep null-result handling at this
+        // shared conversion boundary so every builder returning an enum value
+        // reports an error instead of invoking LLVM with an invalid handle.
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null basic value"));
+        }
         match BasicTypeEnum::new(unsafe { LLVMTypeOf(raw) })? {
             BasicTypeEnum::ArrayType(_) => Ok(Self::ArrayValue(ArrayValue::new(raw))),
             BasicTypeEnum::FloatType(_) => Ok(Self::FloatValue(FloatValue::new(raw))),
@@ -1056,6 +1068,31 @@ impl<'ctx> BasicValueEnum<'ctx> {
         } else {
             Some(InstructionValue::new(value))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_null_basic_type_before_llvm_inspection() {
+        let error = BasicTypeEnum::new(std::ptr::null_mut()).expect_err("null type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null basic type".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_basic_value_before_llvm_inspection() {
+        let error = BasicValueEnum::new(std::ptr::null_mut()).expect_err("null value");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null basic value".to_string())
+        );
     }
 }
 
