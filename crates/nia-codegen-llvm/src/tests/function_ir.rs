@@ -5,6 +5,7 @@ use nia_backend_ir::BackendEnumVariantPayload;
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic, FunctionBitIntrinsicOp,
     FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource,
+    FunctionSliceRange,
 };
 
 fn single_module_program(
@@ -603,11 +604,24 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
     let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
     let array_ty = interner.intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
+        elem: i32_ty,
+    });
+    let slice_i32_ty = interner.intern(TyKind::Slice {
+        is_readonly: false,
+        elem: i32_ty,
+    });
+    let readonly_slice_i32_ty = interner.intern(TyKind::Slice {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let readonly_i32_ptr_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
         elem: i32_ty,
     });
     let struct_id = GlobalDefId {
@@ -708,6 +722,125 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
             },
         ),
         function(
+            9,
+            "bad_field",
+            bool_ty,
+            FunctionExpr {
+                span,
+                ty: bool_ty,
+                kind: FunctionExprKind::Field {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: struct_ty,
+                        kind: FunctionExprKind::Null,
+                    }),
+                    field: field_id,
+                },
+            },
+        ),
+        function(
+            10,
+            "bad_slice_source",
+            bool_ty,
+            FunctionExpr {
+                span,
+                ty: bool_ty,
+                kind: FunctionExprKind::Slice {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: bool_ty,
+                        kind: FunctionExprKind::Bool(true),
+                    }),
+                    range: FunctionSliceRange {
+                        start: None,
+                        end: None,
+                        inclusive: false,
+                    },
+                    is_readonly: false,
+                },
+            },
+        ),
+        function(
+            11,
+            "bad_slice_element",
+            interner.intern(TyKind::Slice {
+                is_readonly: false,
+                elem: bool_ty,
+            }),
+            FunctionExpr {
+                span,
+                ty: interner.intern(TyKind::Slice {
+                    is_readonly: false,
+                    elem: bool_ty,
+                }),
+                kind: FunctionExprKind::Slice {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: array_ty,
+                        kind: FunctionExprKind::ArrayLiteral {
+                            elems: FunctionArrayElements::List(vec![integer()]),
+                        },
+                    }),
+                    range: FunctionSliceRange {
+                        start: None,
+                        end: None,
+                        inclusive: false,
+                    },
+                    is_readonly: false,
+                },
+            },
+        ),
+        function(
+            12,
+            "bad_slice_readonly",
+            slice_i32_ty,
+            FunctionExpr {
+                span,
+                ty: slice_i32_ty,
+                kind: FunctionExprKind::Slice {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: readonly_i32_ptr_ty,
+                        kind: FunctionExprKind::Null,
+                    }),
+                    range: FunctionSliceRange {
+                        start: None,
+                        end: None,
+                        inclusive: false,
+                    },
+                    is_readonly: false,
+                },
+            },
+        ),
+        function(
+            13,
+            "bad_slice_bound",
+            readonly_slice_i32_ty,
+            FunctionExpr {
+                span,
+                ty: readonly_slice_i32_ty,
+                kind: FunctionExprKind::Slice {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: array_ty,
+                        kind: FunctionExprKind::ArrayLiteral {
+                            elems: FunctionArrayElements::List(vec![integer()]),
+                        },
+                    }),
+                    range: FunctionSliceRange {
+                        start: Some(Box::new(FunctionExpr {
+                            span,
+                            ty: f32_ty,
+                            kind: FunctionExprKind::Float("1.0".to_string()),
+                        })),
+                        end: None,
+                        inclusive: false,
+                    },
+                    is_readonly: true,
+                },
+            },
+        ),
+        function(
             5,
             "bad_index",
             bool_ty,
@@ -787,11 +920,15 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
                 (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (f32_ty, TypeLayout { size: 4, align: 4 }),
                 (i32_ty, TypeLayout { size: 4, align: 4 }),
                 (usize_ty, TypeLayout { size: 8, align: 8 }),
                 (tuple_ty, TypeLayout { size: 4, align: 4 }),
                 (array_ty, TypeLayout { size: 4, align: 4 }),
                 (struct_ty, TypeLayout { size: 4, align: 4 }),
+                (slice_i32_ty, TypeLayout { size: 16, align: 8 }),
+                (readonly_slice_i32_ty, TypeLayout { size: 16, align: 8 }),
+                (readonly_i32_ptr_ty, TypeLayout { size: 8, align: 8 }),
             ],
             structs: vec![(
                 struct_id,
@@ -832,8 +969,13 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
     assert!(output.modules.is_empty());
     for expected in [
         "aggregate field initializer result type does not match",
+        "field result type does not match",
         "tuple result type does not match",
         "index result type does not match",
+        "slice input is not an array, pointer, or slice",
+        "slice result element does not match its input",
+        "slice drops readonly access from its input",
+        "slice range bound is not an integer",
         "tuple literal has an invalid type contract: element type",
         "array literal has an invalid type contract: element count",
         "array literal has an invalid type contract: element type",
@@ -1684,6 +1826,156 @@ fn validates_cast_contracts_before_llvm() {
         "cast result type does not match its target metadata",
         "cast source and target categories are incompatible",
         "numeric cast changes scalar/vector shape",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
+fn validates_tagged_union_expression_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
+    let error_union_ty = interner.intern(TyKind::ErrorUnion {
+        error: bool_ty,
+        value: i32_ty,
+    });
+    let span = Span::default();
+    let value = |ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let tagged = |result_ty, kind| {
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: result_ty,
+            kind,
+        })
+    };
+    let ops = vec![
+        tagged(
+            i32_ty,
+            FunctionExprKind::OptionalSome {
+                expr: Box::new(value(bool_ty)),
+            },
+        ),
+        tagged(
+            optional_i32_ty,
+            FunctionExprKind::ErrorOk {
+                expr: Box::new(value(bool_ty)),
+            },
+        ),
+        tagged(
+            error_union_ty,
+            FunctionExprKind::ErrorErr {
+                expr: Box::new(value(i32_ty)),
+            },
+        ),
+        tagged(
+            bool_ty,
+            FunctionExprKind::TaggedUnionTag {
+                expr: Box::new(value(optional_i32_ty)),
+            },
+        ),
+        tagged(
+            bool_ty,
+            FunctionExprKind::TaggedUnionPayload {
+                expr: Box::new(value(optional_i32_ty)),
+            },
+        ),
+        tagged(
+            bool_ty,
+            FunctionExprKind::TaggedUnionPayload {
+                expr: Box::new(value(i32_ty)),
+            },
+        ),
+        tagged(
+            u8_ty,
+            FunctionExprKind::TaggedUnionTag {
+                expr: Box::new(value(i32_ty)),
+            },
+        ),
+        tagged(
+            u8_ty,
+            FunctionExprKind::TaggedUnionTag {
+                expr: Box::new(value(error_union_ty)),
+            },
+        ),
+    ];
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_tagged_union_exprs"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops,
+                terminator: FunctionTerminator::Tail {
+                    value: Some(value(i32_ty)),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+    assert!(output.modules.is_empty());
+    for expected in [
+        "constructor result is not the matching Optional or ErrorUnion type",
+        "constructor payload type does not match its result",
+        "tag projection input is not a tagged union",
+        "tag projection result is not u8",
+        "optional payload result does not match its element",
+        "payload projection input is not a tagged union",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
