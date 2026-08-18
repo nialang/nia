@@ -405,28 +405,51 @@ impl BackendValidator<'_> {
             .iter()
             .map(|field| (field.def_id, field.ty))
             .collect::<Vec<_>>();
+        let is_union = self.index.union_item(def_id).is_some();
+        if is_union && fields.len() != 1 {
+            self.invalid_static_aggregate(
+                span,
+                "union static initializer must initialize exactly one field",
+            );
+        }
+        let mut seen_fields = Vec::new();
         for init in fields {
             let Some(field_id) = init.field else {
-                self.diagnostics.push(Diagnostic::internal_error_at(
-                    nia_diagnostic::codes::INVALID_BACKEND_IR,
-                    span,
-                    "backend IR static initializer has invalid field",
-                ));
+                self.invalid_static_aggregate(span, "static initializer has invalid field");
                 continue;
             };
             let Some((_, field_ty)) = target_fields
                 .iter()
                 .find(|(candidate, _)| *candidate == field_id)
             else {
-                self.diagnostics.push(Diagnostic::internal_error_at(
-                    nia_diagnostic::codes::INVALID_BACKEND_IR,
-                    span,
-                    format!("backend IR static initializer references missing field {field_id:?}"),
-                ));
+                self.invalid_static_aggregate(span, "static initializer references missing field");
                 continue;
             };
+            if seen_fields.contains(&field_id) {
+                self.invalid_static_aggregate(span, "struct static initializer duplicates a field");
+            } else {
+                seen_fields.push(field_id);
+            }
             self.validate_static_init(*field_ty, &init.value, span);
         }
+        if !is_union {
+            for (field_id, _) in &target_fields {
+                if !seen_fields.contains(field_id) {
+                    self.invalid_static_aggregate(
+                        span,
+                        "struct static initializer is missing a field",
+                    );
+                }
+            }
+        }
+    }
+
+    fn invalid_static_aggregate(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR static aggregate initializer has an invalid contract: {message}"),
+        ));
     }
 
     fn validate_static_address_path(
@@ -438,16 +461,13 @@ impl BackendValidator<'_> {
         for elem in path {
             match elem {
                 StaticAddressElem::Field(field) => {
-                    if let Some(field_ty) = self.validate_aggregate_field(
+                    let field_ty = self.validate_aggregate_field(
                         current_ty,
                         *field,
                         span,
                         "backend IR static address path references missing field",
-                    ) {
-                        current_ty = field_ty;
-                    } else {
-                        return None;
-                    }
+                    )?;
+                    current_ty = field_ty;
                 }
                 StaticAddressElem::Index(_) => {
                     let Some(elem_ty) = self.array_elem_ty(current_ty) else {

@@ -39,6 +39,11 @@ pub enum StaticInit {
         value: Box<StaticInit>,
         count: u64,
     },
+    /// Declaration-identified aggregate fields.
+    ///
+    /// Structs initialize every declared field exactly once; unions initialize
+    /// exactly one declared field. Backend validation enforces that distinction
+    /// before layout-ordered LLVM constant construction.
     Struct(Vec<StaticFieldInit>),
     NullPtr,
     /// The address of a global or one of its aggregate fields.
