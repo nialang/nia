@@ -476,6 +476,10 @@ commit as the corresponding implementation batch.
       payload arity/types, backing-width tags, and payload projection owner,
       index, and result contracts before LLVM computes enum offsets. The
       malformed-IR matrix covers scalar and payload-bearing enum paths.
+- [x] Phase B scalar, character, boolean, string, byte-string, and null
+      literal validation now checks target primitive/array shape and known
+      lengths before LLVM literal builders receive a mismatched value type;
+      malformed literal cases are included in the backend IR matrix.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

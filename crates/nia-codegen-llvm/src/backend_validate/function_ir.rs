@@ -984,15 +984,48 @@ impl BackendValidator<'_> {
                     self.validate_slice_bound(end);
                 }
             }
+            FunctionExprKind::Integer(_) => self.validate_integer_literal(expr.ty, expr.span),
+            FunctionExprKind::Float(_) => self.validate_float_literal(expr.ty, expr.span),
+            FunctionExprKind::String(scalars) => {
+                self.validate_string_literal(expr.ty, scalars.len(), expr.span, false)
+            }
+            FunctionExprKind::ByteString(bytes) => {
+                self.validate_string_literal(expr.ty, bytes.len(), expr.span, true)
+            }
+            FunctionExprKind::Char(_) => {
+                if !matches!(
+                    self.index.ty_kind(expr.ty),
+                    Some(TyKind::Primitive(PrimitiveTy::Char))
+                ) {
+                    self.invalid_literal_contract(expr.span, "char", "target type is not char");
+                }
+            }
+            FunctionExprKind::ByteChar(_) => {
+                if !matches!(
+                    self.index.ty_kind(expr.ty),
+                    Some(TyKind::Primitive(PrimitiveTy::U8))
+                ) {
+                    self.invalid_literal_contract(expr.span, "byte char", "target type is not u8");
+                }
+            }
+            FunctionExprKind::Bool(_) => {
+                if !self.is_bool_type(expr.ty) {
+                    self.invalid_literal_contract(expr.span, "bool", "target type is not bool");
+                }
+            }
+            FunctionExprKind::Null => {
+                if !matches!(
+                    self.index.ty_kind(expr.ty),
+                    Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. })
+                ) {
+                    self.invalid_literal_contract(
+                        expr.span,
+                        "null",
+                        "target type is not Optional or ErrorUnion",
+                    );
+                }
+            }
             FunctionExprKind::Error
-            | FunctionExprKind::Integer(_)
-            | FunctionExprKind::Float(_)
-            | FunctionExprKind::String(_)
-            | FunctionExprKind::ByteString(_)
-            | FunctionExprKind::Char(_)
-            | FunctionExprKind::ByteChar(_)
-            | FunctionExprKind::Bool(_)
-            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::BuiltinValue(_)
             | FunctionExprKind::Trap => {}
@@ -1956,6 +1989,55 @@ impl BackendValidator<'_> {
             span,
             format!("backend IR {kind} literal has an invalid type contract: {message}"),
         ));
+    }
+
+    fn validate_integer_literal(&mut self, ty: nia_ids::InternedTyId, span: Span) {
+        if !matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Primitive(primitive))
+                if primitive.is_integer()
+                    || matches!(*primitive, PrimitiveTy::Bool | PrimitiveTy::Char)
+        ) {
+            self.invalid_literal_contract(span, "integer", "target type is not an integer");
+        }
+    }
+
+    fn validate_float_literal(&mut self, ty: nia_ids::InternedTyId, span: Span) {
+        if !matches!(
+            self.index.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
+        ) {
+            self.invalid_literal_contract(span, "float", "target type is not f32 or f64");
+        }
+    }
+
+    fn validate_string_literal(
+        &mut self,
+        ty: nia_ids::InternedTyId,
+        length: usize,
+        span: Span,
+        bytes: bool,
+    ) {
+        let kind = if bytes { "byte string" } else { "string" };
+        let expected_elem = if bytes {
+            PrimitiveTy::U8
+        } else {
+            PrimitiveTy::Char
+        };
+        let Some(TyKind::Array { len, elem }) = self.index.ty_kind(ty).cloned() else {
+            self.invalid_literal_contract(span, kind, "target type is not an array");
+            return;
+        };
+        if !matches!(self.index.ty_kind(elem), Some(TyKind::Primitive(actual)) if *actual == expected_elem)
+        {
+            self.invalid_literal_contract(span, kind, "array element type does not match literal");
+        }
+        if self
+            .array_len_value(&len)
+            .is_some_and(|expected| u64::try_from(length) != Ok(expected))
+        {
+            self.invalid_literal_contract(span, kind, "array length does not match literal");
+        }
     }
 
     fn validate_local_type(

@@ -244,13 +244,21 @@ pub struct FunctionExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionExprKind {
     Error,
+    /// An integer literal whose target type is resolved before LLVM lowering.
     Integer(String),
+    /// An `f32` or `f64` literal in its source spelling.
     Float(String),
+    /// A Unicode scalar array literal with a compiler-known array type.
     String(Vec<u32>),
+    /// A byte array literal with a compiler-known array type.
     ByteString(Vec<u8>),
+    /// A Unicode scalar literal, represented as the `char` primitive.
     Char(u32),
+    /// A byte character literal, represented as `u8`.
     ByteChar(String),
+    /// A boolean literal.
     Bool(bool),
+    /// The null/failure discriminant of an Optional or ErrorUnion.
     Null,
     /// A use of local storage through the expression's current typed view.
     ///

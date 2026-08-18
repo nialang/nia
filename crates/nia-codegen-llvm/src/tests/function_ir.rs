@@ -1842,8 +1842,18 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let char_ty = interner.primitive(PrimitiveTy::Char);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let bool_array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(1),
+        elem: bool_ty,
+    });
+    let char_array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(1),
+        elem: char_ty,
+    });
     let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
     let error_union_ty = interner.intern(TyKind::ErrorUnion {
         error: bool_ty,
@@ -1911,6 +1921,46 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
                 expr: Box::new(value(error_union_ty)),
             },
         ),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: f32_ty,
+            kind: FunctionExprKind::Integer("1".to_string()),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Float("1.0".to_string()),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: bool_array_ty,
+            kind: FunctionExprKind::String(vec![1]),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: char_array_ty,
+            kind: FunctionExprKind::ByteString(vec![1]),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Char('a' as u32),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::ByteChar("b".to_string()),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Bool(true),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Null,
+        }),
     ];
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -1976,6 +2026,14 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         "tag projection result is not u8",
         "optional payload result does not match its element",
         "payload projection input is not a tagged union",
+        "integer literal has an invalid type contract",
+        "float literal has an invalid type contract",
+        "string literal has an invalid type contract",
+        "byte string literal has an invalid type contract",
+        "char literal has an invalid type contract",
+        "byte char literal has an invalid type contract",
+        "bool literal has an invalid type contract",
+        "null literal has an invalid type contract",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
