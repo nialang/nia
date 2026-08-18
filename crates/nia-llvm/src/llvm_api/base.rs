@@ -358,8 +358,9 @@ impl Attribute {
 }
 
 macro_rules! impl_type_wrapper {
-    ($name:ident) => {
+    ($doc:literal, $name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[doc = $doc]
         pub struct $name<'ctx> {
             pub(super) raw: LLVMTypeRef,
             pub(super) _marker: PhantomData<&'ctx Context>,
@@ -383,15 +384,21 @@ macro_rules! impl_type_wrapper {
     };
 }
 
-impl_type_wrapper!(VoidType);
-impl_type_wrapper!(IntType);
-impl_type_wrapper!(FloatType);
-impl_type_wrapper!(PointerType);
-impl_type_wrapper!(StructType);
-impl_type_wrapper!(ArrayType);
-impl_type_wrapper!(VectorType);
-impl_type_wrapper!(ScalableVectorType);
-impl_type_wrapper!(FunctionType);
+impl_type_wrapper!("Non-owning LLVM void type handle.", VoidType);
+impl_type_wrapper!("Non-owning LLVM integer type handle.", IntType);
+impl_type_wrapper!("Non-owning LLVM floating-point type handle.", FloatType);
+impl_type_wrapper!("Non-owning LLVM opaque pointer type handle.", PointerType);
+impl_type_wrapper!("Non-owning LLVM struct type handle.", StructType);
+impl_type_wrapper!("Non-owning LLVM fixed-size array type handle.", ArrayType);
+impl_type_wrapper!(
+    "Non-owning LLVM fixed-width vector type handle.",
+    VectorType
+);
+impl_type_wrapper!(
+    "Non-owning LLVM scalable-vector type handle.",
+    ScalableVectorType
+);
+impl_type_wrapper!("Non-owning LLVM function signature handle.", FunctionType);
 
 impl<'ctx> VoidType<'ctx> {
     pub fn fn_type(
@@ -727,13 +734,21 @@ fn classify_return_type<'ctx>(raw: LLVMTypeRef) -> LlvmResult<Option<BasicTypeEn
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Any first-class, non-void LLVM type supported by Nia codegen.
 pub enum BasicTypeEnum<'ctx> {
+    /// Fixed-size array type.
     ArrayType(ArrayType<'ctx>),
+    /// Floating-point type.
     FloatType(FloatType<'ctx>),
+    /// Integer type.
     IntType(IntType<'ctx>),
+    /// Opaque pointer type.
     PointerType(PointerType<'ctx>),
+    /// Struct type.
     StructType(StructType<'ctx>),
+    /// Fixed-width vector type.
     VectorType(VectorType<'ctx>),
+    /// Scalable-vector type.
     ScalableVectorType(ScalableVectorType<'ctx>),
 }
 
@@ -914,11 +929,13 @@ impl<'ctx> From<ScalableVectorType<'ctx>> for BasicTypeEnum<'ctx> {
     }
 }
 
+/// LLVM metadata-argument type supported by this wrapper.
 pub type BasicMetadataTypeEnum<'ctx> = BasicTypeEnum<'ctx>;
 
 macro_rules! impl_value_wrapper {
-    ($name:ident, $basic_method:ident) => {
+    ($doc:literal, $name:ident, $basic_method:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[doc = $doc]
         pub struct $name<'ctx> {
             pub(super) raw: LLVMValueRef,
             pub(super) _marker: PhantomData<&'ctx Context>,
@@ -948,13 +965,37 @@ macro_rules! impl_value_wrapper {
     };
 }
 
-impl_value_wrapper!(IntValue, IntValue);
-impl_value_wrapper!(FloatValue, FloatValue);
-impl_value_wrapper!(PointerValue, PointerValue);
-impl_value_wrapper!(StructValue, StructValue);
-impl_value_wrapper!(ArrayValue, ArrayValue);
-impl_value_wrapper!(VectorValue, VectorValue);
-impl_value_wrapper!(ScalableVectorValue, ScalableVectorValue);
+impl_value_wrapper!("Non-owning LLVM integer value handle.", IntValue, IntValue);
+impl_value_wrapper!(
+    "Non-owning LLVM floating-point value handle.",
+    FloatValue,
+    FloatValue
+);
+impl_value_wrapper!(
+    "Non-owning LLVM pointer value handle.",
+    PointerValue,
+    PointerValue
+);
+impl_value_wrapper!(
+    "Non-owning LLVM struct value handle.",
+    StructValue,
+    StructValue
+);
+impl_value_wrapper!(
+    "Non-owning LLVM array value handle.",
+    ArrayValue,
+    ArrayValue
+);
+impl_value_wrapper!(
+    "Non-owning LLVM fixed-width vector value handle.",
+    VectorValue,
+    VectorValue
+);
+impl_value_wrapper!(
+    "Non-owning LLVM scalable-vector value handle.",
+    ScalableVectorValue,
+    ScalableVectorValue
+);
 
 impl<'ctx> AggregateValue<'ctx> for StructValue<'ctx> {}
 impl<'ctx> AggregateValue<'ctx> for ArrayValue<'ctx> {}
@@ -1055,13 +1096,21 @@ impl<'ctx> ArrayValue<'ctx> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Any first-class LLVM value supported by Nia codegen.
 pub enum BasicValueEnum<'ctx> {
+    /// Fixed-size array value.
     ArrayValue(ArrayValue<'ctx>),
+    /// Floating-point value.
     FloatValue(FloatValue<'ctx>),
+    /// Integer value.
     IntValue(IntValue<'ctx>),
+    /// Pointer value.
     PointerValue(PointerValue<'ctx>),
+    /// Struct value.
     StructValue(StructValue<'ctx>),
+    /// Fixed-width vector value.
     VectorValue(VectorValue<'ctx>),
+    /// Scalable-vector value.
     ScalableVectorValue(ScalableVectorValue<'ctx>),
 }
 
@@ -1284,9 +1333,11 @@ impl<'ctx> From<ScalableVectorValue<'ctx>> for BasicValueEnum<'ctx> {
     }
 }
 
+/// LLVM metadata-argument value supported by this wrapper.
 pub type BasicMetadataValueEnum<'ctx> = BasicValueEnum<'ctx>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-owning handle to an LLVM function value.
 pub struct FunctionValue<'ctx> {
     pub(super) raw: LLVMValueRef,
     pub(super) _marker: PhantomData<&'ctx Context>,
@@ -1301,6 +1352,7 @@ impl<'ctx> FunctionValue<'ctx> {
         }
     }
 
+    /// Returns parameter `index`, or `None` when it is outside the signature.
     pub fn get_nth_param(self, index: u32) -> Option<LlvmResult<BasicValueEnum<'ctx>>> {
         let count = unsafe { LLVMCountParams(self.raw) };
         if index >= count {
@@ -1312,6 +1364,7 @@ impl<'ctx> FunctionValue<'ctx> {
         }
     }
 
+    /// Returns the function's first basic block.
     pub fn get_first_basic_block(self) -> Option<BasicBlock<'ctx>> {
         let block = unsafe { LLVMGetFirstBasicBlock(self.raw) };
         if block.is_null() {
@@ -1321,10 +1374,12 @@ impl<'ctx> FunctionValue<'ctx> {
         }
     }
 
+    /// Returns the function signature type.
     pub fn get_type(self) -> FunctionType<'ctx> {
         FunctionType::new(unsafe { LLVMGlobalGetValueType(self.raw) })
     }
 
+    /// Attaches `attribute` at the selected function location.
     pub fn add_attribute(self, loc: AttributeLoc, attribute: Attribute) {
         let index = match loc {
             AttributeLoc::Function => LLVMAttributeFunctionIndex,
@@ -1332,10 +1387,12 @@ impl<'ctx> FunctionValue<'ctx> {
         unsafe { LLVMAddAttributeAtIndex(self.raw, index, attribute.raw) };
     }
 
+    /// Views the function through LLVM's global-value API.
     pub fn as_global_value(self) -> GlobalValue<'ctx> {
         GlobalValue::new(self.raw)
     }
 
+    /// Returns the function name, using lossy UTF-8 conversion if necessary.
     pub fn name(self) -> String {
         let mut len = 0;
         let ptr = unsafe { LLVMGetValueName2(self.raw, &mut len) };
@@ -1346,6 +1403,7 @@ impl<'ctx> FunctionValue<'ctx> {
         String::from_utf8_lossy(bytes).into_owned()
     }
 
+    /// Associates debug subprogram metadata with this function.
     pub fn set_subprogram(self, subprogram: DISubprogram<'ctx>) {
         unsafe { LLVMSetSubprogram(self.raw, subprogram.raw) };
     }
@@ -1358,6 +1416,7 @@ impl<'ctx> AsValueRef for FunctionValue<'ctx> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-owning handle to an LLVM global value.
 pub struct GlobalValue<'ctx> {
     pub(super) raw: LLVMValueRef,
     pub(super) _marker: PhantomData<&'ctx Context>,
@@ -1372,22 +1431,27 @@ impl<'ctx> GlobalValue<'ctx> {
         }
     }
 
+    /// Views this global as its pointer value.
     pub fn as_pointer_value(self) -> PointerValue<'ctx> {
         PointerValue::new(self.raw)
     }
 
+    /// Sets the global's initializer.
     pub fn set_initializer<V: BasicValue<'ctx>>(self, value: &V) {
         unsafe { LLVMSetInitializer(self.raw, value.as_value_ref()) };
     }
 
+    /// Marks whether writes to the global are forbidden after initialization.
     pub fn set_constant(self, constant: bool) {
         unsafe { LLVMSetGlobalConstant(self.raw, bool_to_llvm(constant)) };
     }
 
+    /// Sets the global's linkage.
     pub fn set_linkage(self, linkage: Linkage) {
         unsafe { LLVMSetLinkage(self.raw, linkage.into()) };
     }
 
+    /// Places the global in `section`, or clears the section when absent.
     pub fn set_section(self, section: Option<&str>) -> LlvmResult<()> {
         let section = section.unwrap_or("");
         let section = to_c_string(section)?;
@@ -1395,6 +1459,7 @@ impl<'ctx> GlobalValue<'ctx> {
         Ok(())
     }
 
+    /// Sets the global's required byte alignment.
     pub fn set_alignment(self, bytes: u32) {
         unsafe { LLVMSetAlignment(self.raw, bytes) };
     }
@@ -1407,6 +1472,7 @@ impl<'ctx> AsValueRef for GlobalValue<'ctx> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-owning LLVM basic-block handle.
 pub struct BasicBlock<'ctx> {
     pub(super) raw: LLVMBasicBlockRef,
     pub(super) _marker: PhantomData<&'ctx Context>,
@@ -1421,6 +1487,7 @@ impl<'ctx> BasicBlock<'ctx> {
         }
     }
 
+    /// Returns the function that owns this block.
     pub fn get_parent(self) -> Option<FunctionValue<'ctx>> {
         let value = unsafe { LLVMGetBasicBlockParent(self.raw) };
         if value.is_null() {
@@ -1430,6 +1497,7 @@ impl<'ctx> BasicBlock<'ctx> {
         }
     }
 
+    /// Returns the block terminator when one has been emitted.
     pub fn get_terminator(self) -> Option<InstructionValue<'ctx>> {
         let value = unsafe { LLVMGetBasicBlockTerminator(self.raw) };
         if value.is_null() {
@@ -1439,6 +1507,7 @@ impl<'ctx> BasicBlock<'ctx> {
         }
     }
 
+    /// Returns the first instruction in this block.
     pub fn get_first_instruction(self) -> Option<InstructionValue<'ctx>> {
         let value = unsafe { LLVMGetFirstInstruction(self.raw) };
         if value.is_null() {
@@ -1448,6 +1517,7 @@ impl<'ctx> BasicBlock<'ctx> {
         }
     }
 
+    /// Returns the next block in the parent function's order.
     pub fn get_next_basic_block(self) -> Option<BasicBlock<'ctx>> {
         let value = unsafe { LLVMGetNextBasicBlock(self.raw) };
         if value.is_null() {
@@ -1459,6 +1529,7 @@ impl<'ctx> BasicBlock<'ctx> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-owning handle to an LLVM instruction.
 pub struct InstructionValue<'ctx> {
     pub(super) raw: LLVMValueRef,
     pub(super) _marker: PhantomData<&'ctx Context>,
@@ -1473,22 +1544,27 @@ impl<'ctx> InstructionValue<'ctx> {
         }
     }
 
+    /// Sets the instruction's atomic ordering.
     pub fn set_atomic_ordering(self, ordering: AtomicOrdering) {
         unsafe { LLVMSetOrdering(self.raw, ordering.into()) };
     }
 
+    /// Sets the instruction's required byte alignment.
     pub fn set_alignment(self, bytes: u32) {
         unsafe { LLVMSetAlignment(self.raw, bytes) };
     }
 
+    /// Marks a memory instruction volatile or non-volatile.
     pub fn set_volatile(self, is_volatile: bool) {
         unsafe { LLVMSetVolatile(self.raw, bool_to_llvm(is_volatile)) };
     }
 
+    /// Sets the weak flag on an atomic compare-and-exchange instruction.
     pub fn set_weak(self, is_weak: bool) {
         unsafe { LLVMSetWeak(self.raw, bool_to_llvm(is_weak)) };
     }
 
+    /// Returns the next instruction in the owning block.
     pub fn get_next_instruction(self) -> Option<InstructionValue<'ctx>> {
         let value = unsafe { LLVMGetNextInstruction(self.raw) };
         if value.is_null() {
@@ -1498,14 +1574,17 @@ impl<'ctx> InstructionValue<'ctx> {
         }
     }
 
+    /// Returns LLVM's opcode for this instruction.
     pub fn get_opcode(self) -> LLVMOpcode {
         unsafe { LLVMGetInstructionOpcode(self.raw) }
     }
 
+    /// Returns the allocation type of an `alloca` instruction.
     pub fn get_allocated_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMGetAllocatedType(self.raw) })
     }
 
+    /// Returns the instruction name, using lossy UTF-8 conversion if needed.
     pub fn name(self) -> String {
         let mut len = 0;
         let ptr = unsafe { LLVMGetValueName2(self.raw, &mut len) };
@@ -1524,6 +1603,7 @@ impl<'ctx> AsValueRef for InstructionValue<'ctx> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-owning handle to an LLVM phi instruction.
 pub struct PhiValue<'ctx> {
     pub(super) raw: LLVMValueRef,
     pub(super) _marker: PhantomData<&'ctx Context>,
@@ -1538,6 +1618,7 @@ impl<'ctx> PhiValue<'ctx> {
         }
     }
 
+    /// Adds value/block pairs to this phi instruction.
     pub fn add_incoming(self, incoming: &[(&dyn BasicValue<'ctx>, BasicBlock<'ctx>)]) {
         let mut values = incoming
             .iter()
@@ -1557,12 +1638,14 @@ impl<'ctx> PhiValue<'ctx> {
         };
     }
 
+    /// Converts the phi instruction to its first-class result value.
     pub fn as_basic_value(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(self.raw)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Non-owning handle to an LLVM call instruction.
 pub struct CallSiteValue<'ctx> {
     pub(super) raw: LLVMValueRef,
     pub(super) _marker: PhantomData<&'ctx Context>,
@@ -1577,21 +1660,29 @@ impl<'ctx> CallSiteValue<'ctx> {
         }
     }
 
+    /// Classifies this call as void or as a fallible first-class value.
     pub fn try_as_basic_value(self) -> CallSiteTryAsValue<'ctx> {
         let ty = unsafe { LLVMTypeOf(self.raw) };
         classify_call_site_result(self.raw, ty)
     }
 }
 
+/// Deferred classification of a call as void or first-class value.
+///
+/// LLVM represents both forms with a call instruction. This wrapper preserves
+/// the distinction while allowing malformed non-void results to carry an
+/// [`LlvmError`] instead of panicking during typed conversion.
 pub struct CallSiteTryAsValue<'ctx> {
     value: Option<LlvmResult<BasicValueEnum<'ctx>>>,
 }
 
 impl<'ctx> CallSiteTryAsValue<'ctx> {
+    /// Returns `None` for void calls or the typed non-void result.
     pub fn basic(self) -> Option<LlvmResult<BasicValueEnum<'ctx>>> {
         self.value
     }
 
+    /// Requires a non-void call result, reporting an ICE for void calls.
     pub fn unwrap_basic(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         self.value
             .ok_or_else(|| LlvmError::ice("expected non-void call result"))?

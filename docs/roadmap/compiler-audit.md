@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 141 completed entries in this ledger.
+- Implementation batches: 142 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -846,6 +846,11 @@ acceptance item only when its phase-wide evidence is complete.
       boundaries. `cargo rustdoc -p nia-llvm -- -W missing-docs` reduced the
       crate baseline from 382 warnings to 249 without suppressing the lint;
       typed value and builder method coverage remains open.
+- [x] Cross-cutting LLVM typed-handle Rustdoc now identifies every generated
+      type/value wrapper, shared enum variant, metadata alias, and the
+      function/global/block/instruction/phi/call ownership views. The same
+      unsuppressed missing-docs audit fell from 249 warnings to 183; primitive
+      type/value operations and builder methods remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
