@@ -605,14 +605,11 @@ impl BackendValidator<'_> {
                 );
             }
             FunctionExprKind::Range(range) => {
-                if let Some(start) = &range.start {
-                    self.validate_expr(start);
-                }
-                if let Some(end) = &range.end {
-                    self.validate_expr(end);
-                }
+                self.validate_range_expr(expr.ty, range, expr.span);
             }
-            FunctionExprKind::RangeBound { range, .. } => self.validate_expr(range),
+            FunctionExprKind::RangeBound { range, bound } => {
+                self.validate_range_bound(expr.ty, range, *bound, expr.span);
+            }
             FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
                     self.validate_expr(&input.value);
@@ -958,7 +955,8 @@ impl BackendValidator<'_> {
                     *field,
                     expr.span,
                     "backend IR field expression references missing field",
-                ) {
+                ) && self.has_direct_aggregate_field_contract(lhs.ty)
+                {
                     self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "field");
                 }
             }
@@ -1025,10 +1023,10 @@ impl BackendValidator<'_> {
                     );
                 }
             }
-            FunctionExprKind::Error
-            | FunctionExprKind::Local(_)
-            | FunctionExprKind::BuiltinValue(_)
-            | FunctionExprKind::Trap => {}
+            FunctionExprKind::BuiltinValue(value) => {
+                self.validate_builtin_value(expr.ty, value, expr.span);
+            }
+            FunctionExprKind::Error | FunctionExprKind::Local(_) | FunctionExprKind::Trap => {}
             FunctionExprKind::ConstGeneric(arg) => {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1879,12 +1877,62 @@ impl BackendValidator<'_> {
         span: Span,
         kind: &'static str,
     ) {
-        if !self.same_type(actual_ty, expected_ty) {
+        if !self.projection_result_compatible(actual_ty, expected_ty) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
                 format!("backend IR {kind} result type does not match its selected value"),
             ));
+        }
+    }
+
+    fn projection_result_compatible(
+        &self,
+        actual_ty: nia_ids::InternedTyId,
+        selected_ty: nia_ids::InternedTyId,
+    ) -> bool {
+        if self.same_type(actual_ty, selected_ty) {
+            return true;
+        }
+        // Expected-type coercion is represented directly on place expressions,
+        // without a separate Function IR node. Mirror the front-end's only
+        // permitted qualifier coercion: a mutable selected value may be viewed
+        // as readonly, while readonly-to-mutable projection remains invalid.
+        match (
+            self.index.ty_kind(actual_ty),
+            self.index.ty_kind(selected_ty),
+        ) {
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: actual_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: false,
+                    elem: selected_elem,
+                }),
+            )
+            | (
+                Some(TyKind::VolatilePointer {
+                    is_readonly: true,
+                    elem: actual_elem,
+                }),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: false,
+                    elem: selected_elem,
+                }),
+            )
+            | (
+                Some(TyKind::Slice {
+                    is_readonly: true,
+                    elem: actual_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: false,
+                    elem: selected_elem,
+                }),
+            ) => self.same_type(*actual_elem, *selected_elem),
+            _ => false,
         }
     }
 
@@ -1970,17 +2018,30 @@ impl BackendValidator<'_> {
     fn has_direct_aggregate_field_contract(&self, ty: nia_ids::InternedTyId) -> bool {
         // Generic declarations can be validated before their concrete instance
         // fields are published, in which case aggregate lookup intentionally
-        // falls back to symbolic declaration fields. Keep strict value-type
-        // equality at the direct monomorphic boundary; field identity is still
-        // validated for every generic and const-generic aggregate above.
-        matches!(
-            self.index.ty_kind(ty),
-            Some(TyKind::Nominal {
-                args,
-                const_args,
-                ..
-            }) if args.is_empty() && const_args.is_empty()
-        )
+        // falls back to symbolic declaration fields. Enforce value-type equality
+        // for monomorphic declarations and published concrete instances; field
+        // identity is still validated for symbolic generic aggregates above.
+        let Some((def_id, args, const_args)) = self.field_base_type(ty) else {
+            return false;
+        };
+        if args.is_empty() && const_args.is_empty() {
+            return true;
+        }
+        self.index
+            .struct_instance(def_id, &args, &const_args)
+            .is_some()
+            || self
+                .index
+                .union_instance(def_id, &args, &const_args)
+                .is_some()
+            || self
+                .index
+                .struct_instances_for(def_id)
+                .any(|item| self.same_type_args(&item.args, &args) && item.const_args == const_args)
+            || self
+                .index
+                .union_instances_for(def_id)
+                .any(|item| self.same_type_args(&item.args, &args) && item.const_args == const_args)
     }
 
     fn invalid_literal_contract(&mut self, span: Span, kind: &'static str, message: &'static str) {
@@ -2038,6 +2099,138 @@ impl BackendValidator<'_> {
         {
             self.invalid_literal_contract(span, kind, "array length does not match literal");
         }
+    }
+
+    fn validate_range_expr(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        range: &nia_function_ir::FunctionRange,
+        span: Span,
+    ) {
+        for value in range.start.iter().chain(range.end.iter()) {
+            self.validate_expr(value);
+        }
+        let Some(TyKind::Range { kind, bound }) = self.index.ty_kind(result_ty).cloned() else {
+            self.invalid_range(span, "expression type is not a range");
+            return;
+        };
+        let has_start = range.start.is_some();
+        let has_end = range.end.is_some();
+        if has_start != kind.has_start_bound() || has_end != kind.has_end_bound() {
+            self.invalid_range(span, "range bound presence does not match its range kind");
+        }
+        let expected_inclusive = matches!(
+            kind,
+            nia_ty::RangeTyKind::Inclusive | nia_ty::RangeTyKind::ToInclusive
+        );
+        if range.inclusive != expected_inclusive {
+            self.invalid_range(span, "inclusive metadata does not match its range kind");
+        }
+        let Some(bound_ty) = bound else {
+            if has_start || has_end {
+                self.invalid_range(span, "full range carries a bound expression");
+            }
+            return;
+        };
+        for value in range.start.iter().chain(range.end.iter()) {
+            if !self.same_type(value.ty, bound_ty) {
+                self.invalid_range(span, "range bound type does not match its range bound type");
+            }
+        }
+    }
+
+    fn validate_range_bound(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        range: &FunctionExpr,
+        bound: nia_function_ir::FunctionRangeBound,
+        span: Span,
+    ) {
+        self.validate_expr(range);
+        let Some(TyKind::Range {
+            kind,
+            bound: Some(bound_ty),
+        }) = self.index.ty_kind(range.ty).cloned()
+        else {
+            self.invalid_range(span, "bound projection input is not a bounded range");
+            return;
+        };
+        let available = match bound {
+            nia_function_ir::FunctionRangeBound::Start => kind.has_start_bound(),
+            nia_function_ir::FunctionRangeBound::End => kind.has_end_bound(),
+        };
+        if !available {
+            self.invalid_range(span, "requested bound is not present for the range kind");
+        }
+        if !self.same_type(result_ty, bound_ty) {
+            self.invalid_range(
+                span,
+                "bound projection result does not match its range bound type",
+            );
+        }
+    }
+
+    fn invalid_range(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR range expression has an invalid contract: {message}"),
+        ));
+    }
+
+    fn validate_builtin_value(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        value: &nia_function_ir::FunctionBuiltinValue,
+        span: Span,
+    ) {
+        use nia_function_ir::FunctionBuiltinValue;
+
+        match value {
+            FunctionBuiltinValue::Usize(_) => {
+                self.validate_builtin_usize_result(result_ty, span);
+            }
+            FunctionBuiltinValue::Layout { ty, .. } => {
+                self.current_subject = Some("layout builtin operand");
+                self.validate_runtime_type(*ty, span);
+                self.current_subject = None;
+                self.validate_builtin_usize_result(result_ty, span);
+            }
+            FunctionBuiltinValue::FieldOffset { ty, field } => {
+                self.current_subject = Some("field-offset builtin operand");
+                self.validate_runtime_type(*ty, span);
+                self.current_subject = None;
+                self.validate_aggregate_field(
+                    *ty,
+                    *field,
+                    span,
+                    "backend IR field-offset builtin references missing field",
+                );
+                self.validate_builtin_usize_result(result_ty, span);
+            }
+            FunctionBuiltinValue::Int(_) => {
+                if !self.is_integer_type(result_ty) {
+                    self.invalid_builtin_value(span, "integer constant result is not integer-like");
+                }
+            }
+        }
+    }
+
+    fn validate_builtin_usize_result(&mut self, result_ty: nia_ids::InternedTyId, span: Span) {
+        if !matches!(
+            self.index.ty_kind(result_ty),
+            Some(TyKind::Primitive(PrimitiveTy::Usize))
+        ) {
+            self.invalid_builtin_value(span, "result type is not usize");
+        }
+    }
+
+    fn invalid_builtin_value(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR builtin value has an invalid contract: {message}"),
+        ));
     }
 
     fn validate_local_type(

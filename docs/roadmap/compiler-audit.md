@@ -480,6 +480,14 @@ commit as the corresponding implementation batch.
       literal validation now checks target primitive/array shape and known
       lengths before LLVM literal builders receive a mismatched value type;
       malformed literal cases are included in the backend IR matrix.
+- [x] Phase B range validation now ties lower/upper bound presence, inclusive
+      metadata, payload types, and bound projections to `RangeTyKind` before
+      LLVM constructs or extracts range structs. Malformed full, one-sided,
+      two-sided, and projection cases extend the backend IR matrix.
+- [x] Phase B builtin-value validation now requires `usize` results for target
+      layout and field-offset constants, representable layout operands, valid
+      aggregate field ownership, and integer-like const-eval results before
+      LLVM chooses the result integer type.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

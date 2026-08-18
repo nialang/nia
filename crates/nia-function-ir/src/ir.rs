@@ -302,7 +302,9 @@ pub enum FunctionExprKind {
     },
     BuiltinValue(FunctionBuiltinValue),
     Trap,
+    /// Constructs a range whose bound presence and types follow its `RangeTyKind`.
     Range(FunctionRange),
+    /// Extracts one statically present bound from a range value.
     RangeBound {
         range: Box<FunctionExpr>,
         bound: FunctionRangeBound,
@@ -481,8 +483,11 @@ pub struct FunctionSliceRange {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionRange {
+    /// Present only for range kinds with a lower bound.
     pub start: Option<Box<FunctionExpr>>,
+    /// Present only for range kinds with an upper bound.
     pub end: Option<Box<FunctionExpr>>,
+    /// Mirrors the inclusive range kind selected in the expression type.
     pub inclusive: bool,
 }
 
@@ -503,15 +508,19 @@ pub struct FunctionInlineAsm {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionBuiltinValue {
+    /// A target-width `usize` constant.
     Usize(u64),
+    /// The target layout size or alignment of a runtime-representable type.
     Layout {
         builtin: LayoutBuiltin,
         ty: InternedTyId,
     },
+    /// The byte offset of a declared field in its aggregate type.
     FieldOffset {
         ty: InternedTyId,
         field: nia_ids::GlobalDefId,
     },
+    /// A target-typed integer bit pattern produced by constant evaluation.
     Int(IntConst),
 }
 

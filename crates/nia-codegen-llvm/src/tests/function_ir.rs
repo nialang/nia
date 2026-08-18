@@ -1845,6 +1845,7 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
     let char_ty = interner.primitive(PrimitiveTy::Char);
     let f32_ty = interner.primitive(PrimitiveTy::F32);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
     let u8_ty = interner.primitive(PrimitiveTy::U8);
     let bool_array_ty = interner.intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
@@ -1853,6 +1854,18 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
     let char_array_ty = interner.intern(TyKind::Array {
         len: ArrayLenTy::ConstValue(1),
         elem: char_ty,
+    });
+    let range_exclusive_ty = interner.intern(TyKind::Range {
+        kind: nia_ty::RangeTyKind::Exclusive,
+        bound: Some(usize_ty),
+    });
+    let range_from_ty = interner.intern(TyKind::Range {
+        kind: nia_ty::RangeTyKind::From,
+        bound: Some(usize_ty),
+    });
+    let range_full_ty = interner.intern(TyKind::Range {
+        kind: nia_ty::RangeTyKind::Full,
+        bound: None,
     });
     let optional_i32_ty = interner.intern(TyKind::Optional { elem: i32_ty });
     let error_union_ty = interner.intern(TyKind::ErrorUnion {
@@ -1961,6 +1974,91 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
             ty: i32_ty,
             kind: FunctionExprKind::Null,
         }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::Range(nia_function_ir::FunctionRange {
+                start: Some(Box::new(value(usize_ty))),
+                end: Some(Box::new(value(usize_ty))),
+                inclusive: false,
+            }),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: range_exclusive_ty,
+            kind: FunctionExprKind::Range(nia_function_ir::FunctionRange {
+                start: Some(Box::new(value(bool_ty))),
+                end: Some(Box::new(value(usize_ty))),
+                inclusive: false,
+            }),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: range_full_ty,
+            kind: FunctionExprKind::Range(nia_function_ir::FunctionRange {
+                start: Some(Box::new(value(usize_ty))),
+                end: None,
+                inclusive: false,
+            }),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: range_from_ty,
+            kind: FunctionExprKind::Range(nia_function_ir::FunctionRange {
+                start: Some(Box::new(value(usize_ty))),
+                end: Some(Box::new(value(usize_ty))),
+                inclusive: false,
+            }),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::RangeBound {
+                range: Box::new(value(range_exclusive_ty)),
+                bound: nia_function_ir::FunctionRangeBound::Start,
+            },
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: usize_ty,
+            kind: FunctionExprKind::RangeBound {
+                range: Box::new(value(range_from_ty)),
+                bound: nia_function_ir::FunctionRangeBound::End,
+            },
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: i32_ty,
+            kind: FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Usize(1)),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Layout {
+                builtin: nia_ty::LayoutBuiltin::Size,
+                ty: i32_ty,
+            }),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: usize_ty,
+            kind: FunctionExprKind::BuiltinValue(
+                nia_function_ir::FunctionBuiltinValue::FieldOffset {
+                    ty: i32_ty,
+                    field: GlobalDefId {
+                        module_id,
+                        def_id: DefId(99),
+                    },
+                },
+            ),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
+            ty: f32_ty,
+            kind: FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Int(
+                nia_ty::IntConst::unsigned(1),
+            )),
+        }),
     ];
     let function = BackendFunction {
         def_id: GlobalDefId {
@@ -2034,6 +2132,15 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         "byte char literal has an invalid type contract",
         "bool literal has an invalid type contract",
         "null literal has an invalid type contract",
+        "expression type is not a range",
+        "range bound type does not match its range bound type",
+        "full range carries a bound expression",
+        "range bound presence does not match its range kind",
+        "bound projection result does not match its range bound type",
+        "requested bound is not present for the range kind",
+        "builtin value has an invalid contract: result type is not usize",
+        "field base type is not nominal",
+        "integer constant result is not integer-like",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
