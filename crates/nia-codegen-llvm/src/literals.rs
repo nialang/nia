@@ -2,7 +2,14 @@
 use nia_ast::{AssignOp, BinaryOp};
 
 pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
-    nia_literals::eval_int_literal(text).ok()
+    nia_literals::eval_int_literal(text).ok().or_else(|| {
+        // Source integer tokens never include a leading sign, but function
+        // lowering synthesizes signed decimal text for checked match patterns.
+        // Parse that internal form without teaching the source literal parser
+        // to accept syntax that remains a unary expression in the language.
+        text.strip_prefix('-')?;
+        text.parse().ok()
+    })
 }
 
 pub(super) fn parse_float_literal(text: &str) -> Option<f64> {
@@ -79,5 +86,11 @@ mod tests {
     #[test]
     fn rejects_unclosed_unicode_char_escape() {
         assert_eq!(decode_char_literal(r#"'\u{41'"#), None);
+    }
+
+    #[test]
+    fn parses_lowered_negative_integer_pattern() {
+        assert_eq!(parse_int_literal("-1"), Some(-1));
+        assert_eq!(parse_int_literal(&i128::MIN.to_string()), Some(i128::MIN));
     }
 }

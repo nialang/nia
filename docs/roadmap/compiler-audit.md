@@ -766,6 +766,10 @@ commit as the corresponding implementation batch.
       aggregate kind to the nominal expression type. Struct literals additionally
       require every declared field exactly once, preventing LLVM from loading a
       partially initialized aggregate allocation.
+- [x] Phase B switch terminators now admit only directly representable constant
+      integer patterns and reject duplicate target-width bit patterns before
+      LLVM. Checked negative integer patterns retain their lowering-generated
+      signed spelling through codegen, including the `i128::MIN` boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
