@@ -472,6 +472,10 @@ commit as the corresponding implementation batch.
       enforce selected-field result types, while slices validate source/result
       element identity, readonly propagation, and integer range bounds; focused
       malformed-IR matrices cover each independent mismatch.
+- [x] Phase B enum expression validation now checks variant representation,
+      payload arity/types, backing-width tags, and payload projection owner,
+      index, and result contracts before LLVM computes enum offsets. The
+      malformed-IR matrix covers scalar and payload-bearing enum paths.
 - [x] Phase B layout fat-pointer sizing now uses checked target arithmetic and
       rejects zero alignment or `pointer_size * 2` overflow instead of wrapping
       a malformed target description; helper-level boundary tests cover both

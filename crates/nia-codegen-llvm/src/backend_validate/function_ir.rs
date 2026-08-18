@@ -1007,30 +1007,20 @@ impl BackendValidator<'_> {
                 ));
             }
             FunctionExprKind::EnumVariant { variant, fields } => {
-                self.validate_enum_variant_ref(
-                    *variant,
-                    expr.span,
-                    "backend IR expression references missing enum variant",
-                );
-                for field in fields {
-                    self.validate_expr(field);
-                }
+                self.validate_enum_variant_expr(expr.ty, *variant, fields, expr.span);
             }
             FunctionExprKind::EnumVariantTag(variant) => {
-                self.validate_enum_variant_ref(
-                    *variant,
-                    expr.span,
-                    "backend IR expression references missing enum variant tag",
-                );
+                self.validate_enum_variant_tag(expr.ty, *variant, expr.span);
             }
-            FunctionExprKind::EnumTag { value } => self.validate_expr(value),
-            FunctionExprKind::EnumPayloadField { value, variant, .. } => {
-                self.validate_expr(value);
-                self.validate_enum_variant_ref(
-                    *variant,
-                    expr.span,
-                    "backend IR expression references missing enum payload variant",
-                );
+            FunctionExprKind::EnumTag { value } => {
+                self.validate_enum_tag(expr.ty, value, expr.span);
+            }
+            FunctionExprKind::EnumPayloadField {
+                value,
+                variant,
+                field,
+            } => {
+                self.validate_enum_payload_field(expr.ty, value, *variant, *field, expr.span);
             }
         }
     }
@@ -1440,6 +1430,195 @@ impl BackendValidator<'_> {
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             span,
             format!("backend IR tagged-union expression has an invalid contract: {message}"),
+        ));
+    }
+
+    fn validate_enum_variant_expr(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        variant: nia_ids::GlobalDefId,
+        fields: &[FunctionExpr],
+        span: Span,
+    ) {
+        for field in fields {
+            self.validate_expr(field);
+        }
+        let Some(info) = self.index.enum_variant_info(variant) else {
+            self.validate_enum_variant_ref(
+                variant,
+                span,
+                "backend IR expression references missing enum variant",
+            );
+            return;
+        };
+        let owner = info.owner.def_id;
+        let backing_type = info.owner.backing_type;
+        let payload = info.variant.payload.clone();
+        let Some(layout) = self.index.enum_layout(owner) else {
+            self.invalid_enum(span, "variant owner has no enum layout");
+            return;
+        };
+        // Fieldless enums use their backing integer directly; payload-bearing
+        // enums use the nominal tagged aggregate. Derive that distinction from
+        // the declared fields as well as the offset metadata so a scalar enum
+        // remains valid when its layout has no payload fields.
+        let has_payload = layout
+            .variants
+            .iter()
+            .any(|variant| !variant.fields.is_empty());
+        let result_matches = if has_payload {
+            matches!(
+                self.index.ty_kind(result_ty),
+                Some(TyKind::Nominal { def_id, .. }) if *def_id == owner
+            )
+        } else {
+            self.same_type(result_ty, backing_type)
+                || matches!(
+                    self.index.ty_kind(result_ty),
+                    Some(TyKind::Nominal { def_id, .. }) if *def_id == owner
+                )
+        };
+        if !result_matches {
+            self.invalid_enum(
+                span,
+                "variant result type does not match its enum representation",
+            );
+        }
+
+        let expected_fields = Self::enum_payload_types(&payload);
+        if fields.len() != expected_fields.len() {
+            self.invalid_enum(
+                span,
+                "variant payload field count does not match its declaration",
+            );
+        }
+        for (field, expected_ty) in fields.iter().zip(expected_fields) {
+            if !self.same_type(field.ty, expected_ty) {
+                self.invalid_enum(
+                    field.span,
+                    "variant payload field type does not match its declaration",
+                );
+            }
+        }
+    }
+
+    fn validate_enum_variant_tag(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        variant: nia_ids::GlobalDefId,
+        span: Span,
+    ) {
+        let Some(info) = self.index.enum_variant_info(variant) else {
+            self.validate_enum_variant_ref(
+                variant,
+                span,
+                "backend IR expression references missing enum variant tag",
+            );
+            return;
+        };
+        if !self.same_type(result_ty, info.owner.backing_type) {
+            self.invalid_enum(
+                span,
+                "variant tag result does not match the enum backing type",
+            );
+        }
+    }
+
+    fn validate_enum_tag(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        value: &FunctionExpr,
+        span: Span,
+    ) {
+        self.validate_expr(value);
+        let expected_ty = match self.index.ty_kind(value.ty) {
+            Some(TyKind::Nominal { def_id, .. }) => {
+                let Some(item) = self.index.enum_item(*def_id) else {
+                    self.invalid_enum(span, "tag input nominal type is not an enum");
+                    return;
+                };
+                item.backing_type
+            }
+            Some(TyKind::Primitive(primitive)) if primitive.is_integer() => value.ty,
+            _ => {
+                self.invalid_enum(
+                    span,
+                    "tag input is not an enum value or integer representation",
+                );
+                return;
+            }
+        };
+        if !self.same_type(result_ty, expected_ty) {
+            self.invalid_enum(span, "tag result does not match the enum backing type");
+        }
+    }
+
+    fn validate_enum_payload_field(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        value: &FunctionExpr,
+        variant: nia_ids::GlobalDefId,
+        field: usize,
+        span: Span,
+    ) {
+        self.validate_expr(value);
+        let Some(info) = self.index.enum_variant_info(variant) else {
+            self.validate_enum_variant_ref(
+                variant,
+                span,
+                "backend IR expression references missing enum payload variant",
+            );
+            return;
+        };
+        let owner = info.owner.def_id;
+        let payload = info.variant.payload.clone();
+        if !matches!(
+            self.index.ty_kind(value.ty),
+            Some(TyKind::Nominal { def_id, .. }) if *def_id == owner
+        ) {
+            self.invalid_enum(
+                span,
+                "payload projection input does not match the variant owner",
+            );
+        }
+        if !self.index.enum_layout(owner).is_some_and(|layout| {
+            layout
+                .variants
+                .iter()
+                .any(|variant| !variant.fields.is_empty())
+        }) {
+            self.invalid_enum(span, "payload projection enum has no payload storage");
+        }
+        let fields = Self::enum_payload_types(&payload);
+        let Some(expected_ty) = fields.get(field).copied() else {
+            self.invalid_enum(span, "payload projection field index is out of bounds");
+            return;
+        };
+        if !self.same_type(result_ty, expected_ty) {
+            self.invalid_enum(
+                span,
+                "payload projection result does not match its field type",
+            );
+        }
+    }
+
+    fn enum_payload_types(
+        payload: &nia_backend_ir::BackendEnumVariantPayload,
+    ) -> Vec<nia_ids::InternedTyId> {
+        match payload {
+            nia_backend_ir::BackendEnumVariantPayload::Unit => Vec::new(),
+            nia_backend_ir::BackendEnumVariantPayload::Tuple(fields) => fields.clone(),
+            nia_backend_ir::BackendEnumVariantPayload::Named(fields) => {
+                fields.iter().map(|field| field.ty).collect()
+            }
+        }
+    }
+
+    fn invalid_enum(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR enum expression has an invalid contract: {message}"),
         ));
     }
 

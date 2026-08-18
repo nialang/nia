@@ -275,14 +275,18 @@ pub enum FunctionExprKind {
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
+    /// Constructs an enum variant, storing payload fields in declaration order.
     EnumVariant {
         variant: nia_ids::GlobalDefId,
         fields: Vec<FunctionExpr>,
     },
+    /// Produces a variant's backing integer tag for pattern comparisons.
     EnumVariantTag(nia_ids::GlobalDefId),
+    /// Extracts an enum tag from either its aggregate representation or backing integer.
     EnumTag {
         value: Box<FunctionExpr>,
     },
+    /// Loads one payload field from a value known to have the selected variant.
     EnumPayloadField {
         value: Box<FunctionExpr>,
         variant: nia_ids::GlobalDefId,
