@@ -600,6 +600,11 @@ impl BackendValidator<'_> {
                     expr.span,
                     "backend IR expression references missing function",
                 );
+                if let Some(signature) = self.function_call_signature(*def_id) {
+                    self.validate_function_value_signature(
+                        "function", expr.ty, &signature, expr.span,
+                    );
+                }
             }
             FunctionExprKind::FunctionInstance {
                 def_id,
@@ -608,17 +613,26 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
+                let instance = FunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
+                    args,
+                    const_args,
+                };
                 self.validate_function_instance_ref(
-                    FunctionInstanceRef {
-                        def_id: *def_id,
-                        arg_module_id: *arg_module_id,
-                        self_arg: *self_arg,
-                        args,
-                        const_args,
-                    },
+                    instance,
                     expr.span,
                     "backend IR expression references missing function instance",
                 );
+                if let Some(signature) = self.function_instance_call_signature(instance) {
+                    self.validate_function_value_signature(
+                        "function-instance",
+                        expr.ty,
+                        &signature,
+                        expr.span,
+                    );
+                }
             }
             FunctionExprKind::Range(range) => {
                 self.validate_range_expr(expr.ty, range, expr.span);
@@ -3250,6 +3264,71 @@ impl BackendValidator<'_> {
                 return_type: function.return_type,
                 is_variadic: function.is_variadic,
             })
+    }
+
+    fn validate_function_value_signature(
+        &mut self,
+        kind: &'static str,
+        value_ty: nia_ids::InternedTyId,
+        signature: &CallTargetSignature,
+        span: Span,
+    ) {
+        let Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) = self.index.ty_kind(value_ty)
+        else {
+            self.invalid_function_value_contract(
+                span,
+                kind,
+                "value type is not a function pointer",
+            );
+            return;
+        };
+
+        // Function-pointer types describe the source-visible signature. In
+        // particular, a method receiver may have a pointer-shaped `passing_ty`
+        // at the LLVM boundary while retaining its semantic `local_ty` here.
+        if params.len() != signature.params.len()
+            || params
+                .iter()
+                .zip(&signature.params)
+                .any(|(actual, expected)| !self.same_type(*actual, expected.local_ty))
+        {
+            self.invalid_function_value_contract(
+                span,
+                kind,
+                "parameter types do not match the published signature",
+            );
+        }
+        if !self.same_type(*return_type, signature.return_type) {
+            self.invalid_function_value_contract(
+                span,
+                kind,
+                "return type does not match the published signature",
+            );
+        }
+        if *is_variadic != signature.is_variadic {
+            self.invalid_function_value_contract(
+                span,
+                kind,
+                "variadic flag does not match the published signature",
+            );
+        }
+    }
+
+    fn invalid_function_value_contract(
+        &mut self,
+        span: Span,
+        kind: &'static str,
+        message: &'static str,
+    ) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR {kind} value has an invalid signature contract: {message}"),
+        ));
     }
 
     fn validate_method_call_signature(
