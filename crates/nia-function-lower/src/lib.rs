@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Lowers typed body IR into validated function-level control-flow IR.
+//!
+//! Lowering allocates stable block/scope/local identities, extracts closure
+//! entries, and validates every produced CFG before returning it to consumers.
 use std::collections::HashMap;
 
 use nia_ast::{BinaryOp, UnaryOp};
@@ -37,8 +41,11 @@ mod support;
 mod tests;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A typed-body or produced-function-IR invariant rejected during lowering.
 pub struct FunctionLoweringDiagnostic {
+    /// Narrowest source span available for the failed invariant.
     pub span: Span,
+    /// Human-readable invariant description.
     pub message: String,
 }
 
@@ -52,11 +59,19 @@ impl From<nia_function_ir::FunctionIrError> for FunctionLoweringDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Validated main function body and generated closure entry bodies.
 pub struct LoweredFunctionBody {
+    /// Main function CFG.
     pub body: FunctionBody,
+    /// Concrete generated entries for closures nested in the body.
     pub closure_entries: Vec<FunctionClosureEntry>,
 }
 
+/// Read-only module type store plus an append-only interning handle.
+///
+/// Lowering may need to materialize pointer, slice, or callable types while it
+/// rewrites typed expressions; the append handle keeps those additions scoped
+/// to the module that owns the function.
 #[derive(Clone)]
 pub struct FunctionTypeContext<'a> {
     store: &'a TypeStore,
@@ -64,6 +79,7 @@ pub struct FunctionTypeContext<'a> {
 }
 
 impl<'a> FunctionTypeContext<'a> {
+    /// Creates a type context whose new types belong to `module_id`.
     pub fn for_module(store: &'a TypeStore, module_id: ModuleId) -> Self {
         Self {
             store,
@@ -80,6 +96,11 @@ impl<'a> FunctionTypeContext<'a> {
     }
 }
 
+/// Lowers and validates one typed function body and its closure entries.
+///
+/// Input shape is checked before allocation begins. Produced main and closure
+/// CFGs are structurally validated so malformed ids, scopes, places, or
+/// recovery expressions cannot cross into optimization or backend lowering.
 pub fn lower_function_body(
     module_id: ModuleId,
     body: &TypedBody,

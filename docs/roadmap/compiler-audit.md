@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 150 completed entries in this ledger.
+- Implementation batches: 151 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -891,6 +891,11 @@ acceptance item only when its phase-wide evidence is complete.
       closure coercions, callee ABI fields, and typed place projections.
       `cargo rustdoc -p nia-function-ir -- -D missing-docs` is clean; the same
       15 validation/reference tests and strict Clippy remain green.
+- [x] Phase C function-lower public boundary Rustdoc now documents typed-store
+      ownership, lowering diagnostics, closure extraction, and the validation
+      contract of `lower_function_body`. Its strict `missing-docs` audit is
+      clean; 55 lowering/validation/scope/match/loop tests and strict Clippy
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
