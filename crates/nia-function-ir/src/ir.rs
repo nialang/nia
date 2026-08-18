@@ -284,9 +284,9 @@ pub struct FunctionExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionExprKind {
     Error,
-    /// An integer literal whose target type is resolved before LLVM lowering.
+    /// An integer literal whose valid spelling and target range are resolved before LLVM lowering.
     Integer(String),
-    /// An `f32` or `f64` literal in its source spelling.
+    /// A finite `f32` or `f64` literal in its source spelling.
     Float(String),
     /// A Unicode scalar array literal with a compiler-known array type.
     String(Vec<u32>),
