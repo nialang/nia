@@ -47,12 +47,12 @@ pub struct DIFile<'ctx> {
 }
 
 impl<'ctx> DIFile<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DIFile")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -63,12 +63,12 @@ pub struct DICompileUnit<'ctx> {
 }
 
 impl<'ctx> DICompileUnit<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DICompileUnit")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -79,12 +79,12 @@ pub struct DISubroutineType<'ctx> {
 }
 
 impl<'ctx> DISubroutineType<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DISubroutineType")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -95,12 +95,12 @@ pub struct DISubprogram<'ctx> {
 }
 
 impl<'ctx> DISubprogram<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DISubprogram")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -117,12 +117,12 @@ pub struct DIType<'ctx> {
 }
 
 impl<'ctx> DIType<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DIType")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -175,12 +175,12 @@ pub struct DILocalVariable<'ctx> {
 }
 
 impl<'ctx> DILocalVariable<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DILocalVariable")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -191,22 +191,22 @@ pub struct DIExpression<'ctx> {
 }
 
 impl<'ctx> DIExpression<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DIExpression")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
 impl<'ctx> DILocation<'ctx> {
-    fn new(raw: LLVMMetadataRef) -> Self {
-        assert!(!raw.is_null());
-        Self {
+    fn new(raw: LLVMMetadataRef) -> LlvmResult<Self> {
+        let raw = require_metadata(raw, "DILocation")?;
+        Ok(Self {
             raw,
             _marker: PhantomData,
-        }
+        })
     }
 }
 
@@ -214,6 +214,16 @@ impl<'ctx> DILocation<'ctx> {
 pub struct DebugInfoBuilder<'ctx> {
     raw: LLVMDIBuilderRef,
     _marker: PhantomData<&'ctx Context>,
+}
+
+fn require_metadata(raw: LLVMMetadataRef, kind: &str) -> LlvmResult<LLVMMetadataRef> {
+    if raw.is_null() {
+        Err(LlvmError::error(format!(
+            "LLVM returned a null {kind} metadata handle"
+        )))
+    } else {
+        Ok(raw)
+    }
 }
 
 impl<'ctx> DebugInfoBuilder<'ctx> {
@@ -227,7 +237,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         })
     }
 
-    pub fn create_file(&self, filename: &str, directory: &str) -> DIFile<'ctx> {
+    pub fn create_file(&self, filename: &str, directory: &str) -> LlvmResult<DIFile<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateFile(
                 self.raw,
@@ -245,7 +255,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         file: DIFile<'ctx>,
         producer: &str,
         is_optimized: bool,
-    ) -> DICompileUnit<'ctx> {
+    ) -> LlvmResult<DICompileUnit<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateCompileUnit(
                 self.raw,
@@ -272,7 +282,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DICompileUnit::new(raw)
     }
 
-    pub fn create_unspecified_type(&self, name: &str) -> DIType<'ctx> {
+    pub fn create_unspecified_type(&self, name: &str) -> LlvmResult<DIType<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateUnspecifiedType(self.raw, name.as_ptr() as *const _, name.len())
         };
@@ -284,7 +294,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         name: &str,
         size_in_bits: u64,
         encoding: LLVMDWARFTypeEncoding,
-    ) -> DIType<'ctx> {
+    ) -> LlvmResult<DIType<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateBasicType(
                 self.raw,
@@ -304,7 +314,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         size_in_bits: u64,
         align_in_bits: u32,
         name: &str,
-    ) -> DIType<'ctx> {
+    ) -> LlvmResult<DIType<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreatePointerType(
                 self.raw,
@@ -319,7 +329,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DIType::new(raw)
     }
 
-    pub fn create_member_type(&self, input: DIMemberTypeInput<'ctx, '_>) -> DIType<'ctx> {
+    pub fn create_member_type(
+        &self,
+        input: DIMemberTypeInput<'ctx, '_>,
+    ) -> LlvmResult<DIType<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateMemberType(
                 self.raw,
@@ -338,7 +351,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DIType::new(raw)
     }
 
-    pub fn create_struct_type(&self, input: DICompositeTypeInput<'ctx, '_>) -> DIType<'ctx> {
+    pub fn create_struct_type(
+        &self,
+        input: DICompositeTypeInput<'ctx, '_>,
+    ) -> LlvmResult<DIType<'ctx>> {
         let mut elements = input
             .elements
             .iter()
@@ -367,7 +383,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DIType::new(raw)
     }
 
-    pub fn create_union_type(&self, input: DICompositeTypeInput<'ctx, '_>) -> DIType<'ctx> {
+    pub fn create_union_type(
+        &self,
+        input: DICompositeTypeInput<'ctx, '_>,
+    ) -> LlvmResult<DIType<'ctx>> {
         let mut elements = input
             .elements
             .iter()
@@ -400,7 +419,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         size_in_bits: u64,
         align_in_bits: u32,
         len: i64,
-    ) -> DIType<'ctx> {
+    ) -> LlvmResult<DIType<'ctx>> {
         let mut subscripts = [unsafe { LLVMDIBuilderGetOrCreateSubrange(self.raw, 0, len) }];
         let raw = unsafe {
             LLVMDIBuilderCreateArrayType(
@@ -418,7 +437,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     pub fn create_replaceable_composite_type(
         &self,
         input: DIReplaceableCompositeTypeInput<'ctx, '_>,
-    ) -> DIType<'ctx> {
+    ) -> LlvmResult<DIType<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateReplaceableCompositeType(
                 self.raw,
@@ -443,7 +462,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         unsafe { LLVMMetadataReplaceAllUsesWith(from.raw, to.raw) };
     }
 
-    pub fn create_subroutine_type(&self, file: DIFile<'ctx>) -> DISubroutineType<'ctx> {
+    pub fn create_subroutine_type(&self, file: DIFile<'ctx>) -> LlvmResult<DISubroutineType<'ctx>> {
         let mut tys = [std::ptr::null_mut()];
         let raw = unsafe {
             LLVMDIBuilderCreateSubroutineType(
@@ -457,7 +476,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DISubroutineType::new(raw)
     }
 
-    pub fn create_function(&self, input: DIFunctionInput<'ctx, '_>) -> DISubprogram<'ctx> {
+    pub fn create_function(
+        &self,
+        input: DIFunctionInput<'ctx, '_>,
+    ) -> LlvmResult<DISubprogram<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateFunction(
                 self.raw,
@@ -485,7 +507,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         line: u32,
         column: u32,
         scope: DISubprogram<'ctx>,
-    ) -> DILocation<'ctx> {
+    ) -> LlvmResult<DILocation<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateDebugLocation(
                 context.raw,
@@ -506,7 +528,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         file: DIFile<'ctx>,
         line: u32,
         ty: DIType<'ctx>,
-    ) -> DILocalVariable<'ctx> {
+    ) -> LlvmResult<DILocalVariable<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateParameterVariable(
                 self.raw,
@@ -532,7 +554,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         line: u32,
         ty: DIType<'ctx>,
         align_in_bits: u32,
-    ) -> DILocalVariable<'ctx> {
+    ) -> LlvmResult<DILocalVariable<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderCreateAutoVariable(
                 self.raw,
@@ -550,7 +572,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         DILocalVariable::new(raw)
     }
 
-    pub fn create_expression(&self) -> DIExpression<'ctx> {
+    pub fn create_expression(&self) -> LlvmResult<DIExpression<'ctx>> {
         let raw = unsafe { LLVMDIBuilderCreateExpression(self.raw, std::ptr::null_mut(), 0) };
         DIExpression::new(raw)
     }
@@ -562,7 +584,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         expr: DIExpression<'ctx>,
         location: DILocation<'ctx>,
         block: BasicBlock<'ctx>,
-    ) -> InstructionValue<'ctx> {
+    ) -> LlvmResult<InstructionValue<'ctx>> {
         let raw = unsafe {
             LLVMDIBuilderInsertDeclareAtEnd(
                 self.raw,
@@ -573,7 +595,13 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                 block.raw,
             )
         };
-        InstructionValue::new(raw as _)
+        let raw = raw as llvm_sys::prelude::LLVMValueRef;
+        if raw.is_null() {
+            return Err(LlvmError::error(
+                "LLVM returned a null debug declare instruction",
+            ));
+        }
+        Ok(InstructionValue::new(raw))
     }
 
     pub fn finalize(&self) {
@@ -629,6 +657,16 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null debug-info builder".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_metadata_before_typed_handle_construction() {
+        let error = DIType::new(std::ptr::null_mut()).expect_err("null metadata");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null DIType metadata handle".to_string())
         );
     }
 }

@@ -802,6 +802,8 @@ commit as the corresponding implementation batch.
 - [x] Phase B LLVM debug-info builder creation now propagates a null DIBuilder
       result through `LlvmResult`, preventing metadata calls from starting with
       an invalid builder handle.
+- [x] Phase B LLVM debug metadata factories and declare insertion now validate
+      null metadata/instruction returns before constructing typed handles.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
