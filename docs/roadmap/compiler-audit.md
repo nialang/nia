@@ -828,6 +828,9 @@ acceptance item only when its phase-wide evidence is complete.
       function, global, and basic-block handles before typed construction;
       null-result helper tests and owner-level error contracts prevent FFI
       allocation failures from becoming wrapper-constructor panics.
+- [x] Phase B LLVM function return-type inspection now rejects a null type
+      before querying its kind, with a shared classifier and regression test
+      covering the fallible wrapper boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
