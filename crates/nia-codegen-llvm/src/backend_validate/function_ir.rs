@@ -976,9 +976,14 @@ impl BackendValidator<'_> {
             FunctionExprKind::Index { lhs, index } => {
                 self.validate_expr(lhs);
                 self.validate_expr(index);
-                if let Some(expected_ty) = self.array_elem_ty(lhs.ty) {
-                    self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "index");
+                if !self.is_integer_type(index.ty) {
+                    self.invalid_projection(expr.span, "index expression is not integer-like");
                 }
+                let Some(expected_ty) = self.array_elem_ty(lhs.ty) else {
+                    self.invalid_projection(expr.span, "index target is not indexable storage");
+                    return;
+                };
+                self.validate_projection_result_type(expr.ty, expected_ty, expr.span, "index");
             }
             FunctionExprKind::Slice {
                 lhs,
@@ -3782,6 +3787,14 @@ impl BackendValidator<'_> {
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             span,
             format!("backend IR assignment has an invalid contract: {message}"),
+        ));
+    }
+
+    fn invalid_projection(&mut self, span: Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR projection has an invalid contract: {message}"),
         ));
     }
 

@@ -866,6 +866,52 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
             },
         ),
         function(
+            14,
+            "bad_index_bound",
+            i32_ty,
+            FunctionExpr {
+                span,
+                ty: i32_ty,
+                kind: FunctionExprKind::Index {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: array_ty,
+                        kind: FunctionExprKind::ArrayLiteral {
+                            elems: FunctionArrayElements::List(vec![integer()]),
+                        },
+                    }),
+                    index: Box::new(FunctionExpr {
+                        span,
+                        ty: f32_ty,
+                        kind: FunctionExprKind::Float("0.0".to_string()),
+                    }),
+                },
+            },
+        ),
+        function(
+            15,
+            "bad_index_target",
+            i32_ty,
+            FunctionExpr {
+                span,
+                ty: i32_ty,
+                kind: FunctionExprKind::Index {
+                    lhs: Box::new(FunctionExpr {
+                        span,
+                        ty: bool_ty,
+                        kind: FunctionExprKind::Bool(true),
+                    }),
+                    index: Box::new(FunctionExpr {
+                        span,
+                        ty: usize_ty,
+                        kind: FunctionExprKind::BuiltinValue(
+                            nia_function_ir::FunctionBuiltinValue::Usize(0),
+                        ),
+                    }),
+                },
+            },
+        ),
+        function(
             6,
             "bad_tuple_literal",
             tuple_ty,
@@ -972,6 +1018,8 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
         "field result type does not match",
         "tuple result type does not match",
         "index result type does not match",
+        "index expression is not integer-like",
+        "index target is not indexable storage",
         "slice input is not an array, pointer, or slice",
         "slice result element does not match its input",
         "slice drops readonly access from its input",
