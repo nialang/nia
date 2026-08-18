@@ -84,10 +84,15 @@ impl TargetMachine {
             )));
         }
         if target.is_null() {
+            dispose_llvm_message(message);
             return Err(LlvmError::error(format!(
                 "LLVM returned no target for triple `{triple}`"
             )));
         }
+        // The API documents the message as an error result, but retain full
+        // ownership discipline if a future LLVM version supplies one together
+        // with a successful target lookup.
+        dispose_llvm_message(message);
 
         let cpu_c = to_c_string(cpu)?;
         let features_c = to_c_string(features)?;
@@ -152,6 +157,9 @@ impl TargetMachine {
                 "LLVM failed to emit object file",
             )));
         }
+        // As above, do not assume successful calls always leave the optional
+        // owned message pointer null.
+        dispose_llvm_message(message);
         if buffer.is_null() {
             return Err(LlvmError::error("LLVM returned a null object buffer"));
         }
@@ -231,4 +239,10 @@ fn take_llvm_message(ptr: *mut std::os::raw::c_char, fallback: &str) -> String {
     let text = unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() };
     unsafe { LLVMDisposeMessage(ptr) };
     text
+}
+
+fn dispose_llvm_message(ptr: *mut std::os::raw::c_char) {
+    if !ptr.is_null() {
+        unsafe { LLVMDisposeMessage(ptr) };
+    }
 }
