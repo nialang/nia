@@ -75,9 +75,8 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn build_alloca<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(PointerValue::new(unsafe {
-            LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr())
-        }))
+        let value = unsafe { LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr()) };
+        Ok(PointerValue::new(require_value(value, "alloca")?))
     }
 
     pub fn build_store<V: BasicValue<'ctx>>(
@@ -85,9 +84,9 @@ impl<'ctx> Builder<'ctx> {
         ptr: PointerValue<'ctx>,
         value: V,
     ) -> LlvmResult<InstructionValue<'ctx>> {
-        Ok(InstructionValue::new(unsafe {
-            LLVMBuildStore(self.raw, value.as_value_ref(), ptr.as_value_ref())
-        }))
+        let instruction =
+            unsafe { LLVMBuildStore(self.raw, value.as_value_ref(), ptr.as_value_ref()) };
+        Ok(InstructionValue::new(require_value(instruction, "store")?))
     }
 
     pub fn build_load<T: AsTypeRef>(
@@ -162,7 +161,7 @@ impl<'ctx> Builder<'ctx> {
         // SAFETY: The caller upholds the pointee-type and index validity
         // contract for this typed GEP wrapper. The temporary index buffer lives
         // for the duration of the LLVM call.
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildGEP2(
                 self.raw,
                 pointee_ty.as_type_ref(),
@@ -171,7 +170,8 @@ impl<'ctx> Builder<'ctx> {
                 indexes.len() as u32,
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(value, "GEP")?))
     }
 
     pub fn build_struct_gep<T: AsTypeRef>(
@@ -182,7 +182,7 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildStructGEP2(
                 self.raw,
                 pointee_ty.as_type_ref(),
@@ -190,7 +190,8 @@ impl<'ctx> Builder<'ctx> {
                 index,
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(value, "struct GEP")?))
     }
 
     pub fn build_ptr_diff<T: AsTypeRef>(
@@ -201,7 +202,7 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(IntValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildPtrDiff2(
                 self.raw,
                 pointee_ty.as_type_ref(),
@@ -209,14 +210,14 @@ impl<'ctx> Builder<'ctx> {
                 rhs.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(IntValue::new(require_value(value, "pointer difference")?))
     }
 
     pub fn build_phi<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PhiValue<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(PhiValue::new(unsafe {
-            LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr())
-        }))
+        let value = unsafe { LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr()) };
+        Ok(PhiValue::new(require_value(value, "phi")?))
     }
 
     pub fn build_call(
@@ -255,7 +256,7 @@ impl<'ctx> Builder<'ctx> {
             .iter()
             .map(|arg| arg.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(CallSiteValue::new(unsafe {
+        let call = unsafe {
             LLVMBuildCall2(
                 self.raw,
                 function_type.as_type_ref(),
@@ -264,34 +265,37 @@ impl<'ctx> Builder<'ctx> {
                 args.len() as u32,
                 name.as_ptr(),
             )
-        }))
+        };
+        Ok(CallSiteValue::new(require_value(call, "call")?))
     }
 
     pub fn build_return(
         &self,
         value: Option<&dyn BasicValue<'ctx>>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
-        Ok(InstructionValue::new(unsafe {
+        let instruction = unsafe {
             match value {
                 Some(value) => LLVMBuildRet(self.raw, value.as_value_ref()),
                 None => LLVMBuildRetVoid(self.raw),
             }
-        }))
+        };
+        Ok(InstructionValue::new(require_value(instruction, "return")?))
     }
 
     pub fn build_unreachable(&self) -> LlvmResult<InstructionValue<'ctx>> {
-        Ok(InstructionValue::new(unsafe {
-            LLVMBuildUnreachable(self.raw)
-        }))
+        let instruction = unsafe { LLVMBuildUnreachable(self.raw) };
+        Ok(InstructionValue::new(require_value(
+            instruction,
+            "unreachable",
+        )?))
     }
 
     pub fn build_unconditional_branch(
         &self,
         destination: BasicBlock<'ctx>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
-        Ok(InstructionValue::new(unsafe {
-            LLVMBuildBr(self.raw, destination.raw)
-        }))
+        let instruction = unsafe { LLVMBuildBr(self.raw, destination.raw) };
+        Ok(InstructionValue::new(require_value(instruction, "branch")?))
     }
 
     pub fn build_conditional_branch(
@@ -300,14 +304,18 @@ impl<'ctx> Builder<'ctx> {
         then_block: BasicBlock<'ctx>,
         else_block: BasicBlock<'ctx>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
-        Ok(InstructionValue::new(unsafe {
+        let instruction = unsafe {
             LLVMBuildCondBr(
                 self.raw,
                 comparison.as_value_ref(),
                 then_block.raw,
                 else_block.raw,
             )
-        }))
+        };
+        Ok(InstructionValue::new(require_value(
+            instruction,
+            "conditional branch",
+        )?))
     }
 
     pub fn build_switch(
@@ -324,6 +332,7 @@ impl<'ctx> Builder<'ctx> {
                 cases.len() as u32,
             )
         };
+        let inst = require_value(inst, "switch")?;
         for (case_value, block) in cases {
             unsafe { LLVMAddCase(inst, case_value.as_value_ref(), block.raw) };
         }
@@ -369,7 +378,7 @@ impl<'ctx> Builder<'ctx> {
         src_align: u32,
         size: IntValue<'ctx>,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildMemCpy(
                 self.raw,
                 dest.as_value_ref(),
@@ -378,7 +387,8 @@ impl<'ctx> Builder<'ctx> {
                 src_align,
                 size.as_value_ref(),
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(value, "memcpy")?))
     }
 
     pub fn build_memset(
@@ -388,7 +398,7 @@ impl<'ctx> Builder<'ctx> {
         value: IntValue<'ctx>,
         size: IntValue<'ctx>,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildMemSet(
                 self.raw,
                 dest.as_value_ref(),
@@ -396,7 +406,8 @@ impl<'ctx> Builder<'ctx> {
                 size.as_value_ref(),
                 align,
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(value, "memset")?))
     }
 
     pub fn build_memmove(
@@ -407,7 +418,7 @@ impl<'ctx> Builder<'ctx> {
         src_align: u32,
         size: IntValue<'ctx>,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        Ok(PointerValue::new(unsafe {
+        let value = unsafe {
             LLVMBuildMemMove(
                 self.raw,
                 dest.as_value_ref(),
@@ -416,7 +427,8 @@ impl<'ctx> Builder<'ctx> {
                 src_align,
                 size.as_value_ref(),
             )
-        }))
+        };
+        Ok(PointerValue::new(require_value(value, "memmove")?))
     }
 
     pub fn build_fence(
@@ -1172,6 +1184,21 @@ impl<'ctx> Drop for Builder<'ctx> {
     }
 }
 
+/// Converts an LLVM value-producing call into the wrapper's fallible result.
+///
+/// The C API uses a null `LLVMValueRef` to report builder failure. Check it
+/// immediately, before a typed handle constructor or a follow-up API call can
+/// dereference the invalid result.
+fn require_value(raw: LLVMValueRef, operation: &str) -> LlvmResult<LLVMValueRef> {
+    if raw.is_null() {
+        Err(super::LlvmError::error(format!(
+            "LLVM returned a null value while building {operation}"
+        )))
+    } else {
+        Ok(raw)
+    }
+}
+
 fn build_int_bin<'ctx>(
     builder: LLVMBuilderRef,
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
@@ -1296,4 +1323,22 @@ fn cast_int_from_float<'ctx>(
             name.as_ptr(),
         )
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_null_builder_results_before_typed_handle_construction() {
+        let error = require_value(std::ptr::null_mut(), "test instruction")
+            .expect_err("null builder result");
+
+        assert_eq!(
+            error,
+            super::super::LlvmError::Error(
+                "LLVM returned a null value while building test instruction".to_string()
+            )
+        );
+    }
 }
