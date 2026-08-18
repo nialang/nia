@@ -791,8 +791,10 @@ commit as the corresponding implementation batch.
       duplicate fields from being hidden by layout-ordered constant emission.
 - [x] Phase B LLVM inline-assembly and shared basic type/value wrappers now
       reject null FFI results before constructing typed handles or querying
-      their LLVM kind. Fallible wrapper APIs therefore produce diagnostics
-      instead of panicking or passing null back into LLVM type inspection.
+      their LLVM kind. Builder memory, call, and control-flow operations apply
+      the same check before typed-handle construction or follow-up calls such
+      as switch-case insertion, so fallible wrapper APIs produce diagnostics
+      instead of panicking or passing null back into LLVM.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
