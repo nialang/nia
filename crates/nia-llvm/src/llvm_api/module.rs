@@ -230,7 +230,15 @@ impl<'ctx> Module<'ctx> {
                 unsafe { LLVMDisposeMessage(message) };
                 text
             };
+            // LLVM may create or truncate the output before reporting a
+            // failure. Do not leave that partial diagnostic artifact behind.
+            let _ = std::fs::remove_file(&path);
             return Err(LlvmError::error(text));
+        }
+        // The message is owned by the caller whenever LLVM supplies one,
+        // including an unexpected message on a successful print.
+        if !message.is_null() {
+            unsafe { LLVMDisposeMessage(message) };
         }
 
         let read_result = std::fs::read_to_string(&path).map_err(|err| {

@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 139 completed entries in this ledger.
+- Implementation batches: 140 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -837,6 +837,9 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase B LLVM target lookup and object emission now dispose optional
       owned diagnostic messages on every successful and null-result path, so
       future C API behavior cannot leak messages outside the wrapper boundary.
+- [x] Phase B Windows LLVM IR printing now removes partially written temporary
+      output on failure and disposes an unexpected owned success message,
+      closing both filesystem and C allocation ownership paths.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
