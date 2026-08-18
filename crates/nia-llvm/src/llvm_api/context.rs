@@ -94,13 +94,19 @@ impl Context {
         Ok(Module::new(raw_module))
     }
 
+    /// Creates an LLVM inline-assembly function pointer.
+    ///
+    /// LLVM may reject the function type or assembly/constraint combination
+    /// by returning a null value. Surface that failure as [`LlvmError`] so a
+    /// malformed backend contract becomes a diagnostic instead of triggering
+    /// the non-null handle assertions used by value wrappers.
     pub fn create_inline_asm<'ctx>(
         &'ctx self,
         ty: FunctionType<'ctx>,
         mut assembly: String,
         mut constraints: String,
         options: InlineAsmOptions,
-    ) -> PointerValue<'ctx> {
+    ) -> LlvmResult<PointerValue<'ctx>> {
         let raw = unsafe {
             LLVMGetInlineAsm(
                 ty.as_type_ref(),
@@ -114,7 +120,12 @@ impl Context {
                 bool_to_llvm(options.can_throw),
             )
         };
-        PointerValue::new(raw)
+        if raw.is_null() {
+            return Err(LlvmError::error(
+                "LLVM returned a null inline-assembly value",
+            ));
+        }
+        Ok(PointerValue::new(raw))
     }
 
     pub fn create_enum_attribute(&self, kind_id: u32, val: u64) -> Attribute {
