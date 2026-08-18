@@ -272,6 +272,14 @@ pub struct Attribute {
 }
 
 impl Attribute {
+    pub(super) fn new(raw: LLVMAttributeRef) -> LlvmResult<Self> {
+        if raw.is_null() {
+            Err(LlvmError::error("LLVM returned a null attribute"))
+        } else {
+            Ok(Self { raw })
+        }
+    }
+
     pub fn get_named_enum_kind_id(name: &str) -> u32 {
         unsafe { LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len()) }
     }
@@ -1092,6 +1100,16 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null basic value".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_attribute_before_attachment() {
+        let error = Attribute::new(std::ptr::null_mut()).expect_err("null attribute");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null attribute".to_string())
         );
     }
 }

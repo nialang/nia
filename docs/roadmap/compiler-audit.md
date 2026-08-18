@@ -796,6 +796,9 @@ commit as the corresponding implementation batch.
       as switch-case insertion. Atomic, arithmetic, conversion, and fence
       builders now use the same guard, so fallible wrapper APIs produce
       diagnostics instead of panicking or passing null back into LLVM.
+- [x] Phase B LLVM enum and string attribute construction now rejects null
+      handles at creation, and function declaration propagates attribute
+      failures before an invalid handle can reach `LLVMAddAttributeAtIndex`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

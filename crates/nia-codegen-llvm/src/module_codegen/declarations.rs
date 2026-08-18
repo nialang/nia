@@ -318,7 +318,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .module
                 .add_function(&self.function_symbol_name(function), ty, linkage)
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            self.apply_function_attributes(value, &function.attributes);
+            self.apply_function_attributes(value, &function.attributes)?;
             self.functions.insert(function.def_id, value);
         }
         for key in &self.declarations.function_instances {
@@ -366,7 +366,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     },
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            self.apply_function_attributes(value, &instance.attributes);
+            self.apply_function_attributes(value, &instance.attributes)?;
             self.function_instances
                 .entry((instance.def_id, instance.arg_module_id))
                 .or_default()
@@ -419,7 +419,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         value: nia_llvm::values::FunctionValue<'_>,
         attributes: &[nia_backend_ir::BackendFunctionAttribute],
-    ) {
+    ) -> Result<(), Diagnostic> {
         for attribute in attributes {
             match attribute {
                 nia_backend_ir::BackendFunctionAttribute::Naked => {
@@ -427,12 +427,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     if kind != 0 {
                         value.add_attribute(
                             AttributeLoc::Function,
-                            self.context.create_enum_attribute(kind, 0),
+                            self.context
+                                .create_enum_attribute(kind, 0)
+                                .map_err(Self::diagnostic_from_llvm_error)?,
                         );
                     }
                 }
             }
         }
+        Ok(())
     }
 
     pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {
