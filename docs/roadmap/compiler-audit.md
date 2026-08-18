@@ -515,6 +515,9 @@ commit as the corresponding implementation batch.
       source and result identities, readonly direction, concrete data-element
       types, and required owner-indexed vtables before LLVM rewrites fat-pointer
       metadata.
+- [x] Phase B effect-expression validation now requires unit-typed discards and
+      rejects residual `Try` expressions that function lowering failed to
+      rewrite into explicit CFG terminators before backend consumption.
 - [x] Cross-cutting Function IR Rustdoc now records flat CFG/local/scope
       ownership, closure-entry ABI tables, promoted union relocation
       invariants, and inline-assembly operand ordering at the shared producer

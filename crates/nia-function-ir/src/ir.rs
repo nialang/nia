@@ -185,6 +185,8 @@ pub enum FunctionTerminator {
         fallback: FunctionBlockId,
         span: Span,
     },
+    /// Transitional propagation node consumed into a CFG terminator by function lowering.
+    /// It is invalid at the backend boundary.
     Try {
         value: FunctionExpr,
         kind: FunctionTryKind,
@@ -450,6 +452,7 @@ pub enum FunctionExprKind {
         op: AssignOp,
         rhs: Box<FunctionExpr>,
     },
+    /// Evaluates its operand for effects and produces unit.
     Discard(Box<FunctionExpr>),
     /// Converts between source-approved numeric, enum, and pointer categories.
     Cast {

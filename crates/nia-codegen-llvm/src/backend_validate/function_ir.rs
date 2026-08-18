@@ -906,8 +906,19 @@ impl BackendValidator<'_> {
                     expr.span,
                 );
             }
-            FunctionExprKind::Try { expr } | FunctionExprKind::Discard(expr) => {
-                self.validate_expr(expr)
+            FunctionExprKind::Try { expr: inner } => {
+                self.validate_expr(inner);
+                self.invalid_try(
+                    expr.span,
+                    "propagation expression was not lowered to a CFG terminator",
+                );
+            }
+            FunctionExprKind::Discard(inner) => {
+                self.validate_expr(inner);
+                if !matches!(self.ty_kind(expr.ty), Some(TyKind::Tuple(elems)) if elems.is_empty())
+                {
+                    self.invalid_projection(expr.span, "discard result type is not unit");
+                }
             }
             FunctionExprKind::TraitObjectUpcast {
                 expr: inner,
