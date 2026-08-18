@@ -1075,7 +1075,29 @@ impl BackendValidator<'_> {
             FunctionExprKind::BuiltinValue(value) => {
                 self.validate_builtin_value(expr.ty, value, expr.span);
             }
-            FunctionExprKind::Error | FunctionExprKind::Local(_) | FunctionExprKind::Trap => {}
+            FunctionExprKind::Local(local_id) => {
+                let Some(local_ty) = self
+                    .local_tys
+                    .last()
+                    .and_then(|locals| locals.get(local_id))
+                    .copied()
+                else {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        format!("backend IR expression references missing local {local_id:?}"),
+                    ));
+                    return;
+                };
+                if !self.projection_result_compatible(expr.ty, local_ty) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        expr.span,
+                        "backend IR local value has an invalid type contract: expression type does not match its storage",
+                    ));
+                }
+            }
+            FunctionExprKind::Error | FunctionExprKind::Trap => {}
             FunctionExprKind::ConstGeneric(arg) => {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
