@@ -21,12 +21,20 @@ pub struct FunctionBlockId(pub u32);
 pub struct FunctionScopeId(pub u32);
 
 #[derive(Debug, Clone, PartialEq)]
+/// A validated function CFG and its flat local/scope metadata tables.
 pub struct FunctionBody {
+    /// Span used when a body-wide invariant has no narrower source location.
     pub span: Span,
+    /// Storage declarations keyed by [`FunctionLocal::id`].
     pub locals: Vec<FunctionLocal>,
+    /// Lexical ownership tree used to schedule defer cleanup.
     pub scopes: Vec<FunctionScope>,
+    /// Basic blocks keyed by [`FunctionBlock::id`].
     pub blocks: Vec<FunctionBlock>,
+    /// First block executed when entering the function.
     pub entry: FunctionBlockId,
+    /// Type of the lowered body expression, which may be `Never` even when the
+    /// enclosing function signature has a concrete return type.
     pub ty: InternedTyId,
 }
 
@@ -36,20 +44,31 @@ pub struct FunctionBody {
 /// `&ClosureState`. Captured locals are rewritten to projections through that
 /// pointer and never leak from the containing source function.
 #[derive(Debug, Clone, PartialEq)]
+/// One closure entry point embedded in its enclosing function owner.
 pub struct FunctionClosureEntry {
+    /// Stable identity shared with closure construction and callable adapters.
     pub closure_id: ClosureId,
+    /// Aggregate capture-state type addressed by `state_param`.
     pub state_ty: InternedTyId,
+    /// Local receiving the generated readonly state pointer.
     pub state_param: LocalId,
+    /// User-visible parameters in ABI order, excluding the state pointer.
     pub params: Vec<LocalId>,
+    /// Declared result type used for closure call ABI classification.
     pub return_type: InternedTyId,
+    /// Closure-local CFG; its flat local table also contains the generated parameters.
     pub body: FunctionBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A storage slot in the body's flat local table.
 pub struct FunctionLocal {
+    /// Stable key referenced by expressions, places, and ABI parameter mappings.
     pub id: LocalId,
     pub name: LocalName,
+    /// Declares whether the slot is user storage, generated storage, or a parameter.
     pub kind: FunctionLocalKind,
+    /// Physical storage type; typed expression views may be more readonly.
     pub ty: InternedTyId,
     pub span: Span,
 }
@@ -62,15 +81,19 @@ pub enum FunctionLocalKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One lexical scope in the defer-cleanup ownership tree.
 pub struct FunctionScope {
     pub id: FunctionScopeId,
+    /// Enclosing scope, or `None` for the function root.
     pub parent: Option<FunctionScopeId>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A basic block whose operations execute in order before its terminator.
 pub struct FunctionBlock {
     pub id: FunctionBlockId,
+    /// Lexical scope active for exits originating in this block.
     pub scope: FunctionScopeId,
     pub span: Span,
     pub ops: Vec<FunctionOp>,
@@ -369,6 +392,12 @@ pub enum FunctionExprKind {
         def_id: nia_ids::GlobalDefId,
         field: Box<FunctionFieldInit>,
     },
+    /// Reconstructs the byte representation of a const-evaluated union.
+    ///
+    /// Relocations are sorted, non-overlapping target-pointer ranges within
+    /// `bytes`; each pointee becomes separately promoted storage whose address
+    /// replaces the covered initialized bytes. Function IR validation enforces
+    /// these structural rules before backend target-width validation.
     UnionStorageLiteral {
         bytes: Vec<Option<u8>>,
         relocations: Vec<FunctionUnionRelocation>,
@@ -461,10 +490,15 @@ pub enum FunctionExprKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A pointer relocation embedded in a const-evaluated union byte image.
 pub struct FunctionUnionRelocation {
+    /// First byte replaced by the promoted pointee address.
     pub offset: usize,
+    /// Number of replaced bytes; backend validation requires target pointer size.
     pub width: usize,
+    /// Stable identity of the separately materialized promoted allocation.
     pub allocation: PromotedAllocationId,
+    /// Constant value used to initialize that allocation.
     pub pointee: Box<FunctionExpr>,
 }
 
@@ -502,11 +536,17 @@ pub enum FunctionRangeBound {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// LLVM-style inline assembly after source constraint checking.
 pub struct FunctionInlineAsm {
+    /// Assembly template passed verbatim to the target backend.
     pub code: String,
+    /// Input constraints and values in template operand order.
     pub inputs: Vec<FunctionAsmInput>,
+    /// Output constraints and writable destination places in operand order.
     pub outputs: Vec<FunctionAsmOutput>,
+    /// Target register or state clobbers appended to the constraint list.
     pub clobbers: Vec<String>,
+    /// Behavioral flags that affect optimization and side-effect classification.
     pub options: Vec<FunctionAsmOption>,
 }
 
@@ -593,14 +633,18 @@ pub enum AtomicRmwOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One inline-assembly input after type checking.
 pub struct FunctionAsmInput {
+    /// Backend constraint corresponding to this operand.
     pub constraint: String,
     pub value: FunctionExpr,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One inline-assembly output stored into a writable place after execution.
 pub struct FunctionAsmOutput {
+    /// Backend output constraint corresponding to this operand.
     pub constraint: String,
     pub place: FunctionPlace,
     pub span: Span,
