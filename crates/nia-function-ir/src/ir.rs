@@ -344,6 +344,10 @@ pub enum FunctionExprKind {
     CharFromU32 {
         value: Box<FunctionExpr>,
     },
+    /// Materializes promoted array storage and returns a pointer to the complete array value.
+    ///
+    /// The result pointer element is the type of `array`; `is_readonly` mirrors
+    /// the result pointer qualifier and records whether the promotion is frozen.
     StaticArrayPointer {
         allocation: PromotedAllocationId,
         array: Box<FunctionExpr>,
