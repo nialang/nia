@@ -766,9 +766,6 @@ commit as the corresponding implementation batch.
       aggregate kind to the nominal expression type. Struct literals additionally
       require every declared field exactly once, preventing LLVM from loading a
       partially initialized aggregate allocation.
-- [x] Phase C `StoreLocal` now retains its control-flow-temporary contract at
-      the backend boundary: exact type checks are paired with a mutable-binding
-      requirement, so internal flow writes cannot overwrite immutable storage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
