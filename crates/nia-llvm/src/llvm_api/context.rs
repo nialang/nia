@@ -25,19 +25,29 @@ use super::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// LLVM inline-assembly flags passed without reinterpretation by codegen.
 pub struct InlineAsmOptions {
+    /// Whether the assembly has side effects beyond its explicit outputs.
     pub sideeffects: bool,
+    /// Whether LLVM must realign the stack before entering the assembly.
     pub alignstack: bool,
+    /// Assembly syntax; omitted values use LLVM's AT&T dialect.
     pub dialect: Option<InlineAsmDialect>,
+    /// Whether control may unwind out of the assembly.
     pub can_throw: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
+/// Owned LLVM context and lifetime root for all typed wrapper handles.
 pub struct Context {
     pub(super) raw: LLVMContextRef,
 }
 
 impl Context {
+    /// Creates a fresh LLVM context.
+    ///
+    /// LLVM treats context allocation failure as unrecoverable; consequently
+    /// this is the one top-level wrapper constructor that asserts non-null.
     pub fn create() -> Self {
         let raw = unsafe { LLVMContextCreate() };
         assert!(!raw.is_null());
@@ -63,6 +73,7 @@ impl Context {
         Ok(Module::new(raw))
     }
 
+    /// Parses serialized bitcode into a module owned by this context.
     pub fn parse_bitcode_module<'ctx>(
         &'ctx self,
         name: &str,
@@ -152,50 +163,62 @@ impl Context {
         })
     }
 
+    /// Returns this context's `void` type.
     pub fn void_type<'ctx>(&'ctx self) -> VoidType<'ctx> {
         VoidType::new(unsafe { LLVMVoidTypeInContext(self.raw) })
     }
 
+    /// Returns the one-bit integer type used for booleans.
     pub fn bool_type<'ctx>(&'ctx self) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMInt1TypeInContext(self.raw) })
     }
 
+    /// Returns this context's 8-bit integer type.
     pub fn i8_type<'ctx>(&'ctx self) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMInt8TypeInContext(self.raw) })
     }
 
+    /// Returns this context's 16-bit integer type.
     pub fn i16_type<'ctx>(&'ctx self) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMInt16TypeInContext(self.raw) })
     }
 
+    /// Returns this context's 32-bit integer type.
     pub fn i32_type<'ctx>(&'ctx self) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMInt32TypeInContext(self.raw) })
     }
 
+    /// Returns this context's 64-bit integer type.
     pub fn i64_type<'ctx>(&'ctx self) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMInt64TypeInContext(self.raw) })
     }
 
+    /// Returns this context's 128-bit integer type.
     pub fn i128_type<'ctx>(&'ctx self) -> IntType<'ctx> {
         self.custom_width_int_type(128)
     }
 
+    /// Returns an integer type with exactly `bits` bits.
     pub fn custom_width_int_type<'ctx>(&'ctx self, bits: u32) -> IntType<'ctx> {
         IntType::new(unsafe { LLVMIntTypeInContext(self.raw, bits) })
     }
 
+    /// Returns this context's IEEE-754 single-precision type.
     pub fn f32_type<'ctx>(&'ctx self) -> FloatType<'ctx> {
         FloatType::new(unsafe { LLVMFloatTypeInContext(self.raw) })
     }
 
+    /// Returns this context's IEEE-754 double-precision type.
     pub fn f64_type<'ctx>(&'ctx self) -> FloatType<'ctx> {
         FloatType::new(unsafe { LLVMDoubleTypeInContext(self.raw) })
     }
 
+    /// Returns an opaque pointer type in `address_space`.
     pub fn ptr_type<'ctx>(&'ctx self, address_space: AddressSpace) -> PointerType<'ctx> {
         PointerType::new(unsafe { LLVMPointerTypeInContext(self.raw, address_space.0) })
     }
 
+    /// Creates a literal struct type with the supplied physical field order.
     pub fn struct_type<'ctx>(
         &'ctx self,
         fields: &[BasicTypeEnum<'ctx>],
@@ -215,6 +238,7 @@ impl Context {
         })
     }
 
+    /// Creates a named opaque struct whose body may be supplied later.
     pub fn opaque_struct_type<'ctx>(&'ctx self, name: &str) -> LlvmResult<StructType<'ctx>> {
         let name = to_c_string(name)?;
         Ok(StructType::new(unsafe {
@@ -222,6 +246,7 @@ impl Context {
         }))
     }
 
+    /// Appends a named basic block to `function`.
     pub fn append_basic_block<'ctx>(
         &'ctx self,
         function: FunctionValue<'ctx>,
@@ -235,6 +260,7 @@ impl Context {
         Ok(BasicBlock::new(raw))
     }
 
+    /// Creates an LLVM byte-array constant from arbitrary bytes.
     pub fn const_string<'ctx>(
         &'ctx self,
         bytes: &[u8],

@@ -39,22 +39,29 @@ use std::slice;
 use super::{Context, DISubprogram};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure reported by the typed LLVM boundary.
 pub enum LlvmError {
+    /// Recoverable LLVM C API failure text.
     Error(String),
+    /// Compiler invariant failure detected while preparing an LLVM call.
     Ice(nia_ice::Ice),
 }
 
+/// Result returned by fallible LLVM wrapper operations.
 pub type LlvmResult<T> = Result<T, LlvmError>;
 
 impl LlvmError {
+    /// Creates a recoverable LLVM API error.
     pub fn error(message: impl Into<String>) -> Self {
         Self::Error(message.into())
     }
 
+    /// Creates an internal compiler error owned by the LLVM subsystem.
     pub fn ice(message: impl Into<String>) -> Self {
         Self::Ice(nia_ice::Ice::new(format!("LLVM: {}", message.into())))
     }
 
+    /// Converts this wrapper failure to the compiler's diagnostic format.
     pub fn diagnostic(&self) -> nia_diagnostic::Diagnostic {
         match self {
             Self::Error(message) => nia_diagnostic::Diagnostic::internal_error(
@@ -84,28 +91,40 @@ pub(super) fn bool_to_llvm(value: bool) -> i32 {
     if value { 1 } else { 0 }
 }
 
+/// Provides a borrowed raw LLVM type handle.
 pub trait AsTypeRef {
+    /// Returns the underlying non-owning type handle.
     fn as_type_ref(&self) -> LLVMTypeRef;
 }
 
+/// Marker for types accepted as first-class LLVM value types.
 pub trait BasicType<'ctx>: AsTypeRef + Copy {}
 
+/// Provides a borrowed raw LLVM value handle.
 pub trait AsValueRef {
+    /// Returns the underlying non-owning value handle.
     fn as_value_ref(&self) -> LLVMValueRef;
 }
 
+/// A first-class LLVM value convertible to the shared value enum.
 pub trait BasicValue<'ctx>: AsValueRef {
+    /// Converts this typed handle without changing LLVM ownership.
     fn as_basic_value_enum(&self) -> BasicValueEnum<'ctx>;
 }
 
+/// Marker for LLVM aggregate values accepted by extract/insert operations.
 pub trait AggregateValue<'ctx>: BasicValue<'ctx> {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// Numeric LLVM address space.
 pub struct AddressSpace(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Assembly syntax accepted by LLVM inline assembly.
 pub enum InlineAsmDialect {
+    /// AT&T syntax.
     ATT,
+    /// Intel syntax.
     Intel,
 }
 
@@ -119,16 +138,27 @@ impl From<InlineAsmDialect> for LLVMInlineAsmDialect {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Integer comparison predicate with explicit signedness.
 pub enum IntPredicate {
+    /// Equal.
     EQ,
+    /// Not equal.
     NE,
+    /// Unsigned greater than.
     UGT,
+    /// Unsigned greater than or equal.
     UGE,
+    /// Unsigned less than.
     ULT,
+    /// Unsigned less than or equal.
     ULE,
+    /// Signed greater than.
     SGT,
+    /// Signed greater than or equal.
     SGE,
+    /// Signed less than.
     SLT,
+    /// Signed less than or equal.
     SLE,
 }
 
@@ -150,12 +180,19 @@ impl From<IntPredicate> for LLVMIntPredicate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Ordered floating-point comparison predicate.
 pub enum FloatPredicate {
+    /// Ordered equal.
     OEQ,
+    /// Ordered greater than.
     OGT,
+    /// Ordered greater than or equal.
     OGE,
+    /// Ordered less than.
     OLT,
+    /// Ordered less than or equal.
     OLE,
+    /// Ordered not equal.
     ONE,
 }
 
@@ -173,13 +210,21 @@ impl From<FloatPredicate> for LLVMRealPredicate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// LLVM atomic memory ordering.
 pub enum AtomicOrdering {
+    /// Operation is not atomic.
     NotAtomic,
+    /// Unordered atomic operation.
     Unordered,
+    /// Monotonic ordering.
     Monotonic,
+    /// Acquire ordering.
     Acquire,
+    /// Release ordering.
     Release,
+    /// Combined acquire/release ordering.
     AcquireRelease,
+    /// Sequentially consistent ordering.
     SequentiallyConsistent,
 }
 
@@ -200,25 +245,42 @@ impl From<AtomicOrdering> for LLVMAtomicOrdering {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Read-modify-write operation performed atomically by LLVM.
 pub enum AtomicRMWBinOp {
+    /// Exchange.
     Xchg,
+    /// Addition.
     Add,
+    /// Subtraction.
     Sub,
+    /// Bitwise AND.
     And,
+    /// Bitwise NAND.
     Nand,
+    /// Bitwise OR.
     Or,
+    /// Bitwise XOR.
     Xor,
+    /// Signed maximum.
     Max,
+    /// Signed minimum.
     Min,
+    /// Unsigned maximum.
     UMax,
+    /// Unsigned minimum.
     UMin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// LLVM code-generation optimization level.
 pub enum OptimizationLevel {
+    /// Disable optimization.
     None,
+    /// Optimize cheaply.
     Less,
+    /// Use LLVM's default optimization level.
     Default,
+    /// Use LLVM's aggressive optimization level.
     Aggressive,
 }
 
@@ -241,11 +303,17 @@ impl From<AtomicRMWBinOp> for LLVMAtomicRMWBinOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Linkage supported by Nia's module emitter.
 pub enum Linkage {
+    /// Externally visible definition or declaration.
     External,
+    /// Appending linkage used for concatenated globals.
     Appending,
+    /// ODR link-once definition.
     LinkOnceOdr,
+    /// Weak ODR definition.
     WeakOdr,
+    /// Module-local definition.
     Internal,
 }
 
@@ -262,11 +330,14 @@ impl From<Linkage> for LLVMLinkage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Location at which an LLVM attribute is attached.
 pub enum AttributeLoc {
+    /// Function-level attribute index.
     Function,
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Non-owning LLVM attribute handle tied to its originating context.
 pub struct Attribute {
     pub(super) raw: LLVMAttributeRef,
 }
@@ -280,6 +351,7 @@ impl Attribute {
         }
     }
 
+    /// Resolves LLVM's numeric id for a named enum attribute.
     pub fn get_named_enum_kind_id(name: &str) -> u32 {
         unsafe { LLVMGetEnumAttributeKindForName(name.as_ptr() as *const _, name.len()) }
     }

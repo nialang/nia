@@ -10,26 +10,32 @@ pub use crate::llvm_api::{
     LlvmResult, OptimizationLevel,
 };
 
+/// Raw LLVM bindings for the few backend integrations not yet typed here.
 pub mod llvm_sys {
     pub use llvm_sys::*;
 }
 
+/// Instruction builder wrapper.
 pub mod builder {
     pub use crate::llvm_api::Builder;
 }
 
+/// Context ownership and context-created values.
 pub mod context {
     pub use crate::llvm_api::Context;
 }
 
+/// Module ownership, linking, and declaration APIs.
 pub mod module {
     pub use crate::llvm_api::{Linkage, Module};
 }
 
+/// Native target discovery, configuration, and object emission.
 pub mod target {
     pub use crate::llvm_api::{TargetMachine, TargetMachineIdentity};
 }
 
+/// Typed LLVM type handles and conversions.
 pub mod types {
     pub use crate::llvm_api::{
         ArrayType, AsTypeRef, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType,
@@ -37,6 +43,7 @@ pub mod types {
     };
 }
 
+/// Typed LLVM value handles and conversions.
 pub mod values {
     pub use crate::llvm_api::{
         ArrayValue, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue,
@@ -45,23 +52,28 @@ pub mod values {
     };
 }
 
+/// LLVM basic-block handles.
 pub mod basic_block {
     pub use crate::llvm_api::BasicBlock;
 }
 
+/// LLVM function attribute handles and attachment locations.
 pub mod attributes {
     pub use crate::llvm_api::{Attribute, AttributeLoc};
 }
 
+/// Supported LLVM intrinsic lookup and declaration helpers.
 pub mod intrinsics {
     use crate::llvm_api::{BasicTypeEnum, FunctionValue, Module};
 
     #[derive(Clone, Copy)]
+    /// A recognized LLVM intrinsic name.
     pub struct Intrinsic {
         name: &'static str,
     }
 
     impl Intrinsic {
+        /// Resolves an intrinsic supported by Nia's code generator.
         pub fn find(name: &str) -> Option<Self> {
             match name {
                 "llvm.trap" => Some(Self { name: "llvm.trap" }),
@@ -99,6 +111,7 @@ pub mod intrinsics {
             }
         }
 
+        /// Gets or inserts this intrinsic's declaration for `types`.
         pub fn get_declaration<'ctx>(
             self,
             module: &Module<'ctx>,
