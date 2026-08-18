@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 142 completed entries in this ledger.
+- Implementation batches: 143 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -851,6 +851,10 @@ acceptance item only when its phase-wide evidence is complete.
       function/global/block/instruction/phi/call ownership views. The same
       unsuppressed missing-docs audit fell from 249 warnings to 183; primitive
       type/value operations and builder methods remain open.
+- [x] Phase B LLVM module-flag attachment now validates value-to-metadata
+      conversion before calling the infallible attachment API, returns the
+      failure through `LlvmResult`, and has focused null-metadata coverage plus
+      Rustdoc for the debug-version and flag ownership contracts.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
