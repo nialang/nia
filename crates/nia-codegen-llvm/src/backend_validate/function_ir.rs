@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashSet;
+
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
@@ -785,11 +787,8 @@ impl BackendValidator<'_> {
                 }
             }
             FunctionExprKind::StructLiteral { def_id, fields } => {
-                self.validate_aggregate_def(
-                    *def_id,
-                    expr.span,
-                    "backend IR struct literal references missing struct",
-                );
+                self.validate_aggregate_literal_identity("struct", expr.ty, *def_id, expr.span);
+                self.validate_struct_literal_field_coverage(expr.ty, fields, expr.span);
                 for field in fields {
                     if let Some(expected_ty) =
                         self.validate_field_init(expr.ty, field.field, field.span)
@@ -806,11 +805,7 @@ impl BackendValidator<'_> {
                 }
             }
             FunctionExprKind::UnionLiteral { def_id, field } => {
-                self.validate_aggregate_def(
-                    *def_id,
-                    expr.span,
-                    "backend IR union literal references missing union",
-                );
+                self.validate_aggregate_literal_identity("union", expr.ty, *def_id, expr.span);
                 if let Some(expected_ty) =
                     self.validate_field_init(expr.ty, field.field, field.span)
                     && self.has_direct_aggregate_field_contract(expr.ty)
@@ -2349,6 +2344,62 @@ impl BackendValidator<'_> {
                 .index
                 .union_instances_for(def_id)
                 .any(|item| self.same_type_args(&item.args, &args) && item.const_args == const_args)
+    }
+
+    fn validate_aggregate_literal_identity(
+        &mut self,
+        kind: &'static str,
+        result_ty: nia_ids::InternedTyId,
+        def_id: nia_ids::GlobalDefId,
+        span: Span,
+    ) {
+        if !matches!(
+            self.ty_kind(result_ty),
+            Some(TyKind::Nominal { def_id: result_def, .. }) if *result_def == def_id
+        ) {
+            self.invalid_literal_contract(span, kind, "definition does not match expression type");
+        }
+        let valid_kind = match kind {
+            "struct" => self.index.has_struct(def_id) || self.index.has_struct_instances(def_id),
+            "union" => self.index.has_union(def_id) || self.index.has_union_instances(def_id),
+            _ => unreachable!("aggregate literal kind is statically selected"),
+        };
+        if !valid_kind {
+            self.invalid_literal_contract(span, kind, "definition has the wrong aggregate kind");
+        }
+    }
+
+    fn validate_struct_literal_field_coverage(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        fields: &[nia_function_ir::FunctionFieldInit],
+        span: Span,
+    ) {
+        let Some((def_id, args, const_args)) = self.field_base_type(result_ty) else {
+            return;
+        };
+        let Some(expected) = self.aggregate_fields(def_id, &args, &const_args) else {
+            return;
+        };
+        // LLVM literal emission stores only the supplied fields and then loads
+        // the complete alloca. Requiring a set equality here prevents missing
+        // or duplicate logical fields from exposing uninitialized bytes.
+        let supplied = fields
+            .iter()
+            .filter_map(|field| field.field)
+            .collect::<HashSet<_>>();
+        let covers_exactly = supplied.len() == fields.len()
+            && supplied.len() == expected.len()
+            && supplied
+                .iter()
+                .all(|field| expected.iter().any(|candidate| candidate.def_id == *field));
+        if !covers_exactly {
+            self.invalid_literal_contract(
+                span,
+                "struct",
+                "fields do not initialize each declared field exactly once",
+            );
+        }
     }
 
     fn invalid_literal_contract(&mut self, span: Span, kind: &'static str, message: &'static str) {

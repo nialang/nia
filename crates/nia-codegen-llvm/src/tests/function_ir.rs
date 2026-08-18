@@ -5865,7 +5865,71 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
                 id: FunctionBlockId(0),
                 scope: FunctionScopeId(0),
                 span,
-                ops: Vec::new(),
+                ops: vec![
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: struct_ty,
+                        kind: FunctionExprKind::StructLiteral {
+                            def_id: missing_field,
+                            fields: vec![FunctionFieldInit {
+                                field: Some(field_id),
+                                name: "value".to_string(),
+                                value: FunctionExpr {
+                                    span,
+                                    ty: i32_ty,
+                                    kind: FunctionExprKind::Integer("1".to_string()),
+                                },
+                                span,
+                            }],
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: struct_ty,
+                        kind: FunctionExprKind::StructLiteral {
+                            def_id: struct_id,
+                            fields: vec![
+                                FunctionFieldInit {
+                                    field: Some(field_id),
+                                    name: "value".to_string(),
+                                    value: FunctionExpr {
+                                        span,
+                                        ty: i32_ty,
+                                        kind: FunctionExprKind::Integer("1".to_string()),
+                                    },
+                                    span,
+                                },
+                                FunctionFieldInit {
+                                    field: Some(field_id),
+                                    name: "value".to_string(),
+                                    value: FunctionExpr {
+                                        span,
+                                        ty: i32_ty,
+                                        kind: FunctionExprKind::Integer("2".to_string()),
+                                    },
+                                    span,
+                                },
+                            ],
+                        },
+                    }),
+                    FunctionOp::Expr(FunctionExpr {
+                        span,
+                        ty: struct_ty,
+                        kind: FunctionExprKind::UnionLiteral {
+                            def_id: struct_id,
+                            field: Box::new(FunctionFieldInit {
+                                field: Some(field_id),
+                                name: "value".to_string(),
+                                value: FunctionExpr {
+                                    span,
+                                    ty: i32_ty,
+                                    kind: FunctionExprKind::Integer("1".to_string()),
+                                },
+                                span,
+                            }),
+                        },
+                    }),
+                ],
                 terminator: FunctionTerminator::Tail {
                     value: Some(FunctionExpr {
                         span,
@@ -5945,6 +6009,18 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+    for message in [
+        "struct literal has an invalid type contract: definition does not match expression type",
+        "struct literal has an invalid type contract: definition has the wrong aggregate kind",
+        "struct literal has an invalid type contract: fields do not initialize each declared field exactly once",
+        "union literal has an invalid type contract: definition has the wrong aggregate kind",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
 }
 
 #[test]

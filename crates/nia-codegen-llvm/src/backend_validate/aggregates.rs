@@ -64,25 +64,6 @@ impl BackendValidator<'_> {
         None
     }
 
-    pub(super) fn validate_aggregate_def(
-        &mut self,
-        def_id: GlobalDefId,
-        span: Span,
-        message: &str,
-    ) {
-        if !self.index.has_struct(def_id)
-            && !self.index.has_union(def_id)
-            && !self.index.has_struct_instances(def_id)
-            && !self.index.has_union_instances(def_id)
-        {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                format!("{message} {def_id:?}"),
-            ));
-        }
-    }
-
     pub(super) fn validate_enum_variant_ref(
         &mut self,
         def_id: GlobalDefId,

@@ -762,6 +762,10 @@ commit as the corresponding implementation batch.
       and reject unrelated or readonly-to-mutable views while preserving the
       source-approved mutable-to-readonly pointer, volatile-pointer, and slice
       coercions represented directly in function IR.
+- [x] Phase B struct and union literals now bind their definition identity and
+      aggregate kind to the nominal expression type. Struct literals additionally
+      require every declared field exactly once, preventing LLVM from loading a
+      partially initialized aggregate allocation.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
