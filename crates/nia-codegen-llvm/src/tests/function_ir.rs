@@ -729,6 +729,121 @@ fn validates_switch_case_constants_and_uniqueness_before_llvm() {
 }
 
 #[test]
+fn validates_literal_payloads_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let char_ty = interner.primitive(PrimitiveTy::Char);
+    let f32_ty = interner.primitive(PrimitiveTy::F32);
+    let i8_ty = interner.primitive(PrimitiveTy::I8);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let char_array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(1),
+        elem: char_ty,
+    });
+    let span = Span::default();
+    let expr = |ty, kind| FunctionOp::Expr(FunctionExpr { span, ty, kind });
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![
+                    expr(i32_ty, FunctionExprKind::Integer("invalid".to_string())),
+                    expr(i8_ty, FunctionExprKind::Integer("128".to_string())),
+                    expr(f32_ty, FunctionExprKind::Float("invalid".to_string())),
+                    expr(f32_ty, FunctionExprKind::Float("1e999".to_string())),
+                    expr(char_ty, FunctionExprKind::Char(0xd800)),
+                    expr(
+                        u8_ty,
+                        FunctionExprKind::ByteChar("not-a-byte-char".to_string()),
+                    ),
+                    expr(char_array_ty, FunctionExprKind::String(vec![0xd800])),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Integer("0".to_string()),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(
+        single_module_program(
+            module_id,
+            BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (char_ty, TypeLayout { size: 4, align: 4 }),
+                    (f32_ty, TypeLayout { size: 4, align: 4 }),
+                    (i8_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (u8_ty, TypeLayout { size: 1, align: 1 }),
+                    (char_array_ty, TypeLayout { size: 4, align: 4 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![function],
+        ),
+        type_store,
+    );
+    assert!(output.modules.is_empty());
+    for message in [
+        "integer literal has an invalid type contract: spelling is invalid",
+        "integer literal has an invalid type contract: value is outside its target type",
+        "float literal has an invalid type contract: spelling is invalid",
+        "float literal has an invalid type contract: value is outside its target type",
+        "char literal has an invalid type contract: value is not a Unicode scalar",
+        "byte char literal has an invalid type contract: spelling is invalid",
+        "string literal has an invalid type contract: value contains an invalid Unicode scalar",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn validates_projection_and_field_initializer_types_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

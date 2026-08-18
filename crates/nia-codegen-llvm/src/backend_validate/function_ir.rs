@@ -13,7 +13,9 @@ use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind};
 
-use crate::literals::{assign_to_binary_op, decode_byte_char_literal, parse_int_literal};
+use crate::literals::{
+    assign_to_binary_op, decode_byte_char_literal, parse_float_literal, parse_int_literal,
+};
 
 use super::{BackendValidator, FunctionInstanceRef};
 
@@ -1085,28 +1087,41 @@ impl BackendValidator<'_> {
                     self.validate_slice_bound(end);
                 }
             }
-            FunctionExprKind::Integer(_) => self.validate_integer_literal(expr.ty, expr.span),
-            FunctionExprKind::Float(_) => self.validate_float_literal(expr.ty, expr.span),
+            FunctionExprKind::Integer(text) => {
+                self.validate_integer_literal(expr.ty, text, expr.span)
+            }
+            FunctionExprKind::Float(text) => self.validate_float_literal(expr.ty, text, expr.span),
             FunctionExprKind::String(scalars) => {
+                self.validate_string_scalars(scalars, expr.span);
                 self.validate_string_literal(expr.ty, scalars.len(), expr.span, false)
             }
             FunctionExprKind::ByteString(bytes) => {
                 self.validate_string_literal(expr.ty, bytes.len(), expr.span, true)
             }
-            FunctionExprKind::Char(_) => {
+            FunctionExprKind::Char(value) => {
                 if !matches!(
                     self.index.ty_kind(expr.ty),
                     Some(TyKind::Primitive(PrimitiveTy::Char))
                 ) {
                     self.invalid_literal_contract(expr.span, "char", "target type is not char");
                 }
+                if char::from_u32(*value).is_none() {
+                    self.invalid_literal_contract(
+                        expr.span,
+                        "char",
+                        "value is not a Unicode scalar",
+                    );
+                }
             }
-            FunctionExprKind::ByteChar(_) => {
+            FunctionExprKind::ByteChar(text) => {
                 if !matches!(
                     self.index.ty_kind(expr.ty),
                     Some(TyKind::Primitive(PrimitiveTy::U8))
                 ) {
                     self.invalid_literal_contract(expr.span, "byte char", "target type is not u8");
+                }
+                if decode_byte_char_literal(text).is_none() {
+                    self.invalid_literal_contract(expr.span, "byte char", "spelling is invalid");
                 }
             }
             FunctionExprKind::Bool(_) => {
@@ -2469,23 +2484,90 @@ impl BackendValidator<'_> {
         ));
     }
 
-    fn validate_integer_literal(&mut self, ty: nia_ids::InternedTyId, span: Span) {
-        if !matches!(
-            self.index.ty_kind(ty),
-            Some(TyKind::Primitive(primitive))
-                if primitive.is_integer()
-                    || matches!(*primitive, PrimitiveTy::Bool | PrimitiveTy::Char)
-        ) {
+    fn validate_integer_literal(&mut self, ty: nia_ids::InternedTyId, text: &str, span: Span) {
+        let Some(TyKind::Primitive(primitive)) = self.index.ty_kind(ty) else {
             self.invalid_literal_contract(span, "integer", "target type is not an integer");
+            return;
+        };
+        let primitive = *primitive;
+        if !primitive.is_integer() && !matches!(primitive, PrimitiveTy::Bool | PrimitiveTy::Char) {
+            self.invalid_literal_contract(span, "integer", "target type is not an integer");
+            return;
+        }
+        let Some(value) = parse_int_literal(text) else {
+            self.invalid_literal_contract(span, "integer", "spelling is invalid");
+            return;
+        };
+        if !self.integer_literal_fits(primitive, value) {
+            self.invalid_literal_contract(span, "integer", "value is outside its target type");
         }
     }
 
-    fn validate_float_literal(&mut self, ty: nia_ids::InternedTyId, span: Span) {
-        if !matches!(
-            self.index.ty_kind(ty),
-            Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
-        ) {
-            self.invalid_literal_contract(span, "float", "target type is not f32 or f64");
+    /// Applies source integer ranges before LLVM's constant constructors can
+    /// truncate a malformed backend value to the destination bit width.
+    fn integer_literal_fits(&self, primitive: PrimitiveTy, value: i128) -> bool {
+        match primitive {
+            PrimitiveTy::Bool => matches!(value, 0 | 1),
+            PrimitiveTy::Char => u32::try_from(value).ok().and_then(char::from_u32).is_some(),
+            primitive if primitive.is_signed_integer() => {
+                let Some(bits) = self.primitive_integer_bits(primitive) else {
+                    return false;
+                };
+                bits == i128::BITS
+                    || ((-(1_i128 << (bits - 1)))..=((1_i128 << (bits - 1)) - 1)).contains(&value)
+            }
+            primitive if primitive.is_integer() => {
+                let Some(bits) = self.primitive_integer_bits(primitive) else {
+                    return false;
+                };
+                value >= 0 && (bits == u128::BITS || (value as u128) < (1_u128 << bits))
+            }
+            _ => false,
+        }
+    }
+
+    fn primitive_integer_bits(&self, primitive: PrimitiveTy) -> Option<u32> {
+        match primitive {
+            PrimitiveTy::Isize | PrimitiveTy::Usize => self
+                .target
+                .pointer_size
+                .checked_mul(8)
+                .and_then(|bits| u32::try_from(bits).ok()),
+            _ => primitive.integer_bits(0),
+        }
+    }
+
+    fn validate_float_literal(&mut self, ty: nia_ids::InternedTyId, text: &str, span: Span) {
+        let primitive = match self.index.ty_kind(ty) {
+            Some(TyKind::Primitive(primitive @ (PrimitiveTy::F32 | PrimitiveTy::F64))) => {
+                *primitive
+            }
+            _ => {
+                self.invalid_literal_contract(span, "float", "target type is not f32 or f64");
+                return;
+            }
+        };
+        let Some(value) = parse_float_literal(text) else {
+            self.invalid_literal_contract(span, "float", "spelling is invalid");
+            return;
+        };
+        if !value.is_finite()
+            || matches!(primitive, PrimitiveTy::F32) && !(value as f32).is_finite()
+        {
+            self.invalid_literal_contract(span, "float", "value is outside its target type");
+        }
+    }
+
+    fn validate_string_scalars(&mut self, scalars: &[u32], span: Span) {
+        if scalars
+            .iter()
+            .any(|scalar| char::from_u32(*scalar).is_none())
+        {
+            self.invalid_literal_contract(
+                span,
+                "string",
+                "value contains an invalid Unicode scalar",
+            );
         }
     }
 

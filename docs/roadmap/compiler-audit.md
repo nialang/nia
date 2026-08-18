@@ -770,6 +770,10 @@ commit as the corresponding implementation batch.
       integer patterns and reject duplicate target-width bit patterns before
       LLVM. Checked negative integer patterns retain their lowering-generated
       signed spelling through codegen, including the `i128::MIN` boundary.
+- [x] Phase B function-expression literals now validate their decoded payloads
+      as well as their types: integer spellings and target-width ranges, finite
+      float ranges, byte-character syntax, and Unicode scalar invariants are
+      rejected before LLVM constant construction can fail or truncate them.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
