@@ -3,9 +3,9 @@ use super::common::*;
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_backend_ir::BackendEnumVariantPayload;
 use nia_function_ir::{
-    AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAtomic, FunctionBitIntrinsicOp,
-    FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource,
-    FunctionSliceRange,
+    AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput,
+    FunctionAtomic, FunctionBitIntrinsicOp, FunctionInlineAsm, FunctionMemoryIntrinsic,
+    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionSliceRange,
 };
 
 fn single_module_program(
@@ -4369,6 +4369,155 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         "function value has an invalid signature contract: return type",
         "function value has an invalid signature contract: variadic flag",
         "function-instance value has an invalid signature contract: parameter types",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),
+            "missing `{message}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
+fn validates_backend_ir_inline_asm_contracts_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let unit_ty = interner.intern(TyKind::Tuple(Vec::new()));
+    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
+    let span = Span::default();
+    let scalar_local = LocalId(0);
+    let aggregate_local = LocalId(1);
+    let local_expr = |local, ty| FunctionExpr {
+        span,
+        ty,
+        kind: FunctionExprKind::Local(local),
+    };
+    let local_place = |local, ty| FunctionPlace {
+        span,
+        ty,
+        base: FunctionPlaceBase::Local(local),
+        elems: Vec::new(),
+    };
+    let asm = FunctionExpr {
+        span,
+        ty: bool_ty,
+        kind: FunctionExprKind::InlineAsm(FunctionInlineAsm {
+            code: "mov eax, eax".to_string(),
+            inputs: vec![FunctionAsmInput {
+                constraint: "r,~{memory}".to_string(),
+                value: local_expr(aggregate_local, tuple_ty),
+                span,
+            }],
+            outputs: vec![
+                FunctionAsmOutput {
+                    constraint: "r".to_string(),
+                    place: local_place(scalar_local, i32_ty),
+                    span,
+                },
+                FunctionAsmOutput {
+                    constraint: "=r".to_string(),
+                    place: local_place(aggregate_local, tuple_ty),
+                    span,
+                },
+            ],
+            clobbers: vec!["memory},~{cc".to_string()],
+            options: Vec::new(),
+        }),
+    };
+    let body = FunctionBody {
+        span,
+        locals: vec![
+            FunctionLocal {
+                id: scalar_local,
+                name: local_name("scalar"),
+                kind: FunctionLocalKind::ImmutableBinding,
+                ty: i32_ty,
+                span,
+            },
+            FunctionLocal {
+                id: aggregate_local,
+                name: local_name("aggregate"),
+                kind: FunctionLocalKind::MutableBinding,
+                ty: tuple_ty,
+                span,
+            },
+        ],
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Expr(asm)],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty: i32_ty,
+                    kind: FunctionExprKind::Integer("0".to_string()),
+                }),
+                span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty: i32_ty,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (bool_ty, TypeLayout { size: 1, align: 1 }),
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (unit_ty, TypeLayout { size: 0, align: 1 }),
+                (tuple_ty, TypeLayout { size: 4, align: 4 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![BackendFunction {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(0),
+            },
+            name: sym("main"),
+            link_name: None,
+            generics: Vec::new(),
+            params: Vec::new(),
+            return_type: i32_ty,
+            is_extern: false,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: Some(body),
+            span,
+        }],
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for message in [
+        "inline assembly has an invalid contract: expression result type is not unit",
+        "inline assembly has an invalid contract: input operand type is not scalar",
+        "inline assembly has an invalid contract: input constraint is not canonical",
+        "inline assembly has an invalid contract: output storage is not writable",
+        "inline assembly has an invalid contract: output constraint is not canonical",
+        "inline assembly has an invalid contract: output operand type is not scalar",
+        "inline assembly has an invalid contract: clobber name contains constraint syntax",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),

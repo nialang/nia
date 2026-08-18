@@ -655,6 +655,7 @@ pub enum AtomicRmwOp {
 pub struct FunctionAsmInput {
     /// Backend constraint corresponding to this operand.
     pub constraint: String,
+    /// Scalar value passed directly through LLVM's inline-assembly call boundary.
     pub value: FunctionExpr,
     pub span: Span,
 }
@@ -664,6 +665,7 @@ pub struct FunctionAsmInput {
 pub struct FunctionAsmOutput {
     /// Backend output constraint corresponding to this operand.
     pub constraint: String,
+    /// Exact writable scalar storage updated with the corresponding result.
     pub place: FunctionPlace,
     pub span: Span,
 }
