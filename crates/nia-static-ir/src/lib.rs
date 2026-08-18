@@ -14,6 +14,11 @@ pub struct StaticInitRefs {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A typed constant initializer consumed by backend data emission.
+///
+/// The backend validator checks that each scalar variant matches its declared
+/// destination type before LLVM materializes the constant; this enum is not a
+/// substitute for that validation.
 pub enum StaticInit {
     /// Zero-filled fallback emitted while lowering an already-diagnosed value.
     ///
