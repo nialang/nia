@@ -291,6 +291,27 @@ fn main(callback: &Fn([i32; 4]) i32) usize {
 }
 
 #[test]
+fn reconstructed_trait_object_types_match_structurally() {
+    let checked = pipeline(
+        r#"
+trait Consumer[T] {
+    fn consume(&self, value: T) T;
+}
+
+fn identity[T](value: &Consumer[T]) &Consumer[T] {
+    value
+}
+
+fn main(value: &Consumer[i32]) &Consumer[i32] {
+    identity(value)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn incompatible_pointer_does_not_seed_const_generic_length() {
     let checked = pipeline(
         r#"

@@ -1104,6 +1104,12 @@ acceptance item only when its phase-wide evidence is complete.
       union structure recursively instead of requiring equivalent reconstructed
       types to retain the same interned identity. Nested const substitutions
       cover the independently interned tuple path.
+- [x] Phase A structural type equivalence now covers reconstructed builtin
+      traits, trait-object pointees, and closure states in body checking, while
+      the cross-store `nia-ty` contract also covers const-only, vector, and
+      closure-state variants. Associated bindings compare as unordered keyed
+      sets, and a dual-store regression prevents intern identity from masking
+      future variant omissions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
