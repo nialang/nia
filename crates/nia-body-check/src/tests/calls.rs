@@ -197,6 +197,28 @@ fn main() bool {
 }
 
 #[test]
+fn readonly_closure_address_does_not_infer_mutable_callable_generics() {
+    let checked = pipeline(
+        r#"
+fn accepts[T](callback: &mut Fn(T) T, value: T) T {
+    callback(value)
+}
+
+fn main() bool {
+    accepts(&\value: i32 -> { value }, true)
+}
+"#,
+    );
+
+    assert!(!checked.diagnostics.is_empty());
+    assert!(!checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("conflicting inferred type for generic parameter")
+    }));
+}
+
+#[test]
 fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"
