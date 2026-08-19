@@ -870,6 +870,25 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Optional { elem: pattern_elem },
                 Some(TyKind::Optional { elem: actual_elem }),
             ) => self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem),
+            (
+                TyKind::Range {
+                    kind: pattern_kind,
+                    bound: pattern_bound,
+                },
+                Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }),
+            ) => {
+                pattern_kind == actual_kind
+                    && match (pattern_bound, actual_bound) {
+                        (Some(pattern), Some(actual)) => {
+                            self.generic_pattern_accepts_type_shape(pattern, actual)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
             (TyKind::Tuple(patterns), Some(TyKind::Tuple(actuals))) => {
                 patterns.len() == actuals.len()
                     && patterns.iter().zip(actuals).all(|(pattern, actual)| {
@@ -996,6 +1015,123 @@ impl<'a> BodyChecker<'a> {
                 pattern_def == actual_def
                     && pattern_args.len() == actual_args.len()
                     && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+            }
+            (
+                TyKind::BuiltinTrait {
+                    trait_id: pattern_trait,
+                    args: pattern_args,
+                },
+                Some(TyKind::BuiltinTrait {
+                    trait_id: actual_trait,
+                    args: actual_args,
+                }),
+            ) => {
+                pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+            }
+            (
+                TyKind::TraitObject {
+                    is_readonly: pattern_readonly,
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    associated_type_bindings: pattern_bindings,
+                },
+                Some(TyKind::TraitObject {
+                    is_readonly: actual_readonly,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) => {
+                pattern_readonly == actual_readonly
+                    && pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && pattern_bindings.len() == actual_bindings.len()
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && pattern_bindings.iter().all(|pattern_binding| {
+                        actual_bindings.iter().any(|actual_binding| {
+                            self.associated_type_binding_keys_match(pattern_binding, actual_binding)
+                                && self.generic_pattern_accepts_type_shape(
+                                    pattern_binding.ty,
+                                    actual_binding.ty,
+                                )
+                        })
+                    })
+            }
+            (
+                TyKind::TraitObjectPointee {
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    associated_type_bindings: pattern_bindings,
+                },
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) => {
+                pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && pattern_bindings.len() == actual_bindings.len()
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && pattern_bindings.iter().all(|pattern_binding| {
+                        actual_bindings.iter().any(|actual_binding| {
+                            self.associated_type_binding_keys_match(pattern_binding, actual_binding)
+                                && self.generic_pattern_accepts_type_shape(
+                                    pattern_binding.ty,
+                                    actual_binding.ty,
+                                )
+                        })
+                    })
+            }
+            (
+                TyKind::Projection {
+                    self_ty: pattern_self,
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    name: pattern_name,
+                    ..
+                },
+                Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    name: actual_name,
+                    ..
+                }),
+            ) => {
+                pattern_trait == actual_trait
+                    && pattern_name == actual_name
+                    && pattern_args.len() == actual_args.len()
+                    && self.generic_pattern_accepts_type_shape(pattern_self, actual_self)
                     && pattern_args
                         .iter()
                         .zip(actual_args)
