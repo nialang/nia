@@ -507,6 +507,7 @@ pub struct ResolvedConstPatternBinding {
 }
 
 impl ResolvedConstPatternBinding {
+    /// Creates a destructuring binding with its resolved pattern and value.
     pub fn new(
         span: Span,
         pattern: ResolvedConstPattern,
@@ -523,28 +524,34 @@ impl ResolvedConstPatternBinding {
         }
     }
 
+    /// Returns the binding source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the resolved destructuring pattern.
     pub fn pattern(&self) -> &ResolvedConstPattern {
         &self.pattern
     }
 
+    /// Returns the optional explicit type constraint.
     pub fn explicit_type(&self) -> Option<InternedTyId> {
         self.explicit_type
     }
 
+    /// Returns whether every leaf binding is mutable.
     pub fn is_mutable(&self) -> bool {
         self.is_mutable
     }
 
+    /// Returns the expression supplying the pattern value.
     pub fn value(&self) -> &ResolvedConstExpr {
         &self.value
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A named local binding with a resolved local identity.
 pub struct ResolvedConstBinding {
     span: Span,
     name: SymbolId,
@@ -555,6 +562,7 @@ pub struct ResolvedConstBinding {
 }
 
 impl ResolvedConstBinding {
+    /// Creates a resolved named local binding.
     pub fn new(
         span: Span,
         name: SymbolId,
@@ -573,32 +581,39 @@ impl ResolvedConstBinding {
         }
     }
 
+    /// Returns the binding source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the source-level binding name.
     pub fn name(&self) -> SymbolId {
         self.name
     }
 
+    /// Returns the semantic local identity used by evaluation.
     pub fn local_id(&self) -> LocalId {
         self.local_id
     }
 
+    /// Returns the optional explicit type constraint.
     pub fn explicit_type(&self) -> Option<InternedTyId> {
         self.explicit_type
     }
 
+    /// Returns whether assignments to the local are permitted.
     pub fn is_mutable(&self) -> bool {
         self.is_mutable
     }
 
+    /// Returns the initializer expression.
     pub fn value(&self) -> &ResolvedConstExpr {
         &self.value
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Compound assignment with a resolved target and right-hand expression.
 pub struct ResolvedConstAssign {
     lhs: ResolvedConstAssignTarget,
     op: ConstAssignOp,
@@ -606,29 +621,35 @@ pub struct ResolvedConstAssign {
 }
 
 impl ResolvedConstAssign {
+    /// Creates an assignment payload.
     pub fn new(lhs: ResolvedConstAssignTarget, op: ConstAssignOp, rhs: ResolvedConstExpr) -> Self {
         Self { lhs, op, rhs }
     }
 
+    /// Returns the target being updated.
     pub fn lhs(&self) -> &ResolvedConstAssignTarget {
         &self.lhs
     }
 
+    /// Returns the assignment operator.
     pub fn op(&self) -> ConstAssignOp {
         self.op
     }
 
+    /// Returns the value expression evaluated for the assignment.
     pub fn rhs(&self) -> &ResolvedConstExpr {
         &self.rhs
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved writable target. Its projection path is ordered root to leaf.
 pub struct ResolvedConstAssignTarget {
     kind: ResolvedConstAssignTargetKind,
 }
 
 impl ResolvedConstAssignTarget {
+    /// Creates a local target with an optional field/index projection path.
     pub fn local(
         span: Span,
         name: SymbolId,
@@ -645,27 +666,36 @@ impl ResolvedConstAssignTarget {
         }
     }
 
+    /// Returns the target identity and projection payload.
     pub fn kind(&self) -> &ResolvedConstAssignTargetKind {
         &self.kind
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Kinds of resolved assignment roots.
 pub enum ResolvedConstAssignTargetKind {
+    /// A local binding and projections into its aggregate value.
     Local {
+        /// Source span of the target root.
         span: Span,
+        /// Source-level local name.
         name: SymbolId,
+        /// Semantic local identity.
         local_id: LocalId,
+        /// Projections from root to the assigned leaf.
         path: Vec<ResolvedConstAssignPathElem>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One root-to-leaf projection in an assignment target.
 pub struct ResolvedConstAssignPathElem {
     kind: ResolvedConstAssignPathElemKind,
 }
 
 impl ResolvedConstAssignPathElem {
+    /// Creates a named-field projection.
     pub fn field(span: Span, name: SymbolId) -> Self {
         Self {
             kind: ResolvedConstAssignPathElemKind::Field { span, name },
@@ -678,24 +708,33 @@ impl ResolvedConstAssignPathElem {
         }
     }
 
+    /// Returns the projection payload.
     pub fn kind(&self) -> &ResolvedConstAssignPathElemKind {
         &self.kind
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Assignment projection forms.
 pub enum ResolvedConstAssignPathElemKind {
+    /// Named field selection.
     Field {
+        /// Span of the field projection.
         span: Span,
+        /// Field identity.
         name: SymbolId,
     },
+    /// Sequence index selection.
     Index {
+        /// Span of the index projection.
         span: Span,
+        /// Index expression evaluated before writeback.
         index: ResolvedConstExpr,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved iterator loop with pattern, iterable expression, and body.
 pub struct ResolvedConstForIn {
     pattern: ResolvedConstPattern,
     iter: ResolvedConstExpr,
@@ -703,6 +742,7 @@ pub struct ResolvedConstForIn {
 }
 
 impl ResolvedConstForIn {
+    /// Creates a resolved iterator loop.
     pub fn new(
         pattern: ResolvedConstPattern,
         iter: ResolvedConstExpr,
@@ -715,20 +755,24 @@ impl ResolvedConstForIn {
         }
     }
 
+    /// Returns the iterable expression.
     pub fn iter(&self) -> &ResolvedConstExpr {
         &self.iter
     }
 
+    /// Returns the pattern bound on each iteration.
     pub fn pattern(&self) -> &ResolvedConstPattern {
         &self.pattern
     }
 
+    /// Returns the loop body.
     pub fn body(&self) -> &ResolvedConstBlock {
         &self.body
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved match expression and its ordered arms.
 pub struct ResolvedConstMatch {
     span: Span,
     target: ResolvedConstExpr,
@@ -736,24 +780,29 @@ pub struct ResolvedConstMatch {
 }
 
 impl ResolvedConstMatch {
+    /// Creates a resolved match expression.
     pub fn new(span: Span, target: ResolvedConstExpr, arms: Vec<ResolvedConstMatchArm>) -> Self {
         Self { span, target, arms }
     }
 
+    /// Returns the match source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the expression being matched.
     pub fn target(&self) -> &ResolvedConstExpr {
         &self.target
     }
 
+    /// Returns arms in source order; first matching arm wins.
     pub fn arms(&self) -> &[ResolvedConstMatchArm] {
         &self.arms
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One resolved match arm with one or more alternative patterns.
 pub struct ResolvedConstMatchArm {
     span: Span,
     patterns: Vec<ResolvedConstPattern>,
@@ -761,6 +810,7 @@ pub struct ResolvedConstMatchArm {
 }
 
 impl ResolvedConstMatchArm {
+    /// Creates a match arm.
     pub fn new(
         span: Span,
         patterns: Vec<ResolvedConstPattern>,
@@ -773,25 +823,30 @@ impl ResolvedConstMatchArm {
         }
     }
 
+    /// Returns the arm source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns alternative patterns in source order.
     pub fn patterns(&self) -> &[ResolvedConstPattern] {
         &self.patterns
     }
 
+    /// Returns the arm body.
     pub fn body(&self) -> &ResolvedConstMatchArmBody {
         &self.body
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved pattern whose constructors carry authoritative semantic ids.
 pub struct ResolvedConstPattern {
     kind: ResolvedConstPatternKind,
 }
 
 impl ResolvedConstPattern {
+    /// Creates a wildcard pattern.
     pub fn wildcard(span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Wildcard { span },
@@ -917,10 +972,12 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Returns the pattern constructor payload.
     pub fn kind(&self) -> &ResolvedConstPatternKind {
         &self.kind
     }
 
+    /// Returns the source span carried by this pattern constructor.
     pub fn span(&self) -> Span {
         match &self.kind {
             ResolvedConstPatternKind::Wildcard { span }
@@ -951,68 +1008,112 @@ impl Default for ResolvedConstPattern {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved pattern constructors used by const matching.
 pub enum ResolvedConstPatternKind {
+    /// Matches every value.
     Wildcard {
+        /// Pattern source span.
         span: Span,
     },
+    /// Binds a resolved local to the matched value.
     Bind {
+        /// Source-level binding name.
         name: SymbolId,
+        /// Semantic local identity.
         local_id: LocalId,
+        /// Pattern source span.
         span: Span,
     },
+    /// Dereferences an immutable pointer before matching.
     Pointer {
+        /// Nested pointee pattern.
         pattern: Box<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Dereferences a mutable pointer before matching.
     MutPointer {
+        /// Nested pointee pattern.
         pattern: Box<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches an optional payload.
     OptionalSome {
+        /// Nested payload pattern.
         pattern: Box<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches an absent optional value.
     OptionalNull {
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches an error-union success payload.
     ErrorOk {
+        /// Nested success pattern.
         pattern: Box<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches an error-union error payload.
     ErrorErr {
+        /// Nested error pattern.
         pattern: Box<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches tuple fields positionally.
     Tuple {
+        /// Nested field patterns.
         patterns: Vec<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches a resolved enum variant and its payload fields.
     EnumVariant {
+        /// Variant identity expression.
         variant: ResolvedConstExpr,
+        /// Tuple or named payload patterns.
         fields: ConstEnumPatternFields<ResolvedConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches fields of a nominal struct.
     Struct {
+        /// Struct definition identity.
         def_id: GlobalDefId,
+        /// Named field patterns.
         fields: Vec<ConstNamedPatternField<ResolvedConstPattern>>,
+        /// Optional rest-pattern span.
         rest: Option<Span>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Matches by evaluating an equality expression.
     Expr(ResolvedConstExpr),
+    /// Matches an integer interval.
     Range {
+        /// Lower bound.
         start: ResolvedConstExpr,
+        /// Upper bound.
         end: ResolvedConstExpr,
+        /// Whether the upper bound is inclusive.
         inclusive: bool,
+        /// Pattern source span.
         span: Span,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Body of one resolved match arm.
 pub struct ResolvedConstMatchArmBody {
     kind: ResolvedConstMatchArmBodyKind,
 }
 
 impl ResolvedConstMatchArmBody {
+    /// Creates an expression arm body.
     pub fn expr(expr: ResolvedConstExpr) -> Self {
         Self {
             kind: ResolvedConstMatchArmBodyKind::Expr(expr),
@@ -1031,15 +1132,20 @@ impl ResolvedConstMatchArmBody {
         }
     }
 
+    /// Returns the arm body payload.
     pub fn kind(&self) -> &ResolvedConstMatchArmBodyKind {
         &self.kind
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved match arm body forms.
 pub enum ResolvedConstMatchArmBodyKind {
+    /// Value-producing expression.
     Expr(ResolvedConstExpr),
+    /// Statement whose control flow determines arm completion.
     Stmt(Box<ResolvedConstStmt>),
+    /// Lexical block body.
     Block(ResolvedConstBlock),
 }
 
@@ -1050,41 +1156,71 @@ pub enum ResolvedConstMatchArmBodyKind {
 /// semantic facts. Required types such as casts and builtin type arguments use
 /// non-optional resolved ids in their owning nodes.
 pub enum ResolvedConstExprKind {
+    /// Integer literal text, retaining source spelling until typing.
     Integer(String),
+    /// Unicode scalar literal text.
     Char(String),
+    /// Byte character literal text.
     ByteChar(String),
+    /// Floating-point literal text.
     Float(String),
+    /// Segmented string literal.
     String(ConstStringLiteral),
+    /// Segmented byte-string literal.
     ByteString(ConstStringLiteral),
+    /// Boolean literal.
     Bool(bool),
+    /// Null optional literal.
     Null,
+    /// Name with authoritative semantic resolution.
     Name(ConstNameResolution),
+    /// Named field projection.
     Field {
+        /// Aggregate expression.
         lhs: Box<ResolvedConstExpr>,
+        /// Field identity.
         name: SymbolId,
     },
+    /// Method reference on a receiver expression.
     Method {
+        /// Receiver expression.
         receiver: Box<ResolvedConstExpr>,
+        /// Method name.
         name: SymbolId,
     },
+    /// Associated function reference with resolved target.
     AssociatedFunction {
+        /// Type or nominal target.
         target: ResolvedConstAssociatedTarget,
+        /// Function name.
         name: SymbolId,
     },
+    /// Indexed projection.
     Index {
+        /// Indexed aggregate.
         lhs: Box<ResolvedConstExpr>,
+        /// Index expression.
         index: Box<ResolvedConstExpr>,
     },
+    /// Slice projection with optional bounds.
     Slice {
+        /// Sliced aggregate.
         lhs: Box<ResolvedConstExpr>,
+        /// Slice bounds.
         range: ResolvedConstSliceRange,
     },
+    /// Tuple literal.
     Tuple(Vec<ResolvedConstExpr>),
+    /// Positional tuple-field projection.
     TupleField {
+        /// Tuple expression.
         lhs: Box<ResolvedConstExpr>,
+        /// Zero-based field index.
         index: usize,
     },
+    /// Array literal or repeat form.
     ArrayLiteral {
+        /// Element payload.
         elems: ResolvedConstArrayElements,
     },
     StructLiteral {
@@ -1097,73 +1233,123 @@ pub enum ResolvedConstExprKind {
     /// Generic arguments remain attached to the constructor so const checking
     /// can instantiate field types before validating the positional values.
     TupleStructLiteral {
+        /// Nominal tuple-struct identity.
         def_id: GlobalDefId,
+        /// Type and const arguments retained for instantiation.
         generic_args: Vec<ResolvedConstGenericArg>,
+        /// Positional field initializers.
         fields: Vec<ResolvedConstFieldInit>,
     },
+    /// Enum variant with named payload fields.
     EnumStructLiteral {
+        /// Variant expression.
         variant: Box<ResolvedConstExpr>,
+        /// Payload field initializers.
         fields: Vec<ResolvedConstFieldInit>,
     },
+    /// Emits a compile-time diagnostic using an evaluated message.
     CompileError {
+        /// Message expression.
         message: Box<ResolvedConstExpr>,
     },
+    /// Explicit compile-time trap.
     Trap,
+    /// Builtin compile-time value.
     BuiltinConstValue(BuiltinConstValue),
+    /// Builtin runtime value query.
     BuiltinValue(ValueBuiltin),
+    /// Layout builtin over a resolved type argument.
     LayoutBuiltin {
+        /// Layout operation.
         builtin: LayoutBuiltin,
+        /// Required resolved type argument.
         type_arg: ResolvedConstTypeArg,
     },
+    /// Field-offset builtin over a resolved type argument.
     FieldOffsetBuiltin {
+        /// Required resolved type argument.
         type_arg: ResolvedConstTypeArg,
+        /// Field identity.
         field: SymbolId,
     },
+    /// Embedded resource path.
     Embed {
+        /// Segmented path literal.
         path: ConstStringLiteral,
     },
+    /// Const function call.
     Call {
+        /// Callee expression.
         callee: Box<ResolvedConstExpr>,
+        /// Generic arguments retained for inference/instantiation.
         generic_args: Vec<ResolvedConstGenericArg>,
+        /// Argument expressions in call order.
         args: Vec<ResolvedConstExpr>,
     },
+    /// Unary operation.
     Unary {
+        /// Operator.
         op: ConstUnaryOp,
+        /// Operand.
         expr: Box<ResolvedConstExpr>,
     },
+    /// Optional success constructor.
     OptionalSome {
+        /// Payload expression.
         expr: Box<ResolvedConstExpr>,
     },
+    /// Error-union success constructor.
     ErrorOk {
+        /// Payload expression.
         expr: Box<ResolvedConstExpr>,
     },
+    /// Error-union error constructor.
     ErrorErr {
+        /// Payload expression.
         expr: Box<ResolvedConstExpr>,
     },
+    /// Error propagation expression.
     Try {
+        /// Fallible expression.
         expr: Box<ResolvedConstExpr>,
     },
+    /// Binary operation.
     Binary {
+        /// Left operand.
         lhs: Box<ResolvedConstExpr>,
+        /// Operator.
         op: ConstBinaryOp,
+        /// Right operand.
         rhs: Box<ResolvedConstExpr>,
     },
+    /// Assignment expression.
     Assign(Box<ResolvedConstAssign>),
+    /// Integer range expression.
     Range(ResolvedConstRange),
+    /// Conditional expression.
     If {
+        /// Condition.
         cond: Box<ResolvedConstExpr>,
+        /// True branch.
         then_branch: ResolvedConstBlock,
+        /// Optional false branch.
         else_branch: Option<Box<ResolvedConstExpr>>,
     },
+    /// Match expression.
     Match(Box<ResolvedConstMatch>),
+    /// Explicit cast to a resolved runtime type.
     Cast {
+        /// Operand expression.
         expr: Box<ResolvedConstExpr>,
+        /// Target type identity.
         ty: InternedTyId,
     },
+    /// Lexical block expression.
     Block(ResolvedConstBlock),
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Optional-bound integer range expression.
 pub struct ResolvedConstRange {
     start: Option<Box<ResolvedConstExpr>>,
     end: Option<Box<ResolvedConstExpr>>,
@@ -1171,6 +1357,7 @@ pub struct ResolvedConstRange {
 }
 
 impl ResolvedConstRange {
+    /// Creates a range with optional lower/upper expressions.
     pub fn new(
         start: Option<Box<ResolvedConstExpr>>,
         end: Option<Box<ResolvedConstExpr>>,
@@ -1197,6 +1384,7 @@ impl ResolvedConstRange {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Optional-bound slice range expression.
 pub struct ResolvedConstSliceRange {
     start: Option<Box<ResolvedConstExpr>>,
     end: Option<Box<ResolvedConstExpr>>,
@@ -1204,6 +1392,7 @@ pub struct ResolvedConstSliceRange {
 }
 
 impl ResolvedConstSliceRange {
+    /// Creates a slice range with optional lower/upper expressions.
     pub fn new(
         start: Option<Box<ResolvedConstExpr>>,
         end: Option<Box<ResolvedConstExpr>>,
@@ -1230,11 +1419,13 @@ impl ResolvedConstSliceRange {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Array literal payload preserving list versus repeat syntax.
 pub struct ResolvedConstArrayElements {
     kind: ResolvedConstArrayElementsKind,
 }
 
 impl ResolvedConstArrayElements {
+    /// Creates an explicit element list.
     pub fn list(elems: Vec<ResolvedConstExpr>) -> Self {
         Self {
             kind: ResolvedConstArrayElementsKind::List(elems),
@@ -1256,15 +1447,21 @@ impl ResolvedConstArrayElements {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Array literal payload variants.
 pub enum ResolvedConstArrayElementsKind {
+    /// Explicit elements in source order.
     List(Vec<ResolvedConstExpr>),
+    /// One value evaluated with a repeat count.
     Repeat {
+        /// Repeated value expression.
         value: Box<ResolvedConstExpr>,
+        /// Count expression.
         count: Box<ResolvedConstExpr>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Named field initializer in an aggregate literal.
 pub struct ResolvedConstFieldInit {
     span: Span,
     name: SymbolId,
@@ -1272,6 +1469,7 @@ pub struct ResolvedConstFieldInit {
 }
 
 impl ResolvedConstFieldInit {
+    /// Creates a field initializer.
     pub fn new(span: Span, name: SymbolId, value: ResolvedConstExpr) -> Self {
         Self { span, name, value }
     }
