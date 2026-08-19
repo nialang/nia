@@ -31,38 +31,47 @@ pub struct ResolvedConstModule {
 }
 
 impl ResolvedConstModule {
+    /// Creates an empty resolved module product.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns enums in active source order.
     pub fn enums(&self) -> &[ResolvedConstEnum] {
         &self.enums
     }
 
+    /// Returns eager global const and static initializers by owner identity.
     pub fn global_initializers(&self) -> &HashMap<GlobalDefId, ResolvedConstExpr> {
         &self.global_initializers
     }
 
+    /// Returns global initializers whose execution is deferred to a later phase.
     pub fn deferred_global_initializers(&self) -> &HashMap<GlobalDefId, ResolvedConstExpr> {
         &self.deferred_global_initializers
     }
 
+    /// Returns function-local const initializers by local identity.
     pub fn local_initializers(&self) -> &HashMap<LocalId, ResolvedConstLocalInitializer> {
         &self.local_initializers
     }
 
+    /// Returns const function bodies by global definition identity.
     pub fn functions(&self) -> &HashMap<GlobalDefId, ResolvedConstFunction> {
         &self.functions
     }
 
+    /// Returns standalone const expressions by query identity.
     pub fn const_exprs(&self) -> &HashMap<GlobalConstExprId, ResolvedConstExpr> {
         &self.const_exprs
     }
 
+    /// Appends a resolved enum in active source order.
     pub fn push_enum(&mut self, item: ResolvedConstEnum) {
         self.enums.push(item);
     }
 
+    /// Installs an eager global initializer, returning any previous entry.
     pub fn insert_global_initializer(
         &mut self,
         id: GlobalDefId,
@@ -71,6 +80,7 @@ impl ResolvedConstModule {
         self.global_initializers.insert(id, value)
     }
 
+    /// Installs a deferred global initializer, returning any previous entry.
     pub fn insert_deferred_global_initializer(
         &mut self,
         id: GlobalDefId,
@@ -79,6 +89,7 @@ impl ResolvedConstModule {
         self.deferred_global_initializers.insert(id, value)
     }
 
+    /// Installs a local initializer, returning any previous entry.
     pub fn insert_local_initializer(
         &mut self,
         id: LocalId,
@@ -87,6 +98,7 @@ impl ResolvedConstModule {
         self.local_initializers.insert(id, value)
     }
 
+    /// Installs a const function body, returning any previous entry.
     pub fn insert_function(
         &mut self,
         id: GlobalDefId,
@@ -95,6 +107,7 @@ impl ResolvedConstModule {
         self.functions.insert(id, function)
     }
 
+    /// Installs a standalone const expression, returning any previous entry.
     pub fn insert_const_expr(
         &mut self,
         id: GlobalConstExprId,
@@ -105,12 +118,14 @@ impl ResolvedConstModule {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved local initializer and its optional explicit type annotation.
 pub struct ResolvedConstLocalInitializer {
     explicit_type: Option<InternedTyId>,
     value: ResolvedConstExpr,
 }
 
 impl ResolvedConstLocalInitializer {
+    /// Creates a local initializer product.
     pub fn new(explicit_type: Option<InternedTyId>, value: ResolvedConstExpr) -> Self {
         Self {
             explicit_type,
@@ -118,16 +133,19 @@ impl ResolvedConstLocalInitializer {
         }
     }
 
+    /// Returns the explicit runtime type annotation, when present.
     pub fn explicit_type(&self) -> Option<InternedTyId> {
         self.explicit_type
     }
 
+    /// Returns the initializer expression.
     pub fn value(&self) -> &ResolvedConstExpr {
         &self.value
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Enum definition and the const expressions supplying its discriminants.
 pub struct ResolvedConstEnum {
     def_id: GlobalDefId,
     span: Span,
@@ -135,6 +153,7 @@ pub struct ResolvedConstEnum {
 }
 
 impl ResolvedConstEnum {
+    /// Creates a resolved enum product.
     pub fn new(def_id: GlobalDefId, span: Span, variants: Vec<ResolvedConstEnumVariant>) -> Self {
         Self {
             def_id,
@@ -143,20 +162,24 @@ impl ResolvedConstEnum {
         }
     }
 
+    /// Returns the enum's stable definition identity.
     pub fn def_id(&self) -> GlobalDefId {
         self.def_id
     }
 
+    /// Returns the enum declaration span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns variants in declaration order.
     pub fn variants(&self) -> &[ResolvedConstEnumVariant] {
         &self.variants
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Enum variant and its optional explicit discriminant expression.
 pub struct ResolvedConstEnumVariant {
     def_id: GlobalDefId,
     span: Span,
@@ -164,6 +187,7 @@ pub struct ResolvedConstEnumVariant {
 }
 
 impl ResolvedConstEnumVariant {
+    /// Creates a resolved enum variant product.
     pub fn new(def_id: GlobalDefId, span: Span, value: Option<ResolvedConstExpr>) -> Self {
         Self {
             def_id,
@@ -172,14 +196,17 @@ impl ResolvedConstEnumVariant {
         }
     }
 
+    /// Returns the variant's stable definition identity.
     pub fn def_id(&self) -> GlobalDefId {
         self.def_id
     }
 
+    /// Returns the variant declaration span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the explicit discriminant expression, when present.
     pub fn value(&self) -> Option<&ResolvedConstExpr> {
         self.value.as_ref()
     }
@@ -197,18 +224,22 @@ impl ResolvedConstExpr {
         resolve_expr(expr)
     }
 
+    /// Creates an expression from an already validated payload.
     pub fn from_parts(span: Span, kind: ResolvedConstExprKind) -> Self {
         Self { span, kind }
     }
 
+    /// Returns the complete source span of the expression.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the expression payload.
     pub fn kind(&self) -> &ResolvedConstExprKind {
         &self.kind
     }
 
+    /// Creates a resolved name expression.
     pub fn name(span: Span, resolution: ConstNameResolution) -> Self {
         Self {
             span,
@@ -216,6 +247,7 @@ impl ResolvedConstExpr {
         }
     }
 
+    /// Creates a named-field projection.
     pub fn field(span: Span, lhs: ResolvedConstExpr, name: SymbolId) -> Self {
         Self {
             span,
@@ -226,6 +258,7 @@ impl ResolvedConstExpr {
         }
     }
 
+    /// Creates an indexed projection.
     pub fn index(span: Span, lhs: ResolvedConstExpr, index: ResolvedConstExpr) -> Self {
         Self {
             span,
@@ -236,6 +269,7 @@ impl ResolvedConstExpr {
         }
     }
 
+    /// Creates a resolved call expression.
     pub fn call(
         span: Span,
         callee: ResolvedConstExpr,
@@ -252,6 +286,7 @@ impl ResolvedConstExpr {
         }
     }
 
+    /// Returns the semantic identity when this is a name expression.
     pub fn name_resolution(&self) -> Option<ConstNameResolution> {
         match &self.kind {
             ResolvedConstExprKind::Name(resolution) => Some(resolution.clone()),
@@ -282,20 +317,24 @@ impl ResolvedConstFunction {
         Self { span, params, body }
     }
 
+    /// Returns the function declaration span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns parameters in call ABI order.
     pub fn params(&self) -> &[ResolvedConstParam] {
         &self.params
     }
 
+    /// Returns the resolved function body.
     pub fn body(&self) -> &ResolvedConstBlock {
         &self.body
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved const-function parameter and its execution-frame local identity.
 pub struct ResolvedConstParam {
     span: Span,
     name: SymbolId,
@@ -305,6 +344,7 @@ pub struct ResolvedConstParam {
 }
 
 impl ResolvedConstParam {
+    /// Creates a resolved function parameter.
     pub fn new(
         span: Span,
         name: SymbolId,
@@ -321,22 +361,27 @@ impl ResolvedConstParam {
         }
     }
 
+    /// Returns the parameter declaration span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the source-level parameter name.
     pub fn name(&self) -> SymbolId {
         self.name
     }
 
+    /// Returns the local identity bound in the callee frame.
     pub fn local_id(&self) -> LocalId {
         self.local_id
     }
 
+    /// Returns the explicit parameter type, when present.
     pub fn ty(&self) -> Option<InternedTyId> {
         self.ty
     }
 
+    /// Returns receiver mutability and passing mode, when this is a receiver.
     pub fn receiver(&self) -> Option<nia_ids::ReceiverKind> {
         self.receiver
     }
@@ -352,6 +397,7 @@ pub struct ResolvedConstBlock {
 }
 
 impl ResolvedConstBlock {
+    /// Creates a lexical block preserving statement order and its optional tail.
     pub fn new(
         span: Span,
         stmts: Vec<ResolvedConstStmt>,
@@ -360,62 +406,89 @@ impl ResolvedConstBlock {
         Self { span, stmts, tail }
     }
 
+    /// Returns the block source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns statements in evaluation order.
     pub fn stmts(&self) -> &[ResolvedConstStmt] {
         &self.stmts
     }
 
+    /// Returns the optional value-producing tail expression.
     pub fn tail(&self) -> Option<&ResolvedConstExpr> {
         self.tail.as_deref()
     }
 
+    /// Returns whether the block has no statements.
+    ///
+    /// A block with only a tail expression is considered empty by this helper.
     pub fn is_empty(&self) -> bool {
         self.stmts.is_empty()
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One resolved statement in a const-function block.
 pub struct ResolvedConstStmt {
     span: Span,
     kind: ResolvedConstStmtKind,
 }
 
 impl ResolvedConstStmt {
+    /// Creates a statement from its source span and payload.
     pub fn new(span: Span, kind: ResolvedConstStmtKind) -> Self {
         Self { span, kind }
     }
 
+    /// Returns the statement source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the statement payload.
     pub fn kind(&self) -> &ResolvedConstStmtKind {
         &self.kind
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Executable statement forms supported by const functions.
 pub enum ResolvedConstStmtKind {
+    /// Declares and initializes one named local.
     Binding(ResolvedConstBinding),
+    /// Declares locals through a destructuring pattern.
     PatternBinding(ResolvedConstPatternBinding),
+    /// Evaluates an expression for its value or side effects.
     Expr(ResolvedConstExpr),
+    /// Returns an optional value from the current const function.
     Return(Option<ResolvedConstExpr>),
+    /// Exits the nearest loop.
     Break,
+    /// Continues the nearest loop.
     Continue,
+    /// Conditional statement.
     If {
+        /// Condition evaluated before selecting a branch.
         cond: ResolvedConstExpr,
+        /// Branch executed when the condition is true.
         then_branch: ResolvedConstBlock,
+        /// Optional branch executed when the condition is false.
         else_branch: Option<ResolvedConstBlock>,
     },
+    /// Iterator-based loop.
     ForIn(ResolvedConstForIn),
+    /// Condition-controlled loop.
     While {
+        /// Condition evaluated before every iteration.
         cond: ResolvedConstExpr,
+        /// Loop body.
         body: ResolvedConstBlock,
     },
+    /// Unconditional loop.
     Loop {
+        /// Loop body.
         body: ResolvedConstBlock,
     },
 }
