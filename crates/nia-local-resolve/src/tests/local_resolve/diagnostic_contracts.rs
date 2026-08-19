@@ -27,6 +27,65 @@ missing
 }
 
 #[test]
+fn closure_body_requires_explicit_outer_local_captures() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+fn main() i32 {
+    let make = \x: i32, y: i32 -> \z: i32 -> x * y + z;
+    let add = make(2, 3);
+    add(4)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+
+    let missing_captures = locals
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.summary.contains("not captured by this closure"))
+        .collect::<Vec<_>>();
+    assert_eq!(missing_captures.len(), 2, "{:?}", locals.diagnostics);
+    assert_ne!(
+        missing_captures[0].primary_span(),
+        missing_captures[1].primary_span()
+    );
+}
+
+#[test]
+fn closure_capture_initializers_resolve_outside_the_body_boundary() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+fn main() i32 {
+    let make = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
+    let add = make(2, 3);
+    add(4)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+
+    assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+    assert!(
+        locals
+            .node_uses
+            .values()
+            .all(|use_kind| !matches!(use_kind, LocalUse::Unresolved)),
+        "{:?}",
+        locals.node_uses
+    );
+}
+
+#[test]
 fn binding_initializer_cannot_reference_binding_being_defined() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

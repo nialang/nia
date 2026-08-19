@@ -124,6 +124,45 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn curried_closure_codegen_returns_a_nested_capturing_state() {
+    let root = common::temp_dir("curried_closure_codegen");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    let make = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
+    let add = make(2, 3);
+    add(4)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let module = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main backend module");
+    assert_eq!(module.closure_entries.len(), 2);
+
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    for entry in &module.closure_entries {
+        assert!(
+            ir.contains(&entry.symbol),
+            "LLVM IR omitted curried closure entry `{}`: {ir}",
+            entry.symbol
+        );
+    }
+}
+
+#[test]
 fn callable_view_codegen_materializes_dynamic_dispatch() {
     let root = common::temp_dir("callable_view_codegen_dynamic_dispatch");
     let main = root.join("main.nia");

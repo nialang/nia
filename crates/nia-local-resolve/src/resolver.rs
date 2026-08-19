@@ -23,6 +23,7 @@ pub(super) fn resolve_module_locals_from_filtered_items(
         diagnostics: Vec::new(),
         symbols,
         scopes: Vec::new(),
+        closure_scope_starts: Vec::new(),
         self_locals: Vec::new(),
         definition_ids: Some(allocated.node_local_defs),
     };
@@ -56,6 +57,7 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
         diagnostics: Vec::new(),
         symbols,
         scopes: Vec::new(),
+        closure_scope_starts: Vec::new(),
         self_locals: Vec::new(),
         definition_ids: None,
     };
@@ -89,6 +91,13 @@ struct LocalResolver<'a> {
     diagnostics: Vec<Diagnostic>,
     symbols: Option<&'a dyn SymbolText>,
     scopes: Vec<Scope>,
+    /// First scope visible to ordinary local lookup in each nested closure.
+    ///
+    /// Capture initializers are resolved before this boundary is installed.
+    /// Once inside the body, only explicit captures, parameters, and locals
+    /// declared by that closure are valid local operands for its generated
+    /// entry function.
+    closure_scope_starts: Vec<usize>,
     self_locals: Vec<Option<ScopedLocal>>,
     definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
 }
@@ -426,7 +435,7 @@ impl<'a> LocalResolver<'a> {
     fn resolve_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Ident(name) => {
-                self.resolve_ident(name, expr.node_key.clone());
+                self.resolve_ident(name, expr.span, expr.node_key.clone());
             }
             ExprKind::SelfValue => {
                 if let Some(Some(local)) = self.self_locals.last().copied() {
@@ -473,6 +482,7 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(&capture.value);
                 }
                 self.push_scope();
+                self.closure_scope_starts.push(self.scopes.len() - 1);
                 for capture in captures {
                     self.define(
                         &capture.name,
@@ -502,6 +512,7 @@ impl<'a> LocalResolver<'a> {
                 }
                 self.resolve_expr(body);
                 self.self_locals.truncate(self_stack_len);
+                self.closure_scope_starts.pop();
                 self.pop_scope();
             }
             ExprKind::ArrayLiteral { elems } => match elems {
@@ -789,9 +800,21 @@ impl<'a> LocalResolver<'a> {
         false
     }
 
-    fn resolve_ident(&mut self, name: &SymbolId, node_key: VersionedNodeKey) {
+    fn resolve_ident(&mut self, name: &SymbolId, span: Span, node_key: VersionedNodeKey) {
         if let Some(local) = self.lookup_local(name) {
             self.record_use(node_key, LocalUse::Local(local.id));
+            return;
+        }
+        if self.lookup_outer_closure_local(name).is_some() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::LOCAL_RESOLUTION,
+                span,
+                format!(
+                    "local `{}` is not captured by this closure; add it to the closure capture list",
+                    self.symbol_name(*name)
+                ),
+            ));
+            self.record_use(node_key, LocalUse::Unresolved);
             return;
         }
         if let Some(item) = self.lookup_static(name) {
@@ -947,7 +970,16 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn lookup_local(&self, name: &SymbolId) -> Option<ScopedLocal> {
-        self.scopes
+        let start = self.closure_scope_starts.last().copied().unwrap_or(0);
+        self.scopes[start..]
+            .iter()
+            .rev()
+            .find_map(|scope| scope.locals.get(name).copied())
+    }
+
+    fn lookup_outer_closure_local(&self, name: &SymbolId) -> Option<ScopedLocal> {
+        let start = self.closure_scope_starts.last().copied()?;
+        self.scopes[..start]
             .iter()
             .rev()
             .find_map(|scope| scope.locals.get(name).copied())
