@@ -57,7 +57,12 @@ pub(super) fn validate_backend_partition_definitions(
         );
     }
     for &position in partition.closure_entry_definitions() {
-        validator.validate_closure_entry(&module.name, &module.closure_entries[position], true);
+        validator.validate_closure_entry(
+            module.id,
+            &module.name,
+            &module.closure_entries[position],
+            true,
+        );
     }
     for &position in partition.global_definitions() {
         validator.validate_global(&module.globals[position], true);
@@ -176,7 +181,7 @@ pub(super) fn validate_backend_declaration_module(
         validator.validate_function_instance(&module.name, function, false);
     }
     for entry in &module.closure_entries {
-        validator.validate_closure_entry(&module.name, entry, false);
+        validator.validate_closure_entry(module.id, &module.name, entry, false);
     }
     for global in &module.globals {
         validator.validate_global(global, false);
@@ -318,6 +323,7 @@ impl BackendValidator<'_> {
 
     fn validate_closure_entry(
         &mut self,
+        module_id: ModuleId,
         module_name: &str,
         entry: &BackendClosureEntry,
         body: bool,
@@ -365,6 +371,25 @@ impl BackendValidator<'_> {
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 entry.span,
                 "closure entry owner does not resolve to a backend function",
+            ));
+        }
+        let owner_module = match &entry.key.owner {
+            BackendClosureEntryOwner::Source(owner) => Some(owner.module_id),
+            BackendClosureEntryOwner::FunctionInstance(owner) => {
+                self.index.function_instance_owner(
+                    owner.def_id,
+                    owner.arg_module_id,
+                    owner.self_arg,
+                    &owner.args,
+                    &owner.const_args,
+                )
+            }
+        };
+        if owner_module != Some(module_id) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry is not published with its owning backend function",
             ));
         }
         self.validate_runtime_type(entry.abi.state_type, entry.span);
