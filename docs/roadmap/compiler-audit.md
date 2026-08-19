@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 169 completed entries in this ledger.
+- Implementation batches: 170 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -974,6 +974,11 @@ acceptance item only when its phase-wide evidence is complete.
       nominal rest-field expansion; provider revision/request APIs are now
       documented as well. `nia-body-check` strict Rustdoc is clean; its 230
       tests, strict Clippy, and format checks pass.
+- [x] Phase C typed Body IR lexical-body walking now has direct preorder
+      regressions for statement loops, block/if/if-pattern branches, expressions
+      nested in patterns, and all three match-arm body forms. Closure captures
+      remain in the enclosing function walk while closure bodies are explicitly
+      excluded as separate function boundaries.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
