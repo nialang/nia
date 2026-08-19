@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 182 completed entries in this ledger.
+- Implementation batches: 183 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1025,6 +1025,10 @@ acceptance item only when its phase-wide evidence is complete.
       conditions and expression operands while preserving a fallthrough path
       for short-circuit logical RHS operands; a container matrix covers calls,
       unary/binary operators, `if`, and `while` conditions.
+- [x] Phase C function-tail flow now uses the normal expression traversal and
+      caches block/statement outcomes for return-value analysis, exposing
+      diagnostics in tail calls, closure bodies, and deferred block tails
+      without reporting nested match diagnostics twice.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
