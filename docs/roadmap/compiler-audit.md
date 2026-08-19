@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 160 completed entries in this ledger.
+- Implementation batches: 161 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -941,6 +941,11 @@ acceptance item only when its phase-wide evidence is complete.
       cross-module provider ownership, execution-frame inputs, and cached
       result schemas. All 34 const-check tests, strict Clippy, and strict
       Rustdoc pass.
+- [x] Phase C const-eval value and storage Rustdoc now documents allocation and
+      frozen-pointer identity, live place projections, target ABI schemas,
+      initialization masks, exact pointer relocations, and union write
+      preservation rules. The unsuppressed missing-docs baseline fell from 161
+      warnings to 59; all 39 tests and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

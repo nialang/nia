@@ -5,52 +5,72 @@ use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Stable identity of mutable storage owned by one const-evaluation module.
 pub struct ConstAllocationId {
     module_id: ModuleId,
     serial: u64,
 }
 
 impl ConstAllocationId {
+    /// Creates an allocation identity from its owner module and local serial.
     pub const fn new(module_id: ModuleId, serial: u64) -> Self {
         Self { module_id, serial }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Source identity assigned to an immutable frozen allocation.
+///
+/// Frozen pointers compare by this origin rather than recursively comparing
+/// their pointee contents, preserving pointer identity for equal values.
 pub struct ConstAllocationOrigin {
     module_id: Option<ModuleId>,
     span: Span,
 }
 
 impl ConstAllocationOrigin {
+    /// Creates an origin at `span`, optionally owned by a module.
     pub const fn new(module_id: Option<ModuleId>, span: Span) -> Self {
         Self { module_id, span }
     }
 
+    /// Returns the module that created the allocation, when known.
     pub const fn module_id(self) -> Option<ModuleId> {
         self.module_id
     }
 
+    /// Returns the source span that identifies the allocation site.
     pub const fn span(self) -> Span {
         self.span
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One projection from an allocation root to a nested const place.
 pub enum ConstPointerPathElem {
+    /// Selects a named aggregate field.
     Field(SymbolId),
+    /// Selects an indexed sequence element.
     Index(usize),
 }
 
 #[derive(Debug, Clone)]
+/// Pointer representation used during const evaluation.
 pub enum ConstPointerValue {
+    /// Immutable snapshot whose identity is its allocation origin.
     Frozen {
+        /// Stable identity of the frozen allocation.
         origin: ConstAllocationOrigin,
+        /// Whether writes through this pointer are forbidden.
         is_readonly: bool,
+        /// Snapshot retained for dereferencing during evaluation.
         pointee: Box<ConstValue>,
     },
+    /// Address of a live interpreter allocation and projection path.
     Place {
+        /// Root allocation identity.
         allocation: ConstAllocationId,
+        /// Projections from the allocation root to the addressed value.
         path: Vec<ConstPointerPathElem>,
     },
 }
@@ -75,33 +95,54 @@ impl PartialEq for ConstPointerValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Runtime value produced by the const interpreter.
 pub enum ConstValue {
+    /// Arbitrary-width integer value.
     Int(IntConst),
+    /// Floating-point value represented as `f64` by the interpreter.
     Float(f64),
+    /// Boolean value.
     Bool(bool),
+    /// Owned UTF-8 string value.
     String(String),
+    /// Frozen or live-place pointer.
     Pointer(ConstPointerValue),
+    /// Positional tuple elements.
     Tuple(Vec<ConstValue>),
+    /// Homogeneous array elements.
     Array(Vec<ConstValue>),
+    /// Fixed-lane vector elements.
     Vector(Vec<ConstValue>),
+    /// Integer range value.
     Range(ConstRangeValue),
+    /// Named structural fields.
     Struct(BTreeMap<SymbolId, ConstValue>),
+    /// Raw union storage with ABI metadata.
     Union(ConstUnionValue),
+    /// Enum discriminant and optional payload.
     Enum {
+        /// Stable identity of the selected variant.
         variant: GlobalDefId,
+        /// Payload encoded by the variant's shape.
         payload: ConstEnumPayload,
     },
+    /// Optional payload, where `None` represents `null`.
     Optional(Option<Box<ConstValue>>),
+    /// Success or error payload of an error union.
     ErrorUnion(Result<Box<ConstValue>, Box<ConstValue>>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Byte order used to encode scalar values into aggregate storage.
 pub enum ConstEndianness {
+    /// Least-significant byte first.
     Little,
+    /// Most-significant byte first.
     Big,
 }
 
 impl ConstEndianness {
+    /// Parses the target configuration's canonical endianness name.
     pub fn from_target_name(name: &str) -> Option<Self> {
         match name {
             "little" => Some(Self::Little),
@@ -112,11 +153,22 @@ impl ConstEndianness {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Scalar storage representation accepted by const ABI encoding.
 pub enum ConstScalarType {
-    Integer { bits: u32, signed: bool },
+    /// Integer with an explicit bit width and signed interpretation.
+    Integer {
+        /// Storage width in bits.
+        bits: u32,
+        /// Whether decoded values use signed interpretation.
+        signed: bool,
+    },
+    /// IEEE-754 binary32 storage.
     Float32,
+    /// IEEE-754 binary64 storage.
     Float64,
+    /// One-byte boolean storage restricted to zero or one.
     Bool,
+    /// Four-byte Unicode scalar storage.
     Char,
 }
 
@@ -140,39 +192,62 @@ impl ConstScalarType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Target-specific ABI description used to encode union fields.
 pub enum ConstAbiType {
+    /// Scalar storage.
     Scalar(ConstScalarType),
+    /// Pointer-sized storage represented by a relocation.
     Pointer {
+        /// Pointer width in bytes for the target artifact.
         size: usize,
+        /// Type of the relocated pointee.
         pointee: InternedTyId,
     },
+    /// Contiguous fixed-length array storage.
     Array {
+        /// ABI of each element.
         element: Box<ConstAbiType>,
+        /// Number of elements.
         len: usize,
     },
+    /// Fixed-size vector storage.
     Vector {
+        /// Scalar representation of each lane.
         lane: ConstScalarType,
+        /// Number of lanes.
         lanes: usize,
+        /// Total target ABI size, including any padding.
         size: usize,
     },
+    /// Named fields at explicit target ABI offsets.
     Struct {
+        /// Fields in ABI layout order.
         fields: Vec<ConstAbiField>,
+        /// Total target ABI size, including padding.
         size: usize,
     },
+    /// Overlapping named field representations.
     Union {
+        /// ABI of each selectable field.
         fields: BTreeMap<SymbolId, ConstAbiType>,
+        /// Shared storage size.
         size: usize,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One named field in a const ABI struct layout.
 pub struct ConstAbiField {
+    /// Source-level field identity.
     pub name: SymbolId,
+    /// Byte offset from the struct storage start.
     pub offset: usize,
+    /// ABI representation of the field.
     pub ty: ConstAbiType,
 }
 
 impl ConstAbiType {
+    /// Returns the encoded byte length, rejecting overflow or malformed scalars.
     pub fn byte_len(&self) -> Option<usize> {
         match self {
             Self::Scalar(scalar) => scalar.byte_len(),
@@ -192,6 +267,11 @@ struct EncodedAbiValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Pointer relocation embedded in raw const storage.
+///
+/// The covered byte range is unavailable as ordinary initialized bytes; it is
+/// decoded only when the requested pointer field exactly matches the
+/// relocation's offset, width, and pointee type.
 pub struct ConstRelocation {
     offset: usize,
     width: usize,
@@ -200,24 +280,34 @@ pub struct ConstRelocation {
 }
 
 impl ConstRelocation {
+    /// Returns the byte offset of the relocation.
     pub const fn offset(&self) -> usize {
         self.offset
     }
 
+    /// Returns the target pointer width in bytes.
     pub const fn width(&self) -> usize {
         self.width
     }
 
+    /// Returns the relocated const pointer.
     pub const fn pointer(&self) -> &ConstPointerValue {
         &self.pointer
     }
 
+    /// Returns the expected pointee type.
     pub const fn pointee(&self) -> InternedTyId {
         self.pointee
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Raw storage backing a const union value.
+///
+/// Initialization bits distinguish written bytes from padding or unwritten
+/// tails. Pointer bytes are represented by relocations instead of fabricated
+/// integer addresses. Writing a field replaces overlapping relocations and
+/// initialization state while preserving the untouched storage tail.
 pub struct ConstUnionValue {
     fields: BTreeMap<SymbolId, ConstAbiType>,
     bytes: Vec<u8>,
@@ -227,6 +317,7 @@ pub struct ConstUnionValue {
 }
 
 impl ConstUnionValue {
+    /// Creates union storage and writes its initial active field.
     pub fn new(
         fields: BTreeMap<SymbolId, ConstAbiType>,
         storage_size: usize,
@@ -245,6 +336,7 @@ impl ConstUnionValue {
         Ok(union)
     }
 
+    /// Decodes `field` from the current raw storage.
     pub fn read(&self, field: SymbolId) -> Result<ConstValue, String> {
         let abi = self
             .fields
@@ -265,6 +357,7 @@ impl ConstUnionValue {
         )
     }
 
+    /// Encodes `value` into `field`, replacing overlapping storage state.
     pub fn write(&mut self, field: SymbolId, value: ConstValue) -> Result<(), String> {
         let abi = self
             .fields
@@ -299,18 +392,22 @@ impl ConstUnionValue {
         Ok(())
     }
 
+    /// Returns the raw storage bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
 
+    /// Returns one initialization bit per storage byte.
     pub fn initialized(&self) -> &[bool] {
         &self.initialized
     }
 
+    /// Returns pointer relocations sorted by byte offset.
     pub fn relocations(&self) -> &[ConstRelocation] {
         &self.relocations
     }
 
+    /// Verifies that stored metadata still matches the owning type's ABI.
     pub fn validate_abi(
         &self,
         fields: &BTreeMap<SymbolId, ConstAbiType>,
@@ -847,39 +944,59 @@ fn decode_scalar(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Result of a resolved call, including receiver writeback when required.
 pub struct ResolvedConstCallOutput {
+    /// Function return value.
     pub value: ConstValue,
+    /// Updated mutable receiver value to write back to its original place.
     pub mutable_receiver: Option<ConstValue>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Interpreter-owned iterator state and its semantic iterator type.
 pub struct ResolvedConstIterator {
+    /// Runtime iterator type.
     pub ty: InternedTyId,
+    /// Current iterator state value.
     pub value: ConstValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Resolved writable place rooted at a function-local binding.
 pub struct ResolvedConstPlace {
+    /// Root local identity.
     pub local_id: LocalId,
+    /// Projections from the local to the addressed nested value.
     pub path: Vec<ResolvedConstPlaceElem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One projection within a resolved writable const place.
 pub enum ResolvedConstPlaceElem {
+    /// Selects a named aggregate field.
     Field(SymbolId),
+    /// Selects an indexed sequence element.
     Index(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Payload shape of a const enum variant.
 pub enum ConstEnumPayload {
+    /// Variant without a payload.
     Unit,
+    /// Positional variant payload.
     Tuple(Vec<ConstValue>),
+    /// Named variant payload.
     Named(BTreeMap<SymbolId, ConstValue>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Integer range used by const range expressions and patterns.
 pub struct ConstRangeValue {
+    /// Inclusive lower bound, or no lower bound.
     pub start: Option<IntConst>,
+    /// Upper bound, interpreted according to `inclusive`.
     pub end: Option<IntConst>,
+    /// Whether the upper bound is included.
     pub inclusive: bool,
 }
