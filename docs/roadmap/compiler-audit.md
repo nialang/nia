@@ -1110,6 +1110,10 @@ acceptance item only when its phase-wide evidence is complete.
       closure-state variants. Associated bindings compare as unordered keyed
       sets, and a dual-store regression prevents intern identity from masking
       future variant omissions.
+- [x] Phase A type-match cache invalidation now follows unevaluated const
+      expressions through nominal/trait/projection const arguments, associated
+      binding keys, and closure-state components, preventing an early negative
+      comparison from surviving after its nested const value becomes available.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

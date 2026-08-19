@@ -888,29 +888,29 @@ impl<'a> BodyChecker<'a> {
 
     /// Checks source-level type compatibility after alias/projection
     /// normalization. The result is cached by interned pair, except when an
-    /// unevaluated const-expression array length makes the answer depend on
-    /// later const-evaluation state.
+    /// unevaluated const expression occurs anywhere in the type shape. Such a
+    /// value may become available later through const evaluation.
     pub(crate) fn types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
         if let Some(matches) = self.type_match_cache.get(&(expected, actual)).copied() {
             return matches;
         }
         let matches = self.types_match_normalized(expected, actual);
-        if matches || !self.type_match_depends_on_const_expr_len(expected, actual) {
+        if matches || !self.type_match_depends_on_unstable_const(expected, actual) {
             self.type_match_cache.insert((expected, actual), matches);
         }
         matches
     }
 
-    fn type_match_depends_on_const_expr_len(
+    fn type_match_depends_on_unstable_const(
         &self,
         expected: InternedTyId,
         actual: InternedTyId,
     ) -> bool {
-        self.type_contains_const_expr_len(expected, &mut HashSet::new())
-            || self.type_contains_const_expr_len(actual, &mut HashSet::new())
+        self.type_contains_unstable_const(expected, &mut HashSet::new())
+            || self.type_contains_unstable_const(actual, &mut HashSet::new())
     }
 
-    fn type_contains_const_expr_len(
+    fn type_contains_unstable_const(
         &self,
         ty: InternedTyId,
         visited: &mut HashSet<InternedTyId>,
@@ -921,24 +921,24 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(ty) {
             Some(TyKind::Array { len, elem }) => {
                 matches!(len, ArrayLenTy::ConstExpr(_))
-                    || self.type_contains_const_expr_len(*elem, visited)
+                    || self.type_contains_unstable_const(*elem, visited)
             }
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem }) => {
-                self.type_contains_const_expr_len(*elem, visited)
+                self.type_contains_unstable_const(*elem, visited)
             }
-            Some(TyKind::Optional { elem }) => self.type_contains_const_expr_len(*elem, visited),
+            Some(TyKind::Optional { elem }) => self.type_contains_unstable_const(*elem, visited),
             Some(TyKind::Tuple(elems)) => elems
                 .iter()
-                .any(|elem| self.type_contains_const_expr_len(*elem, visited)),
+                .any(|elem| self.type_contains_unstable_const(*elem, visited)),
             Some(TyKind::ErrorUnion { error, value }) => {
-                self.type_contains_const_expr_len(*error, visited)
-                    || self.type_contains_const_expr_len(*value, visited)
+                self.type_contains_unstable_const(*error, visited)
+                    || self.type_contains_unstable_const(*value, visited)
             }
             Some(TyKind::Range { bound, .. }) => {
-                bound.is_some_and(|bound| self.type_contains_const_expr_len(bound, visited))
+                bound.is_some_and(|bound| self.type_contains_unstable_const(bound, visited))
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -956,41 +956,79 @@ impl<'a> BodyChecker<'a> {
             }) => {
                 params
                     .iter()
-                    .any(|param| self.type_contains_const_expr_len(*param, visited))
-                    || self.type_contains_const_expr_len(*return_type, visited)
+                    .any(|param| self.type_contains_unstable_const(*param, visited))
+                    || self.type_contains_unstable_const(*return_type, visited)
             }
-            Some(TyKind::Nominal { args, .. }) => args
-                .iter()
-                .any(|arg| self.type_contains_const_expr_len(*arg, visited)),
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                captures
+                    .iter()
+                    .chain(params)
+                    .any(|ty| self.type_contains_unstable_const(*ty, visited))
+                    || self.type_contains_unstable_const(*return_type, visited)
+            }
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter()
+                    .any(|arg| self.type_contains_unstable_const(*arg, visited))
+                    || const_args.iter().any(|arg| {
+                        matches!(arg.value, ConstGenericValue::ConstExpr(_))
+                            || self.type_contains_unstable_const(arg.ty, visited)
+                    })
+            }
             Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
-                .any(|arg| self.type_contains_const_expr_len(*arg, visited)),
+                .any(|arg| self.type_contains_unstable_const(*arg, visited)),
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 trait_args
                     .iter()
-                    .any(|arg| self.type_contains_const_expr_len(*arg, visited))
-                    || associated_type_bindings
-                        .iter()
-                        .any(|binding| self.type_contains_const_expr_len(binding.ty, visited))
+                    .any(|arg| self.type_contains_unstable_const(*arg, visited))
+                    || trait_const_args.iter().any(|arg| {
+                        matches!(arg.value, ConstGenericValue::ConstExpr(_))
+                            || self.type_contains_unstable_const(arg.ty, visited)
+                    })
+                    || associated_type_bindings.iter().any(|binding| {
+                        self.type_contains_unstable_const(binding.ty, visited)
+                            || binding
+                                .trait_args
+                                .iter()
+                                .any(|arg| self.type_contains_unstable_const(*arg, visited))
+                            || binding.trait_const_args.iter().any(|arg| {
+                                matches!(arg.value, ConstGenericValue::ConstExpr(_))
+                                    || self.type_contains_unstable_const(arg.ty, visited)
+                            })
+                    })
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
-                self.type_contains_const_expr_len(*self_ty, visited)
+                self.type_contains_unstable_const(*self_ty, visited)
                     || trait_args
                         .iter()
-                        .any(|arg| self.type_contains_const_expr_len(*arg, visited))
+                        .any(|arg| self.type_contains_unstable_const(*arg, visited))
+                    || trait_const_args.iter().any(|arg| {
+                        matches!(arg.value, ConstGenericValue::ConstExpr(_))
+                            || self.type_contains_unstable_const(arg.ty, visited)
+                    })
             }
             Some(
                 TyKind::Primitive(_)
@@ -999,7 +1037,6 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Vector { .. }
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
-                | TyKind::ClosureState { .. }
                 | TyKind::SelfParam
                 | TyKind::Error,
             )
