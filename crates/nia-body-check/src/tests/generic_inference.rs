@@ -231,6 +231,76 @@ fn main() usize {
 }
 
 #[test]
+fn infers_type_and_const_generics_through_nominal_arguments() {
+    let checked = pipeline(
+        r#"
+struct Buffer[T, N: usize] {
+    value: T,
+    items: [T; N],
+}
+
+fn inspect[T, N: usize](value: Buffer[T, N]) () {
+    _ = value;
+}
+
+fn main(value: Buffer[i32, 4]) () {
+    inspect(value)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let instance = checked
+        .facts
+        .iter_generic_instantiations()
+        .find(|instance| !instance.const_args.is_empty())
+        .expect("mixed type/const generic instantiation");
+    assert_eq!(
+        checked.type_store.get(instance.args[0]),
+        Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+    );
+    assert!(matches!(
+        instance.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 4
+    ));
+}
+
+#[test]
+fn infers_type_generics_from_trait_object_associated_binding_keys() {
+    let checked = pipeline(
+        r#"
+trait Parent[T] {
+    type Item;
+}
+
+trait Child : Parent[i32] {}
+
+fn inspect[T](value: &Child[[Self as Parent[T]]::Item = T]) () {
+    _ = value;
+}
+
+fn main(value: &Child[[Self as Parent[i32]]::Item = i32]) () {
+    inspect(value)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let instance = checked
+        .facts
+        .iter_generic_instantiations()
+        .find(|instance| !instance.args.is_empty())
+        .expect("associated-binding-key generic instantiation");
+    assert_eq!(
+        checked.type_store.get(instance.args[0]),
+        Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+    );
+}
+
+#[test]
 fn infers_const_generic_lengths_through_tuple_arguments() {
     let checked = pipeline(
         r#"

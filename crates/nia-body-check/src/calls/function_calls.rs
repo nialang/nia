@@ -11,7 +11,10 @@ use nia_local_resolve::LocalUse;
 use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
+use nia_ty::{
+    ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy,
+    TyKind,
+};
 use nia_value_resolve::ValueNameResolution;
 
 struct FunctionItemRef {
@@ -1221,6 +1224,30 @@ impl<'a> BodyChecker<'a> {
             })
     }
 
+    /// Matches an associated binding key before inferring through it.
+    ///
+    /// Key type and const arguments may themselves contain the generic
+    /// parameters being inferred, so ordinary type equality would reject the
+    /// binding before those parameters can be discovered.
+    fn associated_type_binding_key_pattern_accepts(
+        &mut self,
+        pattern: &AssociatedTypeBindingTy,
+        actual: &AssociatedTypeBindingTy,
+    ) -> bool {
+        pattern.name == actual.name
+            && pattern.trait_id == actual.trait_id
+            && pattern.trait_args.len() == actual.trait_args.len()
+            && pattern
+                .trait_args
+                .iter()
+                .zip(actual.trait_args.iter())
+                .all(|(pattern, actual)| self.generic_pattern_accepts_type_shape(*pattern, *actual))
+            && self.const_generic_arg_patterns_accept(
+                &pattern.trait_const_args,
+                &actual.trait_const_args,
+            )
+    }
+
     pub(crate) fn materialize_inferred_type(
         &mut self,
         inferred: &crate::inference::InferredType,
@@ -1699,35 +1726,61 @@ impl<'a> BodyChecker<'a> {
                     .any(|ty| self.type_contains_generic_param(*ty))
                     || self.type_contains_generic_param(*return_type)
             }
-            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter()
+                    .any(|arg| self.type_contains_generic_param(*arg))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.type_contains_generic_param(arg.ty))
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
                 .any(|arg| self.type_contains_generic_param(*arg)),
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 trait_args
                     .iter()
                     .any(|arg| self.type_contains_generic_param(*arg))
-                    || associated_type_bindings
+                    || trait_const_args
                         .iter()
-                        .any(|binding| self.type_contains_generic_param(binding.ty))
+                        .any(|arg| self.type_contains_generic_param(arg.ty))
+                    || associated_type_bindings.iter().any(|binding| {
+                        binding
+                            .trait_args
+                            .iter()
+                            .any(|arg| self.type_contains_generic_param(*arg))
+                            || binding
+                                .trait_const_args
+                                .iter()
+                                .any(|arg| self.type_contains_generic_param(arg.ty))
+                            || self.type_contains_generic_param(binding.ty)
+                    })
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.type_contains_generic_param(*self_ty)
                     || trait_args
                         .iter()
                         .any(|arg| self.type_contains_generic_param(*arg))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.type_contains_generic_param(arg.ty))
             }
             Some(
                 TyKind::Error
@@ -1970,10 +2023,15 @@ impl<'a> BodyChecker<'a> {
                 }) = self.interner.get(actual).cloned()
                     && pattern_def == actual_def
                     && pattern_args.len() == actual_args.len()
-                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args.iter())
+                    {
+                        self.infer_generics_from_type(pattern.ty, actual.ty, substitutions, span);
                     }
                 }
             }
@@ -2010,21 +2068,50 @@ impl<'a> BodyChecker<'a> {
                     && pattern_const == actual_const
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
-                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                     && pattern_bindings.len() == actual_bindings.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
                     }
+                    for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args.iter())
+                    {
+                        self.infer_generics_from_type(pattern.ty, actual.ty, substitutions, span);
+                    }
                     for pattern_binding in pattern_bindings {
                         if let Some(actual_binding) =
                             actual_bindings.iter().find(|actual_binding| {
-                                self.associated_type_binding_keys_match(
+                                self.associated_type_binding_key_pattern_accepts(
                                     &pattern_binding,
                                     actual_binding,
                                 )
                             })
                         {
+                            for (pattern, actual) in pattern_binding
+                                .trait_args
+                                .iter()
+                                .zip(actual_binding.trait_args.iter())
+                            {
+                                self.infer_generics_from_type(
+                                    *pattern,
+                                    *actual,
+                                    substitutions,
+                                    span,
+                                );
+                            }
+                            for (pattern, actual) in pattern_binding
+                                .trait_const_args
+                                .iter()
+                                .zip(actual_binding.trait_const_args.iter())
+                            {
+                                self.infer_generics_from_type(
+                                    pattern.ty,
+                                    actual.ty,
+                                    substitutions,
+                                    span,
+                                );
+                            }
                             self.infer_generics_from_type(
                                 pattern_binding.ty,
                                 actual_binding.ty,
@@ -2049,21 +2136,50 @@ impl<'a> BodyChecker<'a> {
                 }) = self.interner.get(actual).cloned()
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
-                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                     && pattern_bindings.len() == actual_bindings.len()
                 {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
                     }
+                    for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args.iter())
+                    {
+                        self.infer_generics_from_type(pattern.ty, actual.ty, substitutions, span);
+                    }
                     for pattern_binding in pattern_bindings {
                         if let Some(actual_binding) =
                             actual_bindings.iter().find(|actual_binding| {
-                                self.associated_type_binding_keys_match(
+                                self.associated_type_binding_key_pattern_accepts(
                                     &pattern_binding,
                                     actual_binding,
                                 )
                             })
                         {
+                            for (pattern, actual) in pattern_binding
+                                .trait_args
+                                .iter()
+                                .zip(actual_binding.trait_args.iter())
+                            {
+                                self.infer_generics_from_type(
+                                    *pattern,
+                                    *actual,
+                                    substitutions,
+                                    span,
+                                );
+                            }
+                            for (pattern, actual) in pattern_binding
+                                .trait_const_args
+                                .iter()
+                                .zip(actual_binding.trait_const_args.iter())
+                            {
+                                self.infer_generics_from_type(
+                                    pattern.ty,
+                                    actual.ty,
+                                    substitutions,
+                                    span,
+                                );
+                            }
                             self.infer_generics_from_type(
                                 pattern_binding.ty,
                                 actual_binding.ty,
@@ -2078,23 +2194,29 @@ impl<'a> BodyChecker<'a> {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
+                trait_const_args: pattern_const_args,
                 name: pattern_name,
-                ..
             }) => {
                 if let Some(TyKind::Projection {
                     self_ty: actual_self,
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     name: actual_name,
-                    ..
                 }) = self.interner.get(actual).cloned()
                     && pattern_trait == actual_trait
                     && pattern_name == actual_name
                     && pattern_args.len() == actual_args.len()
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                 {
                     self.infer_generics_from_type(pattern_self, actual_self, substitutions, span);
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args.iter())
+                    {
+                        self.infer_generics_from_type(pattern.ty, actual.ty, substitutions, span);
                     }
                 }
             }
