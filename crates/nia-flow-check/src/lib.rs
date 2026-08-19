@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Conservative syntax-level control-flow diagnostics.
+//!
+//! This crate finds unreachable statements, invalid loop control, duplicate
+//! patterns, and missing returns that can be established without typed pattern
+//! semantics. Exhaustiveness over nominal constructors and scalar ranges is
+//! deliberately owned by the typed pattern matrix in `nia-body-check`.
+
 use nia_ast::{
     Block, Expr, ExprKind, FunctionItem, IndexArg, MatchArmBody, Module, Pattern, PatternKind,
     Stmt, StmtKind,
@@ -12,21 +19,30 @@ use nia_ty::{TyKind, TypeStore};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Diagnostics produced by one module flow-check pass.
 pub struct FlowCheck {
+    /// User-facing flow diagnostics in traversal order.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Signature subset required to classify function return types.
 pub struct FlowCheckSignatures<'a> {
+    /// Function signatures keyed by module-local definition identity.
     pub functions: &'a std::collections::HashMap<DefId, FunctionSignature>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Selects which source functions participate in flow checking.
 pub enum FlowCheckFilter<'a> {
+    /// Checks every active function with a body.
     #[default]
     All,
+    /// Checks only functions selected by executable reachability.
     ReachableFunctions {
+        /// Module owning the local definition identities.
         module_id: ModuleId,
+        /// Program-wide set of reachable function identities.
         functions: &'a HashSet<GlobalDefId>,
     },
 }
@@ -152,6 +168,11 @@ impl SyntacticPatternCoverage {
     }
 }
 
+/// Checks all non-const items in a parsed module.
+///
+/// Prefer [`check_active_module_flow`] when the caller already owns an active
+/// item tree, since it preserves revision filtering performed by the query
+/// layer.
 pub fn check_module_flow(
     module: &Module,
     type_store: &TypeStore,
@@ -163,6 +184,7 @@ pub fn check_module_flow(
     check_active_module_flow(&active_item_tree, type_store, signatures)
 }
 
+/// Checks every function in an active item tree using full item signatures.
 pub fn check_active_module_flow(
     item_tree: &ActiveModuleItemTree,
     type_store: &TypeStore,
@@ -177,6 +199,7 @@ pub fn check_active_module_flow(
     )
 }
 
+/// Checks every function using the minimal signature view required by flow.
 pub fn check_active_module_flow_with_signatures(
     item_tree: &ActiveModuleItemTree,
     type_store: &TypeStore,
@@ -190,6 +213,11 @@ pub fn check_active_module_flow_with_signatures(
     )
 }
 
+/// Checks the functions accepted by `filter` using a minimal signature view.
+///
+/// Filtering applies only after a function is matched to its stable definition
+/// identity. Items without signatures are still traversed for syntax-level
+/// diagnostics, but cannot be diagnosed for a missing non-unit return.
 pub fn check_active_module_flow_with_signatures_and_filter(
     item_tree: &ActiveModuleItemTree,
     type_store: &TypeStore,
@@ -302,6 +330,9 @@ impl FlowChecker<'_> {
                     stmt.span,
                     "unreachable statement",
                 ));
+                // Continue walking unreachable syntax so nested invalid loop
+                // control and duplicate patterns are not hidden by the first
+                // terminating statement.
                 self.check_stmt(stmt);
                 continue;
             }
@@ -407,6 +438,8 @@ impl FlowChecker<'_> {
                 self.loop_depth += 1;
                 self.check_block(&for_stmt.body);
                 self.loop_depth -= 1;
+                // A syntax-only pass cannot prove iteration or the absence of
+                // a break, so every loop form conservatively permits exit.
                 Flow {
                     falls_through: true,
                 }
