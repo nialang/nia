@@ -392,174 +392,295 @@ pub enum TypedExprKind {
     /// Atomic operation.
     Atomic(TypedAtomic),
     LoadUnaligned {
+        /// Result type loaded from memory.
         ty: InternedTyId,
+        /// Byte pointer source.
         ptr: Box<TypedExpr>,
     },
+    /// Broadcasts one scalar value into a SIMD vector.
     Splat {
+        /// Scalar lane value.
         value: Box<TypedExpr>,
     },
+    /// Extracts a SIMD lane by integer index.
     ExtractElement {
+        /// Vector source.
         vector: Box<TypedExpr>,
+        /// Lane index.
         index: Box<TypedExpr>,
     },
+    /// Replaces one SIMD lane.
     InsertElement {
+        /// Vector source.
         vector: Box<TypedExpr>,
+        /// Lane index.
         index: Box<TypedExpr>,
+        /// Replacement lane value.
         value: Box<TypedExpr>,
     },
+    /// Packs boolean lanes into a target-width integer.
     Bitmask {
+        /// Boolean vector source.
         vector: Box<TypedExpr>,
     },
+    /// Integer bit-counting intrinsic.
     BitIntrinsic {
+        /// Intrinsic operation.
         op: TypedBitIntrinsicOp,
+        /// Integer source value.
         value: Box<TypedExpr>,
     },
+    /// Converts a `u32` candidate into an optional `char`.
     CharFromU32 {
+        /// Candidate scalar value.
         value: Box<TypedExpr>,
     },
+    /// Promotes an array into stable static storage.
     StaticArrayPointer {
+        /// Promoted allocation identity.
         allocation: PromotedAllocationId,
+        /// Array value being promoted.
         array: Box<TypedExpr>,
+        /// Whether resulting storage is readonly.
         is_readonly: bool,
     },
+    /// Constructs an array value.
     ArrayLiteral {
+        /// Explicit or repeated elements.
         elems: TypedArrayElements,
     },
+    /// Constructs a nominal struct value.
     StructLiteral {
+        /// Struct definition identity.
         def_id: GlobalDefId,
+        /// Field initializers in declaration order.
         fields: Vec<TypedFieldInit>,
     },
+    /// Constructs a nominal union value with one active field.
     UnionLiteral {
+        /// Union definition identity.
         def_id: GlobalDefId,
+        /// Selected field initializer.
         field: Box<TypedFieldInit>,
     },
+    /// Reconstructs a const-evaluated union byte image with relocations.
     UnionStorageLiteral {
+        /// Byte image; `None` denotes uninitialized bytes.
         bytes: Vec<Option<u8>>,
+        /// Sorted, non-overlapping promoted-pointer relocations.
         relocations: Vec<TypedUnionRelocation>,
     },
+    /// Typed unary operation.
     Unary {
+        /// Unary operator.
         op: UnaryOp,
+        /// Operand expression.
         expr: Box<TypedExpr>,
     },
+    /// Constructs an optional success value.
     OptionalSome {
+        /// Payload expression.
         expr: Box<TypedExpr>,
     },
+    /// Constructs an error-union success value.
     ErrorOk {
+        /// Success payload.
         expr: Box<TypedExpr>,
     },
+    /// Constructs an error-union error value.
     ErrorErr {
+        /// Error payload.
         expr: Box<TypedExpr>,
     },
+    /// Propagates an optional or error-union failure.
     Try {
+        /// Value being propagated.
         expr: Box<TypedExpr>,
+        /// Optional conversion for an error-union mismatch.
         error_conversion: Option<TypedTryErrorConversion>,
     },
+    /// Typed scalar/vector binary operation.
     Binary {
+        /// Left operand.
         lhs: Box<TypedExpr>,
+        /// Binary operator.
         op: BinaryOp,
+        /// Right operand.
         rhs: Box<TypedExpr>,
     },
+    /// Writes a value into a typed place.
     Assign {
+        /// Destination place.
         place: TypedPlace,
+        /// Assignment operator.
         op: AssignOp,
+        /// Right-hand value.
         rhs: Box<TypedExpr>,
     },
+    /// Evaluates an expression for effects and yields unit.
     Discard(Box<TypedExpr>),
+    /// Source-approved cast to a destination type.
     Cast {
+        /// Source expression.
         expr: Box<TypedExpr>,
+        /// Destination type.
         ty: InternedTyId,
     },
+    /// Upcasts a trait object to a supertrait view.
     TraitObjectUpcast {
+        /// Source object value.
         expr: Box<TypedExpr>,
+        /// Source object type.
         source_ty: InternedTyId,
+        /// Target object type.
         target_ty: InternedTyId,
     },
+    /// Coerces a data pointer/slice to a trait object.
     TraitObjectCoercion {
+        /// Data expression.
         expr: Box<TypedExpr>,
+        /// Complete target object type.
         target_ty: InternedTyId,
+        /// Concrete receiver type for vtable selection.
         self_ty: InternedTyId,
     },
+    /// Builds a callable fat pointer from captured state.
     CallableCoercion {
+        /// Captured state pointer.
         state: Box<TypedExpr>,
+        /// Closure identity.
         closure_id: nia_ids::ClosureId,
     },
+    /// Selects a non-capturing closure function pointer.
     ClosureFunctionPointer {
+        /// Closure identity.
         closure_id: nia_ids::ClosureId,
     },
+    /// Calls a resolved callee with ABI-ordered arguments.
     Call {
+        /// Callee shape selected by semantic resolution.
         callee: TypedCallee,
+        /// Arguments in source/ABI order.
         args: Vec<TypedExpr>,
     },
+    /// Loads a nominal field.
     Field {
+        /// Aggregate source.
         lhs: Box<TypedExpr>,
+        /// Field identity.
         field: GlobalDefId,
     },
+    /// Projects a tuple field.
     TupleField {
+        /// Tuple source.
         lhs: Box<TypedExpr>,
+        /// Declaration-order field index.
         index: usize,
     },
+    /// Loads an indexed element.
     Index {
+        /// Array, pointer, or slice source.
         lhs: Box<TypedExpr>,
+        /// Integer index.
         index: Box<TypedExpr>,
     },
+    /// Creates a slice view with typed bounds.
     Slice {
+        /// Array, pointer, or slice source.
         lhs: Box<TypedExpr>,
+        /// Slice bounds.
         range: TypedSliceRange,
+        /// Whether resulting view is readonly.
         is_readonly: bool,
     },
+    /// Nested typed block expression.
     Block(TypedBody),
+    /// Conditional expression with typed branches.
     If {
+        /// Boolean condition.
         cond: Box<TypedExpr>,
+        /// Success branch body.
         then_branch: TypedBody,
+        /// Optional failure branch expression.
         else_branch: Option<Box<TypedExpr>>,
     },
+    /// Conditional pattern expression.
     IfPattern(Box<TypedIfPattern>),
+    /// Match expression with typed arms.
     Match(Box<TypedMatch>),
 }
 
+/// One captured local and its lowered value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedClosureCapture {
+    /// Captured local identity.
     pub local_id: LocalId,
+    /// Value captured for the closure state.
     pub value: TypedExpr,
 }
 
+/// Error conversion metadata attached to a try expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedTryErrorConversion {
+    /// Trait supplying the conversion method.
     pub trait_id: GlobalDefId,
+    /// Conversion method identity.
     pub method_id: GlobalDefId,
+    /// Method name for diagnostics.
     pub method_name: SymbolId,
+    /// Source error type.
     pub source_ty: InternedTyId,
+    /// Converted target error type.
     pub target_ty: InternedTyId,
+    /// Trait type arguments.
     pub trait_args: Vec<InternedTyId>,
+    /// Receiver passing mode.
     pub receiver_kind: ReceiverKind,
 }
 
+/// Pointer relocation embedded in a union byte image.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedUnionRelocation {
+    /// First byte replaced by a promoted pointer.
     pub offset: usize,
+    /// Number of bytes covered by the relocation.
     pub width: usize,
+    /// Promoted allocation identity.
     pub allocation: PromotedAllocationId,
+    /// Value used to initialize the promoted allocation.
     pub pointee: Box<TypedExpr>,
 }
 
+/// Integer bit-counting intrinsic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypedBitIntrinsicOp {
+    /// Count trailing zeros.
     Ctz,
+    /// Count leading zeros.
     Clz,
+    /// Count set bits.
     Popcount,
 }
 
+/// Bounds attached to a typed slice expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSliceRange {
+    /// Optional lower bound.
     pub start: Option<Box<TypedExpr>>,
+    /// Optional upper bound.
     pub end: Option<Box<TypedExpr>>,
+    /// Whether upper bound is inclusive.
     pub inclusive: bool,
 }
 
+/// Bounds attached to a typed range value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedRange {
+    /// Optional lower bound.
     pub start: Option<Box<TypedExpr>>,
+    /// Optional upper bound.
     pub end: Option<Box<TypedExpr>>,
+    /// Whether upper bound is inclusive.
     pub inclusive: bool,
 }
 

@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 153 completed entries in this ledger.
+- Implementation batches: 154 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -907,6 +907,11 @@ acceptance item only when its phase-wide evidence is complete.
       missing-docs baseline fell from 436 to 287 warnings; the expression
       payload, call, memory, atomic, and place schemas remain for follow-up
       batches.
+- [x] Phase C body-IR expression Rustdoc now documents aggregate construction,
+      closure captures, try conversion metadata, union relocations, slices,
+      ranges, trait-object coercions, and nested control-flow expressions. The
+      unsuppressed body-IR missing-docs baseline fell from 287 to 166 warnings;
+      call, memory, atomic, and place payloads remain for the next batch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
