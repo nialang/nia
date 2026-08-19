@@ -72,10 +72,15 @@ mod type_infer;
 /// function boundary; locals and substitutions below the nearest such boundary
 /// are caller state and are not visible while typing the callee.
 pub struct TypedConstFrame {
+    /// Module boundary for this frame; `None` denotes a lexical scope.
     pub module_id: Option<ModuleId>,
+    /// Function identity at an execution boundary.
     pub function_id: Option<GlobalDefId>,
+    /// Locals visible in this frame.
     pub local_types: HashMap<LocalId, ConstValueType>,
+    /// Type substitutions active in this frame.
     pub type_substitutions: SymbolMap<InternedTyId>,
+    /// Const-generic substitutions active in this frame.
     pub const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
@@ -85,28 +90,46 @@ pub struct TypedConstFrame {
 /// This query-shaped input avoids rerunning whole-module const analysis for
 /// callers such as body checking and generic call instantiation.
 pub struct TypedConstQueryInput<'a> {
+    /// Resolved const IR for the module being queried.
     pub module: &'a ResolvedConstModule,
+    /// Definition identities used by name and item lookup.
     pub defs: &'a DefCollection,
+    /// Value-resolution identities for globals and associated values.
     pub values: &'a ValueResolution,
+    /// Resolved local identities used by bindings and assignments.
     pub locals: &'a LocalResolution,
+    /// Semantic use information needed for resolved references.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Symbol table used to render stable diagnostic names.
     pub symbols: &'a nia_symbol_table::SymbolTable,
+    /// Lowered type information for runtime representation checks.
     pub lowered: &'a nia_type_lower::TypeLowering,
+    /// Function and item signatures used during generic inference.
     pub signatures: &'a ItemSignatures,
+    /// Interned type store used by the analyzer.
     pub type_store: &'a nia_ty::TypeStore,
+    /// Normalized type relations used by assignability and trait queries.
     pub normalization: &'a nia_type_normalize::TypeNormalization,
+    /// Target layout and primitive-width configuration.
     pub target: &'a TargetConfig,
+    /// Source path attached to diagnostics from this module.
     pub source_path: &'a SourcePath,
+    /// Optional cross-module providers used by const evaluation.
     pub program: ConstProgramContext<'a>,
+    /// Values already computed for the current module.
     pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
+    /// Array lengths computed by the prerequisite phase.
     pub array_lengths: &'a HashMap<GlobalConstExprId, u64>,
+    /// Active lexical and function frames for standalone expression queries.
     pub frames: &'a [TypedConstFrame],
 }
 
 #[derive(Debug, Clone, Default)]
 /// Concrete type and value arguments inferred for a const function call.
 pub struct ConstGenericInstantiation {
+    /// Inferred type-parameter substitutions.
     pub type_substitutions: SymbolMap<InternedTyId>,
+    /// Inferred const-parameter substitutions.
     pub const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
@@ -174,6 +197,11 @@ pub fn infer_resolved_const_expr_type(
 }
 
 /// Runs every const-analysis phase for a module in dependency order.
+///
+/// The pipeline is intentionally monotonic: array lengths feed enum
+/// discriminants, both feed initializer values, and those values feed runtime
+/// type facts. Each phase receives the prior phase's diagnostics and cached
+/// maps, so a caller can reuse any completed prefix without changing results.
 pub fn check_module_const(input: ConstInput<'_>) -> ConstCheck {
     let array_lengths = compute_module_const_array_lengths(input);
     let enum_values = compute_module_const_enum_values(input, array_lengths.clone());

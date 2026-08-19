@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 159 completed entries in this ledger.
+- Implementation batches: 160 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -936,6 +936,11 @@ acceptance item only when its phase-wide evidence is complete.
       rejection without state mutation, balanced cleanup, and the interpreter
       loop cap. All 39 const-eval tests and strict Clippy pass; its unsuppressed
       missing-docs baseline is 161 warnings for follow-up schema batches.
+- [x] Phase C const-check query and cache boundary audit now documents the
+      monotonic array-length, enum, value, and typed-fact phase pipeline,
+      cross-module provider ownership, execution-frame inputs, and cached
+      result schemas. All 34 const-check tests, strict Clippy, and strict
+      Rustdoc pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

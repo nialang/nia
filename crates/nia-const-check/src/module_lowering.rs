@@ -15,6 +15,11 @@ use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
+/// Lowers active module const expressions into identity-resolved const IR.
+///
+/// The active item tree determines which definitions participate in the
+/// result; unresolved names are retained as diagnostics instead of being
+/// guessed from their source spelling.
 pub fn lower_module_const(input: ConstModuleInput<'_>) -> ConstModuleLowering {
     let mut lowerer = ConstModuleLowerer {
         input,
