@@ -5599,6 +5599,10 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         is_readonly: true,
         elem: state_ty,
     });
+    let malformed_state_pointer_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
     let entry = nia_backend_ir::BackendClosureEntry {
         key: nia_backend_ir::BackendClosureEntryKey {
             closure_id,
@@ -5606,8 +5610,8 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         },
         symbol: "main__closure_entry__ord__0".to_string(),
         abi: nia_backend_ir::BackendClosureEntryAbi {
-            state_type: state_ty,
-            state_pointer_type: state_pointer_ty,
+            state_type: i32_ty,
+            state_pointer_type: malformed_state_pointer_ty,
             params: vec![i32_ty, i32_ty],
             return_type: i32_ty,
         },
@@ -5621,7 +5625,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
                     id: LocalId(0),
                     name: local_name("state"),
                     kind: FunctionLocalKind::Param,
-                    ty: state_pointer_ty,
+                    ty: malformed_state_pointer_ty,
                     span,
                 },
                 FunctionLocal {
@@ -5675,6 +5679,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (state_ty, TypeLayout { size: 0, align: 1 }),
                     (state_pointer_ty, TypeLayout { size: 8, align: 8 }),
+                    (malformed_state_pointer_ty, TypeLayout { size: 8, align: 8 }),
                 ],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -5706,6 +5711,16 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "closure entry ABI parameters reference duplicate body local"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "closure entry state type does not match its identity and ABI signature"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "closure entry body contains unmapped parameter local"
     ));
 }
 

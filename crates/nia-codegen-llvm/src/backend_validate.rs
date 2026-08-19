@@ -334,6 +334,27 @@ impl BackendValidator<'_> {
         self.validate_runtime_type(entry.abi.return_type, entry.span);
         self.current_subject = None;
 
+        let state_contract_matches =
+            match self.index.type_store().get(entry.abi.state_type).cloned() {
+                Some(TyKind::ClosureState {
+                    closure_id,
+                    params,
+                    return_type,
+                    ..
+                }) => {
+                    closure_id == entry.key.closure_id
+                        && self.same_type_args(&params, &entry.abi.params)
+                        && self.same_type(return_type, entry.abi.return_type)
+                }
+                _ => false,
+            };
+        if !state_contract_matches {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry state type does not match its identity and ABI signature",
+            ));
+        }
         let state_pointer_matches = matches!(
             self.index.type_store().get(entry.abi.state_pointer_type),
             Some(TyKind::Pointer {
@@ -627,6 +648,15 @@ impl BackendValidator<'_> {
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     entry.span,
                     format!("closure entry ABI parameter local {local_id:?} has a mismatched type"),
+                ));
+            }
+        }
+        for local_id in param_locals.keys() {
+            if !mapped_locals.contains(local_id) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    entry.span,
+                    format!("closure entry body contains unmapped parameter local {local_id:?}"),
                 ));
             }
         }

@@ -1054,6 +1054,14 @@ acceptance item only when its phase-wide evidence is complete.
       type to equal the declared ABI return and requires `state_param` plus
       `params` to enumerate every parameter local exactly once, preventing
       cached or hand-built IR from exposing an uninitialized hidden parameter.
+- [x] Phase B function lowering now removes nested closure aliases and
+      parameters from the enclosing entry's flat local table. Curried closures
+      retain separate ABI-owned local tables instead of presenting inner
+      parameters as uninitialized storage in the outer generated function.
+- [x] Phase B backend validation now independently requires closure state types
+      to match the entry identity and callable signature and rejects unmapped
+      closure-body parameter locals, covering direct/cached Backend IR inputs
+      that do not pass through function lowering.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
