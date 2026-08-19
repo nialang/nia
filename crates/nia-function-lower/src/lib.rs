@@ -3,7 +3,7 @@
 //!
 //! Lowering allocates stable block/scope/local identities, extracts closure
 //! entries, and validates every produced CFG before returning it to consumers.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
@@ -129,6 +129,7 @@ struct FunctionLowerer<'a> {
     loop_targets: Vec<LoopTargetIds>,
     types: FunctionTypeContext<'a>,
     closure_entries: Vec<FunctionClosureEntry>,
+    nested_closure_locals: HashSet<LocalId>,
     closure_state: Option<ClosureStateContext>,
 }
 
@@ -180,6 +181,7 @@ impl<'a> FunctionLowerer<'a> {
             loop_targets: Vec::new(),
             types,
             closure_entries: Vec::new(),
+            nested_closure_locals: HashSet::new(),
             closure_state: None,
         }
     }
@@ -201,6 +203,11 @@ impl<'a> FunctionLowerer<'a> {
         let mut locals = Vec::new();
         self.lower_body_into(body, entry, root_scope, &mut blocks, Fallthrough::Tail);
         self.collect_body_locals(body, &mut locals);
+        // Typed bodies retain a source-wide local table, including aliases and
+        // parameters owned by nested closures. Closure entries are separate
+        // functions in Function IR, so those slots must not become storage in
+        // the enclosing entry (where ABI initialization cannot reach them).
+        locals.retain(|local| !self.nested_closure_locals.contains(&local.id));
         if let Some(context) = &self.closure_state {
             locals.retain(|local| !context.captures.contains_key(&local.id));
             locals.insert(
@@ -265,5 +272,6 @@ impl<'a> FunctionLowerer<'a> {
         self.temp_locals.clear();
         self.scopes.clear();
         self.loop_targets.clear();
+        self.nested_closure_locals.clear();
     }
 }
