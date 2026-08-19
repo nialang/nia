@@ -81,6 +81,12 @@ enum InputSource {
     Parameter(usize),
 }
 
+/// Monotone origin attached to a value or error channel during escape analysis.
+///
+/// The variants distinguish borrowed stack addresses from callable values and
+/// preserve the input slot that introduced each origin. Keeping these facts
+/// separate lets diagnostics reject only lexical escapes while still allowing
+/// ordinary scalar values to flow through the same expressions.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Provenance {
     Input(InputSource),
@@ -130,6 +136,10 @@ impl ValueProvenance {
 
 type Environment = HashMap<LocalId, ValueProvenance>;
 
+/// Summary transfer facts for one callable over its captures and parameters.
+///
+/// Every field is a finite set. Summary iteration therefore converges by
+/// monotone growth even for recursive and mutually recursive call graphs.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CallableSummary {
     returned_inputs: BTreeSet<InputSource>,
@@ -303,6 +313,9 @@ impl<'a> Analyzer<'a> {
     }
 
     fn summarize(mut self, callable: &CallableBody<'_>) -> CallableSummary {
+        // Captures and parameters enter as distinct input origins. The body
+        // walk then propagates those origins through assignments, calls,
+        // closures, and defers without needing a path-sensitive heap model.
         let mut env = Environment::new();
         for (index, local_id) in callable.captures.iter().copied().enumerate() {
             env.insert(
@@ -489,6 +502,10 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_expr(&mut self, expr: &TypedExpr, env: &mut Environment) -> ValueProvenance {
+        // Expression transfer is deliberately conservative at effectful
+        // boundaries: stores and calls record all incoming origins, while
+        // pure constructors union child origins. This prevents an optimizer or
+        // unknown callee from hiding a borrowed address.
         let origins = match &expr.kind {
             TypedExprKind::Error
             | TypedExprKind::Integer(_)
@@ -974,6 +991,9 @@ impl<'a> Analyzer<'a> {
         span: Span,
         return_ty: nia_ids::InternedTyId,
     ) -> ValueProvenance {
+        // A known callable maps each summarized input slot back to the
+        // caller's provenance. Escaping inputs are reported at the call site;
+        // returned inputs remain in the value/error channels for outer flows.
         let Some(summary) = self.summaries.get(&key) else {
             return self.apply_unknown_call(args, span, return_ty);
         };
@@ -1021,6 +1041,9 @@ impl<'a> Analyzer<'a> {
         span: Span,
         return_ty: nia_ids::InternedTyId,
     ) -> ValueProvenance {
+        // Without a summary, assume every argument may be retained and may be
+        // returned. This is the sound fallback for indirect calls and prevents
+        // missing discovery edges from weakening closure diagnostics.
         let result = args.iter().cloned().fold(Provenances::new(), union);
         self.record_escape(&result, span, EscapeKind::Call);
         match self.type_store.get(return_ty) {

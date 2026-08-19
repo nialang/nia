@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 156 completed entries in this ledger.
+- Implementation batches: 157 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -921,6 +921,11 @@ acceptance item only when its phase-wide evidence is complete.
       variants, aggregate field identity, address paths, and precise reference
       extraction semantics for zero-length repeats and generic function
       addresses. `nia-static-ir` strict Rustdoc, 3 tests, and Clippy pass.
+- [x] Phase C closure-check provenance audit now documents the finite summary
+      lattice, origin transfer rules, known/unknown call handling, and isolated
+      defer exit environments. Existing recursive, loop, capture, assignment,
+      and LIFO-defer matrices remain green (8 tests), with strict Clippy and
+      Rustdoc clean.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
