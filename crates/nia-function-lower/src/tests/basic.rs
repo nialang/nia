@@ -398,6 +398,10 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
     };
     callee.ty = i32_ty;
     assert_rejected(&malformed, "callee does not have a closure-state type");
+
+    let mut malformed = body.clone();
+    malformed.stmts.push(malformed.stmts[0].clone());
+    assert_rejected(&malformed, "identity is defined more than once");
 }
 
 #[test]
