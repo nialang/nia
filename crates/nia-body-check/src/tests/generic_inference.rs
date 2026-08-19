@@ -231,6 +231,117 @@ fn main() usize {
 }
 
 #[test]
+fn infers_const_generic_lengths_through_tuple_arguments() {
+    let checked = pipeline(
+        r#"
+fn tupleLen[N: usize](value: ([i32; N], bool)) usize {
+    _ = value;
+    N
+}
+
+fn main(values: [i32; 3]) usize {
+    tupleLen((values, true))
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let instance = checked
+        .facts
+        .iter_generic_instantiations()
+        .find(|instance| !instance.const_args.is_empty())
+        .expect("const generic tuple instantiation");
+    assert!(matches!(
+        instance.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 3
+    ));
+}
+
+#[test]
+fn infers_const_generic_lengths_through_callable_arguments() {
+    let checked = pipeline(
+        r#"
+fn callableLen[N: usize](callback: &Fn([i32; N]) i32) usize {
+    _ = callback;
+    N
+}
+
+fn main(callback: &Fn([i32; 4]) i32) usize {
+    callableLen(callback)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let instance = checked
+        .facts
+        .iter_generic_instantiations()
+        .find(|instance| !instance.const_args.is_empty())
+        .expect("const generic callable instantiation");
+    assert!(matches!(
+        instance.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 4
+    ));
+}
+
+#[test]
+fn incompatible_pointer_does_not_seed_const_generic_length() {
+    let checked = pipeline(
+        r#"
+fn selectLen[N: usize](first: &mut [i32; N], second: [i32; N]) usize {
+    _ = first;
+    _ = second;
+    N
+}
+
+fn main(readonly: &[i32; 2], values: [i32; 3]) usize {
+    selectLen(readonly, values)
+}
+"#,
+    );
+
+    assert!(!checked.diagnostics.is_empty());
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| !diagnostic
+            .summary
+            .contains("conflicting inferred value for const generic parameter")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn incompatible_late_tuple_field_does_not_seed_const_generic_length() {
+    let checked = pipeline(
+        r#"
+fn tupleLen[N: usize](value: ([i32; N], &mut i32)) usize {
+    _ = value;
+    N
+}
+
+fn main(values: [i32; 2], readonly: &i32) usize {
+    tupleLen((values, readonly))
+}
+"#,
+    );
+
+    assert!(!checked.diagnostics.is_empty());
+    assert!(
+        checked
+            .facts
+            .iter_generic_instantiations()
+            .all(|instance| instance.const_args.is_empty()),
+        "an incompatible tuple must not create a const-generic instance"
+    );
+}
+
+#[test]
 fn infers_range_bound_literals_from_peer_bound_type() {
     let checked = pipeline(
         r#"
