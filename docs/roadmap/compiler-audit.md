@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 181 completed entries in this ledger.
+- Implementation batches: 182 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1021,6 +1021,10 @@ acceptance item only when its phase-wide evidence is complete.
       expressions before termination and resets loop-control scope across
       closure bodies, preventing hidden diagnostics and cross-function
       `break`/`continue` targets.
+- [x] Phase C flow reachability now propagates termination through eager
+      conditions and expression operands while preserving a fallthrough path
+      for short-circuit logical RHS operands; a container matrix covers calls,
+      unary/binary operators, `if`, and `while` conditions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

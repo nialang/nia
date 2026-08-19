@@ -442,23 +442,24 @@ impl FlowChecker<'_> {
                 }
             }
             StmtKind::ForIn(for_stmt) => {
-                self.check_expr_flow(&for_stmt.iter);
+                let iter_flow = self.check_expr_flow(&for_stmt.iter);
                 self.loop_depth += 1;
                 self.check_block(&for_stmt.body);
                 self.loop_depth -= 1;
                 // A syntax-only pass cannot prove iteration or the absence of
-                // a break, so every loop form conservatively permits exit.
+                // a break, so an entered loop conservatively permits exit. An
+                // iterator expression that terminates never enters it.
                 Flow {
-                    falls_through: true,
+                    falls_through: iter_flow.falls_through,
                 }
             }
             StmtKind::While(while_stmt) => {
-                self.check_expr_flow(&while_stmt.cond);
+                let cond_flow = self.check_expr_flow(&while_stmt.cond);
                 self.loop_depth += 1;
                 self.check_block(&while_stmt.body);
                 self.loop_depth -= 1;
                 Flow {
-                    falls_through: true,
+                    falls_through: cond_flow.falls_through,
                 }
             }
             StmtKind::Loop(loop_stmt) => {
@@ -480,7 +481,7 @@ impl FlowChecker<'_> {
                 then_branch,
                 else_branch,
             } => {
-                self.check_expr_flow(cond);
+                let cond_flow = self.check_expr_flow(cond);
                 let then_flow = self.check_block(then_branch);
                 let else_flow = else_branch.as_deref().map_or(
                     Flow {
@@ -489,22 +490,25 @@ impl FlowChecker<'_> {
                     |else_branch| self.check_expr_flow(else_branch),
                 );
                 Flow {
-                    falls_through: then_flow.falls_through || else_flow.falls_through,
+                    falls_through: cond_flow.falls_through
+                        && (then_flow.falls_through || else_flow.falls_through),
                 }
             }
             ExprKind::IfPattern(if_pattern) => {
-                self.check_expr_flow(&if_pattern.target);
+                let target_flow = self.check_expr_flow(&if_pattern.target);
                 self.check_pattern_flow(&if_pattern.pattern);
                 let then_falls_through = self.check_block(&if_pattern.then_branch).falls_through;
                 let mut falls_through = if_pattern.else_branch.is_none() || then_falls_through;
                 if let Some(else_branch) = &if_pattern.else_branch {
                     falls_through |= self.check_expr_flow(else_branch).falls_through;
                 }
-                Flow { falls_through }
+                Flow {
+                    falls_through: target_flow.falls_through && falls_through,
+                }
             }
             ExprKind::Match(matched) => {
                 self.check_match_patterns(matched);
-                self.check_expr_flow(&matched.target);
+                let target_flow = self.check_expr_flow(&matched.target);
                 let mut coverage = SyntacticPatternCoverage::default();
                 let mut all_arms_terminate = !matched.arms.is_empty();
                 for arm in &matched.arms {
@@ -515,31 +519,30 @@ impl FlowChecker<'_> {
                     all_arms_terminate &= !self.check_match_arm_flow(&arm.body).falls_through;
                 }
                 Flow {
-                    falls_through: !(coverage.covers_all() && all_arms_terminate),
+                    falls_through: target_flow.falls_through
+                        && !(coverage.covers_all() && all_arms_terminate),
                 }
             }
             ExprKind::BracketSuffix { callee, args } => {
-                self.check_expr_flow(callee);
+                let mut falls_through = self.check_expr_flow(callee).falls_through;
                 for arg in args {
                     if let Some(expr) = &arg.expr {
-                        self.check_expr_flow(expr);
+                        falls_through &= self.check_expr_flow(expr).falls_through;
                     }
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::Tuple(elems) => {
+                let mut falls_through = true;
                 for elem in elems {
-                    self.check_expr_flow(elem);
+                    falls_through &= self.check_expr_flow(elem).falls_through;
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::Closure { captures, body, .. } => {
+                let mut falls_through = true;
                 for capture in captures {
-                    self.check_expr_flow(&capture.value);
+                    falls_through &= self.check_expr_flow(&capture.value).falls_through;
                 }
                 // A closure body is a separate function-like control-flow
                 // region. Its `break`/`continue` cannot target a loop around
@@ -549,111 +552,98 @@ impl FlowChecker<'_> {
                 self.loop_depth = 0;
                 self.check_expr_flow(body);
                 self.loop_depth = enclosing_loop_depth;
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::ArrayLiteral { elems } => {
+                let mut falls_through = true;
                 match elems {
                     nia_ast::ArrayElements::List(elems) => {
                         for elem in elems {
-                            self.check_expr_flow(elem);
+                            falls_through &= self.check_expr_flow(elem).falls_through;
                         }
                     }
                     nia_ast::ArrayElements::Repeat { value, count } => {
-                        self.check_expr_flow(value);
-                        self.check_expr_flow(count);
+                        falls_through &= self.check_expr_flow(value).falls_through;
+                        falls_through &= self.check_expr_flow(count).falls_through;
                     }
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::TypedStructLiteral { fields, .. } => {
+                let mut falls_through = true;
                 for field in fields {
-                    self.check_expr_flow(&field.value);
+                    falls_through &= self.check_expr_flow(&field.value).falls_through;
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::QualifiedStructLiteral { target, fields } => {
-                self.check_expr_flow(target);
+                let mut falls_through = self.check_expr_flow(target).falls_through;
                 for field in fields {
-                    self.check_expr_flow(&field.value);
+                    falls_through &= self.check_expr_flow(&field.value).falls_through;
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::Unary { expr, .. }
             | ExprKind::OptionalSome { expr }
             | ExprKind::ErrorOk { expr }
             | ExprKind::ErrorErr { expr }
             | ExprKind::Try { expr }
-            | ExprKind::Cast { expr, .. } => {
-                self.check_expr_flow(expr);
+            | ExprKind::Cast { expr, .. } => self.check_expr_flow(expr),
+            ExprKind::Binary { lhs, op, rhs } => {
+                let lhs_flow = self.check_expr_flow(lhs);
+                let rhs_flow = self.check_expr_flow(rhs);
+                // The RHS of logical operators is conditional, so its
+                // termination cannot prove that the complete expression
+                // terminates. Every other binary operand is unconditional.
                 Flow {
-                    falls_through: true,
+                    falls_through: lhs_flow.falls_through
+                        && (matches!(op, nia_ast::BinaryOp::And | nia_ast::BinaryOp::Or)
+                            || rhs_flow.falls_through),
                 }
             }
-            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
-                self.check_expr_flow(lhs);
-                self.check_expr_flow(rhs);
+            ExprKind::Assign { lhs, rhs, .. } => {
+                let rhs_flow = self.check_expr_flow(rhs);
+                let lhs_flow = self.check_expr_flow(lhs);
                 Flow {
-                    falls_through: true,
+                    falls_through: rhs_flow.falls_through && lhs_flow.falls_through,
                 }
             }
             ExprKind::Call { callee, args } => {
-                self.check_expr_flow(callee);
+                let mut falls_through = self.check_expr_flow(callee).falls_through;
                 for arg in args {
-                    self.check_expr_flow(arg);
+                    falls_through &= self.check_expr_flow(arg).falls_through;
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
-            ExprKind::Field { lhs, .. } => {
-                self.check_expr_flow(lhs);
-                Flow {
-                    falls_through: true,
-                }
-            }
-            ExprKind::TupleField { lhs, .. } => {
-                self.check_expr_flow(lhs);
-                Flow {
-                    falls_through: true,
-                }
+            ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
+                self.check_expr_flow(lhs)
             }
             ExprKind::Index { lhs, index } => {
-                self.check_expr_flow(lhs);
+                let mut falls_through = self.check_expr_flow(lhs).falls_through;
                 match index {
                     IndexArg::Expr(index) => {
-                        self.check_expr_flow(index);
+                        falls_through &= self.check_expr_flow(index).falls_through;
                     }
                     IndexArg::Range(range) => {
                         if let Some(start) = &range.start {
-                            self.check_expr_flow(start);
+                            falls_through &= self.check_expr_flow(start).falls_through;
                         }
                         if let Some(end) = &range.end {
-                            self.check_expr_flow(end);
+                            falls_through &= self.check_expr_flow(end).falls_through;
                         }
                     }
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::Range(range) => {
+                let mut falls_through = true;
                 if let Some(start) = &range.start {
-                    self.check_expr_flow(start);
+                    falls_through &= self.check_expr_flow(start).falls_through;
                 }
                 if let Some(end) = &range.end {
-                    self.check_expr_flow(end);
+                    falls_through &= self.check_expr_flow(end).falls_through;
                 }
-                Flow {
-                    falls_through: true,
-                }
+                Flow { falls_through }
             }
             ExprKind::Error
             | ExprKind::Integer(_)
@@ -1296,6 +1286,63 @@ fn main() () {
                 .count(),
             1,
             "closure break must not target an enclosing loop: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn propagates_termination_from_eager_expression_operands() {
+        let checked = pipeline(
+            r#"
+fn consume(value: i32) {}
+fn truth(value: i32) bool { true }
+
+fn call_arg() i32 {
+    consume({ return 1; });
+}
+
+fn unary_operand() i32 {
+    -{ return 1; };
+}
+
+fn binary_operand() i32 {
+    1 + { return 1; };
+}
+
+fn condition() i32 {
+    if truth({ return 1; }) {
+        return 2;
+    };
+}
+
+fn while_condition() i32 {
+    while truth({ return 1; }) {}
+}
+"#,
+        );
+        assert!(
+            checked.diagnostics.iter().all(|diagnostic| !diagnostic
+                .summary
+                .contains("does not return on all reachable paths")),
+            "eager operand termination must reach the enclosing statement: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn short_circuit_rhs_does_not_prove_enclosing_termination() {
+        let checked = pipeline(
+            r#"
+fn short_circuit(flag: bool) i32 {
+    flag and { return 1; true };
+}
+"#,
+        );
+        assert!(
+            checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .summary
+                .contains("does not return on all reachable paths")),
+            "a skipped logical RHS leaves a fallthrough path: {:?}",
             checked.diagnostics
         );
     }
