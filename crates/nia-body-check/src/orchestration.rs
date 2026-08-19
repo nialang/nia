@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+/// Checks active module bodies with local signatures and default products.
 pub fn check_module_bodies(
     type_store: &nia_ty::TypeStore,
     module: &Module,
@@ -79,10 +80,12 @@ pub fn check_module_bodies(
     checked
 }
 
+/// Checks bodies using caller-provided layouts and product/filter settings.
 pub fn check_module_bodies_with_layouts(input: BodyCheckInput<'_>) -> BodyCheck {
     check_module_bodies_with_program_signatures_and_layouts(input)
 }
 
+/// Checks bodies against program-wide signatures without custom layouts.
 pub fn check_module_bodies_with_program_signatures(
     input: BodyCheckWithProgramSignaturesInput<'_>,
 ) -> BodyCheck {
@@ -203,6 +206,7 @@ fn semantic_use_table_for_body_input(
     builder.finish()
 }
 
+/// Checks bodies with program-wide signatures and caller-provided layouts.
 pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
@@ -212,6 +216,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     )
 }
 
+/// Full body-check entry point with optional stage timing collection.
 pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     input: BodyCheckInput<'a>,
     timings: nia_timing::TimingMode,

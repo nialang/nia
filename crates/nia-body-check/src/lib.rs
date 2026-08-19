@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Typed body checking, semantic-fact production, and Body IR validation.
+//!
+//! The checker consumes resolved frontend products and emits diagnostics plus
+//! independently reusable typed facts, static initializers, and Body IR. Query
+//! callers select a product/filter explicitly so reachability and cache reuse
+//! cannot silently alter which semantic work is performed.
+
 use std::cell::RefCell;
 use std::fmt;
 use std::{

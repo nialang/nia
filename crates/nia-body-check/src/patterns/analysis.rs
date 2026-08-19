@@ -15,6 +15,11 @@ impl BodyChecker<'_> {
         target_ty: InternedTyId,
         matrix: &[Vec<AnalysisPattern<PatternConstructor>>],
     ) {
+        // The pure matrix engine receives only constructors whose type/domain
+        // facts are sound. Unknown names, malformed nominal fields, open enum
+        // tails, and unavailable constant values become `Opaque`; that keeps
+        // the checker conservative instead of manufacturing an exhaustive
+        // proof from incomplete semantic inputs.
         match missing_witness(matrix, target_ty, |ty| self.analysis_domain(*ty)) {
             Ok(None) => {}
             Ok(Some(witness)) => {
@@ -191,6 +196,10 @@ impl BodyChecker<'_> {
         fields: &nia_ast::NominalPatternFields,
         target_ty: InternedTyId,
     ) -> AnalysisPattern<PatternConstructor> {
+        // Normalize named `..` patterns into declaration order. The matrix
+        // algorithm compares constructor fields positionally, so omitted
+        // fields must become typed wildcards before usefulness/exhaustiveness
+        // is queried.
         if let Some((enum_id, variant_def)) = self.enum_variant_info(constructor) {
             if self.enum_global_def_id(target_ty) != Some(enum_id) {
                 return AnalysisPattern::Opaque;
