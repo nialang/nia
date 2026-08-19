@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 166 completed entries in this ledger.
+- Implementation batches: 168 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -967,6 +967,13 @@ acceptance item only when its phase-wide evidence is complete.
       operator/range payloads, lowering input providers, and all public early
       statement/pattern fields. `nia-const-ir` strict Rustdoc is now clean;
       its 15 tests and strict Clippy pass.
+- [x] Phase C body-check input/product boundary audit now documents cached const
+      phase views, program providers, reachability/product filters, local and
+      program signature scopes, diagnostic ownership, and incremental reuse.
+      Pattern-matrix adapters now explain conservative opaque fallback and
+      nominal rest-field expansion; the body-check Rustdoc baseline fell from
+      152 to 46 remaining internal/provider schema warnings. Its 230 tests,
+      strict Clippy, and format checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
