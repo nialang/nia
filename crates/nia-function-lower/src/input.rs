@@ -3,13 +3,16 @@ use super::*;
 
 pub(super) fn validate_function_lowering_input(
     body: &TypedBody,
+    types: &FunctionTypeContext<'_>,
 ) -> Result<(), FunctionLoweringDiagnostic> {
-    BodyInputValidator.validate_effect_body(body)
+    BodyInputValidator { types }.validate_effect_body(body)
 }
 
-struct BodyInputValidator;
+struct BodyInputValidator<'context, 'store> {
+    types: &'context FunctionTypeContext<'store>,
+}
 
-impl BodyInputValidator {
+impl BodyInputValidator<'_, '_> {
     fn validate_effect_body(&self, body: &TypedBody) -> Result<(), FunctionLoweringDiagnostic> {
         for stmt in &body.stmts {
             self.validate_stmt(stmt)?;
@@ -213,7 +216,13 @@ impl BodyInputValidator {
                 }
                 Ok(())
             }
-            TypedExprKind::Closure { captures, body, .. } => {
+            TypedExprKind::Closure {
+                closure_id,
+                captures,
+                params,
+                body,
+            } => {
+                self.validate_closure_contract(expr, *closure_id, captures, params, body)?;
                 for capture in captures {
                     self.validate_value_expr(&capture.value)?;
                 }
@@ -415,7 +424,16 @@ impl BodyInputValidator {
 
     fn validate_callee(&self, callee: &TypedCallee) -> Result<(), FunctionLoweringDiagnostic> {
         match callee {
-            TypedCallee::Closure(callee) => self.validate_value_expr(callee),
+            TypedCallee::Closure(callee) => {
+                self.validate_value_expr(callee)?;
+                if !matches!(self.types.get(callee.ty), Some(TyKind::ClosureState { .. })) {
+                    return Err(FunctionLoweringDiagnostic {
+                        span: callee.span,
+                        message: "closure callee does not have a closure-state type".to_string(),
+                    });
+                }
+                Ok(())
+            }
             TypedCallee::Method { receiver, .. }
             | TypedCallee::TraitMethod { receiver, .. }
             | TypedCallee::DynamicTraitMethod { receiver, .. }
@@ -428,6 +446,97 @@ impl BodyInputValidator {
             | TypedCallee::TraitAssociatedFunction { .. }
             | TypedCallee::BuiltinOperator(_) => Ok(()),
         }
+    }
+
+    fn validate_closure_contract(
+        &self,
+        expr: &TypedExpr,
+        closure_id: ClosureId,
+        captures: &[nia_body_ir::TypedClosureCapture],
+        params: &[LocalId],
+        body: &TypedBody,
+    ) -> Result<(), FunctionLoweringDiagnostic> {
+        // This is the ABI shape consumed by `ensure_closure_entry`, not a
+        // second type-checking pass. Validate every field that lowering zips
+        // or maps by position so malformed recovery products cannot turn its
+        // internal assertions into a process panic.
+        let Some(TyKind::ClosureState {
+            closure_id: type_closure_id,
+            captures: capture_types,
+            params: param_types,
+            return_type,
+        }) = self.types.get(expr.ty)
+        else {
+            return Err(FunctionLoweringDiagnostic {
+                span: expr.span,
+                message: "closure expression does not have a closure-state type".to_string(),
+            });
+        };
+        if *type_closure_id != closure_id {
+            return Err(FunctionLoweringDiagnostic {
+                span: expr.span,
+                message: "closure expression identity does not match its closure-state type"
+                    .to_string(),
+            });
+        }
+        if capture_types.len() != captures.len() {
+            return Err(FunctionLoweringDiagnostic {
+                span: expr.span,
+                message: "closure capture count does not match its closure-state type".to_string(),
+            });
+        }
+        if param_types.len() != params.len() {
+            return Err(FunctionLoweringDiagnostic {
+                span: expr.span,
+                message: "closure parameter count does not match its closure-state type"
+                    .to_string(),
+            });
+        }
+        if *return_type != body.ty {
+            return Err(FunctionLoweringDiagnostic {
+                span: body.span,
+                message: "closure body type does not match its closure-state return type"
+                    .to_string(),
+            });
+        }
+        let mut capture_locals = std::collections::HashSet::with_capacity(captures.len());
+        for (capture, expected) in captures.iter().zip(capture_types) {
+            if !capture_locals.insert(capture.local_id) {
+                return Err(FunctionLoweringDiagnostic {
+                    span: expr.span,
+                    message: "closure capture locals must be unique".to_string(),
+                });
+            }
+            if capture.value.ty != *expected {
+                return Err(FunctionLoweringDiagnostic {
+                    span: capture.value.span,
+                    message: "closure capture type does not match its closure-state field"
+                        .to_string(),
+                });
+            }
+        }
+        let mut param_locals = std::collections::HashSet::with_capacity(params.len());
+        for (param, expected) in params.iter().zip(param_types) {
+            if !param_locals.insert(*param) || capture_locals.contains(param) {
+                return Err(FunctionLoweringDiagnostic {
+                    span: body.span,
+                    message: "closure capture and parameter locals must be distinct".to_string(),
+                });
+            }
+            if body
+                .locals
+                .iter()
+                .find(|local| local.id == *param)
+                .is_none_or(|local| local.ty != *expected)
+            {
+                return Err(FunctionLoweringDiagnostic {
+                    span: body.span,
+                    message: "closure parameter local does not match its closure-state signature"
+                        .to_string(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn validate_place(&self, place: &TypedPlace) -> Result<(), FunctionLoweringDiagnostic> {
