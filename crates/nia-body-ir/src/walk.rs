@@ -286,3 +286,199 @@ fn walk_callee<'a>(callee: &'a TypedCallee, visit: &mut impl FnMut(&'a TypedBody
         | TypedCallee::BuiltinOperator(_) => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::walk_typed_function_bodies;
+    use crate::{
+        TypedClosureCapture, TypedExpr, TypedExprKind, TypedForIn, TypedIfPattern, TypedLoop,
+        TypedMatch, TypedMatchArm, TypedMatchArmBody, TypedPattern, TypedPatternKind, TypedStmt,
+        TypedStmtKind, TypedWhile,
+    };
+    use nia_ids::{
+        ClosureId, DefId, GlobalDefId, InternedTyId, LocalId, ModuleId, ModuleIdAllocator,
+    };
+    use nia_span::Span;
+    use nia_ty::{PrimitiveTy, TypeStore};
+
+    struct Fixture {
+        _types: TypeStore,
+        module_id: ModuleId,
+        ty: InternedTyId,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let types = TypeStore::new();
+            let module_id = ModuleIdAllocator::new().allocate();
+            let ty = types
+                .append_for_module(module_id)
+                .primitive(PrimitiveTy::Bool);
+            Self {
+                _types: types,
+                module_id,
+                ty,
+            }
+        }
+
+        fn body(&self, marker: usize) -> crate::TypedBody {
+            crate::TypedBody {
+                span: Span::new(marker, marker + 1),
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                tail: None,
+                ty: self.ty,
+            }
+        }
+
+        fn expr(&self, kind: TypedExprKind) -> TypedExpr {
+            TypedExpr {
+                span: Span::default(),
+                ty: self.ty,
+                kind,
+            }
+        }
+
+        fn block(&self, marker: usize) -> TypedExpr {
+            self.expr(TypedExprKind::Block(self.body(marker)))
+        }
+
+        fn pattern(&self, kind: TypedPatternKind) -> TypedPattern {
+            TypedPattern {
+                ty: self.ty,
+                span: Span::default(),
+                kind,
+            }
+        }
+
+        fn visited_markers(&self, root: &crate::TypedBody) -> Vec<usize> {
+            let mut markers = Vec::new();
+            walk_typed_function_bodies(root, &mut |body| markers.push(body.span.start));
+            markers
+        }
+    }
+
+    #[test]
+    fn visits_loop_and_conditional_bodies_in_preorder() {
+        let fixture = Fixture::new();
+        let mut then_branch = fixture.body(40);
+        then_branch.tail = Some(Box::new(fixture.block(41)));
+
+        let mut root = fixture.body(0);
+        root.stmts = vec![
+            TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
+                    pattern: fixture.pattern(TypedPatternKind::Wildcard),
+                    item_ty: fixture.ty,
+                    bool_ty: fixture.ty,
+                    iterable_self_ty: fixture.ty,
+                    iterator_ty: fixture.ty,
+                    iter: fixture.expr(TypedExprKind::Bool(true)),
+                    body: fixture.body(10),
+                })),
+            },
+            TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::While(Box::new(TypedWhile {
+                    cond: fixture.expr(TypedExprKind::Bool(true)),
+                    body: fixture.body(20),
+                })),
+            },
+            TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::Loop(Box::new(TypedLoop {
+                    body: fixture.body(30),
+                })),
+            },
+        ];
+        root.tail = Some(Box::new(fixture.expr(TypedExprKind::If {
+            cond: Box::new(fixture.expr(TypedExprKind::Bool(true))),
+            then_branch,
+            else_branch: Some(Box::new(fixture.block(42))),
+        })));
+
+        assert_eq!(
+            fixture.visited_markers(&root),
+            vec![0, 10, 20, 30, 40, 41, 42]
+        );
+    }
+
+    #[test]
+    fn visits_pattern_expressions_and_every_match_arm_body_form() {
+        let fixture = Fixture::new();
+        let match_expr = fixture.expr(TypedExprKind::Match(Box::new(TypedMatch {
+            target: fixture.block(60),
+            bool_ty: fixture.ty,
+            arms: vec![
+                TypedMatchArm {
+                    patterns: vec![fixture.pattern(TypedPatternKind::Expr(fixture.block(70)))],
+                    body: TypedMatchArmBody::Expr(Box::new(fixture.block(80))),
+                    span: Span::default(),
+                },
+                TypedMatchArm {
+                    patterns: vec![fixture.pattern(TypedPatternKind::Range {
+                        start: Box::new(fixture.block(71)),
+                        end: Box::new(fixture.block(72)),
+                        inclusive: true,
+                    })],
+                    body: TypedMatchArmBody::Stmt(Box::new(TypedStmt {
+                        span: Span::default(),
+                        kind: TypedStmtKind::Loop(Box::new(TypedLoop {
+                            body: fixture.body(90),
+                        })),
+                    })),
+                    span: Span::default(),
+                },
+                TypedMatchArm {
+                    patterns: vec![fixture.pattern(TypedPatternKind::Wildcard)],
+                    body: TypedMatchArmBody::Block(Box::new(fixture.body(100))),
+                    span: Span::default(),
+                },
+            ],
+        })));
+        let mut root = fixture.body(0);
+        root.tail = Some(Box::new(fixture.expr(TypedExprKind::IfPattern(Box::new(
+            TypedIfPattern {
+                target: fixture.block(10),
+                bool_ty: fixture.ty,
+                pattern: fixture.pattern(TypedPatternKind::Tuple(vec![
+                    fixture.pattern(TypedPatternKind::Expr(fixture.block(20))),
+                    fixture.pattern(TypedPatternKind::Range {
+                        start: Box::new(fixture.block(30)),
+                        end: Box::new(fixture.block(40)),
+                        inclusive: false,
+                    }),
+                ])),
+                then_branch: fixture.body(50),
+                else_branch: Some(Box::new(match_expr)),
+            },
+        )))));
+
+        assert_eq!(
+            fixture.visited_markers(&root),
+            vec![0, 10, 20, 30, 40, 50, 60, 70, 80, 71, 72, 90, 100]
+        );
+    }
+
+    #[test]
+    fn visits_closure_captures_but_stops_at_the_closure_body() {
+        let fixture = Fixture::new();
+        let owner = GlobalDefId {
+            module_id: fixture.module_id,
+            def_id: DefId(0),
+        };
+        let mut root = fixture.body(0);
+        root.tail = Some(Box::new(fixture.expr(TypedExprKind::Closure {
+            closure_id: ClosureId { owner, ordinal: 0 },
+            captures: vec![TypedClosureCapture {
+                local_id: LocalId(0),
+                value: fixture.block(10),
+            }],
+            params: Vec::new(),
+            body: fixture.body(99),
+        })));
+
+        assert_eq!(fixture.visited_markers(&root), vec![0, 10]);
+    }
+}
