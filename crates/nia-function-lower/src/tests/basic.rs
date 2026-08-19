@@ -143,22 +143,16 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
     let value = LocalId(3);
     let closure_body = TypedBody {
         span,
-        locals: vec![
-            TypedLocal {
-                id: captured_base,
-                name: local_name("base"),
-                kind: TypedLocalKind::ImmutableBinding,
-                ty: i32_ty,
-                span,
-            },
-            TypedLocal {
-                id: value,
-                name: local_name("value"),
-                kind: TypedLocalKind::Param,
-                ty: i32_ty,
-                span,
-            },
-        ],
+        // Capture aliases belong to `TypedClosureCapture`, not the closure
+        // body's storage-bearing local table. Only the ABI parameter is local
+        // to this body.
+        locals: vec![TypedLocal {
+            id: value,
+            name: local_name("value"),
+            kind: TypedLocalKind::Param,
+            ty: i32_ty,
+            span,
+        }],
         stmts: Vec::new(),
         tail: Some(Box::new(TypedExpr {
             span,
@@ -296,6 +290,114 @@ fn lowers_closure_state_and_direct_call_to_generated_entry() {
             ..
         } if *id == closure_id && matches!(state.kind, FunctionExprKind::AddrOf(_))
     )));
+
+    fn closure_value_mut(body: &mut TypedBody) -> &mut TypedExpr {
+        let TypedStmtKind::Binding(binding) = &mut body.stmts[0].kind else {
+            panic!("expected closure binding");
+        };
+        binding.value.as_mut().expect("closure initializer")
+    }
+
+    let assert_rejected = |candidate: &TypedBody, expected: &str| {
+        let error = lower_function_body(
+            module_id,
+            candidate,
+            FunctionTypeContext::for_module(&type_store, module_id),
+        )
+        .expect_err("malformed closure contract must not lower");
+        assert!(error.message.contains(expected), "{error:?}");
+    };
+
+    let mut malformed = body.clone();
+    closure_value_mut(&mut malformed).ty = i32_ty;
+    assert_rejected(&malformed, "does not have a closure-state type");
+
+    let other_closure_ty = append.intern(TyKind::ClosureState {
+        closure_id: ClosureId {
+            owner: closure_id.owner,
+            ordinal: 1,
+        },
+        captures: vec![i32_ty],
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    let mut malformed = body.clone();
+    closure_value_mut(&mut malformed).ty = other_closure_ty;
+    assert_rejected(&malformed, "identity does not match");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Closure { captures, .. } = &mut closure_value_mut(&mut malformed).kind
+    else {
+        panic!("expected closure initializer");
+    };
+    captures.clear();
+    assert_rejected(&malformed, "capture count does not match");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Closure { params, .. } = &mut closure_value_mut(&mut malformed).kind else {
+        panic!("expected closure initializer");
+    };
+    params.clear();
+    assert_rejected(&malformed, "parameter count does not match");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Closure {
+        body: closure_body, ..
+    } = &mut closure_value_mut(&mut malformed).kind
+    else {
+        panic!("expected closure initializer");
+    };
+    closure_body.ty = closure_ty;
+    assert_rejected(&malformed, "body type does not match");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Closure { captures, .. } = &mut closure_value_mut(&mut malformed).kind
+    else {
+        panic!("expected closure initializer");
+    };
+    captures[0].value.ty = closure_ty;
+    assert_rejected(&malformed, "capture type does not match");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Closure {
+        body: closure_body, ..
+    } = &mut closure_value_mut(&mut malformed).kind
+    else {
+        panic!("expected closure initializer");
+    };
+    closure_body
+        .locals
+        .iter_mut()
+        .find(|local| local.id == value)
+        .expect("parameter local")
+        .ty = closure_ty;
+    assert_rejected(&malformed, "parameter local does not match");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Closure { captures, .. } = &mut closure_value_mut(&mut malformed).kind
+    else {
+        panic!("expected closure initializer");
+    };
+    captures.push(captures[0].clone());
+    let duplicate_capture_ty = append.intern(TyKind::ClosureState {
+        closure_id,
+        captures: vec![i32_ty, i32_ty],
+        params: vec![i32_ty],
+        return_type: i32_ty,
+    });
+    closure_value_mut(&mut malformed).ty = duplicate_capture_ty;
+    assert_rejected(&malformed, "capture locals must be unique");
+
+    let mut malformed = body.clone();
+    let TypedExprKind::Call {
+        callee: TypedCallee::Closure(callee),
+        ..
+    } = &mut malformed.tail.as_mut().expect("call tail").kind
+    else {
+        panic!("expected closure call");
+    };
+    callee.ty = i32_ty;
+    assert_rejected(&malformed, "callee does not have a closure-state type");
 }
 
 #[test]

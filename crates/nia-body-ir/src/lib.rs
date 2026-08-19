@@ -614,7 +614,11 @@ pub enum TypedExprKind {
 /// One captured local and its lowered value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedClosureCapture {
-    /// Captured local identity.
+    /// Entry-body alias for this capture slot.
+    ///
+    /// The alias is resolved from closure state by function lowering and is
+    /// therefore intentionally absent from the closure body's
+    /// storage-bearing [`TypedBody::locals`] table.
     pub local_id: LocalId,
     /// Value captured for the closure state.
     pub value: TypedExpr,

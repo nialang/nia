@@ -106,7 +106,7 @@ pub fn lower_function_body(
     body: &TypedBody,
     types: FunctionTypeContext<'_>,
 ) -> Result<LoweredFunctionBody, FunctionLoweringDiagnostic> {
-    input::validate_function_lowering_input(body)?;
+    input::validate_function_lowering_input(body, &types)?;
     let mut lowerer = FunctionLowerer::new(module_id, types);
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;

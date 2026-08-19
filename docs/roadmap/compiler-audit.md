@@ -1041,6 +1041,12 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase C method receivers now obey the same explicit closure boundary as
       named locals; direct `self` uses diagnose the required bind-and-capture
       form before Body IR instead of reaching backend entries as missing locals.
+- [x] Phase C function-lowering input validation now checks closure-state
+      identity, capture and parameter arity/types, return ABI, distinct slot
+      locals, and direct closure-callee shape before entry extraction. Malformed
+      typed products return diagnostics instead of reaching closure lowering's
+      assertions; Body IR Rustdoc records capture-alias versus body-local
+      ownership.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
