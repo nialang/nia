@@ -1078,6 +1078,10 @@ acceptance item only when its phase-wide evidence is complete.
       matching arity before contributing generic substitutions, preventing
       malformed closures from partially selecting a concrete instance before
       the authoritative argument check reports the structural mismatch.
+- [x] Phase A closure-signature inference now preserves the `&` versus `&mut`
+      address operator when matching canonical callable views, so readonly
+      closure addresses cannot seed substitutions for mutable `&mut Fn`
+      candidates before authoritative argument checking.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.

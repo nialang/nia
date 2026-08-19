@@ -652,14 +652,33 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = self.inferred_closure_signature(expr).cloned() else {
             return false;
         };
+        // `&Fn` is canonicalized to `TyKind::Callable`, so the address
+        // operator is the only remaining source of the closure state's
+        // mutability during pre-check inference.
+        let closure_address_readonly = match &expr.kind {
+            ExprKind::Unary {
+                op: nia_ast::UnaryOp::RefReadOnly,
+                ..
+            } => Some(true),
+            ExprKind::Unary {
+                op: nia_ast::UnaryOp::Ref,
+                ..
+            } => Some(false),
+            _ => None,
+        };
         let pattern = self.normalization.normalize(pattern);
         let Some((params, return_type)) = (match self.interner.get(pattern).cloned() {
             Some(TyKind::Callable {
+                is_readonly: pattern_readonly,
                 params,
                 return_type,
-                ..
-            })
-            | Some(TyKind::CallablePointee {
+            }) if closure_address_readonly.is_some_and(|actual_readonly| {
+                pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly
+            }) =>
+            {
+                Some((params, return_type))
+            }
+            Some(TyKind::CallablePointee {
                 params,
                 return_type,
             })
@@ -668,9 +687,6 @@ impl<'a> BodyChecker<'a> {
                 return_type,
                 is_variadic: false,
             }) => Some((params, return_type)),
-            Some(TyKind::Pointer { elem, .. }) => {
-                return self.infer_generics_from_closure_signature(elem, expr, substitutions, span);
-            }
             _ => None,
         }) else {
             return false;
