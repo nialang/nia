@@ -1113,6 +1113,11 @@ pub struct BackendClosureEntryKey {
 
 /// Backend-visible ABI of a generated closure entry.
 ///
+/// `state_type` is a [`TyKind::ClosureState`](nia_ty::TyKind::ClosureState)
+/// whose identity, parameter types, and return type match the entry key and
+/// the remaining ABI fields. Backend validation checks that relation before
+/// LLVM type construction.
+///
 /// `state_pointer_type` is the hidden first parameter. User parameters follow
 /// in source order and the entry is never variadic.
 #[derive(Debug, Clone, PartialEq, Eq)]
