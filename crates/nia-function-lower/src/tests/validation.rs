@@ -131,6 +131,46 @@ fn rejects_error_expr_before_function_ir_is_built() {
 }
 
 #[test]
+fn rejects_error_expr_nested_in_for_pattern_before_function_ir_is_built() {
+    let ty = test_ty();
+    let body = TypedBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        stmts: vec![TypedStmt {
+            span: Span::default(),
+            kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
+                pattern: TypedPattern {
+                    ty,
+                    span: Span::default(),
+                    kind: TypedPatternKind::Expr(TypedExpr {
+                        span: Span::default(),
+                        ty,
+                        kind: TypedExprKind::Error,
+                    }),
+                },
+                item_ty: ty,
+                bool_ty: ty,
+                iterable_self_ty: ty,
+                iterator_ty: ty,
+                iter: int_expr(0),
+                body: empty_body(ty),
+            })),
+        }],
+        tail: None,
+        ty,
+    };
+
+    let error = lower_test_function_body(&body).expect_err("error pattern must not lower");
+
+    assert!(
+        error
+            .message
+            .contains("error expression escaped into function lowering input"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn rejects_error_place_before_function_ir_is_built() {
     let ty = test_ty();
     let body = TypedBody {
