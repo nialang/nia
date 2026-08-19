@@ -362,6 +362,7 @@ impl<'a> Analyzer<'a> {
                     env.insert(binding.local_id, value);
                 }
                 TypedStmtKind::PatternBinding(binding) => {
+                    self.analyze_pattern(&binding.pattern, env);
                     let value = self.analyze_expr(&binding.value, env);
                     bind_pattern(&binding.pattern, &value, env);
                 }
@@ -384,6 +385,7 @@ impl<'a> Analyzer<'a> {
                 TypedStmtKind::ForIn(for_in) => {
                     let value = self.analyze_expr(&for_in.iter, env);
                     let mut loop_env = env.clone();
+                    self.analyze_pattern(&for_in.pattern, &mut loop_env);
                     bind_pattern(&for_in.pattern, &value, &mut loop_env);
                     self.analyze_loop(&for_in.body, env, loop_env);
                 }
@@ -730,6 +732,7 @@ impl<'a> Analyzer<'a> {
                 let target = self.analyze_expr(&pattern.target, env);
                 let base = env.clone();
                 let mut then_env = base.clone();
+                self.analyze_pattern(&pattern.pattern, &mut then_env);
                 bind_pattern(&pattern.pattern, &target, &mut then_env);
                 let then_value = self.analyze_nested_body(&pattern.then_branch, &mut then_env);
                 let mut else_env = base;
@@ -752,6 +755,7 @@ impl<'a> Analyzer<'a> {
                 for arm in &matched.arms {
                     let mut arm_env = base.clone();
                     for pattern in &arm.patterns {
+                        self.analyze_pattern(pattern, &mut arm_env);
                         bind_pattern(pattern, &target, &mut arm_env);
                     }
                     let arm_value = match &arm.body {
@@ -789,6 +793,39 @@ impl<'a> Analyzer<'a> {
             .into_iter()
             .map(|expr| self.analyze_expr(expr, env).all())
             .fold(Provenances::new(), union)
+    }
+
+    fn analyze_pattern(&mut self, pattern: &TypedPattern, env: &mut Environment) {
+        // Expression and range patterns are evaluated by function lowering.
+        // Replay them here in declaration order so their calls, stores, and
+        // environment mutations cannot disappear from escape summaries.
+        match &pattern.kind {
+            TypedPatternKind::Pointer(inner)
+            | TypedPatternKind::MutPointer(inner)
+            | TypedPatternKind::OptionalSome(inner)
+            | TypedPatternKind::ErrorOk(inner)
+            | TypedPatternKind::ErrorErr(inner) => self.analyze_pattern(inner, env),
+            TypedPatternKind::Tuple(patterns)
+            | TypedPatternKind::Nominal {
+                fields: patterns, ..
+            } => {
+                for pattern in patterns {
+                    self.analyze_pattern(pattern, env);
+                }
+            }
+            TypedPatternKind::Expr(expr) => {
+                self.analyze_expr(expr, env);
+            }
+            TypedPatternKind::Range { start, end, .. } => {
+                self.analyze_expr(start, env);
+                self.analyze_expr(end, env);
+            }
+            TypedPatternKind::Wildcard
+            | TypedPatternKind::Bind { .. }
+            | TypedPatternKind::OptionalNull
+            | TypedPatternKind::CheckedInt { .. }
+            | TypedPatternKind::CheckedIntRange { .. } => {}
+        }
     }
 
     fn analyze_atomic(
@@ -1511,6 +1548,144 @@ mod tests {
             },
             ordinal: 0,
         }
+    }
+
+    #[test]
+    fn discovers_closures_nested_in_pattern_operands() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: unit_ty,
+        });
+        let closure = |ordinal| TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Closure {
+                closure_id: ClosureId { owner, ordinal },
+                captures: Vec::new(),
+                params: Vec::new(),
+                body: TypedBody {
+                    span: Span::default(),
+                    locals: Vec::new(),
+                    stmts: Vec::new(),
+                    tail: None,
+                    ty,
+                },
+            },
+        };
+        let body = TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: vec![nia_body_ir::TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::PatternBinding(Box::new(nia_body_ir::TypedPatternBinding {
+                    pattern: TypedPattern {
+                        ty,
+                        span: Span::default(),
+                        kind: TypedPatternKind::Tuple(vec![
+                            TypedPattern {
+                                ty,
+                                span: Span::default(),
+                                kind: TypedPatternKind::Expr(closure(0)),
+                            },
+                            TypedPattern {
+                                ty,
+                                span: Span::default(),
+                                kind: TypedPatternKind::Range {
+                                    start: Box::new(closure(1)),
+                                    end: Box::new(closure(2)),
+                                    inclusive: true,
+                                },
+                            },
+                        ]),
+                    },
+                    value: TypedExpr {
+                        span: Span::default(),
+                        ty,
+                        kind: TypedExprKind::Tuple(Vec::new()),
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+        let mut callables = HashMap::new();
+
+        collect_body_closures(&body, &mut callables);
+
+        assert!((0..3).all(|ordinal| {
+            callables.contains_key(&CallableKey::Closure(ClosureId { owner, ordinal }))
+        }));
+    }
+
+    #[test]
+    fn pattern_operand_effects_contribute_to_escape_analysis() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let owner = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let closure_id = ClosureId { owner, ordinal: 0 };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let unit_ty = append.intern(TyKind::Tuple(Vec::new()));
+        let ty = append.intern(TyKind::Callable {
+            is_readonly: true,
+            params: Vec::new(),
+            return_type: unit_ty,
+        });
+        let selected = LocalId(0);
+        let pattern = TypedPattern {
+            span: Span::default(),
+            ty,
+            kind: TypedPatternKind::Expr(TypedExpr {
+                span: Span::default(),
+                ty,
+                kind: TypedExprKind::Assign {
+                    place: TypedPlace {
+                        span: Span::default(),
+                        ty,
+                        base: PlaceBase::Global(GlobalDefId {
+                            module_id,
+                            def_id: DefId(2),
+                        }),
+                        elems: Vec::new(),
+                    },
+                    op: nia_ast::AssignOp::Assign,
+                    rhs: Box::new(TypedExpr {
+                        span: Span::default(),
+                        ty,
+                        kind: TypedExprKind::Local(selected),
+                    }),
+                },
+            }),
+        };
+        let mut env = Environment::from([(
+            selected,
+            ValueProvenance::from_value(Provenances::from([Provenance::CallableClosure {
+                closure_id,
+                stack_backed: true,
+            }])),
+        )]);
+        let summaries = HashMap::new();
+        let mut analyzer = Analyzer::new(&types, &summaries, None);
+
+        analyzer.analyze_pattern(&pattern, &mut env);
+
+        assert!(analyzer.escaped.contains(&Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        }));
     }
 
     #[test]

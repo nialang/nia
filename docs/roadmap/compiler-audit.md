@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 171 completed entries in this ledger.
+- Implementation batches: 172 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -983,6 +983,10 @@ acceptance item only when its phase-wide evidence is complete.
       before consuming the iterator/body, closing the sole statement-path gap
       where a nested recovery expression could bypass malformed Body IR
       rejection and reach pattern lowering.
+- [x] Phase C closure discovery and provenance analysis now traverse expression
+      and range patterns across bindings, loops, if-patterns, and match arms;
+      nested closures in those runtime-evaluated pattern operands no longer
+      degrade to unknown-call summaries.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
