@@ -886,6 +886,10 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
+    /// Checks source-level type compatibility after alias/projection
+    /// normalization. The result is cached by interned pair, except when an
+    /// unevaluated const-expression array length makes the answer depend on
+    /// later const-evaluation state.
     pub(crate) fn types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
         if let Some(matches) = self.type_match_cache.get(&(expected, actual)).copied() {
             return matches;
@@ -1138,6 +1142,23 @@ impl<'a> BodyChecker<'a> {
                         .all(|(expected, actual)| self.const_generic_args_match(expected, actual))
             }
             (
+                Some(TyKind::BuiltinTrait {
+                    trait_id: expected_trait,
+                    args: expected_args,
+                }),
+                Some(TyKind::BuiltinTrait {
+                    trait_id: actual_trait,
+                    args: actual_args,
+                }),
+            ) => {
+                expected_trait == actual_trait
+                    && expected_args.len() == actual_args.len()
+                    && expected_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, actual))
+            }
+            (
                 Some(TyKind::Range {
                     kind: expected_kind,
                     bound: expected_bound,
@@ -1214,35 +1235,35 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .zip(actual_const_args.iter())
                         .all(|(expected, actual)| self.const_generic_args_match(expected, actual))
-                    && expected_bindings.iter().all(|expected_binding| {
-                        actual_bindings
-                            .iter()
-                            .find(|actual_binding| {
-                                actual_binding.name == expected_binding.name
-                                    && actual_binding.trait_id == expected_binding.trait_id
-                                    && actual_binding.trait_args.len()
-                                        == expected_binding.trait_args.len()
-                                    && actual_binding.trait_const_args.len()
-                                        == expected_binding.trait_const_args.len()
-                                    && actual_binding
-                                        .trait_args
-                                        .iter()
-                                        .zip(expected_binding.trait_args.iter())
-                                        .all(|(actual, expected)| {
-                                            self.types_match_normalized(*expected, *actual)
-                                        })
-                                    && actual_binding
-                                        .trait_const_args
-                                        .iter()
-                                        .zip(expected_binding.trait_const_args.iter())
-                                        .all(|(actual, expected)| {
-                                            self.const_generic_args_match(expected, actual)
-                                        })
-                            })
-                            .is_some_and(|actual_binding| {
-                                self.types_match_normalized(expected_binding.ty, actual_binding.ty)
-                            })
-                    })
+                    && self.associated_type_bindings_match(&expected_bindings, &actual_bindings)
+            }
+            (
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: expected_trait,
+                    trait_args: expected_args,
+                    trait_const_args: expected_const_args,
+                    associated_type_bindings: expected_bindings,
+                }),
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) => {
+                expected_trait == actual_trait
+                    && expected_args.len() == actual_args.len()
+                    && expected_const_args.len() == actual_const_args.len()
+                    && expected_bindings.len() == actual_bindings.len()
+                    && expected_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, actual))
+                    && expected_const_args
+                        .iter()
+                        .zip(actual_const_args.iter())
+                        .all(|(expected, actual)| self.const_generic_args_match(expected, actual))
+                    && self.associated_type_bindings_match(&expected_bindings, &actual_bindings)
             }
             (
                 Some(TyKind::FunctionPointer {
@@ -1301,8 +1322,76 @@ impl<'a> BodyChecker<'a> {
                         .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
                     && self.types_match_normalized(expected_return, actual_return)
             }
+            (
+                Some(TyKind::ClosureState {
+                    closure_id: expected_id,
+                    captures: expected_captures,
+                    params: expected_params,
+                    return_type: expected_return,
+                }),
+                Some(TyKind::ClosureState {
+                    closure_id: actual_id,
+                    captures: actual_captures,
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) => {
+                expected_id == actual_id
+                    && expected_captures.len() == actual_captures.len()
+                    && expected_params.len() == actual_params.len()
+                    && expected_captures
+                        .iter()
+                        .zip(actual_captures)
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, actual))
+                    && expected_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, actual))
+                    && self.types_match_normalized(expected_return, actual_return)
+            }
             _ => false,
         }
+    }
+
+    /// Compares associated bindings as an unordered keyed set.
+    ///
+    /// Trait-object lowering preserves semantic binding identity but may
+    /// rebuild every nested type during substitution. Matching by key first
+    /// avoids making vector order or interned type identity part of equality.
+    fn associated_type_bindings_match(
+        &mut self,
+        expected: &[AssociatedTypeBindingTy],
+        actual: &[AssociatedTypeBindingTy],
+    ) -> bool {
+        expected.len() == actual.len()
+            && expected.iter().all(|expected_binding| {
+                actual
+                    .iter()
+                    .find(|actual_binding| {
+                        actual_binding.name == expected_binding.name
+                            && actual_binding.trait_id == expected_binding.trait_id
+                            && actual_binding.trait_args.len() == expected_binding.trait_args.len()
+                            && actual_binding.trait_const_args.len()
+                                == expected_binding.trait_const_args.len()
+                            && actual_binding
+                                .trait_args
+                                .iter()
+                                .zip(expected_binding.trait_args.iter())
+                                .all(|(actual, expected)| {
+                                    self.types_match_normalized(*expected, *actual)
+                                })
+                            && actual_binding
+                                .trait_const_args
+                                .iter()
+                                .zip(expected_binding.trait_const_args.iter())
+                                .all(|(actual, expected)| {
+                                    self.const_generic_args_match(expected, actual)
+                                })
+                    })
+                    .is_some_and(|actual_binding| {
+                        self.types_match_normalized(expected_binding.ty, actual_binding.ty)
+                    })
+            })
     }
 
     pub(crate) fn const_generic_args_match(

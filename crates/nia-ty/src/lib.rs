@@ -571,8 +571,17 @@ pub struct ConstExprSummary {
 }
 
 pub trait TypeEquivalence {
+    /// Provides the type-store view used by [`Self::compute_same_type_for_equiv`].
+    /// Implementors may compare handles from different stores, so structural
+    /// variants must not rely on `InternedTyId` equality alone.
     fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind>;
+
+    /// Compares array lengths, including evaluator-specific const-expression
+    /// summaries that are unavailable to the shared type layer.
     fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool;
+
+    /// Returns semantic type equivalence for two handles in the implementor's
+    /// source/type context.
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool;
 
     fn same_type_args_for_equiv(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
@@ -597,6 +606,7 @@ pub trait TypeEquivalence {
     fn compute_same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         match (self.ty_kind_for_equiv(left), self.ty_kind_for_equiv(right)) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
+            (Some(TyKind::ConstOnly), Some(TyKind::ConstOnly)) => true,
             (Some(TyKind::Opaque), Some(TyKind::Opaque)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (Some(TyKind::Tuple(left)), Some(TyKind::Tuple(right))) => {
@@ -605,6 +615,16 @@ pub trait TypeEquivalence {
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
             (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
             (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
+            (
+                Some(TyKind::Vector {
+                    elem: left_elem,
+                    lanes: left_lanes,
+                }),
+                Some(TyKind::Vector {
+                    elem: right_elem,
+                    lanes: right_lanes,
+                }),
+            ) => left_elem == right_elem && left_lanes == right_lanes,
             (
                 Some(TyKind::Pointer {
                     is_readonly: left_const,
@@ -712,6 +732,25 @@ pub trait TypeEquivalence {
                 }),
             ) => {
                 self.same_type_args_for_equiv(left_params, right_params)
+                    && self.same_type_for_equiv(*left_return, *right_return)
+            }
+            (
+                Some(TyKind::ClosureState {
+                    closure_id: left_id,
+                    captures: left_captures,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::ClosureState {
+                    closure_id: right_id,
+                    captures: right_captures,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_id == right_id
+                    && self.same_type_args_for_equiv(left_captures, right_captures)
+                    && self.same_type_args_for_equiv(left_params, right_params)
                     && self.same_type_for_equiv(*left_return, *right_return)
             }
             (
@@ -1062,6 +1101,25 @@ fn vector_type_spelling(name: &str) -> Option<PrimitiveTypeSpelling> {
 mod tests {
     use super::*;
 
+    struct DualStoreEquivalence<'a> {
+        left: &'a TypeStore,
+        right: &'a TypeStore,
+    }
+
+    impl TypeEquivalence for DualStoreEquivalence<'_> {
+        fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+            self.left.get(ty).or_else(|| self.right.get(ty))
+        }
+
+        fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+            left == right
+        }
+
+        fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+            left == right || self.compute_same_type_for_equiv(left, right)
+        }
+    }
+
     #[test]
     fn type_kind_arena_resolves_sparse_u32_slot_boundaries() {
         let arena = TypeKindArena::default();
@@ -1089,6 +1147,58 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(store.get(first), Some(&TyKind::Primitive(PrimitiveTy::I32)));
+    }
+
+    #[test]
+    fn structural_equivalence_covers_non_leaf_runtime_types_across_stores() {
+        let left = TypeStore::new();
+        let right = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_i32 = left_append.primitive(PrimitiveTy::I32);
+        let right_i32 = right_append.primitive(PrimitiveTy::I32);
+        let closure_id = nia_ids::ClosureId {
+            owner: nia_ids::GlobalDefId {
+                module_id,
+                def_id: nia_ids::DefId(7),
+            },
+            ordinal: 2,
+        };
+        let left_types = [
+            left_append.intern(TyKind::ConstOnly),
+            left_append.intern(TyKind::Vector {
+                elem: PrimitiveTy::I32,
+                lanes: 4,
+            }),
+            left_append.intern(TyKind::ClosureState {
+                closure_id,
+                captures: vec![left_i32],
+                params: vec![left_i32],
+                return_type: left_i32,
+            }),
+        ];
+        let right_types = [
+            right_append.intern(TyKind::ConstOnly),
+            right_append.intern(TyKind::Vector {
+                elem: PrimitiveTy::I32,
+                lanes: 4,
+            }),
+            right_append.intern(TyKind::ClosureState {
+                closure_id,
+                captures: vec![right_i32],
+                params: vec![right_i32],
+                return_type: right_i32,
+            }),
+        ];
+        let equivalence = DualStoreEquivalence {
+            left: &left,
+            right: &right,
+        };
+
+        for (left, right) in left_types.into_iter().zip(right_types) {
+            assert!(equivalence.same_type_for_equiv(left, right));
+        }
     }
 
     #[test]
