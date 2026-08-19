@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 152 completed entries in this ledger.
+- Implementation batches: 153 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -901,6 +901,12 @@ acceptance item only when its phase-wide evidence is complete.
       retention for defer-only control-flow references. Existing optimization
       matrices cover effect preservation, scope boundaries, nested defers, and
       policy ordering; 54 tests, strict Clippy, and `-D missing-docs` pass.
+- [x] Phase C body-IR foundation Rustdoc now documents module/body ownership,
+      locals, statement/control-flow records, loop and match schemas, pattern
+      constructors, and typed expression identity. The unsuppressed body-IR
+      missing-docs baseline fell from 436 to 287 warnings; the expression
+      payload, call, memory, atomic, and place schemas remain for follow-up
+      batches.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
