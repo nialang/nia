@@ -78,12 +78,19 @@ pub fn eval_early_const_function_call(
 
 /// Fully resolved inputs needed to execute one const function invocation.
 pub struct ResolvedConstCallInput<'a> {
+    /// Source span of the invocation.
     pub span: Span,
+    /// Stable identity of the called function.
     pub function_id: GlobalDefId,
+    /// Module whose type and const substitutions govern the callee.
     pub function_module_id: ModuleId,
+    /// Resolved function body and parameter schema.
     pub function: &'a ResolvedConstFunction,
+    /// Concrete type arguments bound in the callee frame.
     pub type_substitutions: Vec<(SymbolId, InternedTyId)>,
+    /// Concrete const arguments bound in the callee frame.
     pub const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
+    /// Evaluated argument values in parameter order.
     pub args: Vec<ConstValue>,
 }
 

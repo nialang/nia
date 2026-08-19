@@ -43,10 +43,12 @@ pub(crate) fn const_error_message(value: &ConstValue) -> Option<String> {
     }
 }
 
+/// Decodes a segmented string literal, rejecting malformed escapes.
 pub fn eval_string_literal(literal: &ConstStringLiteral) -> Option<String> {
     nia_literals::eval_string_literal_parts(literal.parts.iter().map(String::as_str))
 }
 
+/// Decodes a segmented byte-string literal, rejecting malformed escapes.
 pub fn eval_byte_string_literal(literal: &ConstStringLiteral) -> Option<Vec<u8>> {
     nia_literals::eval_byte_string_literal_parts(literal.parts.iter().map(String::as_str))
 }
