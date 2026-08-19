@@ -71,6 +71,12 @@ pub fn validate_function_closure_entry(
     entry: &FunctionClosureEntry,
 ) -> Result<(), FunctionIrError> {
     validate_function_body(&entry.body)?;
+    if entry.body.ty != entry.return_type {
+        return Err(FunctionIrError::new(
+            entry.body.span,
+            "closure entry body type does not match its declared return type",
+        ));
+    }
     let state = require_closure_param_local(&entry.body, entry.state_param, "state parameter")?;
     if state.kind != FunctionLocalKind::Param {
         return Err(FunctionIrError::new(
@@ -94,6 +100,20 @@ pub fn validate_function_closure_entry(
                 "closure entry parameter local is not a parameter",
             ));
         }
+    }
+    if let Some(unmapped) = entry
+        .body
+        .locals
+        .iter()
+        .find(|local| local.kind == FunctionLocalKind::Param && !seen.contains(&local.id))
+    {
+        return Err(FunctionIrError::new(
+            unmapped.span,
+            format!(
+                "closure entry body contains unmapped parameter local `{}`",
+                unmapped.id.0
+            ),
+        ));
     }
     Ok(())
 }
@@ -957,6 +977,27 @@ mod tests {
         let error = validate_function_closure_entry(&wrong_kind)
             .expect_err("closure state local must be an ABI parameter");
         assert!(error.message.contains("state local is not a parameter"));
+
+        let mut wrong_return = closure_entry();
+        let (type_store, module_id) = test_type_fixture();
+        wrong_return.body.ty = type_store
+            .append_for_module(*module_id)
+            .intern(nia_ty::TyKind::Error);
+        let error = validate_function_closure_entry(&wrong_return)
+            .expect_err("closure body and ABI return types must agree");
+        assert!(error.message.contains("declared return type"));
+
+        let mut unmapped = closure_entry();
+        unmapped.body.locals.push(FunctionLocal {
+            id: LocalId(2),
+            name: crate::LocalName::named(sym("hidden")),
+            kind: FunctionLocalKind::Param,
+            ty: test_ty(),
+            span: Span::default(),
+        });
+        let error = validate_function_closure_entry(&unmapped)
+            .expect_err("every closure body parameter must have an ABI mapping");
+        assert!(error.message.contains("unmapped parameter local `2`"));
     }
 
     #[test]

@@ -1050,6 +1050,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase C closure entry extraction now rejects duplicate `ClosureId`
       definitions within one typed function body instead of silently retaining
       the first definition through the lowering entry cache.
+- [x] Phase B Function IR closure-entry validation now requires the body result
+      type to equal the declared ABI return and requires `state_param` plus
+      `params` to enumerate every parameter local exactly once, preventing
+      cached or hand-built IR from exposing an uninitialized hidden parameter.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
