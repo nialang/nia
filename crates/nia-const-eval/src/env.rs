@@ -166,22 +166,28 @@ impl Default for ConstEvalBudget {
 /// implementation must therefore make a successful push fully usable; a
 /// failing push must leave its state unchanged.
 pub trait ConstCommonEnv {
+    /// Begins a public evaluation session.
     fn begin_const_eval(&mut self) {}
 
+    /// Ends the current public evaluation session.
     fn end_const_eval(&mut self) {}
 
+    /// Charges one interpreter operation to the shared evaluation budget.
     fn consume_const_eval_step(&mut self, _span: Span) -> Result<(), ConstError> {
         Ok(())
     }
 
+    /// Renders a symbol for diagnostics.
     fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_from_optional_resolver(None, symbol)
     }
 
+    /// Reports whether a global definition denotes an enum variant.
     fn is_enum_variant(&self, _def_id: GlobalDefId) -> bool {
         false
     }
 
+    /// Resolves a language builtin const value.
     fn resolve_builtin_const(
         &mut self,
         span: Span,
@@ -196,6 +202,7 @@ pub trait ConstCommonEnv {
         })
     }
 
+    /// Resolves a value builtin available during const evaluation.
     fn resolve_builtin_value(
         &mut self,
         span: Span,
@@ -210,6 +217,7 @@ pub trait ConstCommonEnv {
         })
     }
 
+    /// Loads an embedded resource for the `embed` builtin.
     fn resolve_embed(&mut self, span: Span, path: &str) -> Result<ConstValue, ConstError> {
         let _ = path;
         Err(ConstError {
@@ -218,6 +226,7 @@ pub trait ConstCommonEnv {
         })
     }
 
+    /// Casts a value to an already-lowered runtime type.
     fn cast_value(
         &mut self,
         span: Span,
@@ -229,6 +238,7 @@ pub trait ConstCommonEnv {
         Ok(value)
     }
 
+    /// Allocates a frozen pointer to an evaluated value.
     fn reference_const_value(
         &mut self,
         span: Span,
@@ -242,6 +252,7 @@ pub trait ConstCommonEnv {
         }))
     }
 
+    /// Reads the value addressed by a const pointer.
     fn dereference_const_pointer(
         &mut self,
         span: Span,
@@ -256,6 +267,7 @@ pub trait ConstCommonEnv {
         }
     }
 
+    /// Validates a value leaving a root expression evaluation.
     fn validate_const_root_result(
         &mut self,
         _span: Span,
@@ -264,6 +276,7 @@ pub trait ConstCommonEnv {
         Ok(())
     }
 
+    /// Validates a value crossing a const-function return boundary.
     fn validate_const_function_result(
         &mut self,
         _span: Span,
@@ -272,6 +285,7 @@ pub trait ConstCommonEnv {
         Ok(())
     }
 
+    /// Pushes a lexical local scope.
     fn push_const_scope(&mut self, span: Span) -> Result<(), ConstError> {
         Err(ConstError {
             span,
@@ -279,16 +293,20 @@ pub trait ConstCommonEnv {
         })
     }
 
+    /// Pops the most recently pushed lexical local scope.
     fn pop_const_scope(&mut self) {}
 
+    /// Pushes an execution frame that hides caller locals and substitutions.
     fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
         self.push_const_scope(span)
     }
 
+    /// Pops the most recently pushed execution frame.
     fn pop_function_frame(&mut self) {
         self.pop_const_scope();
     }
 
+    /// Binds module, function, and generic context into the active frame.
     fn bind_function_context(
         &mut self,
         span: Span,
@@ -311,9 +329,11 @@ pub trait ConstCommonEnv {
 /// Implementations may resolve source names lazily, but a name already carrying
 /// a semantic identity must never fall back to spelling-based lookup.
 pub trait EarlyConstEnv: ConstCommonEnv {
+    /// Resolves an early name through its semantic identity or source context.
     fn resolve_name(&mut self, span: Span, name: &EarlyConstName)
     -> Result<ConstValue, ConstError>;
 
+    /// Evaluates a layout builtin for a partially resolved type argument.
     fn resolve_layout_builtin(
         &mut self,
         span: Span,
@@ -321,6 +341,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         type_arg: &EarlyConstTypeArg,
     ) -> Result<ConstValue, ConstError>;
 
+    /// Evaluates a field-offset builtin for a partially resolved type argument.
     fn resolve_field_offset_builtin(
         &mut self,
         span: Span,
@@ -335,6 +356,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Dispatches an early const-function call after argument evaluation.
     fn call_function(
         &mut self,
         span: Span,
@@ -353,6 +375,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds one early const-function parameter in the active frame.
     fn bind_function_param(
         &mut self,
         span: Span,
@@ -367,6 +390,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds one early local declaration in the active scope.
     fn bind_function_local(
         &mut self,
         span: Span,
@@ -381,6 +405,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Assigns a value to an early local or projected target.
     fn assign_local(
         &mut self,
         span: Span,
@@ -395,6 +420,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds one local introduced by an early pattern match.
     fn bind_pattern_local(
         &mut self,
         span: Span,
@@ -419,6 +445,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds a function-pattern local using its declaration metadata.
     fn bind_function_pattern_local(
         &mut self,
         span: Span,
@@ -438,6 +465,7 @@ pub trait EarlyConstEnv: ConstCommonEnv {
 /// typed places, aggregate construction, iterator witnesses, and resolved call
 /// dispatch that cannot be represented by the early environment.
 pub trait ResolvedConstEnv: ConstCommonEnv {
+    /// Creates a pointer retaining the identity of a resolved writable place.
     fn reference_resolved_place(
         &mut self,
         span: Span,
@@ -448,6 +476,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         self.reference_const_value(span, value, is_readonly)
     }
 
+    /// Prepares storage and type state before binding a resolved local.
     fn prepare_resolved_binding(
         &mut self,
         _binding: &ResolvedConstBinding,
@@ -455,6 +484,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    /// Prepares storage and type state before binding a pattern local.
     fn prepare_resolved_pattern_binding(
         &mut self,
         _binding: &ResolvedConstPatternBinding,
@@ -462,6 +492,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    /// Prepares the expected representation of a function result expression.
     fn prepare_resolved_function_result(
         &mut self,
         _expr: &ResolvedConstExpr,
@@ -469,6 +500,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    /// Prepares generic and expected-type state for resolved call arguments.
     fn prepare_resolved_call_arguments(
         &mut self,
         _span: Span,
@@ -479,6 +511,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    /// Prepares target type and place metadata for a resolved assignment.
     fn prepare_resolved_assignment(
         &mut self,
         _assign: &nia_const_ir::ResolvedConstAssign,
@@ -486,6 +519,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    /// Prepares conversion metadata for a resolved try expression.
     fn prepare_resolved_try(
         &mut self,
         _span: Span,
@@ -494,6 +528,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(())
     }
 
+    /// Converts an error payload at a resolved try propagation boundary.
     fn convert_resolved_try_error(
         &mut self,
         _span: Span,
@@ -502,6 +537,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(value)
     }
 
+    /// Constructs a typed aggregate from evaluated named fields.
     fn build_resolved_aggregate(
         &mut self,
         _span: Span,
@@ -511,6 +547,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         Ok(ConstValue::Struct(fields))
     }
 
+    /// Returns integer width and signedness for a resolved expression.
     fn resolved_integer_semantics(
         &mut self,
         _expr: &ResolvedConstExpr,
@@ -518,12 +555,14 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         None
     }
 
+    /// Resolves a value from its authoritative semantic name identity.
     fn resolve_resolved_name(
         &mut self,
         span: Span,
         resolution: ConstNameResolution,
     ) -> Result<ConstValue, ConstError>;
 
+    /// Evaluates a layout builtin for a resolved type argument.
     fn resolve_resolved_layout_builtin(
         &mut self,
         span: Span,
@@ -531,6 +570,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         type_arg: &ResolvedConstTypeArg,
     ) -> Result<ConstValue, ConstError>;
 
+    /// Evaluates a field-offset builtin for a resolved type argument.
     fn resolve_resolved_field_offset_builtin(
         &mut self,
         span: Span,
@@ -545,6 +585,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Dispatches a resolved const-function call after argument evaluation.
     fn call_resolved_function(
         &mut self,
         span: Span,
@@ -565,6 +606,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Converts an iterable value into interpreter iterator state.
     fn resolved_for_iterator(
         &mut self,
         span: Span,
@@ -579,6 +621,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Advances iterator state and returns the yielded value.
     fn resolved_iterator_next(
         &mut self,
         span: Span,
@@ -591,6 +634,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds one resolved const-function parameter in the active frame.
     fn bind_resolved_function_param(
         &mut self,
         span: Span,
@@ -606,6 +650,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds one resolved local declaration in the active scope.
     fn bind_resolved_function_local(
         &mut self,
         span: Span,
@@ -620,6 +665,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Assigns a value to a resolved local or projected target.
     fn assign_resolved_local(
         &mut self,
         span: Span,
@@ -634,6 +680,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Writes a rebuilt root value back to a resolved local place.
     fn assign_resolved_place_local(
         &mut self,
         span: Span,
@@ -648,6 +695,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds one local introduced by a resolved pattern match.
     fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
@@ -665,6 +713,7 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         })
     }
 
+    /// Binds a resolved function-pattern local using declaration metadata.
     fn bind_resolved_function_pattern_local(
         &mut self,
         span: Span,

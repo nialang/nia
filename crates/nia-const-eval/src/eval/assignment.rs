@@ -137,6 +137,11 @@ fn resolved_assign_target_writeback_value_with_path(
     write_resolved_evaluated_assign_path_value(span, root, path, value, env)
 }
 
+/// Rebuilds and writes a resolved projected place from leaf to local root.
+///
+/// Aggregate values are immutable snapshots in the evaluator, so updating a
+/// nested field or index reconstructs every parent and performs one final
+/// writeback through [`ResolvedConstEnv::assign_resolved_place_local`].
 pub fn write_resolved_const_place(
     span: Span,
     place: &ResolvedConstPlace,
