@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 180 completed entries in this ledger.
+- Implementation batches: 181 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1017,6 +1017,10 @@ acceptance item only when its phase-wide evidence is complete.
       expressions hidden in places, function-pointer callees, inline-asm input
       and output operands, union relocations, memory destinations, and atomic
       pointers before Function IR construction.
+- [x] Phase C flow-check boundary coverage now traverses return-value
+      expressions before termination and resets loop-control scope across
+      closure bodies, preventing hidden diagnostics and cross-function
+      `break`/`continue` targets.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
