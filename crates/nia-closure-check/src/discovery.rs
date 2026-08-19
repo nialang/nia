@@ -36,11 +36,15 @@ fn collect_stmt_closures<'a>(
                 collect_expr_closures(value, callables);
             }
         }
-        TypedStmtKind::PatternBinding(binding) => collect_expr_closures(&binding.value, callables),
+        TypedStmtKind::PatternBinding(binding) => {
+            collect_pattern_closures(&binding.pattern, callables);
+            collect_expr_closures(&binding.value, callables);
+        }
         TypedStmtKind::Expr(expr)
         | TypedStmtKind::Return(Some(expr))
         | TypedStmtKind::Defer(expr) => collect_expr_closures(expr, callables),
         TypedStmtKind::ForIn(for_in) => {
+            collect_pattern_closures(&for_in.pattern, callables);
             collect_expr_closures(&for_in.iter, callables);
             collect_body_closures(&for_in.body, callables);
         }
@@ -208,6 +212,7 @@ fn collect_expr_closures<'a>(
         }
         TypedExprKind::IfPattern(pattern) => {
             collect_expr_closures(&pattern.target, callables);
+            collect_pattern_closures(&pattern.pattern, callables);
             collect_body_closures(&pattern.then_branch, callables);
             if let Some(branch) = &pattern.else_branch {
                 collect_expr_closures(branch, callables);
@@ -216,6 +221,9 @@ fn collect_expr_closures<'a>(
         TypedExprKind::Match(matched) => {
             collect_expr_closures(&matched.target, callables);
             for arm in &matched.arms {
+                for pattern in &arm.patterns {
+                    collect_pattern_closures(pattern, callables);
+                }
                 match &arm.body {
                     TypedMatchArmBody::Expr(expr) => collect_expr_closures(expr, callables),
                     TypedMatchArmBody::Stmt(stmt) => collect_stmt_closures(stmt, callables),
@@ -240,6 +248,39 @@ fn collect_expr_closures<'a>(
         | TypedExprKind::BuiltinValue(_)
         | TypedExprKind::Trap
         | TypedExprKind::ClosureFunctionPointer { .. } => {}
+    }
+}
+
+fn collect_pattern_closures<'a>(
+    pattern: &'a nia_body_ir::TypedPattern,
+    callables: &mut HashMap<CallableKey, CallableBody<'a>>,
+) {
+    match &pattern.kind {
+        nia_body_ir::TypedPatternKind::Pointer(inner)
+        | nia_body_ir::TypedPatternKind::MutPointer(inner)
+        | nia_body_ir::TypedPatternKind::OptionalSome(inner)
+        | nia_body_ir::TypedPatternKind::ErrorOk(inner)
+        | nia_body_ir::TypedPatternKind::ErrorErr(inner) => {
+            collect_pattern_closures(inner, callables)
+        }
+        nia_body_ir::TypedPatternKind::Tuple(patterns)
+        | nia_body_ir::TypedPatternKind::Nominal {
+            fields: patterns, ..
+        } => {
+            for pattern in patterns {
+                collect_pattern_closures(pattern, callables);
+            }
+        }
+        nia_body_ir::TypedPatternKind::Expr(expr) => collect_expr_closures(expr, callables),
+        nia_body_ir::TypedPatternKind::Range { start, end, .. } => {
+            collect_expr_closures(start, callables);
+            collect_expr_closures(end, callables);
+        }
+        nia_body_ir::TypedPatternKind::Wildcard
+        | nia_body_ir::TypedPatternKind::Bind { .. }
+        | nia_body_ir::TypedPatternKind::OptionalNull
+        | nia_body_ir::TypedPatternKind::CheckedInt { .. }
+        | nia_body_ir::TypedPatternKind::CheckedIntRange { .. } => {}
     }
 }
 
