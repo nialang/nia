@@ -16,7 +16,7 @@ use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_symbol::SymbolId;
 use nia_ty::{TyKind, TypeStore};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
 /// Diagnostics produced by one module flow-check pass.
@@ -230,6 +230,8 @@ pub fn check_active_module_flow_with_signatures_and_filter(
         filter,
         diagnostics: Vec::new(),
         loop_depth: 0,
+        block_flows: HashMap::new(),
+        stmt_flows: HashMap::new(),
     };
     checker.check_active_module(item_tree);
     FlowCheck {
@@ -243,6 +245,8 @@ struct FlowChecker<'a> {
     filter: FlowCheckFilter<'a>,
     diagnostics: Vec<Diagnostic>,
     loop_depth: usize,
+    block_flows: HashMap<*const Block, Flow>,
+    stmt_flows: HashMap<*const Stmt, Flow>,
 }
 
 impl FlowChecker<'_> {
@@ -338,13 +342,18 @@ impl FlowChecker<'_> {
             }
             falls_through = self.check_stmt(stmt).falls_through;
         }
-        if falls_through && block.tail.is_some() {
-            falls_through = true;
+        if let Some(tail) = block.tail.as_deref() {
+            let tail_flow = self.check_expr_flow(tail);
+            if falls_through {
+                falls_through = tail_flow.falls_through;
+            }
         }
-        Flow { falls_through }
+        let flow = Flow { falls_through };
+        self.block_flows.insert(std::ptr::from_ref(block), flow);
+        flow
     }
 
-    fn tail_expr_returns_on_all_paths(&mut self, expr: &Expr) -> bool {
+    fn tail_expr_returns_on_all_paths(&self, expr: &Expr) -> bool {
         match &expr.kind {
             ExprKind::If {
                 then_branch,
@@ -364,12 +373,11 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn match_tail_covers_all_paths(&mut self, matched: &nia_ast::MatchExpr) -> bool {
+    fn match_tail_covers_all_paths(&self, matched: &nia_ast::MatchExpr) -> bool {
         // Body checking owns typed exhaustiveness. Flow checking only needs to
         // validate that every arm which can be selected produces a value or
         // terminates; treating the syntactically visible arms as a complete
         // constructor universe here would produce unsound return acceptance.
-        self.check_match_patterns(matched);
         let mut all_arms_produce = !matched.arms.is_empty();
         for arm in &matched.arms {
             all_arms_produce &= self.match_tail_arm_produces_value(&arm.body);
@@ -377,17 +385,21 @@ impl FlowChecker<'_> {
         all_arms_produce
     }
 
-    fn match_tail_arm_produces_value(&mut self, body: &MatchArmBody) -> bool {
+    fn match_tail_arm_produces_value(&self, body: &MatchArmBody) -> bool {
         match body {
             MatchArmBody::Expr(_) => true,
-            MatchArmBody::Stmt(stmt) => !self.check_stmt(stmt).falls_through,
+            MatchArmBody::Stmt(stmt) => self
+                .stmt_flows
+                .get(&std::ptr::from_ref(stmt))
+                .is_some_and(|flow| !flow.falls_through),
             MatchArmBody::Block(block) => self.block_returns_on_all_paths(block),
         }
     }
 
-    fn block_returns_on_all_paths(&mut self, block: &Block) -> bool {
-        let flow = self.check_block(block);
-        !flow.falls_through
+    fn block_returns_on_all_paths(&self, block: &Block) -> bool {
+        self.block_flows
+            .get(&std::ptr::from_ref(block))
+            .is_some_and(|flow| !flow.falls_through)
             || block
                 .tail
                 .as_deref()
@@ -395,7 +407,7 @@ impl FlowChecker<'_> {
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) -> Flow {
-        match &stmt.kind {
+        let flow = match &stmt.kind {
             StmtKind::Binding(binding) => binding.value.as_ref().map_or(
                 Flow {
                     falls_through: true,
@@ -470,7 +482,9 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-        }
+        };
+        self.stmt_flows.insert(std::ptr::from_ref(stmt), flow);
+        flow
     }
 
     fn check_expr_flow(&mut self, expr: &Expr) -> Flow {
@@ -1162,7 +1176,7 @@ fn bad_break() {
                     .summary
                     .contains("`break` and `continue` can only appear inside loops"))
                 .count(),
-            1,
+            2,
             "{:?}",
             checked.diagnostics
         );
@@ -1343,6 +1357,50 @@ fn short_circuit(flag: bool) i32 {
                 .summary
                 .contains("does not return on all reachable paths")),
             "a skipped logical RHS leaves a fallthrough path: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn traverses_function_tail_expression_diagnostics_once() {
+        let checked = pipeline(
+            r#"
+fn consume(value: i32) i32 { value }
+
+fn tail_match() i32 {
+    consume(match 1 {
+        1 => 1,
+        1 => 2,
+    })
+}
+
+fn tail_closure() () {
+    \ -> {
+        break;
+    }
+}
+"#,
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.summary.contains("duplicate match pattern"))
+                .count(),
+            1,
+            "tail matches must be traversed without duplicate diagnostics: {:?}",
+            checked.diagnostics
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic
+                    .summary
+                    .contains("`break` and `continue` can only appear inside loops"))
+                .count(),
+            1,
+            "tail closure bodies must be checked as independent flow regions: {:?}",
             checked.diagnostics
         );
     }
