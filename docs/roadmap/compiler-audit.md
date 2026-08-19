@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 175 completed entries in this ledger.
+- Implementation batches: 176 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -999,6 +999,9 @@ acceptance item only when its phase-wide evidence is complete.
       ownership, parse-valid module filtering, lazy signature callbacks,
       type-only module retention, per-module projections, and fixed-point body
       statistics.
+- [x] Phase C reachability owner-state regressions now prove item insertion
+      retains owner modules, pending modules enqueue once, and per-module body
+      projection excludes type-only owners and compile-time-only globals.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

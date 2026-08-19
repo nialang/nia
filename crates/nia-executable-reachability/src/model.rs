@@ -206,3 +206,88 @@ pub struct ExecutableReachabilityStats {
     /// Number of available bodies selected by reachability.
     pub reachable_bodies: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{DefId, ModuleIdAllocator};
+
+    #[test]
+    fn inserting_items_also_retains_their_owner_modules() {
+        let mut modules = ModuleIdAllocator::new();
+        let function_module = modules.allocate();
+        let global_module = modules.allocate();
+        let function = GlobalDefId {
+            module_id: function_module,
+            def_id: DefId(1),
+        };
+        let global = GlobalDefId {
+            module_id: global_module,
+            def_id: DefId(2),
+        };
+        let mut reachability = ExecutableReachability::default();
+
+        assert!(reachability.insert_function(function));
+        assert!(reachability.insert_global(global));
+        assert_eq!(
+            reachability.modules(),
+            &HashSet::from([function_module, global_module])
+        );
+    }
+
+    #[test]
+    fn pending_owner_modules_are_enqueued_only_on_first_activation() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let first = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let second = GlobalDefId {
+            module_id,
+            def_id: DefId(2),
+        };
+        let mut reachability = ExecutableReachability::default();
+        let mut pending = VecDeque::new();
+
+        assert!(reachability.insert_function_pending(first, &mut pending));
+        assert!(reachability.insert_function_pending(second, &mut pending));
+        assert!(!reachability.insert_function_pending(first, &mut pending));
+        assert_eq!(pending, VecDeque::from([module_id]));
+    }
+
+    #[test]
+    fn body_module_projection_excludes_type_only_and_compile_time_global_modules() {
+        let mut modules = ModuleIdAllocator::new();
+        let function_module = modules.allocate();
+        let runtime_global_module = modules.allocate();
+        let const_global_module = modules.allocate();
+        let type_only_module = modules.allocate();
+        let function = GlobalDefId {
+            module_id: function_module,
+            def_id: DefId(1),
+        };
+        let runtime_global = GlobalDefId {
+            module_id: runtime_global_module,
+            def_id: DefId(2),
+        };
+        let const_global = GlobalDefId {
+            module_id: const_global_module,
+            def_id: DefId(3),
+        };
+        let mut reachability = ExecutableReachability::default();
+        reachability.insert_function(function);
+        reachability.insert_globals([runtime_global, const_global]);
+        reachability.type_modules.insert(type_only_module);
+
+        let body_modules = reachability
+            .by_module()
+            .reachable_body_modules(|def_id| def_id == runtime_global);
+
+        assert_eq!(
+            body_modules,
+            HashSet::from([function_module, runtime_global_module])
+        );
+        assert!(!body_modules.contains(&const_global_module));
+        assert!(!body_modules.contains(&type_only_module));
+    }
+}
