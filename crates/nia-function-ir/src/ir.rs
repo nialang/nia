@@ -55,6 +55,8 @@ pub struct FunctionClosureEntry {
     /// Local receiving the generated readonly state pointer.
     pub state_param: LocalId,
     /// User-visible parameters in ABI order, excluding the state pointer.
+    /// Together with `state_param`, this must enumerate every
+    /// [`FunctionLocalKind::Param`] in `body` exactly once.
     pub params: Vec<LocalId>,
     /// Declared result type used for closure call ABI classification.
     pub return_type: InternedTyId,
