@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Executable-reference extraction and reachable semantic-fact filtering.
+//!
+//! This crate converts typed bodies or retained semantic facts into the same
+//! per-item dependency schema. Reachability consumes that schema to follow
+//! functions, globals, trait dispatch, vtables, and generic instantiations.
+//! Typed IR is authoritative after body checking; semantic facts provide the
+//! equivalent dependency view for query paths that have not materialized a
+//! typed body.
 
 use nia_body_ir::{
     BodyIr, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee,
@@ -13,24 +21,37 @@ use nia_symbol::{SymbolId, known};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy)]
+/// Borrowed module products required to extract executable dependencies.
 pub struct ReachableModuleInput<'a> {
+    /// Session-local identity of the module being inspected.
     pub module_id: ModuleId,
+    /// Definition ownership used to discover function-local statics.
     pub defs: &'a DefCollection,
+    /// Type store used to decompose trait-object instance identities.
     pub type_store: &'a nia_ty::TypeStore,
+    /// Typed function bodies and lowered static initializers.
     pub body_ir: &'a BodyIr,
+    /// Previously merged per-item dependency facts.
     pub executable_refs: &'a ExecutableModuleRefs,
+    /// Semantic checking facts used by the pre-Body-IR extraction path.
     pub semantic_facts: &'a SemanticFacts,
 }
 
 #[derive(Debug, Clone, Default)]
+/// Direct executable dependencies collected for one or more items.
 pub struct ExecutableItemRefs {
+    /// Referenced source function definitions.
     pub functions: HashSet<GlobalDefId>,
+    /// Referenced static/global definitions.
     pub globals: HashSet<GlobalDefId>,
+    /// Trait declarations, method instances, and vtable instances.
     pub trait_refs: ExecutableTraitRefs,
+    /// Concrete generic functions requested by the item.
     pub generic_instantiations: Vec<GenericInstantiation>,
 }
 
 impl ExecutableItemRefs {
+    /// Moves every dependency from `refs` into this aggregate.
     pub fn extend(&mut self, refs: Self) {
         self.functions.extend(refs.functions);
         self.globals.extend(refs.globals);
@@ -39,6 +60,7 @@ impl ExecutableItemRefs {
             .extend(refs.generic_instantiations);
     }
 
+    /// Clones every dependency from `refs` into this aggregate.
     pub fn extend_ref(&mut self, refs: &Self) {
         self.functions.extend(refs.functions.iter().copied());
         self.globals.extend(refs.globals.iter().copied());
@@ -49,12 +71,16 @@ impl ExecutableItemRefs {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Direct dependency facts indexed by their owning function or global.
 pub struct ExecutableModuleRefs {
+    /// Function dependencies keyed by source function identity.
     pub functions: HashMap<GlobalDefId, ExecutableItemRefs>,
+    /// Static-initializer dependencies keyed by global identity.
     pub globals: HashMap<GlobalDefId, ExecutableItemRefs>,
 }
 
 impl ExecutableModuleRefs {
+    /// Merges another module index, unioning entries with the same owner.
     pub fn extend(&mut self, refs: Self) {
         for (def_id, refs) in refs.functions {
             self.functions.entry(def_id).or_default().extend(refs);
@@ -64,6 +90,7 @@ impl ExecutableModuleRefs {
         }
     }
 
+    /// Unions dependencies for the selected function and global owners.
     pub fn refs_for_items(
         &self,
         functions: &HashSet<GlobalDefId>,
@@ -83,6 +110,7 @@ impl ExecutableModuleRefs {
         refs
     }
 
+    /// Returns a cloned dependency aggregate for one function.
     pub fn refs_for_function(&self, def_id: GlobalDefId) -> ExecutableItemRefs {
         let mut refs = ExecutableItemRefs::default();
         if let Some(function_refs) = self.functions.get(&def_id) {
@@ -93,40 +121,57 @@ impl ExecutableModuleRefs {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Trait-related executable instances required by selected items.
 pub struct ExecutableTraitRefs {
+    /// Referenced trait declarations, including builtin traits.
     pub traits: HashSet<TraitId>,
+    /// Concrete trait method dispatch instances.
     pub methods: Vec<ExecutableTraitMethodRef>,
+    /// Concrete trait-object vtable instances.
     pub vtables: Vec<ExecutableTraitVtableRef>,
 }
 
 #[derive(Debug, Clone)]
+/// One trait method instance required by executable code.
 pub struct ExecutableTraitMethodRef {
+    /// Module supplying resolution and generic context.
     pub module_id: ModuleId,
+    /// Source or builtin trait containing the method.
     pub trait_id: TraitId,
+    /// Stable method name used during implementation lookup.
     pub method_name: SymbolId,
+    /// Concrete receiver type.
     pub self_ty: InternedTyId,
+    /// Type arguments identifying the trait instance.
     pub trait_args: Vec<InternedTyId>,
     /// Const arguments are part of the trait instance identity used by reachability.
     pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 #[derive(Debug, Clone)]
+/// One concrete trait-object vtable required by executable code.
 pub struct ExecutableTraitVtableRef {
+    /// Module supplying resolution and generic context.
     pub module_id: ModuleId,
+    /// Source or builtin trait represented by the object.
     pub trait_id: TraitId,
+    /// Concrete type stored behind the trait object.
     pub self_ty: InternedTyId,
+    /// Type arguments identifying the trait instance.
     pub trait_args: Vec<InternedTyId>,
     /// Const arguments are part of the trait-object instance identity.
     pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 impl ExecutableTraitRefs {
+    /// Moves all trait dependencies from `refs` into this aggregate.
     pub fn extend(&mut self, refs: Self) {
         self.traits.extend(refs.traits);
         self.methods.extend(refs.methods);
         self.vtables.extend(refs.vtables);
     }
 
+    /// Clones all trait dependencies from `refs` into this aggregate.
     pub fn extend_ref(&mut self, refs: &Self) {
         self.traits.extend(refs.traits.iter().copied());
         self.methods.extend(refs.methods.iter().cloned());
@@ -226,6 +271,11 @@ fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> SymbolId {
     }
 }
 
+/// Collects direct dependencies for selected typed functions and globals.
+///
+/// The smaller of each selected set and its owner table drives iteration, so
+/// sparse queries avoid scanning an entire module while dense queries avoid
+/// repeated hash lookups. Missing selected ids contribute no dependencies.
 pub fn executable_refs_for_items(
     module: &ReachableModuleInput<'_>,
     functions: &HashSet<GlobalDefId>,
@@ -265,6 +315,7 @@ pub fn executable_refs_for_items(
     refs
 }
 
+/// Builds a complete per-item dependency index from typed Body IR.
 pub fn executable_module_refs_from_typed_ir(
     module: &ReachableModuleInput<'_>,
 ) -> ExecutableModuleRefs {
@@ -283,6 +334,10 @@ pub fn executable_module_refs_from_typed_ir(
     refs
 }
 
+/// Builds a per-function dependency index from semantic checking facts.
+///
+/// Array-repeat count queries are not executable calls even when represented
+/// by a resolved-call fact, so they are deliberately excluded here.
 pub fn executable_module_refs_from_semantic_facts(
     module: &ReachableModuleInput<'_>,
 ) -> ExecutableModuleRefs {
@@ -1095,6 +1150,9 @@ fn builtin_method_trait(
     }
 }
 
+/// Retains semantic facts owned by reachable functions.
+///
+/// This compatibility entry point preserves all global facts.
 pub fn filter_semantic_facts_for_reachable_functions(
     facts: SemanticFacts,
     reachable_functions: &HashSet<GlobalDefId>,
@@ -1103,6 +1161,11 @@ pub fn filter_semantic_facts_for_reachable_functions(
     filter_semantic_facts_for_reachable_items(facts, reachable_functions, &reachable_globals)
 }
 
+/// Retains owner-indexed semantic facts for reachable executable items.
+///
+/// Module-wide node facts are preserved because their owner cannot be
+/// reconstructed from the node key alone. Function and global maps, whose
+/// ownership is explicit, are filtered to the supplied sets.
 pub fn filter_semantic_facts_for_reachable_items(
     facts: SemanticFacts,
     reachable_functions: &HashSet<GlobalDefId>,
