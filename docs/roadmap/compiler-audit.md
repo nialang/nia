@@ -1071,6 +1071,9 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase B closure-entry symbols are checked against deterministic
       owner-derived mangling before LLVM declaration, preventing cached IR from
       aliasing an unrelated function name while retaining a valid entry key.
+- [x] Phase A generic inference now applies the same callable mutability
+      relation as coercion: mutable closure state may infer a readonly
+      `&Fn(T) T` target, while readonly state cannot satisfy a mutable target.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.

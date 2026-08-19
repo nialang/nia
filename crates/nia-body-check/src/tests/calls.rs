@@ -153,6 +153,24 @@ fn main() i32 {
 }
 
 #[test]
+fn mutable_closure_address_infers_generic_readonly_callable_signature() {
+    let checked = pipeline(
+        r#"
+fn accepts[T](callback: &Fn(T) T) i32 {
+    1
+}
+
+fn main() i32 {
+    let mut callback = \value: i32 -> { value };
+    accepts(&mut callback)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"
