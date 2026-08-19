@@ -205,6 +205,126 @@ fn rejects_error_place_before_function_ir_is_built() {
 }
 
 #[test]
+fn rejects_error_exprs_hidden_in_lowering_operand_containers() {
+    let ty = test_ty();
+    let error = || TypedExpr {
+        span: Span::default(),
+        ty,
+        kind: TypedExprKind::Error,
+    };
+    let place = || TypedPlace {
+        span: Span::default(),
+        ty,
+        base: PlaceBase::Deref(Box::new(error())),
+        elems: Vec::new(),
+    };
+    let module_id = ModuleIdAllocator::new().allocate();
+    let malformed = vec![
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Assign {
+                place: place(),
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(int_expr(0)),
+            },
+        },
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Call {
+                callee: nia_body_ir::TypedCallee::FunctionPointer(Box::new(error())),
+                args: Vec::new(),
+            },
+        },
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::InlineAsm(nia_body_ir::TypedInlineAsm {
+                code: String::new(),
+                inputs: vec![nia_body_ir::TypedAsmInput {
+                    constraint: String::new(),
+                    value: error(),
+                    span: Span::default(),
+                }],
+                outputs: Vec::new(),
+                clobbers: Vec::new(),
+                options: Vec::new(),
+            }),
+        },
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::InlineAsm(nia_body_ir::TypedInlineAsm {
+                code: String::new(),
+                inputs: Vec::new(),
+                outputs: vec![nia_body_ir::TypedAsmOutput {
+                    constraint: String::new(),
+                    place: place(),
+                    span: Span::default(),
+                }],
+                clobbers: Vec::new(),
+                options: Vec::new(),
+            }),
+        },
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::UnionStorageLiteral {
+                bytes: Vec::new(),
+                relocations: vec![nia_body_ir::TypedUnionRelocation {
+                    offset: 0,
+                    width: 0,
+                    allocation: nia_body_ir::PromotedAllocationId::new(module_id, Span::default()),
+                    pointee: Box::new(error()),
+                }],
+            },
+        },
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                op: MemoryIntrinsicOp::Copy,
+                elem_ty: ty,
+                dest: Box::new(error()),
+                source: TypedMemoryIntrinsicSource::Slice(Box::new(int_expr(0))),
+            }),
+        },
+        TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Atomic(nia_body_ir::TypedAtomic::Load {
+                ty,
+                ptr: Box::new(error()),
+                order: AtomicOrder::Acquire,
+            }),
+        },
+    ];
+
+    for expr in malformed {
+        let body = TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::Expr(expr),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let error = lower_test_function_body(&body)
+            .expect_err("hidden error expression must not reach function IR");
+        assert!(
+            error
+                .message
+                .contains("error expression escaped into function lowering input"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
 fn rejects_memory_intrinsic_in_value_position_before_function_ir_is_built() {
     let ty = test_ty();
     let memory = TypedExpr {
