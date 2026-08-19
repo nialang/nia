@@ -1204,7 +1204,10 @@ impl<'a> BodyChecker<'a> {
             })
             .collect::<Vec<_>>();
         for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
-            if let Some(actual) = actual {
+            if let Some(actual) = actual
+                && (self.inferred_closure_signature(arg).is_none()
+                    || self.generic_pattern_accepts_type_shape(*param, *actual))
+            {
                 self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
             }
         }
