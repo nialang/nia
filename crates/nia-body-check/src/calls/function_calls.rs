@@ -1227,7 +1227,10 @@ impl<'a> BodyChecker<'a> {
                     _ => None,
                 };
                 if let Some((actual_readonly, actual_params, actual_return)) = actual_callable
-                    && pattern_readonly == actual_readonly
+                    // Match pointer coercion: a mutable state/view may be
+                    // observed through a readonly callable, never vice versa.
+                    && (pattern_readonly == actual_readonly
+                        || pattern_readonly && !actual_readonly)
                     && pattern_params.len() == actual_params.len()
                 {
                     for (pattern, actual) in pattern_params.iter().zip(actual_params.iter()) {
