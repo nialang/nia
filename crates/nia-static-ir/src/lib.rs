@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Typed static initializer IR and relocation reachability extraction.
+//!
+//! Static values remain target-independent until backend validation. Reference
+//! walkers intentionally model only materialized elements, so zero-length
+//! repeats do not retain unreachable functions or globals.
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceRef};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_ty::IntConst;
 use std::collections::HashSet;
 
+/// Direct function/global relocation targets found in a static initializer.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StaticInitRefs {
     /// Runtime functions retained because a static initializer stores their address.
@@ -27,16 +33,27 @@ pub enum StaticInit {
     /// fallback must never turn an unsupported initializer into a silently
     /// accepted zero-valued static.
     Zero,
+    /// Target-typed integer constant.
     Int(IntConst),
+    /// Floating-point source spelling.
     Float(String),
+    /// Boolean constant.
     Bool(bool),
+    /// Unicode scalar constant.
     Char(u32),
+    /// Byte constant.
     Byte(u8),
+    /// Unicode scalar array constant.
     Chars(Vec<u32>),
+    /// Byte array constant.
     Bytes(Vec<u8>),
+    /// Aggregate elements in declaration order.
     Array(Vec<StaticInit>),
+    /// Repeated aggregate value and materialized count.
     Repeat {
+        /// Value repeated for each materialized element.
         value: Box<StaticInit>,
+        /// Number of elements.
         count: u64,
     },
     /// Declaration-identified aggregate fields.
@@ -45,15 +62,20 @@ pub enum StaticInit {
     /// exactly one declared field. Backend validation enforces that distinction
     /// before layout-ordered LLVM constant construction.
     Struct(Vec<StaticFieldInit>),
+    /// Null data pointer constant.
     NullPtr,
     /// The address of a global or one of its aggregate fields.
     AddrOfGlobal {
+        /// Global whose address is taken.
         global: GlobalDefId,
+        /// Aggregate field/index path to the address.
         path: Vec<StaticAddressElem>,
     },
     /// The address of a concrete function or function instance.
     AddrOfFunction {
+        /// Function definition whose address is taken.
         function: GlobalDefId,
+        /// Type arguments for a concrete function instance.
         args: Vec<InternedTyId>,
     },
 }
@@ -162,16 +184,23 @@ impl StaticInitRefSink for FunctionBodyRefSink<'_> {
     }
 }
 
+/// One projection in a static global address path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StaticAddressElem {
+    /// Aggregate field projection.
     Field(GlobalDefId),
+    /// Array index projection.
     Index(u64),
+    /// Recovery path element rejected before codegen.
     Error,
 }
 
+/// Declaration-identified static aggregate field initializer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticFieldInit {
+    /// Declared field identity, absent for positional syntax.
     pub field: Option<GlobalDefId>,
+    /// Field initializer value.
     pub value: StaticInit,
 }
 
