@@ -391,6 +391,7 @@ pub enum TypedExprKind {
     MemoryIntrinsic(TypedMemoryIntrinsic),
     /// Atomic operation.
     Atomic(TypedAtomic),
+    /// Loads a typed value from an unaligned byte pointer.
     LoadUnaligned {
         /// Result type loaded from memory.
         ty: InternedTyId,
@@ -684,215 +685,359 @@ pub struct TypedRange {
     pub inclusive: bool,
 }
 
+/// Target-independent builtin value query or constant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BuiltinConst {
+    /// Target-width `usize` constant.
     Usize(u64),
+    /// Layout size/alignment query.
     Layout {
+        /// Layout query kind.
         builtin: LayoutBuiltin,
+        /// Type being queried.
         ty: InternedTyId,
     },
+    /// Aggregate field offset query.
     FieldOffset {
+        /// Aggregate type.
         ty: InternedTyId,
+        /// Field identity.
         field: GlobalDefId,
     },
+    /// Target-typed integer constant.
     Int(IntConst),
 }
 
+/// Inline assembly after type and constraint checking.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedInlineAsm {
+    /// Assembly template.
     pub code: String,
+    /// Inputs in template order.
     pub inputs: Vec<TypedAsmInput>,
+    /// Outputs in template order.
     pub outputs: Vec<TypedAsmOutput>,
+    /// Register/state clobbers.
     pub clobbers: Vec<String>,
+    /// Optimization/side-effect options.
     pub options: Vec<AsmOption>,
 }
 
+/// One inline-assembly input operand.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedAsmInput {
+    /// Backend constraint string.
     pub constraint: String,
+    /// Typed input value.
     pub value: TypedExpr,
+    /// Source operand span.
     pub span: Span,
 }
 
+/// One inline-assembly output operand.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedAsmOutput {
+    /// Backend constraint string.
     pub constraint: String,
+    /// Writable destination place.
     pub place: TypedPlace,
+    /// Source operand span.
     pub span: Span,
 }
 
+/// Inline-assembly behavior options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AsmOption {
+    /// Prevent removal/reordering as a pure operation.
     Volatile,
 }
 
+/// Typed bulk memory operation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedMemoryIntrinsic {
+    /// Copy, move, or set operation.
     pub op: MemoryIntrinsicOp,
+    /// Element type of the destination slice.
     pub elem_ty: InternedTyId,
+    /// Mutable destination slice.
     pub dest: Box<TypedExpr>,
+    /// Source slice or byte value.
     pub source: TypedMemoryIntrinsicSource,
 }
 
+/// Source shape for a typed memory intrinsic.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedMemoryIntrinsicSource {
+    /// Slice source for copy/move.
     Slice(Box<TypedExpr>),
+    /// Byte source for set.
     Byte(Box<TypedExpr>),
 }
 
+/// Bulk memory operation kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryIntrinsicOp {
+    /// Copy allowing overlap.
     Copy,
+    /// Move requiring non-overlap.
     Move,
+    /// Fill with one byte value.
     Set,
 }
 
+/// Typed atomic operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedAtomic {
+    /// Atomic load.
     Load {
+        /// Loaded value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<TypedExpr>,
+        /// Memory ordering.
         order: AtomicOrder,
     },
+    /// Atomic store.
     Store {
+        /// Stored value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<TypedExpr>,
+        /// Value to store.
         value: Box<TypedExpr>,
+        /// Memory ordering.
         order: AtomicOrder,
     },
+    /// Atomic read-modify-write.
     Rmw {
+        /// Updated value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<TypedExpr>,
+        /// RMW operation.
         op: AtomicRmwOp,
+        /// Operand value.
         value: Box<TypedExpr>,
+        /// Memory ordering.
         order: AtomicOrder,
     },
+    /// Atomic compare-and-exchange.
     Cmpxchg {
+        /// Compared value type.
         ty: InternedTyId,
+        /// Data pointer.
         ptr: Box<TypedExpr>,
+        /// Expected old value.
         expected: Box<TypedExpr>,
+        /// Desired replacement value.
         desired: Box<TypedExpr>,
+        /// Ordering on success.
         success: AtomicOrder,
+        /// Ordering on failure.
         failure: AtomicOrder,
+        /// Whether spurious failure is allowed.
         weak: bool,
     },
+    /// Atomic fence.
     Fence {
+        /// Fence ordering.
         order: AtomicOrder,
     },
 }
 
+/// Memory ordering for typed atomic operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtomicOrder {
+    /// Unordered operation.
     Unordered,
+    /// Monotonic operation.
     Monotonic,
+    /// Acquire ordering.
     Acquire,
+    /// Release ordering.
     Release,
+    /// Acquire-release ordering.
     AcqRel,
+    /// Sequentially consistent ordering.
     SeqCst,
 }
 
+/// Read-modify-write operation for a typed atomic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AtomicRmwOp {
+    /// Exchange old and new values.
     Xchg,
+    /// Add operand.
     Add,
+    /// Subtract operand.
     Sub,
+    /// Bitwise and.
     And,
+    /// Bitwise nand.
     Nand,
+    /// Bitwise or.
     Or,
+    /// Bitwise xor.
     Xor,
+    /// Signed maximum.
     Max,
+    /// Signed minimum.
     Min,
+    /// Unsigned maximum.
     UMax,
+    /// Unsigned minimum.
     UMin,
 }
 
+/// Array elements represented explicitly or by repetition.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedArrayElements {
+    /// Explicit elements in source order.
     List(Vec<TypedExpr>),
+    /// One value repeated a const-evaluated count.
     Repeat {
+        /// Repeated value.
         value: Box<TypedExpr>,
+        /// Number of repetitions.
         count: ArrayLenTy,
     },
 }
 
+/// One aggregate field initializer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedFieldInit {
+    /// Declared field identity, absent for positional syntax.
     pub field: Option<GlobalDefId>,
+    /// Source field name or positional label.
     pub name: String,
+    /// Initializer expression.
     pub value: TypedExpr,
+    /// Source initializer span.
     pub span: Span,
 }
 
+/// Callee shape selected by semantic call resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedCallee {
+    /// Closure value call.
     Closure(Box<TypedExpr>),
+    /// Monomorphic function call.
     Function(GlobalDefId),
+    /// Concrete generic function call.
     FunctionInstance {
+        /// Definition identity.
         def_id: GlobalDefId,
+        /// Module supplying generic argument context.
         arg_module_id: nia_ids::ModuleId,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
+    /// Statically resolved method call.
     Method {
+        /// Method identity.
         def_id: GlobalDefId,
+        /// Method type arguments.
         args: Vec<InternedTyId>,
+        /// Receiver passing mode.
         receiver_kind: ReceiverKind,
+        /// Receiver expression.
         receiver: Box<TypedExpr>,
     },
+    /// Trait method call through a selected implementation.
     TraitMethod {
+        /// Trait identity.
         trait_id: GlobalDefId,
+        /// Method identity.
         method_id: GlobalDefId,
+        /// Method name.
         method_name: SymbolId,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Forwarded to backend dispatch together with the type arguments.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Method type arguments.
         args: Vec<InternedTyId>,
+        /// Receiver passing mode.
         receiver_kind: ReceiverKind,
+        /// Receiver expression.
         receiver: Box<TypedExpr>,
     },
+    /// Trait-associated function call without a receiver.
     TraitAssociatedFunction {
+        /// Trait identity.
         trait_id: GlobalDefId,
+        /// Method identity.
         method_id: GlobalDefId,
+        /// Method name.
         method_name: SymbolId,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Forwarded to backend dispatch together with the type arguments.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Method type arguments.
         args: Vec<InternedTyId>,
     },
+    /// Dynamic dispatch through a trait-object vtable slot.
     DynamicTraitMethod {
+        /// Erased object type.
         object_ty: InternedTyId,
+        /// Trait segment containing the slot.
         trait_id: TraitId,
+        /// Method identity.
         method_id: GlobalDefId,
+        /// Method name.
         method_name: SymbolId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Identifies the concrete trait-object instantiation.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Vtable slot index.
         slot: usize,
+        /// ABI parameter types.
         params: Vec<InternedTyId>,
+        /// ABI return type.
         return_type: InternedTyId,
+        /// Receiver passing mode.
         receiver_kind: ReceiverKind,
+        /// Dynamic receiver expression.
         receiver: Box<TypedExpr>,
     },
+    /// Builtin method call.
     BuiltinMethod {
+        /// Builtin method identity.
         method: BuiltinMethod,
+        /// Receiver type.
         self_ty: InternedTyId,
+        /// Receiver expression.
         receiver: Box<TypedExpr>,
     },
+    /// Builtin operator dispatch.
     BuiltinOperator(BuiltinOperator),
+    /// Builtin place method dispatch.
     BuiltinPlaceMethod(BuiltinPlaceMethod),
+    /// Callable fat-pointer call.
     Callable(Box<TypedExpr>),
+    /// Function-pointer call.
     FunctionPointer(Box<TypedExpr>),
 }
 
+/// Builtin operator and implementing trait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinOperator {
+    /// Builtin trait identity.
     pub trait_id: BuiltinTrait,
+    /// Operator kind.
     pub op: BuiltinOperatorOp,
 }
 
 impl BuiltinOperator {
+    /// Returns the builtin method when it belongs to this trait.
     pub fn method(self) -> Option<BuiltinTraitMethod> {
         self.op
             .method()
@@ -900,35 +1045,56 @@ impl BuiltinOperator {
     }
 }
 
+/// Builtin method requiring an addressable receiver.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuiltinPlaceMethod {
+    /// Builtin trait identity.
     pub trait_id: BuiltinTrait,
+    /// Builtin method identity.
     pub method: BuiltinTraitMethod,
+    /// Receiver type.
     pub self_ty: InternedTyId,
+    /// Trait type arguments.
     pub trait_args: Vec<InternedTyId>,
+    /// Receiver expression.
     pub receiver: Box<TypedExpr>,
 }
 
+/// Typed addressable storage path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedPlace {
+    /// Source span of the place.
     pub span: Span,
+    /// Final projected type.
     pub ty: InternedTyId,
+    /// Storage root.
     pub base: PlaceBase,
+    /// Projections in declaration order.
     pub elems: Vec<PlaceElem>,
 }
 
+/// Root storage of a typed place.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaceBase {
+    /// Local storage.
     Local(LocalId),
+    /// Global storage.
     Global(GlobalDefId),
+    /// Dereferenced pointer expression.
     Deref(Box<TypedExpr>),
+    /// Recovery base rejected by lowering.
     Error,
 }
 
+/// One typed place projection.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaceElem {
+    /// Aggregate field projection.
     Field(GlobalDefId),
+    /// Tuple field projection.
     TupleField(usize),
+    /// Array/pointer/slice index projection.
     Index(Box<TypedExpr>),
+    /// Recovery projection rejected by lowering.
     Error,
 }

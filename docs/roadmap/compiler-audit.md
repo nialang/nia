@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 154 completed entries in this ledger.
+- Implementation batches: 155 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -912,6 +912,11 @@ acceptance item only when its phase-wide evidence is complete.
       ranges, trait-object coercions, and nested control-flow expressions. The
       unsuppressed body-IR missing-docs baseline fell from 287 to 166 warnings;
       call, memory, atomic, and place payloads remain for the next batch.
+- [x] Phase C body-IR call/memory/place Rustdoc now documents builtin queries,
+      inline assembly operands, memory intrinsic overlap contracts, atomic
+      ordering, resolved callee identities, and typed place projections.
+      `cargo rustdoc -p nia-body-ir -- -D missing-docs` is clean and body-ir
+      Clippy/test checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
