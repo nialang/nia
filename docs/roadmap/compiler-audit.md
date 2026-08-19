@@ -1062,6 +1062,11 @@ acceptance item only when its phase-wide evidence is complete.
       to match the entry identity and callable signature and rejects unmapped
       closure-body parameter locals, covering direct/cached Backend IR inputs
       that do not pass through function lowering.
+- [x] Phase B closure-entry keys now validate that source and instantiated
+      owners match the source `ClosureId` and resolve to an emitted backend
+      function before owner-relative calls consume them. Partition planning
+      keeps dangling cached owners deterministic so validation can diagnose
+      them instead of panicking at the pre-LLVM boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

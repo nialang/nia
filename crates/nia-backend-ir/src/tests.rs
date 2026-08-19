@@ -82,6 +82,67 @@ fn closure_entry_keys_distinguish_source_and_concrete_instance_owners() {
 }
 
 #[test]
+fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let ty = type_store
+        .append_for_module(module_id)
+        .primitive(PrimitiveTy::I32);
+    let owner = GlobalDefId {
+        module_id,
+        def_id: DefId(7),
+    };
+    let owner_instance = FunctionInstanceKey {
+        def_id: owner,
+        arg_module_id: module_id,
+        self_arg: None,
+        args: Vec::new(),
+        const_args: Vec::new(),
+    };
+    let mut module = module_with_global(module_id, ty, "main", false);
+    module.closure_entries = (0..SOURCE_CODEGEN_SPLIT_THRESHOLD - 1)
+        .map(|ordinal| BackendClosureEntry {
+            key: BackendClosureEntryKey {
+                closure_id: ClosureId {
+                    owner,
+                    ordinal: ordinal as u32,
+                },
+                owner: BackendClosureEntryOwner::FunctionInstance(owner_instance.clone()),
+            },
+            symbol: format!("dangling-closure-{ordinal}"),
+            abi: BackendClosureEntryAbi {
+                state_type: ty,
+                state_pointer_type: ty,
+                params: Vec::new(),
+                return_type: ty,
+            },
+            state_param: nia_ids::LocalId(0),
+            params: Vec::new(),
+            local_names: HashMap::new(),
+            function_body: FunctionBody {
+                span: Span::default(),
+                locals: Vec::new(),
+                scopes: Vec::new(),
+                blocks: Vec::new(),
+                entry: FunctionBlockId(0),
+                ty,
+            },
+            span: Span::default(),
+        })
+        .collect();
+
+    let plan = CodegenPartitionPlan::for_ready_module(&module);
+    let partitioned_entries = plan
+        .partitions()
+        .iter()
+        .map(|partition| partition.closure_entry_definitions().len())
+        .sum::<usize>();
+
+    assert_eq!(partitioned_entries, SOURCE_CODEGEN_SPLIT_THRESHOLD - 1);
+}
+
+#[test]
 fn owner_directory_records_actual_instance_publication_module() {
     let mut module_ids = ModuleIdAllocator::new();
     let semantic_owner = module_ids.allocate();

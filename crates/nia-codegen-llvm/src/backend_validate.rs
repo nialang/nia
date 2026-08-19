@@ -325,6 +325,39 @@ impl BackendValidator<'_> {
             entry.symbol, module_name, entry.key.closure_id.owner, entry.key.closure_id.ordinal
         ));
         self.current_closure_owner = Some(entry.key.owner.clone());
+        let owner_identity_matches = match &entry.key.owner {
+            BackendClosureEntryOwner::Source(owner) => *owner == entry.key.closure_id.owner,
+            BackendClosureEntryOwner::FunctionInstance(owner) => {
+                owner.def_id == entry.key.closure_id.owner
+            }
+        };
+        if !owner_identity_matches {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry owner does not match its source closure identity",
+            ));
+        }
+        let owner_exists = match &entry.key.owner {
+            BackendClosureEntryOwner::Source(owner) => self.index.function(*owner).is_some(),
+            BackendClosureEntryOwner::FunctionInstance(owner) => self
+                .index
+                .function_instance(
+                    owner.def_id,
+                    owner.arg_module_id,
+                    owner.self_arg,
+                    &owner.args,
+                    &owner.const_args,
+                )
+                .is_some(),
+        };
+        if !owner_exists {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry owner does not resolve to a backend function",
+            ));
+        }
         self.validate_runtime_type(entry.abi.state_type, entry.span);
         self.validate_runtime_type(entry.abi.state_pointer_type, entry.span);
         for param in &entry.abi.params {

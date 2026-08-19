@@ -5606,7 +5606,18 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     let entry = nia_backend_ir::BackendClosureEntry {
         key: nia_backend_ir::BackendClosureEntryKey {
             closure_id,
-            owner: nia_backend_ir::BackendClosureEntryOwner::Source(closure_id.owner),
+            owner: nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
+                nia_function_ir::FunctionInstanceKey {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(1),
+                    },
+                    arg_module_id: module_id,
+                    self_arg: None,
+                    args: Vec::new(),
+                    const_args: Vec::new(),
+                },
+            ),
         },
         symbol: "main__closure_entry__ord__0".to_string(),
         abi: nia_backend_ir::BackendClosureEntryAbi {
@@ -5721,6 +5732,16 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "closure entry body contains unmapped parameter local"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "closure entry owner does not match its source closure identity"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "closure entry owner does not resolve to a backend function"
     ));
 }
 

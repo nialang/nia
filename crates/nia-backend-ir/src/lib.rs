@@ -1015,7 +1015,7 @@ impl CodegenPartitionDefinitions {
                     def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS
                 }
                 BackendClosureEntryOwner::FunctionInstance(owner) => {
-                    let instance = module
+                    let owner_symbol = module
                         .function_instances
                         .iter()
                         .find(|instance| {
@@ -1025,13 +1025,12 @@ impl CodegenPartitionDefinitions {
                                 && instance.args == owner.args
                                 && instance.const_args == owner.const_args
                         })
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Nia ICE: closure entry {:?} has no materialized owner instance",
-                                entry.key
-                            )
-                        });
-                    stable_symbol_bucket(&instance.symbol)
+                        .map(|instance| instance.symbol.as_str())
+                        // Partition planning precedes backend validation. Keep
+                        // malformed direct/cached IR deterministic here so the
+                        // validator can diagnose the dangling owner before LLVM.
+                        .unwrap_or(&entry.symbol);
+                    stable_symbol_bucket(owner_symbol)
                 }
             };
             buckets[bucket].closure_entries.push(index);
@@ -1108,6 +1107,10 @@ pub struct BackendClosureEntryKey {
     /// Source closure identity shared by generic materializations.
     pub closure_id: ClosureId,
     /// Concrete owner that determines captured substitutions.
+    ///
+    /// Its source `def_id` must equal `closure_id.owner`, and the referenced
+    /// source function or concrete function instance must be present in the
+    /// backend program before code generation.
     pub owner: BackendClosureEntryOwner,
 }
 
