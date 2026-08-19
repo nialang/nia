@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Validation of module static initializers against backend-representable rules.
+//!
+//! Static checking intentionally sits between semantic resolution and static
+//! IR construction: it rejects runtime-only operations while retaining enough
+//! cross-module context to resolve addresses, layouts, and const values.
 use std::sync::Arc;
 
 use nia_ast::{ArrayElements, BindingItem, Block, Expr, ExprKind, IndexArg, StmtKind, UnaryOp};
@@ -19,29 +24,46 @@ use nia_target_config::TargetConfig;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
+/// Diagnostics produced while checking one module's static initializers.
 pub struct StaticCheck {
+    /// Ordered user-facing diagnostics.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Shared semantic inputs for the compatibility static-check entry point.
 pub struct StaticCheckInput<'a> {
+    /// Active declarations in the module.
     pub active_item_tree: &'a ActiveModuleItemTree,
+    /// Definition table for local and imported items.
     pub defs: &'a DefCollection,
+    /// Resolved value names and qualified references.
     pub values: &'a ValueResolution,
+    /// Resolved local uses and binding modes.
     pub locals: &'a LocalResolution,
+    /// Semantic use facts for associated values and calls.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Symbol interner used for diagnostics.
     pub symbols: &'a SymbolTable,
+    /// Global signatures used for initializer typing.
     pub signatures: &'a ItemSignatures,
+    /// Evaluated const values available to this module.
     pub const_eval: &'a ConstValues,
+    /// Cross-module definition lookup.
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
+    /// Cross-module const-value lookup.
     pub program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
+    /// Target width/alignment configuration.
     pub target: &'a TargetConfig,
 }
 
+/// Narrow signature view used by precise static checking.
 #[derive(Debug, Clone, Copy)]
 pub struct StaticCheckSignatures<'a> {
+    /// Global signatures keyed by local definition id.
     pub globals: &'a std::collections::HashMap<DefId, GlobalSignature>,
 }
 
+/// Checks static initializers using the module's complete signature table.
 pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCheck {
     check_module_static_initializers_with_signatures(StaticCheckPreciseInput {
         active_item_tree: input.active_item_tree,
@@ -60,17 +82,29 @@ pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCh
     })
 }
 
+/// Inputs for the precise static-check path with explicit global signatures.
 pub struct StaticCheckPreciseInput<'a> {
+    /// Active declarations in the module.
     pub active_item_tree: &'a ActiveModuleItemTree,
+    /// Definition table for local and imported items.
     pub defs: &'a DefCollection,
+    /// Resolved value names and qualified references.
     pub values: &'a ValueResolution,
+    /// Resolved local uses and binding modes.
     pub locals: &'a LocalResolution,
+    /// Semantic use facts for associated values and calls.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Symbol interner used for diagnostics.
     pub symbols: &'a SymbolTable,
+    /// Global signatures used for initializer typing.
     pub signatures: StaticCheckSignatures<'a>,
+    /// Evaluated const values available to this module.
     pub const_eval: &'a ConstValues,
+    /// Cross-module definition lookup.
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
+    /// Cross-module const-value lookup.
     pub program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
+    /// Target width/alignment configuration.
     pub target: &'a TargetConfig,
 }
 
@@ -139,6 +173,8 @@ impl StaticChecker<'_> {
     }
 
     fn check_active_module(&mut self, item_tree: &ActiveModuleItemTree) {
+        // Walk active declarations only: inactive/forked module items must not
+        // produce diagnostics or static products for the current revision.
         for item in &item_tree.items {
             match &item.kind {
                 ItemTreeNodeKind::Binding(binding) if !binding.is_const() => {
@@ -177,6 +213,8 @@ impl StaticChecker<'_> {
     }
 
     fn check_global_binding(&mut self, span: Span, binding: &BindingItem) {
+        // Static initializers are checked in declaration context, then lowered
+        // through the same const-eval environment used for resolved globals.
         let Some(def_id) = self.def_id_for_node(&binding.node_key, span, DefKind::Global) else {
             return;
         };
@@ -633,6 +671,8 @@ impl ConstCommonEnv for StaticConstEnv<'_> {
     }
 
     fn consume_const_eval_step(&mut self, span: Span) -> Result<(), ConstError> {
+        // Every recursive/static expression consumes the shared budget so a
+        // cyclic or adversarial initializer cannot monopolize compilation.
         self.budget.consume_step(span)
     }
 

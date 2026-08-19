@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-18):
 
-- Implementation batches: 157 completed entries in this ledger.
+- Implementation batches: 158 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -926,6 +926,11 @@ acceptance item only when its phase-wide evidence is complete.
       defer exit environments. Existing recursive, loop, capture, assignment,
       and LIFO-defer matrices remain green (8 tests), with strict Clippy and
       Rustdoc clean.
+- [x] Phase C static-check boundary audit now documents active-revision
+      filtering, static-vs-const representation rules, cross-module lookup
+      ownership, and shared const-evaluation step budgeting. The existing 10
+      static initializer acceptance/rejection tests, strict Clippy, and
+      Rustdoc checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
