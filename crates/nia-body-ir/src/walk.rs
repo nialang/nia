@@ -291,9 +291,11 @@ fn walk_callee<'a>(callee: &'a TypedCallee, visit: &mut impl FnMut(&'a TypedBody
 mod tests {
     use super::walk_typed_function_bodies;
     use crate::{
-        TypedClosureCapture, TypedExpr, TypedExprKind, TypedForIn, TypedIfPattern, TypedLoop,
-        TypedMatch, TypedMatchArm, TypedMatchArmBody, TypedPattern, TypedPatternKind, TypedStmt,
-        TypedStmtKind, TypedWhile,
+        AtomicOrder, MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedAsmInput, TypedAsmOutput,
+        TypedAtomic, TypedCallee, TypedClosureCapture, TypedExpr, TypedExprKind, TypedForIn,
+        TypedIfPattern, TypedInlineAsm, TypedLoop, TypedMatch, TypedMatchArm, TypedMatchArmBody,
+        TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
+        TypedPlace, TypedStmt, TypedStmtKind, TypedUnionRelocation, TypedWhile,
     };
     use nia_ids::{
         ClosureId, DefId, GlobalDefId, InternedTyId, LocalId, ModuleId, ModuleIdAllocator,
@@ -480,5 +482,81 @@ mod tests {
         })));
 
         assert_eq!(fixture.visited_markers(&root), vec![0, 10]);
+    }
+
+    #[test]
+    fn visits_bodies_hidden_in_places_callees_and_effect_operands() {
+        let fixture = Fixture::new();
+        let place = |base, elems| TypedPlace {
+            span: Span::default(),
+            ty: fixture.ty,
+            base,
+            elems,
+        };
+        let mut root = fixture.body(0);
+        root.tail = Some(Box::new(fixture.expr(TypedExprKind::Tuple(vec![
+            fixture.expr(TypedExprKind::Assign {
+                place: place(
+                    PlaceBase::Deref(Box::new(fixture.block(10))),
+                    vec![PlaceElem::Index(Box::new(fixture.block(11)))],
+                ),
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(fixture.expr(TypedExprKind::Bool(true))),
+            }),
+            fixture.expr(TypedExprKind::Call {
+                callee: TypedCallee::FunctionPointer(Box::new(fixture.block(20))),
+                args: Vec::new(),
+            }),
+            fixture.expr(TypedExprKind::InlineAsm(TypedInlineAsm {
+                code: String::new(),
+                inputs: vec![TypedAsmInput {
+                    constraint: String::new(),
+                    value: fixture.block(30),
+                    span: Span::default(),
+                }],
+                outputs: vec![TypedAsmOutput {
+                    constraint: String::new(),
+                    place: place(
+                        PlaceBase::Deref(Box::new(fixture.block(31))),
+                        vec![PlaceElem::Index(Box::new(fixture.block(32)))],
+                    ),
+                    span: Span::default(),
+                }],
+                clobbers: Vec::new(),
+                options: Vec::new(),
+            })),
+            fixture.expr(TypedExprKind::UnionStorageLiteral {
+                bytes: Vec::new(),
+                relocations: vec![TypedUnionRelocation {
+                    offset: 0,
+                    width: 0,
+                    allocation: crate::PromotedAllocationId::new(
+                        fixture.module_id,
+                        Span::default(),
+                    ),
+                    pointee: Box::new(fixture.block(40)),
+                }],
+            }),
+            fixture.expr(TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                op: MemoryIntrinsicOp::Copy,
+                elem_ty: fixture.ty,
+                dest: Box::new(fixture.block(50)),
+                source: TypedMemoryIntrinsicSource::Slice(Box::new(fixture.block(51))),
+            })),
+            fixture.expr(TypedExprKind::Atomic(TypedAtomic::Cmpxchg {
+                ty: fixture.ty,
+                ptr: Box::new(fixture.block(60)),
+                expected: Box::new(fixture.block(61)),
+                desired: Box::new(fixture.block(62)),
+                success: AtomicOrder::SeqCst,
+                failure: AtomicOrder::Acquire,
+                weak: false,
+            })),
+        ]))));
+
+        assert_eq!(
+            fixture.visited_markers(&root),
+            vec![0, 10, 11, 20, 30, 31, 32, 40, 50, 51, 60, 61, 62]
+        );
     }
 }
