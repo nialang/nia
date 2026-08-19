@@ -171,6 +171,32 @@ fn main() i32 {
 }
 
 #[test]
+fn mismatched_closure_arity_does_not_partially_infer_generics() {
+    let checked = pipeline(
+        r#"
+fn accepts[T](callback: &Fn(T, T) T, value: T) T {
+    callback(value, value)
+}
+
+fn main() bool {
+    accepts(&\value: i32 -> { value }, true)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("closure parameter count mismatch")
+    }));
+    assert!(!checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("conflicting inferred type for generic parameter")
+    }));
+}
+
+#[test]
 fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"

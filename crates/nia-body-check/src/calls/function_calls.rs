@@ -675,6 +675,9 @@ impl<'a> BodyChecker<'a> {
         }) else {
             return false;
         };
+        if params.len() != signature.params.len() {
+            return false;
+        }
         for (pattern, actual) in params.into_iter().zip(&signature.params) {
             self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
         }
@@ -741,7 +744,9 @@ impl<'a> BodyChecker<'a> {
         }
         let pattern = self.normalization.normalize(pattern);
         match (self.interner.get(pattern).cloned(), actual) {
-            (Some(TyKind::Tuple(patterns)), InferredType::Tuple(actuals)) => {
+            (Some(TyKind::Tuple(patterns)), InferredType::Tuple(actuals))
+                if patterns.len() == actuals.len() =>
+            {
                 for (pattern, actual) in patterns.into_iter().zip(actuals) {
                     self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
                 }
@@ -795,7 +800,7 @@ impl<'a> BodyChecker<'a> {
                     params: actual_params,
                     return_type: actual_return,
                 },
-            ) => {
+            ) if params.len() == actual_params.len() => {
                 for (pattern, actual) in params.into_iter().zip(actual_params) {
                     self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
                 }

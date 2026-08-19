@@ -1074,6 +1074,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase A generic inference now applies the same callable mutability
       relation as coercion: mutable closure state may infer a readonly
       `&Fn(T) T` target, while readonly state cannot satisfy a mutable target.
+- [x] Phase A inferred closure, callable, and tuple signatures now require
+      matching arity before contributing generic substitutions, preventing
+      malformed closures from partially selecting a concrete instance before
+      the authoritative argument check reports the structural mismatch.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.
