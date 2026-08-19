@@ -1083,6 +1083,9 @@ pub struct BackendModule {
     /// Concrete function instances, optionally carrying a body.
     pub function_instances: Vec<BackendFunctionInstance>,
     /// Generated closure entry points and hidden-state ABI.
+    ///
+    /// Keys must be unique within the program; codegen validation rejects
+    /// duplicate definitions before they can alias one LLVM symbol/index slot.
     pub closure_entries: Vec<BackendClosureEntry>,
     /// Materialized trait-object dispatch tables.
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,

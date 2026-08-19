@@ -12,10 +12,10 @@ use std::{
 
 use crate::{declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex};
 use nia_backend_ir::{
-    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
-    BackendGlobal, BackendGlobalInstance, BackendModule, BackendParam, BackendStruct,
-    BackendStructInstance, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
-    BackendUnion, BackendUnionInstance, CodegenPartition,
+    BackendClosureEntry, BackendClosureEntryKey, BackendClosureEntryOwner, BackendFunction,
+    BackendFunctionInstance, BackendGlobal, BackendGlobalInstance, BackendModule, BackendParam,
+    BackendStruct, BackendStructInstance, BackendTraitObjectVtable,
+    BackendTraitObjectVtableFunction, BackendUnion, BackendUnionInstance, CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
@@ -229,6 +229,7 @@ impl<'a> BackendValidator<'a> {
             target,
             diagnostics: Vec::new(),
             seen_types: HashSet::new(),
+            seen_closure_entries: HashSet::new(),
             layout_cache: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
             function_instance_ref_cache: RefCell::new(HashMap::new()),
@@ -249,6 +250,7 @@ pub(super) struct BackendValidator<'a> {
     target: TargetDataLayout,
     diagnostics: Vec<Diagnostic>,
     seen_types: HashSet<InternedTyId>,
+    seen_closure_entries: HashSet<BackendClosureEntryKey>,
     layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     function_instance_ref_cache: RefCell<HashMap<FunctionInstanceKey, bool>>,
@@ -324,6 +326,13 @@ impl BackendValidator<'_> {
             "closure entry {} in {}::{:?}#{}",
             entry.symbol, module_name, entry.key.closure_id.owner, entry.key.closure_id.ordinal
         ));
+        if !self.seen_closure_entries.insert(entry.key.clone()) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "backend module contains a duplicate closure entry identity",
+            ));
+        }
         self.current_closure_owner = Some(entry.key.owner.clone());
         let owner_identity_matches = match &entry.key.owner {
             BackendClosureEntryOwner::Source(owner) => *owner == entry.key.closure_id.owner,
