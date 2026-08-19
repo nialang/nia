@@ -1082,6 +1082,11 @@ acceptance item only when its phase-wide evidence is complete.
       address operator when matching canonical callable views, so readonly
       closure addresses cannot seed substitutions for mutable `&mut Fn`
       candidates before authoritative argument checking.
+- [x] Phase A closure-signature inference now probes the complete recursive
+      type shape before committing substitutions; nested tuple/callable
+      mismatches cannot leak a valid prefix into later arguments. Function,
+      method-candidate, and thin-function-pointer regressions cover the shared
+      inference path.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.

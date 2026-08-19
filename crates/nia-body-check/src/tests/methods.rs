@@ -117,6 +117,32 @@ fn main(box: Box) bool {
 }
 
 #[test]
+fn method_closure_inference_preserves_mutable_callable_borrow() {
+    let checked = pipeline(
+        r#"
+struct Box {}
+
+extend Box {
+    fn apply[T](self, callback: &mut Fn(T) T, value: T) T {
+        callback(value)
+    }
+}
+
+fn main(box: Box) bool {
+    box.apply(&\value: i32 -> { value }, true)
+}
+"#,
+    );
+
+    assert!(!checked.diagnostics.is_empty());
+    assert!(!checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("conflicting inferred type for generic parameter")
+    }));
+}
+
+#[test]
 fn invalid_method_overload_call_reports_no_match() {
     let checked = pipeline(
         r#"

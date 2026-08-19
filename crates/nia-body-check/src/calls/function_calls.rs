@@ -632,8 +632,12 @@ impl<'a> BodyChecker<'a> {
             } else {
                 self.check_expr(arg)
             };
-            self.infer_generics_from_type(param, actual, substitutions, arg.span);
-            self.infer_const_generics_from_type(param, actual, const_substitutions, arg.span);
+            let closure_shape_matches = self.inferred_closure_signature(arg).is_none()
+                || self.generic_pattern_accepts_type_shape(param, actual);
+            if closure_shape_matches {
+                self.infer_generics_from_type(param, actual, substitutions, arg.span);
+                self.infer_const_generics_from_type(param, actual, const_substitutions, arg.span);
+            }
             self.infer_generic_function_call_substitutions_from_where_predicates(
                 signature,
                 args,
@@ -694,6 +698,17 @@ impl<'a> BodyChecker<'a> {
         if params.len() != signature.params.len() {
             return false;
         }
+        // Closure inference is speculative: a structural mismatch in a later
+        // parameter must not commit substitutions collected from an earlier
+        // one. Probe the complete partial signature before mutating the map.
+        if !params
+            .iter()
+            .zip(&signature.params)
+            .all(|(pattern, actual)| self.generic_pattern_accepts_inferred_shape(*pattern, actual))
+            || !self.generic_pattern_accepts_inferred_shape(return_type, &signature.return_type)
+        {
+            return false;
+        }
         for (pattern, actual) in params.into_iter().zip(&signature.params) {
             self.infer_generics_from_inferred_type(pattern, actual, substitutions, span);
         }
@@ -704,6 +719,292 @@ impl<'a> BodyChecker<'a> {
             span,
         );
         true
+    }
+
+    /// Checks whether closure-local partial type information can safely feed
+    /// generic inference without publishing substitutions or diagnostics.
+    fn generic_pattern_accepts_inferred_shape(
+        &mut self,
+        pattern: InternedTyId,
+        actual: &crate::inference::InferredType,
+    ) -> bool {
+        use crate::inference::InferredType;
+
+        if let Some(actual) = self.materialize_inferred_type(actual) {
+            return self.generic_pattern_accepts_type_shape(pattern, actual);
+        }
+        let pattern = self.normalization.normalize(pattern);
+        match (self.interner.get(pattern).cloned(), actual) {
+            (_, InferredType::Unknown) => true,
+            (Some(TyKind::Tuple(patterns)), InferredType::Tuple(actuals)) => {
+                patterns.len() == actuals.len()
+                    && patterns.iter().zip(actuals).all(|(pattern, actual)| {
+                        self.generic_pattern_accepts_inferred_shape(*pattern, actual)
+                    })
+            }
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                }),
+                InferredType::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            ) => {
+                (pattern_readonly == *actual_readonly || pattern_readonly && !actual_readonly)
+                    && self.generic_pattern_accepts_inferred_shape(pattern_elem, actual_elem)
+            }
+            (Some(TyKind::Optional { elem }), InferredType::Optional(actual)) => {
+                self.generic_pattern_accepts_inferred_shape(elem, actual)
+            }
+            (
+                Some(TyKind::ErrorUnion { error, value }),
+                InferredType::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                },
+            ) => {
+                self.generic_pattern_accepts_inferred_shape(error, actual_error)
+                    && self.generic_pattern_accepts_inferred_shape(value, actual_value)
+            }
+            (
+                Some(TyKind::Callable {
+                    params,
+                    return_type,
+                    ..
+                })
+                | Some(TyKind::CallablePointee {
+                    params,
+                    return_type,
+                })
+                | Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic: false,
+                }),
+                InferredType::Callable {
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) => {
+                params.len() == actual_params.len()
+                    && params.iter().zip(actual_params).all(|(pattern, actual)| {
+                        self.generic_pattern_accepts_inferred_shape(*pattern, actual)
+                    })
+                    && self.generic_pattern_accepts_inferred_shape(return_type, actual_return)
+            }
+            _ => false,
+        }
+    }
+
+    /// Structural counterpart to [`Self::infer_generics_from_type`].
+    ///
+    /// It intentionally checks only shapes that can contain substitutions;
+    /// concrete leaves use ordinary type matching. Unsupported generic shapes
+    /// are rejected conservatively so speculative closure inference cannot
+    /// leak a prefix of substitutions.
+    pub(in crate::calls) fn generic_pattern_accepts_type_shape(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
+        let pattern = self.normalization.normalize(pattern);
+        let actual = self.normalization.normalize(actual);
+        let Some(pattern_kind) = self.interner.get(pattern).cloned() else {
+            return false;
+        };
+        if matches!(pattern_kind, TyKind::GenericParam(_)) {
+            return true;
+        }
+        if !self.type_contains_generic_param(pattern) {
+            return self.types_match(pattern, actual);
+        }
+        match (pattern_kind, self.interner.get(actual).cloned()) {
+            (
+                TyKind::Pointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                TyKind::VolatilePointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                TyKind::Slice {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) => {
+                (pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly)
+                    && self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem)
+            }
+            (
+                TyKind::SlicePointee { elem: pattern_elem },
+                Some(TyKind::SlicePointee { elem: actual_elem }),
+            )
+            | (
+                TyKind::Array {
+                    elem: pattern_elem, ..
+                },
+                Some(TyKind::Array {
+                    elem: actual_elem, ..
+                }),
+            )
+            | (
+                TyKind::Optional { elem: pattern_elem },
+                Some(TyKind::Optional { elem: actual_elem }),
+            ) => self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem),
+            (TyKind::Tuple(patterns), Some(TyKind::Tuple(actuals))) => {
+                patterns.len() == actuals.len()
+                    && patterns.iter().zip(actuals).all(|(pattern, actual)| {
+                        self.generic_pattern_accepts_type_shape(*pattern, actual)
+                    })
+            }
+            (
+                TyKind::ErrorUnion {
+                    error: pattern_error,
+                    value: pattern_value,
+                },
+                Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }),
+            ) => {
+                self.generic_pattern_accepts_type_shape(pattern_error, actual_error)
+                    && self.generic_pattern_accepts_type_shape(pattern_value, actual_value)
+            }
+            (
+                TyKind::FunctionPointer {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                    is_variadic: pattern_variadic,
+                },
+                Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: actual_variadic,
+                }),
+            ) => {
+                pattern_variadic == actual_variadic
+                    && pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Callable {
+                    is_readonly: pattern_readonly,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                Some(TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) => {
+                (pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly)
+                    && pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Callable {
+                    is_readonly: pattern_readonly,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem,
+                }),
+            ) => {
+                let Some(TyKind::ClosureState {
+                    params: actual_params,
+                    return_type: actual_return,
+                    ..
+                }) = self.interner.get(elem).cloned()
+                else {
+                    return false;
+                };
+                (pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly)
+                    && pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::CallablePointee {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                Some(TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) => {
+                pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Nominal {
+                    def_id: pattern_def,
+                    args: pattern_args,
+                    const_args: pattern_const_args,
+                },
+                Some(TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                    const_args: actual_const_args,
+                }),
+            ) => {
+                pattern_def == actual_def
+                    && pattern_args.len() == actual_args.len()
+                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+            }
+            _ => false,
+        }
     }
 
     pub(crate) fn materialize_inferred_type(

@@ -189,11 +189,41 @@ fn main() bool {
             .summary
             .contains("closure parameter count mismatch")
     }));
-    assert!(!checked.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .summary
-            .contains("conflicting inferred type for generic parameter")
-    }));
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("conflicting inferred type for generic parameter")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn nested_closure_shape_mismatch_does_not_commit_earlier_substitutions() {
+    let checked = pipeline(
+        r#"
+fn accepts[T, U](callback: &Fn(T, (U, U)) T, value: T) T {
+    callback(value, (value, value))
+}
+
+fn main() bool {
+    accepts(&\value: i32, pair: (bool,) -> { value }, true)
+}
+"#,
+    );
+
+    assert!(!checked.diagnostics.is_empty());
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("conflicting inferred type for generic parameter")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
@@ -216,6 +246,23 @@ fn main() bool {
             .summary
             .contains("conflicting inferred type for generic parameter")
     }));
+}
+
+#[test]
+fn generic_thin_function_pointer_infers_from_readonly_closure_address() {
+    let checked = pipeline(
+        r#"
+fn accepts[T](callback: &fn(T) T) i32 {
+    1
+}
+
+fn main() i32 {
+    accepts(&\value: i32 -> { value })
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]
