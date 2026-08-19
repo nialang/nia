@@ -283,26 +283,47 @@ impl<'a> BodyLocalSignatures<'a> {
 #[derive(Clone, Copy)]
 /// Body-check inputs using one program-wide signature scope.
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
+    /// Shared interned type store.
     pub type_store: &'a nia_ty::TypeStore,
+    /// Source revision.
     pub source_version: Option<SourceVersion>,
+    /// Source path for diagnostics.
     pub source_path: &'a SourcePath,
+    /// Symbol table.
     pub symbols: &'a SymbolTable,
+    /// Node-origin table.
     pub origins: &'a NodeOriginTable,
+    /// Active item tree.
     pub active_item_tree: &'a ActiveModuleItemTree,
+    /// Definition identities.
     pub defs: &'a DefCollection,
+    /// Value identities.
     pub values: &'a ValueResolution,
+    /// Local identities.
     pub locals: &'a LocalResolution,
+    /// Semantic use facts.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Lowered types.
     pub lowered: &'a TypeLowering,
+    /// Program-wide signatures.
     pub signatures: &'a ItemSignatures,
+    /// Type normalization.
     pub normalization: &'a TypeNormalization,
+    /// Target configuration.
     pub target: &'a TargetConfig,
+    /// Cached const products.
     pub const_eval: BodyConst<'a>,
+    /// Resolved const module.
     pub const_module: &'a ResolvedConstModule,
+    /// Visible extension methods.
     pub extensions: &'a VisibleExtensionMethods,
+    /// Program extension methods.
     pub program_extension_methods: &'a ExtensionMethods,
+    /// Optional cross-module providers.
     pub program: BodyProgramContext<'a>,
+    /// Program signature context.
     pub program_signatures: ProgramSignatureContext<'a>,
+    /// Function lookup scope.
     pub function_scope: FunctionCheckScope,
 }
 
