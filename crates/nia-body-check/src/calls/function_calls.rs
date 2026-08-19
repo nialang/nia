@@ -636,7 +636,14 @@ impl<'a> BodyChecker<'a> {
                 || self.generic_pattern_accepts_type_shape(param, actual);
             if closure_shape_matches {
                 self.infer_generics_from_type(param, actual, substitutions, arg.span);
-                self.infer_const_generics_from_type(param, actual, const_substitutions, arg.span);
+                if self.generic_pattern_accepts_type_shape(param, actual) {
+                    // Const inference is staged behind a complete structural
+                    // probe. A mismatch in a later tuple field or associated
+                    // binding must not leak values collected from a prefix.
+                    let mut staged = const_substitutions.clone();
+                    self.infer_const_generics_from_type(param, actual, &mut staged, arg.span);
+                    *const_substitutions = staged;
+                }
             }
             self.infer_generic_function_call_substitutions_from_where_predicates(
                 signature,
@@ -817,7 +824,9 @@ impl<'a> BodyChecker<'a> {
         if matches!(pattern_kind, TyKind::GenericParam(_)) {
             return true;
         }
-        if !self.type_contains_generic_param(pattern) {
+        if !self.type_contains_generic_param(pattern)
+            && !self.type_contains_const_generic_param(pattern)
+        {
             return self.types_match(pattern, actual);
         }
         match (pattern_kind, self.interner.get(actual).cloned()) {
@@ -859,17 +868,22 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::SlicePointee { elem: actual_elem }),
             )
             | (
-                TyKind::Array {
-                    elem: pattern_elem, ..
-                },
-                Some(TyKind::Array {
-                    elem: actual_elem, ..
-                }),
-            )
-            | (
                 TyKind::Optional { elem: pattern_elem },
                 Some(TyKind::Optional { elem: actual_elem }),
             ) => self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem),
+            (
+                TyKind::Array {
+                    len: pattern_len,
+                    elem: pattern_elem,
+                },
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                }),
+            ) => {
+                self.const_generic_array_len_pattern_accepts(&pattern_len, &actual_len)
+                    && self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem)
+            }
             (
                 TyKind::Range {
                     kind: pattern_kind,
@@ -1014,7 +1028,8 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 pattern_def == actual_def
                     && pattern_args.len() == actual_args.len()
-                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                     && pattern_args
                         .iter()
                         .zip(actual_args)
@@ -1060,7 +1075,8 @@ impl<'a> BodyChecker<'a> {
                 pattern_readonly == actual_readonly
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
-                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                     && pattern_bindings.len() == actual_bindings.len()
                     && pattern_args
                         .iter()
@@ -1070,7 +1086,21 @@ impl<'a> BodyChecker<'a> {
                         })
                     && pattern_bindings.iter().all(|pattern_binding| {
                         actual_bindings.iter().any(|actual_binding| {
-                            self.associated_type_binding_keys_match(pattern_binding, actual_binding)
+                            pattern_binding.name == actual_binding.name
+                                && pattern_binding.trait_id == actual_binding.trait_id
+                                && pattern_binding.trait_args.len()
+                                    == actual_binding.trait_args.len()
+                                && pattern_binding
+                                    .trait_args
+                                    .iter()
+                                    .zip(actual_binding.trait_args.iter())
+                                    .all(|(pattern, actual)| {
+                                        self.generic_pattern_accepts_type_shape(*pattern, *actual)
+                                    })
+                                && self.const_generic_arg_patterns_accept(
+                                    &pattern_binding.trait_const_args,
+                                    &actual_binding.trait_const_args,
+                                )
                                 && self.generic_pattern_accepts_type_shape(
                                     pattern_binding.ty,
                                     actual_binding.ty,
@@ -1094,7 +1124,8 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
-                    && self.const_generic_arg_slices_match(&pattern_const_args, &actual_const_args)
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                     && pattern_bindings.len() == actual_bindings.len()
                     && pattern_args
                         .iter()
@@ -1104,7 +1135,21 @@ impl<'a> BodyChecker<'a> {
                         })
                     && pattern_bindings.iter().all(|pattern_binding| {
                         actual_bindings.iter().any(|actual_binding| {
-                            self.associated_type_binding_keys_match(pattern_binding, actual_binding)
+                            pattern_binding.name == actual_binding.name
+                                && pattern_binding.trait_id == actual_binding.trait_id
+                                && pattern_binding.trait_args.len()
+                                    == actual_binding.trait_args.len()
+                                && pattern_binding
+                                    .trait_args
+                                    .iter()
+                                    .zip(actual_binding.trait_args.iter())
+                                    .all(|(pattern, actual)| {
+                                        self.generic_pattern_accepts_type_shape(*pattern, *actual)
+                                    })
+                                && self.const_generic_arg_patterns_accept(
+                                    &pattern_binding.trait_const_args,
+                                    &actual_binding.trait_const_args,
+                                )
                                 && self.generic_pattern_accepts_type_shape(
                                     pattern_binding.ty,
                                     actual_binding.ty,
@@ -1117,20 +1162,22 @@ impl<'a> BodyChecker<'a> {
                     self_ty: pattern_self,
                     trait_id: pattern_trait,
                     trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
                     name: pattern_name,
-                    ..
                 },
                 Some(TyKind::Projection {
                     self_ty: actual_self,
                     trait_id: actual_trait,
                     trait_args: actual_args,
+                    trait_const_args: actual_const_args,
                     name: actual_name,
-                    ..
                 }),
             ) => {
                 pattern_trait == actual_trait
                     && pattern_name == actual_name
                     && pattern_args.len() == actual_args.len()
+                    && self
+                        .const_generic_arg_patterns_accept(&pattern_const_args, &actual_const_args)
                     && self.generic_pattern_accepts_type_shape(pattern_self, actual_self)
                     && pattern_args
                         .iter()
@@ -1141,6 +1188,37 @@ impl<'a> BodyChecker<'a> {
             }
             _ => false,
         }
+    }
+
+    fn const_generic_array_len_pattern_accepts(
+        &self,
+        pattern: &ArrayLenTy,
+        actual: &ArrayLenTy,
+    ) -> bool {
+        if matches!(pattern, ArrayLenTy::GenericParam(_)) {
+            return self
+                .const_generic_value_from_array_len(actual.clone())
+                .is_some();
+        }
+        if pattern == actual {
+            return true;
+        }
+        let pattern = self.array_len_value(Span::default(), pattern).ok();
+        let actual = self.array_len_value(Span::default(), actual).ok();
+        pattern.is_some() && pattern == actual
+    }
+
+    fn const_generic_arg_patterns_accept(
+        &mut self,
+        patterns: &[ConstGenericArg],
+        actuals: &[ConstGenericArg],
+    ) -> bool {
+        patterns.len() == actuals.len()
+            && patterns.iter().zip(actuals).all(|(pattern, actual)| {
+                self.generic_pattern_accepts_type_shape(pattern.ty, actual.ty)
+                    && (matches!(pattern.value, ConstGenericValue::GenericParam(_))
+                        || self.const_generic_args_match(pattern, actual))
+            })
     }
 
     pub(crate) fn materialize_inferred_type(
@@ -1437,10 +1515,138 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {
-        if self.type_contains_generic_param(ty) {
+        if self.type_contains_generic_param(ty) || self.type_contains_const_generic_param(ty) {
             None
         } else {
             Some(ty)
+        }
+    }
+
+    /// Returns whether a canonical type still contains a const parameter that
+    /// must be substituted before the type can guide expression checking.
+    ///
+    /// This mirrors [`Self::type_contains_generic_param`] across every type
+    /// container. Treating `[T; N]` as a complete expected type before `N` is
+    /// inferred causes eager tuple/aggregate diagnostics even when the later
+    /// instantiated argument type is valid.
+    fn type_contains_const_generic_param(&self, ty: InternedTyId) -> bool {
+        let const_arg_contains_param = |arg: &ConstGenericArg| {
+            matches!(arg.value, ConstGenericValue::GenericParam(_))
+                || self.type_contains_const_generic_param(arg.ty)
+        };
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
+            | Some(TyKind::Optional { elem }) => self.type_contains_const_generic_param(*elem),
+            Some(TyKind::Array { len, elem }) => {
+                matches!(len, ArrayLenTy::GenericParam(_))
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if self.type_contains_const_generic_param(*ty))
+                    || self.type_contains_const_generic_param(*elem)
+            }
+            Some(TyKind::Range { bound, .. }) => {
+                bound.is_some_and(|bound| self.type_contains_const_generic_param(bound))
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            })
+            | Some(TyKind::CallablePointee {
+                params,
+                return_type,
+            }) => {
+                params
+                    .iter()
+                    .any(|param| self.type_contains_const_generic_param(*param))
+                    || self.type_contains_const_generic_param(*return_type)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.type_contains_const_generic_param(*error)
+                    || self.type_contains_const_generic_param(*value)
+            }
+            Some(TyKind::Tuple(elems)) => elems
+                .iter()
+                .any(|elem| self.type_contains_const_generic_param(*elem)),
+            Some(TyKind::ClosureState {
+                captures,
+                params,
+                return_type,
+                ..
+            }) => {
+                captures
+                    .iter()
+                    .chain(params)
+                    .any(|ty| self.type_contains_const_generic_param(*ty))
+                    || self.type_contains_const_generic_param(*return_type)
+            }
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter()
+                    .any(|arg| self.type_contains_const_generic_param(*arg))
+                    || const_args.iter().any(const_arg_contains_param)
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
+                .iter()
+                .any(|arg| self.type_contains_const_generic_param(*arg)),
+            Some(TyKind::TraitObject {
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.type_contains_const_generic_param(*arg))
+                    || trait_const_args.iter().any(const_arg_contains_param)
+                    || associated_type_bindings.iter().any(|binding| {
+                        binding
+                            .trait_args
+                            .iter()
+                            .any(|arg| self.type_contains_const_generic_param(*arg))
+                            || binding
+                                .trait_const_args
+                                .iter()
+                                .any(const_arg_contains_param)
+                            || self.type_contains_const_generic_param(binding.ty)
+                    })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                trait_const_args,
+                ..
+            }) => {
+                self.type_contains_const_generic_param(*self_ty)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.type_contains_const_generic_param(*arg))
+                    || trait_const_args.iter().any(const_arg_contains_param)
+            }
+            Some(
+                TyKind::Error
+                | TyKind::ConstOnly
+                | TyKind::Opaque
+                | TyKind::Primitive(_)
+                | TyKind::BuiltinType(_)
+                | TyKind::Vector { .. }
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
+            )
+            | None => false,
         }
     }
 
@@ -1942,20 +2148,156 @@ impl<'a> BodyChecker<'a> {
                 self.infer_const_generics_from_type(pattern_elem, actual_elem, substitutions, span);
             }
             (
-                Some(TyKind::Pointer { elem: left, .. }),
-                Some(TyKind::Pointer { elem: right, .. }),
+                Some(TyKind::Pointer {
+                    is_readonly: pattern_readonly,
+                    elem: left,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: right,
+                }),
             )
             | (
-                Some(TyKind::VolatilePointer { elem: left, .. }),
-                Some(TyKind::VolatilePointer { elem: right, .. }),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: pattern_readonly,
+                    elem: left,
+                }),
+                Some(TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: right,
+                }),
             )
-            | (Some(TyKind::Slice { elem: left, .. }), Some(TyKind::Slice { elem: right, .. }))
             | (
+                Some(TyKind::Slice {
+                    is_readonly: pattern_readonly,
+                    elem: left,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: right,
+                }),
+            ) if pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly => {
+                self.infer_const_generics_from_type(left, right, substitutions, span)
+            }
+            (
                 Some(TyKind::SlicePointee { elem: left }),
                 Some(TyKind::SlicePointee { elem: right }),
             )
             | (Some(TyKind::Optional { elem: left }), Some(TyKind::Optional { elem: right })) => {
                 self.infer_const_generics_from_type(left, right, substitutions, span)
+            }
+            (
+                Some(TyKind::Range {
+                    kind: pattern_kind,
+                    bound: Some(pattern_bound),
+                }),
+                Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: Some(actual_bound),
+                }),
+            ) if pattern_kind == actual_kind => self.infer_const_generics_from_type(
+                pattern_bound,
+                actual_bound,
+                substitutions,
+                span,
+            ),
+            (
+                Some(TyKind::FunctionPointer {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                    is_variadic: pattern_variadic,
+                }),
+                Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: actual_variadic,
+                }),
+            ) if pattern_variadic == actual_variadic
+                && pattern_params.len() == actual_params.len() =>
+            {
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                self.infer_const_generics_from_type(
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                    span,
+                );
+            }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: pattern_readonly,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                }),
+                Some(TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) if (pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly)
+                && pattern_params.len() == actual_params.len() =>
+            {
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                self.infer_const_generics_from_type(
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                    span,
+                );
+            }
+            (
+                Some(TyKind::CallablePointee {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                }),
+                Some(TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                }),
+            ) if pattern_params.len() == actual_params.len() => {
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                self.infer_const_generics_from_type(
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                    span,
+                );
+            }
+            (
+                Some(TyKind::ErrorUnion {
+                    error: pattern_error,
+                    value: pattern_value,
+                }),
+                Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }),
+            ) => {
+                self.infer_const_generics_from_type(
+                    pattern_error,
+                    actual_error,
+                    substitutions,
+                    span,
+                );
+                self.infer_const_generics_from_type(
+                    pattern_value,
+                    actual_value,
+                    substitutions,
+                    span,
+                );
+            }
+            (Some(TyKind::Tuple(patterns)), Some(TyKind::Tuple(actuals)))
+                if patterns.len() == actuals.len() =>
+            {
+                for (pattern, actual) in patterns.into_iter().zip(actuals) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
             }
             (
                 Some(TyKind::Nominal {
@@ -1968,22 +2310,200 @@ impl<'a> BodyChecker<'a> {
                     args: actual_args,
                     const_args: actual_const_args,
                 }),
-            ) if pattern_def == actual_def => {
+            ) if pattern_def == actual_def
+                && pattern_args.len() == actual_args.len()
+                && pattern_const_args.len() == actual_const_args.len() =>
+            {
                 for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                     self.infer_const_generics_from_type(*pattern, *actual, substitutions, span);
                 }
-                for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args.iter()) {
-                    if let ConstGenericValue::GenericParam(name) = &pattern.value {
-                        self.record_const_generic_substitution(
-                            name,
-                            actual.clone(),
+                for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args) {
+                    self.infer_const_generic_from_arg(pattern, actual, substitutions, span);
+                }
+            }
+            (
+                Some(TyKind::BuiltinTrait {
+                    trait_id: pattern_trait,
+                    args: pattern_args,
+                }),
+                Some(TyKind::BuiltinTrait {
+                    trait_id: actual_trait,
+                    args: actual_args,
+                }),
+            ) if pattern_trait == actual_trait && pattern_args.len() == actual_args.len() => {
+                for (pattern, actual) in pattern_args.into_iter().zip(actual_args) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+            }
+            (
+                Some(TyKind::TraitObject {
+                    is_readonly: pattern_readonly,
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    associated_type_bindings: pattern_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_readonly: actual_readonly,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) if pattern_readonly == actual_readonly
+                && pattern_trait == actual_trait
+                && pattern_args.len() == actual_args.len()
+                && pattern_const_args.len() == actual_const_args.len()
+                && pattern_bindings.len() == actual_bindings.len() =>
+            {
+                for (pattern, actual) in pattern_args.into_iter().zip(actual_args) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args) {
+                    self.infer_const_generic_from_arg(pattern, actual, substitutions, span);
+                }
+                for pattern in pattern_bindings {
+                    if let Some(actual) = actual_bindings.iter().find(|actual| {
+                        pattern.name == actual.name
+                            && pattern.trait_id == actual.trait_id
+                            && pattern.trait_args.len() == actual.trait_args.len()
+                            && pattern.trait_const_args.len() == actual.trait_const_args.len()
+                    }) {
+                        for (pattern_arg, actual_arg) in
+                            pattern.trait_args.iter().zip(actual.trait_args.iter())
+                        {
+                            self.infer_const_generics_from_type(
+                                *pattern_arg,
+                                *actual_arg,
+                                substitutions,
+                                span,
+                            );
+                        }
+                        for (pattern_arg, actual_arg) in pattern
+                            .trait_const_args
+                            .iter()
+                            .zip(actual.trait_const_args.iter())
+                        {
+                            self.infer_const_generic_from_arg(
+                                pattern_arg,
+                                actual_arg.clone(),
+                                substitutions,
+                                span,
+                            );
+                        }
+                        self.infer_const_generics_from_type(
+                            pattern.ty,
+                            actual.ty,
                             substitutions,
                             span,
                         );
                     }
                 }
             }
+            (
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    associated_type_bindings: pattern_bindings,
+                }),
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) if pattern_trait == actual_trait
+                && pattern_args.len() == actual_args.len()
+                && pattern_const_args.len() == actual_const_args.len()
+                && pattern_bindings.len() == actual_bindings.len() =>
+            {
+                for (pattern, actual) in pattern_args.into_iter().zip(actual_args) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args) {
+                    self.infer_const_generic_from_arg(pattern, actual, substitutions, span);
+                }
+                for pattern in pattern_bindings {
+                    if let Some(actual) = actual_bindings.iter().find(|actual| {
+                        pattern.name == actual.name
+                            && pattern.trait_id == actual.trait_id
+                            && pattern.trait_args.len() == actual.trait_args.len()
+                            && pattern.trait_const_args.len() == actual.trait_const_args.len()
+                    }) {
+                        for (pattern_arg, actual_arg) in
+                            pattern.trait_args.iter().zip(actual.trait_args.iter())
+                        {
+                            self.infer_const_generics_from_type(
+                                *pattern_arg,
+                                *actual_arg,
+                                substitutions,
+                                span,
+                            );
+                        }
+                        for (pattern_arg, actual_arg) in pattern
+                            .trait_const_args
+                            .iter()
+                            .zip(actual.trait_const_args.iter())
+                        {
+                            self.infer_const_generic_from_arg(
+                                pattern_arg,
+                                actual_arg.clone(),
+                                substitutions,
+                                span,
+                            );
+                        }
+                        self.infer_const_generics_from_type(
+                            pattern.ty,
+                            actual.ty,
+                            substitutions,
+                            span,
+                        );
+                    }
+                }
+            }
+            (
+                Some(TyKind::Projection {
+                    self_ty: pattern_self,
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    name: pattern_name,
+                }),
+                Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    name: actual_name,
+                }),
+            ) if pattern_trait == actual_trait
+                && pattern_name == actual_name
+                && pattern_args.len() == actual_args.len()
+                && pattern_const_args.len() == actual_const_args.len() =>
+            {
+                self.infer_const_generics_from_type(pattern_self, actual_self, substitutions, span);
+                for (pattern, actual) in pattern_args.into_iter().zip(actual_args) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args) {
+                    self.infer_const_generic_from_arg(pattern, actual, substitutions, span);
+                }
+            }
             _ => {}
+        }
+    }
+
+    fn infer_const_generic_from_arg(
+        &mut self,
+        pattern: &ConstGenericArg,
+        actual: ConstGenericArg,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
+        span: Span,
+    ) {
+        self.infer_const_generics_from_type(pattern.ty, actual.ty, substitutions, span);
+        if let ConstGenericValue::GenericParam(name) = &pattern.value {
+            self.record_const_generic_substitution(name, actual, substitutions, span);
         }
     }
 

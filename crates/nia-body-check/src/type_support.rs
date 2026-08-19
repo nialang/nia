@@ -1057,6 +1057,32 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::SlicePointee { elem: actual_elem }),
             ) => self.types_match_normalized(expected_elem, actual_elem),
             (
+                Some(TyKind::Optional {
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Optional { elem: actual_elem }),
+            ) => self.types_match_normalized(expected_elem, actual_elem),
+            (Some(TyKind::Tuple(expected)), Some(TyKind::Tuple(actual))) => {
+                expected.len() == actual.len()
+                    && expected
+                        .iter()
+                        .zip(actual)
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, actual))
+            }
+            (
+                Some(TyKind::ErrorUnion {
+                    error: expected_error,
+                    value: expected_value,
+                }),
+                Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }),
+            ) => {
+                self.types_match_normalized(expected_error, actual_error)
+                    && self.types_match_normalized(expected_value, actual_value)
+            }
+            (
                 Some(TyKind::Array {
                     len: ArrayLenTy::Infer,
                     elem: expected_elem,

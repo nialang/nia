@@ -1094,6 +1094,16 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.
+- [x] Phase A const-generic call inference now traverses arrays, pointer/slice
+      families, tuples, optionals, error unions, ranges, callable forms,
+      nominal/builtin-trait types, trait objects and associated bindings, and
+      projections. A complete compatibility probe precedes staged inference,
+      so an incompatible outer or later-nested shape cannot leak a partial
+      const substitution into instance selection.
+- [x] Phase A normalized type matching now compares tuple, optional, and error-
+      union structure recursively instead of requiring equivalent reconstructed
+      types to retain the same interned identity. Nested const substitutions
+      cover the independently interned tuple path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
