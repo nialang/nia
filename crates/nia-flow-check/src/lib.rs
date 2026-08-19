@@ -418,9 +418,17 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            StmtKind::Return(_) => Flow {
-                falls_through: false,
-            },
+            StmtKind::Return(value) => {
+                // A return terminates its enclosing block, but evaluating its
+                // value still traverses nested matches, defers, and control
+                // expressions for diagnostics.
+                if let Some(value) = value {
+                    self.check_expr_flow(value);
+                }
+                Flow {
+                    falls_through: false,
+                }
+            }
             StmtKind::Break | StmtKind::Continue => {
                 if self.loop_depth == 0 {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -533,7 +541,14 @@ impl FlowChecker<'_> {
                 for capture in captures {
                     self.check_expr_flow(&capture.value);
                 }
+                // A closure body is a separate function-like control-flow
+                // region. Its `break`/`continue` cannot target a loop around
+                // the closure expression, while loops declared inside the
+                // closure are tracked normally by the recursive walk.
+                let enclosing_loop_depth = self.loop_depth;
+                self.loop_depth = 0;
                 self.check_expr_flow(body);
+                self.loop_depth = enclosing_loop_depth;
                 Flow {
                     falls_through: true,
                 }
@@ -1231,6 +1246,56 @@ fn main(kind: i32) {
                 .iter()
                 .any(|diagnostic| diagnostic.summary.contains("unreachable statement")),
             "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn checks_return_value_flow_before_terminating() {
+        let checked = pipeline(
+            r#"
+fn main() i32 {
+    return match 1 {
+        1 => 1,
+        1 => 2,
+    };
+}
+"#,
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("duplicate match pattern")),
+            "return expressions must retain nested flow diagnostics: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn closure_control_flow_does_not_inherit_enclosing_loop() {
+        let checked = pipeline(
+            r#"
+fn main() () {
+    loop {
+        let callback = \value: i32 -> {
+            break;
+        };
+        break;
+    }
+}
+"#,
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic
+                    .summary
+                    .contains("`break` and `continue` can only appear inside loops"))
+                .count(),
+            1,
+            "closure break must not target an enclosing loop: {:?}",
             checked.diagnostics
         );
     }
