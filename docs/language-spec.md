@@ -1241,6 +1241,21 @@ captures remain explicit pointers inside the body and therefore use `.*` when
 dereferenced. An empty capture list is omitted. The expression after `->` may be
 a block expression, so closures need no separate statement-body grammar.
 
+Because the body is a full expression, consecutive closure expressions group
+to the right. Currying can therefore be written without parentheses. Captures
+remain explicit at every closure boundary; an inner closure that returns with
+outer parameters in its state names those parameters in its own capture list:
+
+```nia
+let make = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
+let add = make(2, 3);
+add(4)
+```
+
+Here the outer body is the complete `\[x, y] z -> ...` expression. Omitting
+`[x, y]` is not implicit capture: a closure body may only refer to its
+parameters, locals, explicit captures, and module or static values.
+
 The parameter and return types must match the closure signature structurally.
 Taking a mutable address may construct either a writable or readonly view;
 taking a readonly address cannot construct a writable view. The conversion is

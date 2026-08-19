@@ -218,6 +218,47 @@ fn main(x: i32, y: i32, z: i32) () {
 }
 
 #[test]
+fn parses_consecutive_closures_as_right_nested_expressions() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() () {
+    let curried = \x: i32, y: i32 -> \[x, y] z: i32 -> x * y + z;
+    ()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected closure binding");
+    };
+    let ExprKind::Closure {
+        params: outer_params,
+        body: outer_body,
+        ..
+    } = &binding.value.as_ref().expect("outer closure").kind
+    else {
+        panic!("expected outer closure");
+    };
+    assert_eq!(outer_params.len(), 2);
+    let ExprKind::Closure {
+        captures,
+        params: inner_params,
+        body: inner_body,
+    } = &outer_body.kind
+    else {
+        panic!("expected the outer body to be the inner closure");
+    };
+    assert_eq!(captures.len(), 2);
+    assert_eq!(inner_params.len(), 1);
+    assert!(matches!(inner_body.kind, ExprKind::Binary { .. }));
+}
+
+#[test]
 fn closure_capture_entries_must_be_names() {
     let (_module, errors) = parse_module(
         r#"

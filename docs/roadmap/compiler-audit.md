@@ -1033,6 +1033,11 @@ acceptance item only when its phase-wide evidence is complete.
       literals as backend-representable `StaticInit::Float` values instead of
       routing every unary negation through integer const evaluation; an LLVM
       integration regression covers both `f32` and `f64` globals.
+- [x] Phase C consecutive closure expressions now have parser and LLVM
+      regressions proving right-nested currying and nested closure-state
+      returns. Local resolution enforces explicit capture boundaries before
+      Body IR, replacing late missing-local backend failures with source-level
+      diagnostics when an inner closure omits an outer local from its captures.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

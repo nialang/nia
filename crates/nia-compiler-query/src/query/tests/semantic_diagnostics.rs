@@ -140,6 +140,38 @@ fn local_resolution_separates_semantic_value_from_diagnostics() {
 }
 
 #[test]
+fn uncaptured_outer_closure_locals_stop_before_backend_lowering() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn main() i32 {
+    let make = \x: i32, y: i32 -> \z: i32 -> x * y + z;
+    let add = make(2, 3);
+    add(4)
+}
+"#,
+    );
+    let codegen = fixture.database().codegen_program();
+
+    assert!(
+        codegen.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("not captured by this closure")),
+        "{:?}",
+        codegen.diagnostics
+    );
+    assert!(
+        codegen.diagnostics.iter().all(|diagnostic| {
+            diagnostic.diagnostic.category != nia_diagnostic::DiagnosticCategory::Internal
+        }),
+        "frontend capture errors must not degrade into backend diagnostics: {:?}",
+        codegen.diagnostics
+    );
+    assert!(codegen.backend_lowering.diagnostics.is_empty());
+}
+
+#[test]
 fn flow_check_separates_semantic_value_from_diagnostics() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
