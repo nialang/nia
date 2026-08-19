@@ -1047,6 +1047,9 @@ acceptance item only when its phase-wide evidence is complete.
       typed products return diagnostics instead of reaching closure lowering's
       assertions; Body IR Rustdoc records capture-alias versus body-local
       ownership.
+- [x] Phase C closure entry extraction now rejects duplicate `ClosureId`
+      definitions within one typed function body instead of silently retaining
+      the first definition through the lowering entry cache.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

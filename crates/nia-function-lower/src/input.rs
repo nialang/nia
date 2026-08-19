@@ -5,11 +5,19 @@ pub(super) fn validate_function_lowering_input(
     body: &TypedBody,
     types: &FunctionTypeContext<'_>,
 ) -> Result<(), FunctionLoweringDiagnostic> {
-    BodyInputValidator { types }.validate_effect_body(body)
+    BodyInputValidator {
+        types,
+        closure_ids: std::cell::RefCell::new(std::collections::HashSet::new()),
+    }
+    .validate_effect_body(body)
 }
 
 struct BodyInputValidator<'context, 'store> {
     types: &'context FunctionTypeContext<'store>,
+    /// Closure expressions define entry identities; references such as calls
+    /// and callable coercions do not. Entry extraction deduplicates by this id,
+    /// so duplicate definitions must be rejected rather than silently merged.
+    closure_ids: std::cell::RefCell<std::collections::HashSet<ClosureId>>,
 }
 
 impl BodyInputValidator<'_, '_> {
@@ -460,6 +468,13 @@ impl BodyInputValidator<'_, '_> {
         // second type-checking pass. Validate every field that lowering zips
         // or maps by position so malformed recovery products cannot turn its
         // internal assertions into a process panic.
+        if !self.closure_ids.borrow_mut().insert(closure_id) {
+            return Err(FunctionLoweringDiagnostic {
+                span: expr.span,
+                message: "closure identity is defined more than once in one function body"
+                    .to_string(),
+            });
+        }
         let Some(TyKind::ClosureState {
             closure_id: type_closure_id,
             captures: capture_types,
