@@ -45,6 +45,7 @@ enum ConstEvalFlow {
     Void,
 }
 
+/// Hard cap for one interpreter loop before the shared budget reports failure.
 const CONST_LOOP_LIMIT: usize = 100_000;
 
 fn with_const_eval_session<E, T>(
@@ -54,6 +55,9 @@ fn with_const_eval_session<E, T>(
 where
     E: ConstCommonEnv + ?Sized,
 {
+    // The environment owns session depth, so nested calls share one budget.
+    // Always close the session before returning the caller's result; this is
+    // what permits the same environment to service the next query.
     env.begin_const_eval();
     let result = evaluate(env);
     env.end_const_eval();
