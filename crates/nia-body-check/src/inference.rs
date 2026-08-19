@@ -72,6 +72,9 @@ pub(crate) enum InferredType {
         error: Box<InferredType>,
         value: Box<InferredType>,
     },
+    /// A partial invocation signature. Borrow mutability is intentionally
+    /// absent; the source address operator and canonical callable type retain
+    /// that ownership/view distinction at the call boundary.
     Callable {
         params: Vec<InferredType>,
         return_type: Box<InferredType>,
@@ -131,6 +134,9 @@ enum InferShape {
         error: InferId,
         value: InferId,
     },
+    // This is the invocation shape only. `&` versus `&mut` belongs to the
+    // canonical callable view and is checked by call-site coercion/inference;
+    // closure-local equality must not invent a mutable borrow from a call.
     Callable {
         params: Vec<InferId>,
         return_type: InferId,
