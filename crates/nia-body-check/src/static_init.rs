@@ -146,6 +146,12 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Neg,
+                expr: inner,
+            } if let ExprKind::Float(text) = &inner.kind => {
+                StaticInit::Float(format!("-{}", numeric_literal_body(text)))
+            }
+            ExprKind::Unary {
+                op: nia_ast::UnaryOp::Neg,
                 ..
             }
             | ExprKind::Binary { .. } => self

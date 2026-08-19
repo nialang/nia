@@ -263,6 +263,7 @@ impl StaticChecker<'_> {
                 .iter()
                 .find_map(|field| self.static_init_reject_reason(&field.value)),
             ExprKind::Unary { op, expr: inner } => match op {
+                UnaryOp::Neg if matches!(inner.kind, ExprKind::Float(_)) => None,
                 UnaryOp::Neg => self.static_int_expr_reject_reason(expr),
                 UnaryOp::Ref | UnaryOp::RefReadOnly => {
                     self.static_address_path_reject_reason(inner)
@@ -1020,6 +1021,18 @@ struct Vtable {
 
 fn print_i32(value: &i32) {}
 static vtable: Vtable = Vtable { print: & print_i32 };
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn accepts_negative_float_static_initializers() {
+        let checked = check(
+            r#"
+static mut single: f32 = -1.5f32;
+static mut double: f64 = -2.25;
 "#,
         );
 
