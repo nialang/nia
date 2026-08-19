@@ -1145,6 +1145,9 @@ pub struct BackendClosureEntry {
     /// Stable closure/owner identity used for deduplication.
     pub key: BackendClosureEntryKey,
     /// Backend symbol emitted for the entry point.
+    ///
+    /// The symbol is deterministically derived from the concrete owner symbol
+    /// and closure ordinal; LLVM validation checks that relation.
     pub symbol: String,
     /// ABI including the hidden state pointer.
     pub abi: BackendClosureEntryAbi,
