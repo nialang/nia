@@ -2,6 +2,32 @@
 use super::common::*;
 
 #[test]
+fn emits_negative_float_static_initializers() {
+    let root = temp_dir("emits_negative_float_static_initializers");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+static single: f32 = -1.5f32;
+static double: f64 = -2.25;
+
+fn main() bool {
+    single < double as f32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("float -1.500000e+00"), "{ir}");
+    assert!(ir.contains("double -2.250000e+00"), "{ir}");
+}
+
+#[test]
 fn rejects_bare_global_as_pointer_initializer() {
     let root = temp_dir("rejects_bare_global_as_pointer_initializer");
     let main = root.join("main.nia");

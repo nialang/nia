@@ -13,7 +13,14 @@ pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
 }
 
 pub(super) fn parse_float_literal(text: &str) -> Option<f64> {
-    nia_literals::eval_float_literal(text).ok()
+    nia_literals::eval_float_literal(text).ok().or_else(|| {
+        // As with checked integer patterns above, source tokens keep the sign
+        // as a unary expression. Static lowering folds that unary operation
+        // into an internal signed spelling so backend validation and emission
+        // must accept exactly that additional form.
+        let magnitude = text.strip_prefix('-')?.parse::<f64>().ok()?;
+        Some(-magnitude)
+    })
 }
 
 pub(super) fn decode_char_literal(text: &str) -> Option<u32> {
