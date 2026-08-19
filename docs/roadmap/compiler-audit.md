@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 177 completed entries in this ledger.
+- Implementation batches: 178 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1005,6 +1005,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase C semantic-fact filtering now has an owner matrix proving only
       requested function facts and global type entries survive reachability
       projection; node-wide facts remain intentionally preserved.
+- [x] Phase C typed-body walking now directly covers bodies hidden in place
+      dereference/index projections, expression callees, inline-asm operands,
+      union relocations, memory intrinsics, and atomic compare-exchange
+      operands, with strict preorder assertions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
