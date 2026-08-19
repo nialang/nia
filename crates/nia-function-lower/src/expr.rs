@@ -11,6 +11,11 @@ impl FunctionLowerer<'_> {
         params: &[LocalId],
         body: &TypedBody,
     ) {
+        // Body IR local tables are source-function-wide. Record the nested
+        // function's aliases and parameters before lowering so `lower_body`
+        // can keep them out of the enclosing Function IR local table.
+        self.nested_closure_locals
+            .extend(body.locals.iter().map(|local| local.id));
         if self
             .closure_entries
             .iter()

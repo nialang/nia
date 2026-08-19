@@ -149,6 +149,16 @@ fn main() i32 {
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main backend module");
     assert_eq!(module.closure_entries.len(), 2);
+    let outer = module
+        .closure_entries
+        .iter()
+        .find(|entry| entry.params.len() == 2)
+        .expect("outer curried closure entry");
+    assert!(outer.function_body.locals.iter().all(|local| {
+        local.kind != nia_function_ir::FunctionLocalKind::Param
+            || local.id == outer.state_param
+            || outer.params.contains(&local.id)
+    }));
 
     let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
