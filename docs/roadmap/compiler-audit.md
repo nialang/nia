@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 165 completed entries in this ledger.
+- Implementation batches: 166 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -962,6 +962,11 @@ acceptance item only when its phase-wide evidence is complete.
       initializers. Its unsuppressed missing-docs baseline fell from 547 to 349
       warnings; all 15 tests and strict Clippy pass, while type-argument and
       early-IR schemas remain.
+- [x] Phase C const-IR early/resolved identity schema Rustdoc now documents
+      early names, optional semantic ids, generic and associated targets,
+      operator/range payloads, lowering input providers, and all public early
+      statement/pattern fields. `nia-const-ir` strict Rustdoc is now clean;
+      its 15 tests and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

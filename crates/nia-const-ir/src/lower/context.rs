@@ -14,20 +14,25 @@ use nia_symbol_table::SymbolTable;
 /// clients can lower syntax before the semantic pipeline is complete.
 #[derive(Clone, Copy, Default)]
 pub struct EarlyConstLowerInputs<'a> {
+    /// Optional semantic use table for resolving names and locals.
     pub semantic_uses: Option<&'a SemanticUseTable>,
+    /// Optional symbol table for synthesized diagnostic names.
     pub symbols: Option<&'a SymbolTable>,
 }
 
 impl<'a> EarlyConstLowerInputs<'a> {
+    /// Creates inputs with no semantic providers.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Adds semantic-use facts to the lowering context.
     pub fn with_semantic_uses(mut self, semantic_uses: &'a SemanticUseTable) -> Self {
         self.semantic_uses = Some(semantic_uses);
         self
     }
 
+    /// Adds a symbol table for synthesized names.
     pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
         self.symbols = Some(symbols);
         self
@@ -41,11 +46,14 @@ impl<'a> EarlyConstLowerInputs<'a> {
 /// such as the implicit `self` name or `offset`'s string field argument.
 #[derive(Clone, Copy)]
 pub struct ResolvedConstLowerInputs<'a> {
+    /// Required semantic use facts for identity-complete lowering.
     pub semantic_uses: &'a SemanticUseTable,
+    /// Optional symbol table for synthesized names.
     pub symbols: Option<&'a SymbolTable>,
 }
 
 impl<'a> ResolvedConstLowerInputs<'a> {
+    /// Creates resolved-lowering inputs from semantic-use facts.
     pub fn new(semantic_uses: &'a SemanticUseTable) -> Self {
         Self {
             semantic_uses,
@@ -53,6 +61,7 @@ impl<'a> ResolvedConstLowerInputs<'a> {
         }
     }
 
+    /// Adds a symbol table for synthesized names.
     pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
         self.symbols = Some(symbols);
         self

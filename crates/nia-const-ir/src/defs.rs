@@ -702,6 +702,7 @@ impl ResolvedConstAssignPathElem {
         }
     }
 
+    /// Creates an indexed projection.
     pub fn index(span: Span, index: ResolvedConstExpr) -> Self {
         Self {
             kind: ResolvedConstAssignPathElemKind::Index { span, index },
@@ -853,6 +854,7 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates a binding pattern with a resolved local id.
     pub fn bind(name: SymbolId, local_id: LocalId, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Bind {
@@ -863,6 +865,7 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates an optional-some pattern.
     pub fn optional_some(pattern: ResolvedConstPattern, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::OptionalSome {
@@ -872,6 +875,7 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates an immutable pointer pattern.
     pub fn pointer(pattern: ResolvedConstPattern, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Pointer {
@@ -881,6 +885,7 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates a mutable pointer pattern.
     pub fn mut_pointer(pattern: ResolvedConstPattern, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::MutPointer {
@@ -890,12 +895,14 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates an optional-null pattern.
     pub fn optional_null(span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::OptionalNull { span },
         }
     }
 
+    /// Creates an error-union success pattern.
     pub fn error_ok(pattern: ResolvedConstPattern, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::ErrorOk {
@@ -905,6 +912,7 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates an error-union error pattern.
     pub fn error_err(pattern: ResolvedConstPattern, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::ErrorErr {
@@ -914,12 +922,14 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates a tuple pattern.
     pub fn tuple(patterns: Vec<ResolvedConstPattern>, span: Span) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Tuple { patterns, span },
         }
     }
 
+    /// Creates an enum-variant pattern with tuple or named fields.
     pub fn enum_variant(
         variant: ResolvedConstExpr,
         fields: ConstEnumPatternFields<ResolvedConstPattern>,
@@ -934,6 +944,7 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates a nominal struct pattern and optional rest marker.
     pub fn struct_pattern(
         def_id: GlobalDefId,
         fields: Vec<ConstNamedPatternField<ResolvedConstPattern>>,
@@ -950,12 +961,14 @@ impl ResolvedConstPattern {
         }
     }
 
+    /// Creates an expression-equality pattern.
     pub fn expr(expr: ResolvedConstExpr) -> Self {
         Self {
             kind: ResolvedConstPatternKind::Expr(expr),
         }
     }
 
+    /// Creates an integer range pattern.
     pub fn range(
         start: ResolvedConstExpr,
         end: ResolvedConstExpr,
@@ -1120,12 +1133,14 @@ impl ResolvedConstMatchArmBody {
         }
     }
 
+    /// Creates a statement arm body.
     pub fn stmt(stmt: ResolvedConstStmt) -> Self {
         Self {
             kind: ResolvedConstMatchArmBodyKind::Stmt(Box::new(stmt)),
         }
     }
 
+    /// Creates a block arm body.
     pub fn block(block: ResolvedConstBlock) -> Self {
         Self {
             kind: ResolvedConstMatchArmBodyKind::Block(block),
@@ -1223,10 +1238,13 @@ pub enum ResolvedConstExprKind {
         /// Element payload.
         elems: ResolvedConstArrayElements,
     },
+    /// Nominal struct construction.
+    /// Nominal struct construction.
     StructLiteral {
         /// Nominal construction is encoded in the IR itself: a struct value
         /// can never rely on an expected type to acquire its identity.
         ty: InternedTyId,
+        /// Field initializers.
         fields: Vec<ResolvedConstFieldInit>,
     },
     /// Positional nominal construction lowered from `Type(value, ...)`.
@@ -1370,14 +1388,17 @@ impl ResolvedConstRange {
         }
     }
 
+    /// Returns the lower bound expression.
     pub fn start(&self) -> Option<&ResolvedConstExpr> {
         self.start.as_deref()
     }
 
+    /// Returns the upper bound expression.
     pub fn end(&self) -> Option<&ResolvedConstExpr> {
         self.end.as_deref()
     }
 
+    /// Returns whether the upper bound is inclusive.
     pub fn is_inclusive(&self) -> bool {
         self.inclusive
     }
@@ -1405,14 +1426,17 @@ impl ResolvedConstSliceRange {
         }
     }
 
+    /// Returns the lower bound expression.
     pub fn start(&self) -> Option<&ResolvedConstExpr> {
         self.start.as_deref()
     }
 
+    /// Returns the upper bound expression.
     pub fn end(&self) -> Option<&ResolvedConstExpr> {
         self.end.as_deref()
     }
 
+    /// Returns whether the upper bound is inclusive.
     pub fn is_inclusive(&self) -> bool {
         self.inclusive
     }
@@ -1432,6 +1456,7 @@ impl ResolvedConstArrayElements {
         }
     }
 
+    /// Creates a repeated element/count form.
     pub fn repeat(value: ResolvedConstExpr, count: ResolvedConstExpr) -> Self {
         Self {
             kind: ResolvedConstArrayElementsKind::Repeat {
@@ -1441,6 +1466,7 @@ impl ResolvedConstArrayElements {
         }
     }
 
+    /// Returns the list or repeat payload.
     pub fn kind(&self) -> &ResolvedConstArrayElementsKind {
         &self.kind
     }
@@ -1474,37 +1500,49 @@ impl ResolvedConstFieldInit {
         Self { span, name, value }
     }
 
+    /// Returns the initializer source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the field identity.
     pub fn name(&self) -> SymbolId {
         self.name
     }
 
+    /// Returns the field identity by reference.
     pub fn name_symbol(&self) -> &SymbolId {
         &self.name
     }
 
+    /// Returns the initializer expression.
     pub fn value(&self) -> &ResolvedConstExpr {
         &self.value
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A resolved type argument whose identity is guaranteed to be interned.
 pub struct ResolvedConstTypeArg {
+    /// Full source span of the type occurrence.
     span: Span,
+    /// Span of the type syntax used in diagnostics.
     ty_span: Span,
+    /// Interned runtime type identity.
     ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A resolved generic argument, retaining type versus const kind.
 pub enum ResolvedConstGenericArg {
+    /// Resolved type argument.
     Type(ResolvedConstTypeArg),
+    /// Resolved const expression argument.
     Const(ResolvedConstExpr),
 }
 
 impl ResolvedConstGenericArg {
+    /// Returns the source span of either generic argument form.
     pub fn span(&self) -> Span {
         match self {
             Self::Type(arg) => arg.span(),
@@ -1514,18 +1552,22 @@ impl ResolvedConstGenericArg {
 }
 
 impl ResolvedConstTypeArg {
+    /// Creates a resolved type argument.
     pub fn new(span: Span, ty_span: Span, ty: InternedTyId) -> Self {
         Self { span, ty_span, ty }
     }
 
+    /// Returns the full source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the type syntax span.
     pub fn ty_span(&self) -> Span {
         self.ty_span
     }
 
+    /// Returns the interned type identity.
     pub fn ty(&self) -> InternedTyId {
         self.ty
     }
@@ -1534,8 +1576,11 @@ impl ResolvedConstTypeArg {
 #[derive(Debug, Clone, PartialEq)]
 /// Syntax-oriented const function IR that may still lack semantic identities.
 pub struct EarlyConstFunction {
+    /// Function declaration span.
     pub span: Span,
+    /// Parameters in source/call order.
     pub params: Vec<EarlyConstParam>,
+    /// Function body.
     pub body: EarlyConstBlock,
 }
 
@@ -1543,45 +1588,74 @@ pub struct EarlyConstFunction {
 /// An early function parameter. The outer type option records whether syntax
 /// supplied a type; the inner type id may remain unresolved until validation.
 pub struct EarlyConstParam {
+    /// Parameter declaration span.
     pub span: Span,
+    /// Source-level parameter name.
     pub name: SymbolId,
+    /// Optional local identity from local resolution.
     pub local_id: Option<LocalId>,
+    /// Optional syntax type argument, possibly unresolved.
     pub ty: Option<EarlyConstTypeArg>,
+    /// Receiver passing mode, when this parameter is a receiver.
     pub receiver: Option<nia_ids::ReceiverKind>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A lexical early const block before identity validation.
 pub struct EarlyConstBlock {
+    /// Block source span.
     pub span: Span,
+    /// Statements in evaluation order.
     pub stmts: Vec<EarlyConstStmt>,
+    /// Optional value-producing tail expression.
     pub tail: Option<Box<EarlyConstExpr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One early statement with source-order payload.
 pub struct EarlyConstStmt {
+    /// Statement source span.
     pub span: Span,
+    /// Statement payload.
     pub kind: EarlyConstStmtKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early statement forms retained until resolution.
 pub enum EarlyConstStmtKind {
+    /// Named local binding.
     Binding(EarlyConstBinding),
+    /// Destructuring local binding.
     PatternBinding(Box<EarlyConstPatternBinding>),
+    /// Expression statement.
     Expr(EarlyConstExpr),
+    /// Return from the current const function.
     Return(Option<EarlyConstExpr>),
+    /// Exit the nearest loop.
     Break,
+    /// Continue the nearest loop.
     Continue,
+    /// Conditional statement.
     If {
+        /// Condition expression.
         cond: EarlyConstExpr,
+        /// True branch.
         then_branch: EarlyConstBlock,
+        /// Optional false branch.
         else_branch: Option<EarlyConstBlock>,
     },
+    /// Iterator loop.
     ForIn(Box<EarlyConstForIn>),
+    /// Condition-controlled loop.
     While {
+        /// Loop condition.
         cond: EarlyConstExpr,
+        /// Loop body.
         body: EarlyConstBlock,
     },
+    /// Unconditional loop.
     Loop {
+        /// Loop body.
         body: EarlyConstBlock,
     },
 }
@@ -1589,10 +1663,15 @@ pub enum EarlyConstStmtKind {
 #[derive(Debug, Clone, PartialEq)]
 /// The early form of a destructuring local binding in a const function.
 pub struct EarlyConstPatternBinding {
+    /// Binding source span.
     pub span: Span,
+    /// Early destructuring pattern.
     pub pattern: EarlyConstPattern,
+    /// Optional explicit type syntax.
     pub explicit_type: Option<EarlyConstTypeArg>,
+    /// Whether every leaf is mutable.
     pub is_mutable: bool,
+    /// Value expression matched by the pattern.
     pub value: EarlyConstExpr,
 }
 
@@ -1600,150 +1679,250 @@ pub struct EarlyConstPatternBinding {
 /// An early local binding whose explicit annotation, when present in syntax,
 /// remains distinguishable from a binding that relies on inference.
 pub struct EarlyConstBinding {
+    /// Binding source span.
     pub span: Span,
+    /// Source-level binding name.
     pub name: SymbolId,
+    /// Optional local identity.
     pub local_id: Option<LocalId>,
+    /// Optional explicit type syntax.
     pub explicit_type: Option<EarlyConstTypeArg>,
+    /// Whether the local is mutable.
     pub is_mutable: bool,
+    /// Initializer expression.
     pub value: EarlyConstExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early assignment target and operation.
 pub struct EarlyConstAssign {
+    /// Assignment target.
     pub lhs: EarlyConstAssignTarget,
+    /// Assignment operator.
     pub op: ConstAssignOp,
+    /// Right-hand expression.
     pub rhs: EarlyConstExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early assignment root and optional projection path.
 pub enum EarlyConstAssignTarget {
+    /// Local root plus root-to-leaf projection path.
     Local {
+        /// Target source span.
         span: Span,
+        /// Source-level local name.
         name: SymbolId,
+        /// Optional local identity.
         local_id: Option<LocalId>,
+        /// Projections ordered root to leaf.
         path: Vec<EarlyConstAssignPathElem>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early assignment projection.
 pub enum EarlyConstAssignPathElem {
-    Field { span: Span, name: SymbolId },
-    Index { span: Span, index: EarlyConstExpr },
+    /// Named field projection.
+    Field {
+        /// Projection source span.
+        span: Span,
+        /// Field identity.
+        name: SymbolId,
+    },
+    /// Indexed projection.
+    Index {
+        /// Projection source span.
+        span: Span,
+        /// Index expression.
+        index: EarlyConstExpr,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early iterator loop payload.
 pub struct EarlyConstForIn {
+    /// Pattern bound for each yielded value.
     pub pattern: EarlyConstPattern,
+    /// Iterable expression.
     pub iter: EarlyConstExpr,
+    /// Loop body.
     pub body: EarlyConstBlock,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early match expression payload.
 pub struct EarlyConstMatch {
+    /// Match source span.
     pub span: Span,
+    /// Target expression.
     pub target: EarlyConstExpr,
+    /// Arms in source order.
     pub arms: Vec<EarlyConstMatchArm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early match arm payload.
 pub struct EarlyConstMatchArm {
+    /// Arm source span.
     pub span: Span,
+    /// Alternative patterns.
     pub patterns: Vec<EarlyConstPattern>,
+    /// Arm body.
     pub body: EarlyConstMatchArmBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early pattern constructors before local/type resolution.
 pub enum EarlyConstPattern {
+    /// Matches every value.
     Wildcard {
+        /// Pattern source span.
         span: Span,
     },
+    /// Binds a value to an optional local identity.
     Bind {
+        /// Source-level binding name.
         name: SymbolId,
+        /// Optional semantic local identity.
         local_id: Option<LocalId>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Immutable pointer pattern.
     Pointer {
+        /// Nested pointee pattern.
         pattern: Box<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Mutable pointer pattern.
     MutPointer {
+        /// Nested pointee pattern.
         pattern: Box<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Optional payload pattern.
     OptionalSome {
+        /// Nested payload pattern.
         pattern: Box<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Optional-null pattern.
     OptionalNull {
+        /// Pattern source span.
         span: Span,
     },
+    /// Error-union success pattern.
     ErrorOk {
+        /// Nested success pattern.
         pattern: Box<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Error-union error pattern.
     ErrorErr {
+        /// Nested error pattern.
         pattern: Box<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Tuple pattern.
     Tuple {
+        /// Nested field patterns.
         patterns: Vec<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Enum variant pattern.
     EnumVariant {
+        /// Variant expression.
         variant: EarlyConstExpr,
+        /// Tuple or named payload fields.
         fields: ConstEnumPatternFields<EarlyConstPattern>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Nominal struct pattern.
     Struct {
+        /// Struct definition identity.
         def_id: GlobalDefId,
+        /// Named fields.
         fields: Vec<ConstNamedPatternField<EarlyConstPattern>>,
+        /// Optional rest-pattern span.
         rest: Option<Span>,
+        /// Pattern source span.
         span: Span,
     },
+    /// Expression-equality pattern.
     Expr(EarlyConstExpr),
+    /// Integer range pattern.
     Range {
+        /// Lower bound.
         start: EarlyConstExpr,
+        /// Upper bound.
         end: EarlyConstExpr,
+        /// Whether the upper bound is inclusive.
         inclusive: bool,
+        /// Pattern source span.
         span: Span,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Tuple or named enum payload patterns.
 pub enum ConstEnumPatternFields<P> {
+    /// Positional payload patterns.
     Tuple(Vec<P>),
+    /// Named payload patterns and optional rest marker.
     Named {
+        /// Named fields.
         fields: Vec<ConstNamedPatternField<P>>,
+        /// Optional rest-pattern span.
         rest: Option<Span>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Named pattern field shared by early and resolved IR.
 pub struct ConstNamedPatternField<P> {
+    /// Field identity.
     pub name: SymbolId,
+    /// Nested field pattern.
     pub pattern: P,
+    /// Field pattern span.
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early match arm body forms.
 pub enum EarlyConstMatchArmBody {
+    /// Value-producing expression.
     Expr(EarlyConstExpr),
+    /// Statement body.
     Stmt(Box<EarlyConstStmt>),
+    /// Lexical block body.
     Block(EarlyConstBlock),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 /// A const expression produced by syntax lowering before identity validation.
 pub struct EarlyConstExpr {
+    /// Expression source span.
     pub span: Span,
+    /// Early expression payload.
     pub kind: EarlyConstExprKind,
 }
 
 impl EarlyConstExpr {
+    /// Returns the expression source span.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the early expression payload.
     pub fn kind(&self) -> &EarlyConstExprKind {
         &self.kind
     }
@@ -1752,18 +1931,24 @@ impl EarlyConstExpr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Preserves a display symbol even when semantic name resolution has not run.
 pub enum EarlyConstName {
+    /// Name whose semantic resolution has not run.
     Unresolved(SymbolId),
+    /// Name carrying an authoritative semantic resolution.
     Resolved {
+        /// Source-level display name.
         display: SymbolId,
+        /// Semantic identity.
         resolution: ConstNameResolution,
     },
 }
 
 impl EarlyConstName {
+    /// Creates an unresolved name.
     pub fn unresolved(display: SymbolId) -> Self {
         Self::Unresolved(display)
     }
 
+    /// Creates a resolved name with its display spelling.
     pub fn resolved(display: SymbolId, resolution: ConstNameResolution) -> Self {
         Self::Resolved {
             display,
@@ -1771,12 +1956,14 @@ impl EarlyConstName {
         }
     }
 
+    /// Returns the display symbol.
     pub fn display(&self) -> SymbolId {
         match self {
             Self::Unresolved(display) | Self::Resolved { display, .. } => *display,
         }
     }
 
+    /// Returns semantic resolution when available.
     pub fn resolution(&self) -> Option<ConstNameResolution> {
         match self {
             Self::Unresolved(_) => None,
@@ -1784,6 +1971,7 @@ impl EarlyConstName {
         }
     }
 
+    /// Converts to resolved identity, rejecting unresolved names.
     pub(crate) fn into_resolution(
         self,
         span: Span,
@@ -1803,201 +1991,343 @@ impl EarlyConstName {
 /// source omitted a type, while a present type argument may independently carry
 /// a not-yet-resolved type id.
 pub enum EarlyConstExprKind {
+    /// Integer literal text.
     Integer(String),
+    /// Character literal text.
     Char(String),
+    /// Byte-character literal text.
     ByteChar(String),
+    /// Floating-point literal text.
     Float(String),
+    /// Segmented string literal.
     String(ConstStringLiteral),
+    /// Segmented byte-string literal.
     ByteString(ConstStringLiteral),
+    /// Boolean literal.
     Bool(bool),
+    /// Null literal.
     Null,
+    /// Unqualified early name.
     Ident(EarlyConstName),
+    /// Qualified early name.
     Qualified(EarlyConstName),
+    /// Named field projection.
     Field {
+        /// Aggregate expression.
         lhs: Box<EarlyConstExpr>,
+        /// Field identity.
         name: SymbolId,
     },
+    /// Method reference.
     Method {
+        /// Receiver expression.
         receiver: Box<EarlyConstExpr>,
+        /// Method name.
         name: SymbolId,
     },
+    /// Associated function reference.
     AssociatedFunction {
+        /// Associated target.
         target: EarlyConstAssociatedTarget,
+        /// Function name.
         name: SymbolId,
     },
+    /// Indexed projection.
     Index {
+        /// Indexed aggregate.
         lhs: Box<EarlyConstExpr>,
+        /// Index expression.
         index: Box<EarlyConstExpr>,
     },
+    /// Slice projection.
     Slice {
+        /// Sliced aggregate.
         lhs: Box<EarlyConstExpr>,
+        /// Slice bounds.
         range: EarlyConstSliceRange,
     },
+    /// Tuple literal.
     Tuple(Vec<EarlyConstExpr>),
+    /// Tuple-field projection.
     TupleField {
+        /// Tuple expression.
         lhs: Box<EarlyConstExpr>,
+        /// Zero-based field index.
         index: usize,
     },
+    /// Array list or repeat literal.
     ArrayLiteral {
+        /// Array payload.
         elems: EarlyConstArrayElements,
     },
+    /// Nominal struct construction.
     StructLiteral {
+        /// Nominal type argument, possibly unresolved.
         /// The source syntax names every constructed aggregate. Resolution
         /// may still fail inside this type argument, but it is never absent.
         ty: EarlyConstTypeArg,
+        /// Field initializers.
         fields: Vec<EarlyConstFieldInit>,
     },
     /// Positional nominal construction lowered from `Type(value, ...)`.
     /// Keep the early generic arguments until the semantic resolution pass;
     /// type-vs-const interpretation is still supplied by semantic facts.
     TupleStructLiteral {
+        /// Nominal tuple-struct identity.
         def_id: GlobalDefId,
+        /// Early generic arguments.
         generic_args: Vec<EarlyConstGenericArg>,
+        /// Field initializers.
         fields: Vec<EarlyConstFieldInit>,
     },
+    /// Enum variant aggregate literal.
     EnumStructLiteral {
+        /// Variant expression.
         variant: Box<EarlyConstExpr>,
+        /// Field initializers.
         fields: Vec<EarlyConstFieldInit>,
     },
+    /// Compile-time error expression.
     CompileError {
+        /// Error message expression.
         message: Box<EarlyConstExpr>,
     },
+    /// Explicit compile-time trap.
     Trap,
+    /// Builtin const value.
     BuiltinConstValue(BuiltinConstValue),
+    /// Builtin value query.
     BuiltinValue(ValueBuiltin),
+    /// Layout builtin.
     LayoutBuiltin {
+        /// Layout operation.
         builtin: LayoutBuiltin,
+        /// Early type argument.
         type_arg: EarlyConstTypeArg,
     },
+    /// Field-offset builtin.
     FieldOffsetBuiltin {
+        /// Early type argument.
         type_arg: EarlyConstTypeArg,
+        /// Field identity.
         field: SymbolId,
     },
+    /// Embedded resource.
     Embed {
+        /// Path literal.
         path: ConstStringLiteral,
     },
+    /// Const function call.
     Call {
+        /// Callee expression.
         callee: Box<EarlyConstExpr>,
+        /// Early generic arguments.
         generic_args: Vec<EarlyConstGenericArg>,
+        /// Argument expressions.
         args: Vec<EarlyConstExpr>,
     },
+    /// Unary operation.
     Unary {
+        /// Operator.
         op: ConstUnaryOp,
+        /// Operand.
         expr: Box<EarlyConstExpr>,
     },
+    /// Optional success constructor.
     OptionalSome {
+        /// Payload expression.
         expr: Box<EarlyConstExpr>,
     },
+    /// Error-union success constructor.
     ErrorOk {
+        /// Payload expression.
         expr: Box<EarlyConstExpr>,
     },
+    /// Error-union error constructor.
     ErrorErr {
+        /// Payload expression.
         expr: Box<EarlyConstExpr>,
     },
+    /// Error propagation expression.
     Try {
+        /// Fallible expression.
         expr: Box<EarlyConstExpr>,
     },
+    /// Binary operation.
     Binary {
+        /// Left operand.
         lhs: Box<EarlyConstExpr>,
+        /// Operator.
         op: ConstBinaryOp,
+        /// Right operand.
         rhs: Box<EarlyConstExpr>,
     },
+    /// Assignment expression.
     Assign(Box<EarlyConstAssign>),
+    /// Integer range expression.
     Range(EarlyConstRange),
+    /// Conditional expression.
     If {
+        /// Condition.
         cond: Box<EarlyConstExpr>,
+        /// True branch.
         then_branch: EarlyConstBlock,
+        /// Optional false branch.
         else_branch: Option<Box<EarlyConstExpr>>,
     },
+    /// Match expression.
     Match(Box<EarlyConstMatch>),
+    /// Cast with an optional unresolved target type.
     Cast {
+        /// Operand expression.
         expr: Box<EarlyConstExpr>,
+        /// Optional target type identity.
         ty: Option<InternedTyId>,
     },
+    /// Lexical block expression.
     Block(EarlyConstBlock),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Segmented string literal preserving source parts before escape decoding.
 pub struct ConstStringLiteral {
+    /// Literal segments in source order.
     pub parts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Unary operations available in const expressions.
 pub enum ConstUnaryOp {
+    /// Arithmetic negation.
     Neg,
+    /// Boolean/logical negation.
     Not,
+    /// Integer bitwise complement.
     BitNot,
+    /// Read-only reference creation.
     RefReadOnly,
+    /// Mutable reference creation.
     Ref,
+    /// Pointer dereference.
     Deref,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Binary operations available in const expressions.
 pub enum ConstBinaryOp {
+    /// Multiplication.
     Mul,
+    /// Division.
     Div,
+    /// Remainder.
     Rem,
+    /// Addition.
     Add,
+    /// Subtraction.
     Sub,
+    /// Left shift.
     Shl,
+    /// Right shift.
     Shr,
+    /// Less-than comparison.
     Lt,
+    /// Less-than-or-equal comparison.
     Le,
+    /// Greater-than comparison.
     Gt,
+    /// Greater-than-or-equal comparison.
     Ge,
+    /// Equality comparison.
     Eq,
+    /// Inequality comparison.
     Ne,
+    /// Bitwise and.
     BitAnd,
+    /// Bitwise xor.
     BitXor,
+    /// Bitwise or.
     BitOr,
+    /// Logical and.
     And,
+    /// Logical or.
     Or,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Assignment operators accepted by const locals.
 pub enum ConstAssignOp {
+    /// Replacement assignment.
     Assign,
+    /// Add-and-assign.
     Add,
+    /// Subtract-and-assign.
     Sub,
+    /// Shift-left-and-assign.
     Shl,
+    /// Shift-right-and-assign.
     Shr,
+    /// Multiply-and-assign.
     Mul,
+    /// Divide-and-assign.
     Div,
+    /// Remainder-and-assign.
     Rem,
+    /// Bitwise-and-and-assign.
     BitAnd,
+    /// Bitwise-xor-and-assign.
     BitXor,
+    /// Bitwise-or-and-assign.
     BitOr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Optional-bound range in early IR.
 pub struct EarlyConstRange {
+    /// Optional lower bound.
     pub start: Option<Box<EarlyConstExpr>>,
+    /// Optional upper bound.
     pub end: Option<Box<EarlyConstExpr>>,
+    /// Whether the upper bound is inclusive.
     pub inclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Optional-bound slice range in early IR.
 pub struct EarlyConstSliceRange {
+    /// Optional lower bound.
     pub start: Option<Box<EarlyConstExpr>>,
+    /// Optional upper bound.
     pub end: Option<Box<EarlyConstExpr>>,
+    /// Whether the upper bound is inclusive.
     pub inclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early array literal list or repeat payload.
 pub enum EarlyConstArrayElements {
+    /// Explicit element list.
     List(Vec<EarlyConstExpr>),
+    /// Repeated value and count.
     Repeat {
+        /// Repeated value expression.
         value: Box<EarlyConstExpr>,
+        /// Repeat count expression.
         count: Box<EarlyConstExpr>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Semantic identity carried by a resolved const name.
 pub enum ConstNameResolution {
+    /// Local binding identity.
     Local(LocalId),
+    /// Global definition identity.
     Global(GlobalDefId),
+    /// Generic parameter identity by symbol.
     GenericParam(SymbolId),
+    /// Builtin associated value identity.
     BuiltinAssociatedValue(BuiltinAssociatedValue),
+    /// Associated-constant projection identity.
     AssociatedConstProjection(AssociatedConstProjection),
 }
 
@@ -2011,9 +2341,13 @@ impl From<SemanticValueUse> for ConstNameResolution {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Named field initializer in early IR.
 pub struct EarlyConstFieldInit {
+    /// Initializer source span.
     pub span: Span,
+    /// Field identity.
     pub name: SymbolId,
+    /// Field value expression.
     pub value: EarlyConstExpr,
 }
 
@@ -2024,31 +2358,47 @@ pub struct EarlyConstFieldInit {
 /// from an untyped aggregate literal, whose optional type lives on the literal
 /// expression itself and intentionally survives into resolved IR for inference.
 pub struct EarlyConstTypeArg {
+    /// Full type occurrence span.
     pub span: Span,
+    /// Type syntax span.
     pub ty_span: Span,
+    /// Optional interned type identity.
     pub ty: Option<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early generic argument retaining type versus const form.
 pub enum EarlyConstGenericArg {
+    /// Type argument, possibly unresolved.
     Type(EarlyConstTypeArg),
+    /// Const expression argument.
     Const(EarlyConstExpr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Early associated-function target.
 pub enum EarlyConstAssociatedTarget {
+    /// Type target.
     Type(EarlyConstTypeArg),
+    /// Nominal definition and type arguments.
     Nominal {
+        /// Definition identity.
         def_id: GlobalDefId,
+        /// Type arguments.
         args: Vec<EarlyConstTypeArg>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resolved associated-function target.
 pub enum ResolvedConstAssociatedTarget {
+    /// Resolved type target.
     Type(ResolvedConstTypeArg),
+    /// Nominal definition and resolved type arguments.
     Nominal {
+        /// Definition identity.
         def_id: GlobalDefId,
+        /// Resolved type arguments.
         args: Vec<ResolvedConstTypeArg>,
     },
 }
@@ -2056,6 +2406,8 @@ pub enum ResolvedConstAssociatedTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A structural failure while lowering syntax or validating early IR.
 pub struct ConstLowerError {
+    /// Source span of the lowering/validation failure.
     pub span: Span,
+    /// Stable diagnostic message.
     pub message: String,
 }
