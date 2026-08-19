@@ -1067,6 +1067,9 @@ acceptance item only when its phase-wide evidence is complete.
       function before owner-relative calls consume them. Partition planning
       keeps dangling cached owners deterministic so validation can diagnose
       them instead of panicking at the pre-LLVM boundary.
+- [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
+      before ProgramIndex overwrite semantics can alias multiple definitions
+      onto one generated LLVM entry identity.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

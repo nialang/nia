@@ -5707,7 +5707,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
             global_instances: Vec::new(),
             functions: Vec::new(),
             function_instances: Vec::new(),
-            closure_entries: vec![entry],
+            closure_entries: vec![entry.clone(), entry],
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -5742,6 +5742,11 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "closure entry owner does not resolve to a backend function"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "backend module contains a duplicate closure entry identity"
     ));
 }
 
