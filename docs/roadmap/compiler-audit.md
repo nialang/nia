@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 163 completed entries in this ledger.
+- Implementation batches: 164 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -956,6 +956,12 @@ acceptance item only when its phase-wide evidence is complete.
       conservative loop fallthrough, and continued diagnostics inside
       unreachable syntax. Its 14 control-flow/pattern tests, strict Clippy, and
       strict Rustdoc pass.
+- [x] Phase C const-IR foundation Rustdoc now documents module product
+      partitioning, initializer ownership, enum discriminants, resolved
+      expression constructors, execution-frame parameters, lexical blocks, and
+      const statement control flow. Its unsuppressed missing-docs baseline fell
+      from 619 to 547 warnings; all 15 tests and strict Clippy pass, while
+      deeper expression and early-IR schemas remain.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
