@@ -150,21 +150,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn associated_type_binding_keys_match(
-        &mut self,
-        left: &AssociatedTypeBindingTy,
-        right: &AssociatedTypeBindingTy,
-    ) -> bool {
-        left.name == right.name
-            && left.trait_id == right.trait_id
-            && left.trait_args.len() == right.trait_args.len()
-            && left
-                .trait_args
-                .iter()
-                .zip(right.trait_args.iter())
-                .all(|(left, right)| self.types_match_normalized(*left, *right))
-    }
-
     pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
         self.normalize_projection_inner(ty, &mut HashSet::new())
     }
