@@ -17,18 +17,24 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Integer width and signedness selected by semantic type analysis.
 pub struct ConstIntegerSemantics {
+    /// Target integer width in bits.
     pub bits: u32,
+    /// Whether values use signed interpretation.
     pub signed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A user-facing failure produced while interpreting a const expression.
 pub struct ConstError {
+    /// Source span that triggered the evaluation failure.
     pub span: Span,
+    /// Stable user-facing error message.
     pub message: String,
 }
 
+/// Default total interpreter-step limit per outer evaluation session.
 pub const DEFAULT_CONST_EVAL_STEP_LIMIT: usize = 1_000_000;
+/// Default nested const-function call-depth limit.
 pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 256;
 
 #[derive(Debug, Clone)]
@@ -61,6 +67,9 @@ impl ConstEvalBudget {
 
     /// Enters a possibly nested evaluation session.
     pub fn begin_session(&mut self) {
+        // Nested entry points share the outer remaining budget. Resetting only
+        // at depth zero prevents a recursive const call from replenishing its
+        // parent's step allowance.
         if self.session_depth == 0 {
             self.remaining_steps = self.step_limit;
             self.call_depth = 0;
@@ -93,6 +102,8 @@ impl ConstEvalBudget {
 
     /// Charges one interpreter operation to the current logical session.
     pub fn consume_step(&mut self, span: Span) -> Result<(), ConstError> {
+        // Charge before executing the operation so a failing step cannot
+        // partially mutate interpreter state and then be retried for free.
         let Some(remaining) = self.remaining_steps.checked_sub(1) else {
             return Err(ConstError {
                 span,
@@ -108,6 +119,8 @@ impl ConstEvalBudget {
 
     /// Enters a const function call, rejecting recursion beyond the limit.
     pub fn enter_call(&mut self, span: Span) -> Result<(), ConstError> {
+        // Check before incrementing; callers can therefore leave the budget
+        // unchanged when recursion is rejected.
         if self.call_depth >= self.call_depth_limit {
             return Err(ConstError {
                 span,

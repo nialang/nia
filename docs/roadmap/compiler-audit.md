@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 158 completed entries in this ledger.
+- Implementation batches: 159 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -931,6 +931,11 @@ acceptance item only when its phase-wide evidence is complete.
       ownership, and shared const-evaluation step budgeting. The existing 10
       static initializer acceptance/rejection tests, strict Clippy, and
       Rustdoc checks pass.
+- [x] Phase C const-eval budget audit now documents outer-session reset and
+      nested-session sharing, charge-before-execution semantics, recursion
+      rejection without state mutation, balanced cleanup, and the interpreter
+      loop cap. All 39 const-eval tests and strict Clippy pass; its unsuppressed
+      missing-docs baseline is 161 warnings for follow-up schema batches.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
