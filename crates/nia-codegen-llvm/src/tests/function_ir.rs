@@ -5678,6 +5678,19 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         },
         span,
     };
+    let mut missing_owner_entry = entry.clone();
+    missing_owner_entry.key.owner = nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
+        nia_function_ir::FunctionInstanceKey {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(2),
+            },
+            arg_module_id: module_id,
+            self_arg: None,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        },
+    );
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
@@ -5706,8 +5719,27 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
             globals: Vec::new(),
             global_instances: Vec::new(),
             functions: Vec::new(),
-            function_instances: Vec::new(),
-            closure_entries: vec![entry.clone(), entry],
+            function_instances: vec![BackendFunctionInstance {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(1),
+                },
+                name: sym("owner_instance"),
+                arg_module_id: module_id,
+                self_arg: None,
+                args: Vec::new(),
+                const_args: Vec::new(),
+                symbol: "owner_instance".to_string(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: None,
+                span,
+            }],
+            closure_entries: vec![entry.clone(), missing_owner_entry, entry],
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }]
@@ -5747,6 +5779,11 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "closure entry is not published with its owning backend function"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "closure entry symbol does not match its owner-derived identity"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,

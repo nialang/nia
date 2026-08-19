@@ -1068,6 +1068,9 @@ acceptance item only when its phase-wide evidence is complete.
       consume them. Partition planning keeps dangling cached owners
       deterministic so validation can diagnose them instead of panicking at
       the pre-LLVM boundary.
+- [x] Phase B closure-entry symbols are checked against deterministic
+      owner-derived mangling before LLVM declaration, preventing cached IR from
+      aliasing an unrelated function name while retaining a valid entry key.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.

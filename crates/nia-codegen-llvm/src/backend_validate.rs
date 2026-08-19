@@ -21,7 +21,9 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{TargetDataLayout, TypeLayout};
-use nia_mangle::mangle_symbol_id;
+use nia_mangle::{
+    MangleModuleId, mangle_base_symbol_id, mangle_closure_entry_symbol, mangle_symbol_id,
+};
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, TyKind};
 
@@ -390,6 +392,42 @@ impl BackendValidator<'_> {
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 entry.span,
                 "closure entry is not published with its owning backend function",
+            ));
+        }
+        let owner_symbol = match &entry.key.owner {
+            BackendClosureEntryOwner::Source(owner) => self
+                .index
+                .function(*owner)
+                .zip(self.index.module(owner.module_id))
+                .map(|(function, module)| {
+                    mangle_base_symbol_id(
+                        *owner,
+                        MangleModuleId::from_normalized_source_path(
+                            module.source_identity.normalized_path(),
+                        ),
+                        function.name,
+                    )
+                }),
+            BackendClosureEntryOwner::FunctionInstance(owner) => self
+                .index
+                .function_instance(
+                    owner.def_id,
+                    owner.arg_module_id,
+                    owner.self_arg,
+                    &owner.args,
+                    &owner.const_args,
+                )
+                .map(|instance| instance.symbol.clone()),
+        };
+        if owner_symbol
+            .as_deref()
+            .map(|symbol| mangle_closure_entry_symbol(symbol, entry.key.closure_id) != entry.symbol)
+            == Some(true)
+        {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                entry.span,
+                "closure entry symbol does not match its owner-derived identity",
             ));
         }
         self.validate_runtime_type(entry.abi.state_type, entry.span);
