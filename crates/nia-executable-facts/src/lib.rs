@@ -1209,7 +1209,11 @@ pub fn filter_semantic_facts_for_reachable_items(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_body_ir::{TypedForIn, TypedPattern, TypedPatternKind};
+    use nia_body_ir::{
+        AtomicOrder, MemoryIntrinsicOp, PlaceBase, TypedAsmInput, TypedAsmOutput, TypedAtomic,
+        TypedForIn, TypedInlineAsm, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern,
+        TypedPatternKind, TypedPlace, TypedUnionRelocation,
+    };
     use nia_ids::{DefId, ModuleIdAllocator};
     use nia_span::Span;
 
@@ -1349,5 +1353,154 @@ mod tests {
                 .collect::<HashSet<_>>(),
             reachable_globals
         );
+    }
+
+    #[test]
+    fn typed_reference_collection_covers_hidden_expression_containers() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = nia_ty::TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::Bool);
+        let function = GlobalDefId {
+            module_id,
+            def_id: DefId(10),
+        };
+        let globals = (20..26)
+            .map(|id| GlobalDefId {
+                module_id,
+                def_id: DefId(id),
+            })
+            .collect::<Vec<_>>();
+        let defs = nia_defs::DefCollection {
+            module_id,
+            defs: Default::default(),
+            module_scope: Default::default(),
+            scopes: nia_defs::DefScopes {
+                struct_members: HashMap::new(),
+                union_members: HashMap::new(),
+                enum_members: HashMap::new(),
+            },
+            def_nodes: Default::default(),
+            module_usings: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let body_ir = BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        };
+        let executable_refs = ExecutableModuleRefs::default();
+        let semantic_facts = nia_sema_ir::SemanticFacts::default();
+        let module = ReachableModuleInput {
+            module_id,
+            defs: &defs,
+            type_store: &types,
+            body_ir: &body_ir,
+            executable_refs: &executable_refs,
+            semantic_facts: &semantic_facts,
+        };
+        let global_expr = |def_id| TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Global(def_id),
+        };
+        let place = |def_id| TypedPlace {
+            span: Span::default(),
+            ty,
+            base: PlaceBase::Global(def_id),
+            elems: Vec::new(),
+        };
+        let expr = TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Tuple(vec![
+                TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::Assign {
+                        place: place(globals[0]),
+                        op: nia_ast::AssignOp::Assign,
+                        rhs: Box::new(global_expr(globals[1])),
+                    },
+                },
+                TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::Call {
+                        callee: TypedCallee::FunctionPointer(Box::new(TypedExpr {
+                            span: Span::default(),
+                            ty,
+                            kind: TypedExprKind::Function(function),
+                        })),
+                        args: Vec::new(),
+                    },
+                },
+                TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::InlineAsm(TypedInlineAsm {
+                        code: String::new(),
+                        inputs: vec![TypedAsmInput {
+                            constraint: String::new(),
+                            value: global_expr(globals[2]),
+                            span: Span::default(),
+                        }],
+                        outputs: vec![TypedAsmOutput {
+                            constraint: String::new(),
+                            place: place(globals[3]),
+                            span: Span::default(),
+                        }],
+                        clobbers: Vec::new(),
+                        options: Vec::new(),
+                    }),
+                },
+                TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::UnionStorageLiteral {
+                        bytes: Vec::new(),
+                        relocations: vec![TypedUnionRelocation {
+                            offset: 0,
+                            width: 0,
+                            allocation: nia_body_ir::PromotedAllocationId::new(
+                                module_id,
+                                Span::default(),
+                            ),
+                            pointee: Box::new(global_expr(globals[4])),
+                        }],
+                    },
+                },
+                TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                        op: MemoryIntrinsicOp::Copy,
+                        elem_ty: ty,
+                        dest: Box::new(global_expr(globals[5])),
+                        source: TypedMemoryIntrinsicSource::Byte(Box::new(global_expr(globals[0]))),
+                    }),
+                },
+                TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::Atomic(TypedAtomic::Load {
+                        ty,
+                        ptr: Box::new(global_expr(globals[1])),
+                        order: AtomicOrder::Acquire,
+                    }),
+                },
+            ]),
+        };
+        let stmt = TypedStmt {
+            span: Span::default(),
+            kind: TypedStmtKind::Expr(expr),
+        };
+        let mut refs = ExecutableItemRefs::default();
+
+        collect_typed_stmt_refs(&module, &stmt, &mut refs);
+
+        assert!(refs.functions.contains(&function));
+        assert!((0..6).all(|index| { refs.globals.contains(&globals[index]) }));
     }
 }

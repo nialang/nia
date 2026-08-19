@@ -535,6 +535,7 @@ dependencies = [
 name = "nia-executable-facts"
 version = "0.4.3"
 dependencies = [
+ "nia-ast",
  "nia-body-ir",
  "nia-defs",
  "nia-ids",

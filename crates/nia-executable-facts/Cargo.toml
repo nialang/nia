@@ -17,5 +17,8 @@ nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
 
+[dev-dependencies]
+nia-ast.workspace = true
+
 [lib]
 path = "src/lib.rs"
