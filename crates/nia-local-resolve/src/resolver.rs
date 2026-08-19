@@ -438,7 +438,15 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_ident(name, expr.span, expr.node_key.clone());
             }
             ExprKind::SelfValue => {
-                if let Some(Some(local)) = self.self_locals.last().copied() {
+                let enclosing_receiver = self.self_locals.last().copied().flatten();
+                if !self.closure_scope_starts.is_empty() && enclosing_receiver.is_some() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::LOCAL_RESOLUTION,
+                        expr.span,
+                        "`self` cannot cross a closure boundary; bind it to a local and capture that local",
+                    ));
+                    self.record_use(expr.node_key.clone(), LocalUse::Unresolved);
+                } else if let Some(local) = enclosing_receiver {
                     self.record_use(expr.node_key.clone(), LocalUse::Local(local.id));
                 } else {
                     self.record_use(expr.node_key.clone(), LocalUse::Unresolved);

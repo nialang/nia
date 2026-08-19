@@ -172,6 +172,43 @@ fn main() i32 {
 }
 
 #[test]
+fn uncaptured_method_receiver_stops_before_backend_lowering() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Box { value: i32 }
+
+extend Box {
+    fn run(self) i32 {
+        let callback = \z: i32 -> self.value + z;
+        callback(1)
+    }
+}
+
+fn main() i32 { Box { value: 2 }.run() }
+"#,
+    );
+    let codegen = fixture.database().codegen_program();
+
+    assert!(
+        codegen.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("`self` cannot cross a closure boundary")),
+        "{:?}",
+        codegen.diagnostics
+    );
+    assert!(
+        codegen.diagnostics.iter().all(|diagnostic| {
+            diagnostic.diagnostic.category != nia_diagnostic::DiagnosticCategory::Internal
+        }),
+        "frontend receiver errors must not degrade into backend diagnostics: {:?}",
+        codegen.diagnostics
+    );
+    assert!(codegen.backend_lowering.diagnostics.is_empty());
+}
+
+#[test]
 fn flow_check_separates_semantic_value_from_diagnostics() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

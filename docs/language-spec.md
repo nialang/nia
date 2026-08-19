@@ -1254,7 +1254,9 @@ add(4)
 
 Here the outer body is the complete `\[x, y] z -> ...` expression. Omitting
 `[x, y]` is not implicit capture: a closure body may only refer to its
-parameters, locals, explicit captures, and module or static values.
+parameters, locals, explicit captures, and module or static values. A method
+receiver likewise does not cross a closure boundary implicitly. Bind `self` to
+a named local outside the closure and capture that local when it is needed.
 
 The parameter and return types must match the closure signature structurally.
 Taking a mutable address may construct either a writable or readonly view;
