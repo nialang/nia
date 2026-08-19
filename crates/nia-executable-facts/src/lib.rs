@@ -576,6 +576,11 @@ fn collect_typed_stmt_refs(
                 for_in.iterator_ty,
                 Vec::new(),
             );
+            // Item patterns are evaluated at each successful iteration. Keep
+            // their expression/range operands in the reachability graph just
+            // like binding, if-pattern, and match patterns; otherwise a
+            // referenced function or global could be pruned as unreachable.
+            collect_typed_pattern_refs(module, &for_in.pattern, refs);
             collect_typed_expr_refs(module, &for_in.iter, refs);
             collect_typed_executable_refs(module, &for_in.body, refs);
         }
@@ -1136,4 +1141,88 @@ pub fn filter_semantic_facts_for_reachable_items(
         .filter(|(def_id, _)| reachable_functions.contains(def_id))
         .collect();
     reachable_facts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_body_ir::{TypedForIn, TypedPattern, TypedPatternKind};
+    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_span::Span;
+
+    #[test]
+    fn for_item_pattern_function_references_are_reachable() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = nia_ty::TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::Bool);
+        let referenced = GlobalDefId {
+            module_id,
+            def_id: DefId(7),
+        };
+        let defs = nia_defs::DefCollection {
+            module_id,
+            defs: Default::default(),
+            module_scope: Default::default(),
+            scopes: nia_defs::DefScopes {
+                struct_members: HashMap::new(),
+                union_members: HashMap::new(),
+                enum_members: HashMap::new(),
+            },
+            def_nodes: Default::default(),
+            module_usings: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let body_ir = BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        };
+        let executable_refs = ExecutableModuleRefs::default();
+        let semantic_facts = nia_sema_ir::SemanticFacts::default();
+        let module = ReachableModuleInput {
+            module_id,
+            defs: &defs,
+            type_store: &types,
+            body_ir: &body_ir,
+            executable_refs: &executable_refs,
+            semantic_facts: &semantic_facts,
+        };
+        let stmt = TypedStmt {
+            span: Span::default(),
+            kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
+                pattern: TypedPattern {
+                    ty,
+                    span: Span::default(),
+                    kind: TypedPatternKind::Expr(TypedExpr {
+                        span: Span::default(),
+                        ty,
+                        kind: TypedExprKind::Function(referenced),
+                    }),
+                },
+                item_ty: ty,
+                bool_ty: ty,
+                iterable_self_ty: ty,
+                iterator_ty: ty,
+                iter: TypedExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: TypedExprKind::Bool(true),
+                },
+                body: TypedBody {
+                    span: Span::default(),
+                    locals: Vec::new(),
+                    stmts: Vec::new(),
+                    tail: None,
+                    ty,
+                },
+            })),
+        };
+        let mut refs = ExecutableItemRefs::default();
+
+        collect_typed_stmt_refs(&module, &stmt, &mut refs);
+
+        assert!(refs.functions.contains(&referenced));
+    }
 }

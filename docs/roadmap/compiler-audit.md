@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-19):
 
-- Implementation batches: 172 completed entries in this ledger.
+- Implementation batches: 173 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -987,6 +987,10 @@ acceptance item only when its phase-wide evidence is complete.
       and range patterns across bindings, loops, if-patterns, and match arms;
       nested closures in those runtime-evaluated pattern operands no longer
       degrade to unknown-call summaries.
+- [x] Phase C executable reachability now includes `for` item patterns when
+      collecting function/global references, closing the last statement-level
+      omission alongside existing binding, if-pattern, and match pattern
+      traversal.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
