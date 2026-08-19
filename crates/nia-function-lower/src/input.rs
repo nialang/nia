@@ -50,6 +50,10 @@ impl BodyInputValidator {
                 }
             }
             TypedStmtKind::ForIn(for_stmt) => {
+                // Keep validation in the same structural order as lowering: the
+                // item pattern is consumed at loop entry and may itself contain
+                // value expressions (including recovery nodes).
+                self.validate_pattern(&for_stmt.pattern)?;
                 self.validate_value_expr(&for_stmt.iter)?;
                 self.validate_effect_body(&for_stmt.body)?;
             }
