@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Typed semantic body IR consumed by function lowering and body walkers.
+//!
+//! The tables retain source spans and semantic types while preserving enough
+//! structure for pattern, closure, defer, and aggregate lowering. Consumers
+//! should treat the typed nodes as validated output of body checking rather
+//! than as a recovery-friendly syntax tree.
 use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
@@ -21,222 +27,369 @@ mod walk;
 
 pub use walk::walk_typed_function_bodies;
 
+/// Module-owned typed bodies and static initializers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
+    /// Function definitions keyed by their global identity.
     pub function_bodies: HashMap<GlobalDefId, Arc<TypedBody>>,
+    /// Static/global initializers keyed by global identity.
     pub global_inits: HashMap<GlobalDefId, Arc<StaticInit>>,
 }
 
+/// Typed statement body with locals, statements, and an optional tail value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedBody {
+    /// Source span covering the body.
     pub span: Span,
+    /// Local storage declarations visible in the body.
     pub locals: Vec<TypedLocal>,
+    /// Statements in source order.
     pub stmts: Vec<TypedStmt>,
+    /// Optional final expression value.
     pub tail: Option<Box<TypedExpr>>,
+    /// Semantic result type of the body.
     pub ty: InternedTyId,
 }
 
+/// Typed local declaration used by body lowering.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedLocal {
+    /// Stable local identity.
     pub id: LocalId,
+    /// Source or generated local name.
     pub name: LocalName,
+    /// Binding/storage role.
     pub kind: TypedLocalKind,
+    /// Semantic storage type.
     pub ty: InternedTyId,
+    /// Source declaration span.
     pub span: Span,
 }
 
+/// Storage role of a typed local.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypedLocalKind {
+    /// ABI parameter.
     Param,
+    /// Mutable source binding.
     MutableBinding,
+    /// Immutable source binding.
     ImmutableBinding,
 }
 
+/// One typed statement and its source span.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedStmt {
+    /// Source span of the statement.
     pub span: Span,
+    /// Statement operation.
     pub kind: TypedStmtKind,
 }
 
+/// Statement operation after semantic checking.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedStmtKind {
+    /// Local binding declaration.
     Binding(TypedBinding),
+    /// Pattern destructuring assignment.
     PatternBinding(Box<TypedPatternBinding>),
+    /// Effect or value expression statement.
     Expr(TypedExpr),
+    /// Function return with an optional value.
     Return(Option<TypedExpr>),
+    /// Break from the nearest loop.
     Break,
+    /// Continue at the nearest loop header.
     Continue,
+    /// Deferred effect body.
     Defer(TypedExpr),
+    /// Iterator-driven loop.
     ForIn(Box<TypedForIn>),
+    /// Conditional loop.
     While(Box<TypedWhile>),
+    /// Unconditional loop.
     Loop(Box<TypedLoop>),
 }
 
+/// Pattern binding statement.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedPatternBinding {
+    /// Pattern receiving the value.
     pub pattern: TypedPattern,
+    /// Value being destructured.
     pub value: TypedExpr,
 }
 
+/// Typed local binding declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedBinding {
+    /// Local storage identity.
     pub local_id: LocalId,
+    /// Source or generated name.
     pub name: LocalName,
+    /// Binding storage type.
     pub ty: InternedTyId,
+    /// Optional initializer expression.
     pub value: Option<TypedExpr>,
+    /// Whether subsequent assignment is permitted.
     pub is_mutable: bool,
 }
 
+/// Iterator-driven `for` loop after method resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedForIn {
+    /// Pattern receiving each item.
     pub pattern: TypedPattern,
+    /// Item type yielded by the iterator.
     pub item_ty: InternedTyId,
+    /// Boolean type used by iterator predicates.
     pub bool_ty: InternedTyId,
+    /// Receiver type used to resolve iteration methods.
     pub iterable_self_ty: InternedTyId,
+    /// Concrete iterator type.
     pub iterator_ty: InternedTyId,
+    /// Iterable expression.
     pub iter: TypedExpr,
+    /// Loop body.
     pub body: TypedBody,
 }
 
+/// Conditional `while` loop.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedWhile {
+    /// Boolean condition.
     pub cond: TypedExpr,
+    /// Loop body.
     pub body: TypedBody,
 }
 
+/// Unconditional loop body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedLoop {
+    /// Loop body.
     pub body: TypedBody,
 }
 
+/// Typed match expression or statement arms.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedMatch {
+    /// Value being matched.
     pub target: TypedExpr,
+    /// Boolean type used by lowered pattern tests.
     pub bool_ty: InternedTyId,
+    /// Arms in source order.
     pub arms: Vec<TypedMatchArm>,
 }
 
+/// One typed match arm.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedMatchArm {
+    /// Patterns accepted by this arm.
     pub patterns: Vec<TypedPattern>,
+    /// Arm body representation.
     pub body: TypedMatchArmBody,
+    /// Source span of the arm.
     pub span: Span,
 }
 
+/// Typed `if` pattern construct.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedIfPattern {
+    /// Value tested by the pattern.
     pub target: TypedExpr,
+    /// Boolean type used by the test.
     pub bool_ty: InternedTyId,
+    /// Pattern being tested.
     pub pattern: TypedPattern,
+    /// Branch taken on success.
     pub then_branch: TypedBody,
+    /// Optional expression on failure.
     pub else_branch: Option<Box<TypedExpr>>,
 }
 
+/// Typed pattern with a semantic type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedPattern {
+    /// Semantic type matched by the pattern.
     pub ty: InternedTyId,
+    /// Source span of the pattern.
     pub span: Span,
+    /// Pattern operation.
     pub kind: TypedPatternKind,
 }
 
+/// Pattern operation after type checking.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedPatternKind {
+    /// Matches any value.
     Wildcard,
+    /// Binds the matched value to a local.
     Bind {
+        /// Bound local identity.
         local_id: LocalId,
+        /// Bound local name.
         name: LocalName,
     },
+    /// Readonly pointer pattern.
     Pointer(Box<TypedPattern>),
+    /// Mutable pointer pattern.
     MutPointer(Box<TypedPattern>),
+    /// Optional payload pattern.
     OptionalSome(Box<TypedPattern>),
+    /// Optional null pattern.
     OptionalNull,
+    /// Error-union success payload pattern.
     ErrorOk(Box<TypedPattern>),
+    /// Error-union error payload pattern.
     ErrorErr(Box<TypedPattern>),
+    /// Tuple destructuring pattern.
     Tuple(Vec<TypedPattern>),
+    /// Nominal struct or enum pattern.
     Nominal {
+        /// Constructor identity and field mapping.
         constructor: TypedNominalPatternConstructor,
+        /// Field patterns in declaration order.
         fields: Vec<TypedPattern>,
     },
+    /// Expression equality pattern.
     Expr(TypedExpr),
+    /// Checked integer constant pattern.
     CheckedInt {
+        /// Target-width integer value.
         value: i128,
     },
+    /// Runtime range pattern.
     Range {
+        /// Lower bound.
         start: Box<TypedExpr>,
+        /// Upper bound.
         end: Box<TypedExpr>,
+        /// Whether the upper bound is inclusive.
         inclusive: bool,
     },
+    /// Compile-time checked integer range.
     CheckedIntRange {
+        /// Lower bound.
         start: i128,
+        /// Upper bound.
         end: i128,
+        /// Whether the upper bound is inclusive.
         inclusive: bool,
     },
 }
 
+/// Constructor metadata for a nominal pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedNominalPatternConstructor {
+    /// Struct field pattern.
     Struct {
+        /// Field identities in declaration order.
         field_defs: Vec<GlobalDefId>,
     },
+    /// Enum variant pattern.
     EnumVariant {
+        /// Variant identity.
         variant: GlobalDefId,
+        /// Integer backing type for its discriminant.
         backing_type: InternedTyId,
     },
 }
 
+/// Body shape attached to one match arm.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedMatchArmBody {
     // Match bodies are stored per arm. Box the full expression so statement
     // and block arms do not inherit `TypedExpr`'s substantially larger size.
+    /// Value expression arm.
     Expr(Box<TypedExpr>),
+    /// Single statement arm.
     Stmt(Box<TypedStmt>),
+    /// Nested block arm.
     Block(Box<TypedBody>),
 }
 
+/// Typed expression node with semantic result type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedExpr {
+    /// Source span of the expression.
     pub span: Span,
+    /// Semantic result type.
     pub ty: InternedTyId,
+    /// Expression operation.
     pub kind: TypedExprKind,
 }
 
+/// Expression operation after semantic checking.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedExprKind {
+    /// Recovery expression rejected by lowering.
     Error,
+    /// Integer literal in source spelling.
     Integer(String),
+    /// Floating-point literal in source spelling.
     Float(String),
+    /// Unicode scalar array literal.
     String(Vec<u32>),
+    /// Byte array literal.
     ByteString(Vec<u8>),
+    /// Unicode scalar literal.
     Char(u32),
+    /// Byte character literal.
     ByteChar(String),
+    /// Boolean literal.
     Bool(bool),
+    /// Optional/error-union null value.
     Null,
+    /// Local value reference.
     Local(LocalId),
+    /// Global value reference.
     Global(GlobalDefId),
+    /// Const-generic value reference.
     ConstGeneric(nia_ty::ConstGenericArg),
+    /// Monomorphic function reference.
     Function(GlobalDefId),
+    /// Concrete generic function reference.
     FunctionInstance {
+        /// Function definition identity.
         def_id: GlobalDefId,
+        /// Module supplying generic argument context.
         arg_module_id: nia_ids::ModuleId,
+        /// Type arguments in canonical order.
         args: Vec<InternedTyId>,
+        /// Const arguments paired with `args`.
         const_args: Vec<ConstGenericArg>,
     },
+    /// Enum variant construction.
     EnumVariant {
+        /// Variant identity.
         variant: GlobalDefId,
+        /// Payload fields in declaration order.
         fields: Vec<TypedExpr>,
     },
+    /// Tuple construction.
     Tuple(Vec<TypedExpr>),
+    /// Closure construction with captures and body.
     Closure {
+        /// Source closure identity.
         closure_id: nia_ids::ClosureId,
+        /// Captured values in capture order.
         captures: Vec<TypedClosureCapture>,
+        /// User parameter locals.
         params: Vec<LocalId>,
+        /// Closure body.
         body: TypedBody,
     },
+    /// Target-independent builtin value.
     BuiltinValue(BuiltinConst),
+    /// Deliberate trap expression.
     Trap,
+    /// Range construction.
     Range(TypedRange),
+    /// Inline assembly expression.
     InlineAsm(TypedInlineAsm),
+    /// Bulk memory intrinsic.
     MemoryIntrinsic(TypedMemoryIntrinsic),
+    /// Atomic operation.
     Atomic(TypedAtomic),
     LoadUnaligned {
         ty: InternedTyId,
