@@ -1288,4 +1288,66 @@ mod tests {
 
         assert!(refs.functions.contains(&referenced));
     }
+
+    #[test]
+    fn semantic_fact_filter_keeps_only_requested_function_and_global_owners() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = nia_ty::TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::Bool);
+        let reachable_function = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let unreachable_function = GlobalDefId {
+            module_id,
+            def_id: DefId(2),
+        };
+        let reachable_global = GlobalDefId {
+            module_id,
+            def_id: DefId(3),
+        };
+        let unreachable_global = GlobalDefId {
+            module_id,
+            def_id: DefId(4),
+        };
+        let mut facts = SemanticFacts::default();
+        facts.global_types.insert(reachable_global, ty);
+        facts.global_types.insert(unreachable_global, ty);
+        facts.function_facts.insert(
+            reachable_function,
+            nia_sema_ir::FunctionSemanticFacts::default(),
+        );
+        facts.function_facts.insert(
+            unreachable_function,
+            nia_sema_ir::FunctionSemanticFacts::default(),
+        );
+        let reachable_functions = HashSet::from([reachable_function]);
+        let reachable_globals = HashSet::from([reachable_global]);
+
+        let filtered = filter_semantic_facts_for_reachable_items(
+            facts,
+            &reachable_functions,
+            &reachable_globals,
+        );
+
+        assert_eq!(
+            filtered
+                .function_facts
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            reachable_functions
+        );
+        assert_eq!(
+            filtered
+                .global_types
+                .keys()
+                .copied()
+                .collect::<HashSet<_>>(),
+            reachable_globals
+        );
+    }
 }
