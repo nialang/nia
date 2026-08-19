@@ -56,6 +56,7 @@ pub trait ExecutableExtensionLookup {
 }
 
 impl<'a> ExecutableExtensionIndex<'a> {
+    /// Indexes extension methods and impl metadata for deterministic lookup.
     pub fn new(
         extension_methods: &'a ExtensionMethods,
         trait_impls: &'a [ProgramTraitImplSignature],

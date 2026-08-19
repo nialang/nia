@@ -81,19 +81,29 @@ pub struct IncrementalExecutableReachability {
 }
 
 impl IncrementalExecutableReachability {
+    /// Returns the current monotone reachability result.
     pub fn reachability(&self) -> &ExecutableReachability {
         &self.reachability
     }
 
+    /// Returns mutable result access for provider-side seed restoration.
+    ///
+    /// Callers must only add facts; removing items would invalidate the
+    /// internal scanned sets and fixed-point cursors.
     pub fn reachability_mut(&mut self) -> &mut ExecutableReachability {
         &mut self.reachability
     }
 
+    /// Consumes the incremental state and returns its result set.
     pub fn into_reachability(self) -> ExecutableReachability {
         self.reachability
     }
 }
 
+/// Computes clean executable reachability, optionally unioned with a seed.
+///
+/// The seed is an already reachable lower bound. Body, trait, generic-instance,
+/// and owner-module edges are expanded until the cardinality key stops growing.
 pub fn compute_executable_reachability_with_seed_and_extension_index(
     seed: Option<&ExecutableReachability>,
     input: ExecutableReachabilityInput<'_>,
@@ -196,6 +206,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
     reachability
 }
 
+/// Advances persistent reachability using the currently available products.
 pub fn compute_executable_reachability_incremental_with_extension_index(
     state: &mut IncrementalExecutableReachability,
     input: ExecutableReachabilityInput<'_>,
@@ -209,6 +220,10 @@ pub fn compute_executable_reachability_incremental_with_extension_index(
     )
 }
 
+/// Advances persistent reachability and records per-stage timings.
+///
+/// Scanned item sets and trait cursors ensure repeated calls only process newly
+/// reachable or refreshed facts.
 pub fn compute_executable_reachability_incremental_with_timings(
     state: &mut IncrementalExecutableReachability,
     input: ExecutableReachabilityInput<'_>,
@@ -312,6 +327,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
     state.reachability.stats = reachability_stats(&modules_by_id, &state.reachability.functions);
 }
 
+/// Extends incremental reachability after one module finishes body checking.
 pub fn extend_incremental_executable_reachability_from_checked_module(
     state: &mut IncrementalExecutableReachability,
     input: CheckedModuleReachabilityInput<'_>,
@@ -326,6 +342,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
     state.reachability.clone()
 }
 
+/// Extends incremental reachability using a caller-supplied extension lookup.
 pub fn extend_incremental_executable_reachability_from_checked_module_with_extension_index(
     state: &mut IncrementalExecutableReachability,
     input: CheckedModuleReachabilityInput<'_>,
@@ -339,6 +356,10 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_exten
     )
 }
 
+/// Extends incremental reachability from refreshed module facts with timings.
+///
+/// `checked_functions` invalidates generic-trait scan markers before the fixed
+/// point resumes, allowing newly materialized calls to add witnesses.
 pub fn extend_incremental_executable_reachability_from_checked_module_with_timings(
     state: &mut IncrementalExecutableReachability,
     input: CheckedModuleReachabilityInput<'_>,
@@ -576,6 +597,9 @@ fn extend_reachability_from_unscanned_items(
     state.scanned_globals.extend(present_globals);
 }
 
+/// Adds direct and trait-derived edges from one checked module.
+///
+/// Returns whether the executable item or type-module sets grew.
 pub fn extend_executable_reachability_from_checked_module(
     reachability: &mut ExecutableReachability,
     program_signatures: ExecutableSignatureIndex<'_>,
@@ -594,6 +618,10 @@ pub fn extend_executable_reachability_from_checked_module(
     )
 }
 
+/// Adds one checked module using a caller-supplied extension lookup.
+///
+/// `checked_modules` supplies cross-module products required by generic trait
+/// matching. Newly discovered owners appear in `reachability.modules()`.
 pub fn extend_executable_reachability_from_checked_module_with_extension_index(
     reachability: &mut ExecutableReachability,
     program_signatures: ExecutableSignatureIndex<'_>,
