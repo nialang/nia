@@ -5746,6 +5746,11 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
     assert!(has_internal_diagnostic(
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
+        "closure entry is not published with its owning backend function"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
         "backend module contains a duplicate closure entry identity"
     ));
 }

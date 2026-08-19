@@ -1113,7 +1113,8 @@ pub struct BackendClosureEntryKey {
     ///
     /// Its source `def_id` must equal `closure_id.owner`, and the referenced
     /// source function or concrete function instance must be present in the
-    /// backend program before code generation.
+    /// backend program before code generation. The entry is published in the
+    /// same [`BackendModule`] as that concrete owner.
     pub owner: BackendClosureEntryOwner,
 }
 
