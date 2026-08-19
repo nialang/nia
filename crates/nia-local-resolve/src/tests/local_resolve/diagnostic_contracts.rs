@@ -86,6 +86,36 @@ fn main() i32 {
 }
 
 #[test]
+fn closure_body_cannot_implicitly_capture_a_method_receiver() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+struct Box { value: i32 }
+
+extend Box {
+    fn run(self) i32 {
+        let callback = \z: i32 -> self.value + z;
+        callback(1)
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+
+    assert!(
+        locals.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("`self` cannot cross a closure boundary")),
+        "{:?}",
+        locals.diagnostics
+    );
+}
+
+#[test]
 fn binding_initializer_cannot_reference_binding_being_defined() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

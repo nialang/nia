@@ -1038,6 +1038,9 @@ acceptance item only when its phase-wide evidence is complete.
       returns. Local resolution enforces explicit capture boundaries before
       Body IR, replacing late missing-local backend failures with source-level
       diagnostics when an inner closure omits an outer local from its captures.
+- [x] Phase C method receivers now obey the same explicit closure boundary as
+      named locals; direct `self` uses diagnose the required bind-and-capture
+      form before Body IR instead of reaching backend entries as missing locals.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
