@@ -1087,6 +1087,10 @@ acceptance item only when its phase-wide evidence is complete.
       mismatches cannot leak a valid prefix into later arguments. Function,
       method-candidate, and thin-function-pointer regressions cover the shared
       inference path.
+- [x] Phase A transactional closure inference now mirrors the ordinary generic
+      inferencer across ranges, nominal/builtin-trait types, trait objects and
+      associated bindings, and projections. Range and generic trait-object
+      regressions ensure the safety probe does not suppress valid inference.
 - [x] Phase B codegen validation rejects duplicate concrete closure-entry keys
       before ProgramIndex overwrite semantics can alias multiple definitions
       onto one generated LLVM entry identity.

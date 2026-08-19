@@ -266,6 +266,47 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_callable_infers_range_bound_from_closure_signature() {
+    let checked = pipeline(
+        r#"
+fn accepts[T](callback: &Fn(T..T) T) i32 {
+    1
+}
+
+fn main() i32 {
+    accepts(&\bounds: usize..usize -> { bounds.end() })
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_callable_infers_trait_object_argument_from_closure_signature() {
+    let checked = pipeline(
+        r#"
+trait Consumer[T] {
+    fn consume(&self, value: T) T;
+}
+
+fn accepts[T](callback: &Fn(&Consumer[T]) T) i32 {
+    1
+}
+
+fn main() i32 {
+    accepts(&\source: &Consumer[i32] -> {
+        _ = source;
+        1
+    })
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn generic_callable_argument_infers_return_from_direct_closure_pointer() {
     let checked = pipeline(
         r#"
