@@ -37,14 +37,20 @@ use nia_ty::{
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
+/// Lowered, interned type information and preserved const-expression inputs.
 pub struct TypeLowering {
+    /// Lowered types keyed by source node site.
     pub type_uses: HashMap<NodeSite, InternedTyId>,
+    /// Original expressions referenced by type-level const arguments.
     pub const_exprs: HashMap<GlobalConstExprId, Expr>,
+    /// Summaries used by later const evaluation and dependency analysis.
     pub const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
+    /// Diagnostics emitted while lowering type syntax.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl TypeLowering {
+    /// Returns the distinct lowered types explicitly rooted in source syntax.
     pub fn explicit_type_roots(&self) -> Vec<InternedTyId> {
         let mut roots = self.type_uses.values().copied().collect::<Vec<_>>();
         roots.sort_unstable();
@@ -52,14 +58,17 @@ impl TypeLowering {
         roots
     }
 
+    /// Looks up the lowered type recorded for one source site.
     pub fn ty_for_site(&self, site: &NodeSite) -> Option<InternedTyId> {
         self.type_uses.get(site).copied()
     }
 
+    /// Looks up the lowered type for a versioned node key.
     pub fn ty_for_key(&self, key: &nia_node_id::VersionedNodeKey) -> Option<InternedTyId> {
         self.ty_for_site(key.site())
     }
 
+    /// Collects versioned type uses reachable from active items.
     pub fn versioned_type_uses_from_active_item_tree(
         &self,
         item_tree: &ActiveModuleItemTree,
@@ -217,11 +226,14 @@ impl VersionedTypeUseCollector<'_> {
 }
 
 #[derive(Clone, Copy)]
+/// Providers and storage used while lowering source types.
 pub struct ProgramDefsContext<'a> {
+    /// Resolves module ids to shared definition collections.
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
+    /// Creates a context without program-wide definitions.
     pub fn empty() -> Self {
         Self { defs: None }
     }
@@ -236,13 +248,18 @@ impl std::fmt::Debug for ProgramDefsContext<'_> {
 }
 
 #[derive(Clone, Copy)]
+/// Canonical type store and optional program context for lowering.
 pub struct TypeLoweringContext<'a> {
+    /// Interning store receiving lowered types.
     pub type_store: &'a nia_ty::TypeStore,
+    /// Optional cross-module definition provider.
     pub program_defs: ProgramDefsContext<'a>,
+    /// Optional symbol text provider for diagnostics.
     pub symbols: Option<&'a dyn SymbolText>,
 }
 
 impl<'a> TypeLoweringContext<'a> {
+    /// Creates a context using only the supplied type store.
     pub fn empty(type_store: &'a nia_ty::TypeStore) -> Self {
         Self {
             type_store,
@@ -251,6 +268,7 @@ impl<'a> TypeLoweringContext<'a> {
         }
     }
 
+    /// Creates a context with cross-module definition providers.
     pub fn from_program_defs(
         type_store: &'a nia_ty::TypeStore,
         program_defs: ProgramDefsContext<'a>,
@@ -262,6 +280,7 @@ impl<'a> TypeLoweringContext<'a> {
         }
     }
 
+    /// Adds a symbol provider used to render diagnostics.
     pub fn with_symbols(mut self, symbols: &'a dyn SymbolText) -> Self {
         self.symbols = Some(symbols);
         self
@@ -278,6 +297,7 @@ impl std::fmt::Debug for TypeLoweringContext<'_> {
     }
 }
 
+/// Lowers all type syntax in a parsed module.
 pub fn lower_module_types_with_context(
     module_id: ModuleId,
     module: &Module,
@@ -288,6 +308,7 @@ pub fn lower_module_types_with_context(
     lower_module_types_from_item_tree_with_context(module_id, &item_tree, resolved, context)
 }
 
+/// Lowers all active items from an active item tree.
 pub fn lower_module_types_from_active_item_tree_with_context(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -303,6 +324,7 @@ pub fn lower_module_types_from_active_item_tree_with_context(
     )
 }
 
+/// Lowers only active declarations from an active item tree.
 pub fn lower_module_declaration_types_from_active_item_tree_with_context(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -318,6 +340,7 @@ pub fn lower_module_declaration_types_from_active_item_tree_with_context(
     )
 }
 
+/// Lowers all types from a complete module item tree.
 pub fn lower_module_types_from_item_tree_with_context(
     module_id: ModuleId,
     item_tree: &ModuleItemTree,
