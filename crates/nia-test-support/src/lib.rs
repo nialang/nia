@@ -851,15 +851,21 @@ fn write_process_owner(slot: &Path) -> io::Result<fs::File> {
         .write(true)
         .create_new(true)
         .open(slot.join("owner"))?;
+    initialize_process_owner(&mut owner, pid, start_time)?;
+    Ok(owner)
+}
+
+fn initialize_process_owner(owner: &mut fs::File, pid: u32, start_time: u64) -> io::Result<()> {
+    // The owner inode becomes visible at create_new. A concurrent stale-slot
+    // scan can open and briefly lock it before this creator reaches flock, so
+    // creation must wait for that inspection instead of treating it as a
+    // corrupt permit. Lock before writing so reclaimers never observe a
+    // partially initialized record after the creator owns the inode.
+    #[cfg(unix)]
+    lock_owner_file(owner)?;
     write!(owner, "{pid} {start_time}")?;
     owner.sync_all()?;
-    #[cfg(unix)]
-    if !try_lock_owner_file(&owner)? {
-        return Err(io::Error::other(
-            "new process slot owner could not be exclusively locked",
-        ));
-    }
-    Ok(owner)
+    Ok(())
 }
 
 fn read_process_owner(slot: &Path) -> Option<(u32, u64)> {
@@ -913,6 +919,22 @@ fn reclaim_stale_process_slot(slot: &Path) {
         }
         if slot_age(slot).is_some_and(|age| age >= UNKNOWN_OWNER_STALE_AFTER) {
             let _ = fs::remove_dir_all(slot);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn lock_owner_file(file: &fs::File) -> io::Result<()> {
+    loop {
+        // SAFETY: `file` owns a live descriptor for the duration of the call,
+        // and `flock` neither takes ownership nor retains the descriptor.
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
         }
     }
 }
@@ -1160,6 +1182,48 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("independent pool should acquire the released process slot");
         waiter.join().expect("process slot waiter");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_owner_initialization_waits_for_a_transient_reclaimer() {
+        let root = test_slot_root("owner-initialization-race");
+        let path = root.join("owner");
+        let mut creator = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .expect("create owner fixture");
+        let reclaimer = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("open owner fixture as reclaimer");
+        assert!(
+            try_lock_owner_file(&reclaimer).expect("lock owner as reclaimer"),
+            "fresh owner fixture should initially be unlocked"
+        );
+
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+        let initializer = std::thread::spawn(move || {
+            started_tx.send(()).expect("report initializer start");
+            initialize_process_owner(&mut creator, 17, 29).expect("initialize process owner");
+            acquired_tx.send(()).expect("report initialized owner");
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("initializer should start");
+        assert!(
+            acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "owner initialization bypassed the transient reclaimer lock"
+        );
+        drop(reclaimer);
+        acquired_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("owner initialization should resume after reclaimer release");
+        initializer.join().expect("owner initializer");
+        assert_eq!(fs::read_to_string(path).unwrap(), "17 29");
     }
 
     #[test]
