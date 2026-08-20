@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Resolves local bindings, lexical uses, and type-prefix identities.
+//!
+//! The resolver preserves stable node identities and separates local, module,
+//! static, and type-prefix use categories for downstream semantic phases.
 use std::collections::HashMap;
 
 use nia_ast::{
@@ -24,9 +28,13 @@ use resolver::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
+/// Local-resolution facts and diagnostics for one module.
 pub struct LocalResolution {
+    /// Allocated locals and their binding metadata.
     pub locals: LocalMap,
+    /// Source nodes that introduce local definitions.
     pub node_local_defs: NodeMap<LocalId>,
+    /// Source nodes classified as local or module uses.
     pub node_uses: NodeMap<LocalUse>,
     /// Exact nominal definitions for nodes classified as type prefixes.
     ///
@@ -34,10 +42,12 @@ pub struct LocalResolution {
     /// constructor-shaped expression, such as a struct pattern, also need its stable cross-module
     /// identity and must not reconstruct that identity from the source spelling.
     pub node_type_prefixes: NodeMap<nia_ids::GlobalDefId>,
+    /// Diagnostics emitted while resolving local names.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug)]
+/// Incremental builder for [`LocalResolution`].
 pub struct LocalResolutionBuilder {
     locals: LocalMap,
     node_local_defs: NodeMapBuilder<LocalId>,
@@ -47,6 +57,7 @@ pub struct LocalResolutionBuilder {
 }
 
 impl LocalResolution {
+    /// Creates an empty product backed by a node store.
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             locals: LocalMap::default(),
@@ -57,6 +68,7 @@ impl LocalResolution {
         }
     }
 
+    /// Converts this product into a mutable incremental builder.
     pub fn into_builder(self) -> LocalResolutionBuilder {
         LocalResolutionBuilder {
             locals: self.locals,
@@ -69,10 +81,12 @@ impl LocalResolution {
 }
 
 impl LocalResolutionBuilder {
+    /// Removes a local-definition fact for a versioned node key.
     pub fn remove_node_local_def(&mut self, locator: &VersionedNodeKey) -> Option<LocalId> {
         self.node_local_defs.remove(locator)
     }
 
+    /// Finalizes the builder into a local-resolution product.
     pub fn finish(self) -> LocalResolution {
         LocalResolution {
             locals: self.locals,
@@ -85,15 +99,18 @@ impl LocalResolutionBuilder {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
+/// Stable local table for a resolved module.
 pub struct LocalMap {
     locals: Vec<Local>,
 }
 
 impl LocalMap {
+    /// Returns a local by its allocated id.
     pub fn get(&self, id: LocalId) -> Option<&Local> {
         self.locals.get(id.0 as usize)
     }
 
+    /// Iterates locals in allocation order.
     pub fn iter(&self) -> impl Iterator<Item = (LocalId, &Local)> {
         self.locals
             .iter()
@@ -101,10 +118,12 @@ impl LocalMap {
             .map(|(index, local)| (LocalId(index as u32), local))
     }
 
+    /// Returns the number of allocated locals.
     pub fn len(&self) -> usize {
         self.locals.len()
     }
 
+    /// Returns whether no locals were allocated.
     pub fn is_empty(&self) -> bool {
         self.locals.is_empty()
     }
@@ -117,23 +136,32 @@ impl LocalMap {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Metadata for one allocated local binding.
 pub struct Local {
+    /// Source binding name or the implicit self value.
     pub name: LocalBindingName,
+    /// Binding mutability and origin category.
     pub kind: LocalKind,
+    /// Source span introducing the binding.
     pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Name identity carried by a local binding.
 pub enum LocalBindingName {
+    /// A user-visible symbol.
     Named(SymbolId),
+    /// The implicit receiver value.
     SelfValue,
 }
 
 impl LocalBindingName {
+    /// Constructs a named binding identity.
     pub fn named(name: SymbolId) -> Self {
         Self::Named(name)
     }
 
+    /// Returns the symbol for a named binding.
     pub fn symbol(self) -> Option<SymbolId> {
         match self {
             Self::Named(name) => Some(name),
@@ -141,29 +169,43 @@ impl LocalBindingName {
         }
     }
 
+    /// Returns whether this is the implicit self binding.
     pub fn is_self_value(self) -> bool {
         matches!(self, Self::SelfValue)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Origin and mutability category of a local binding.
 pub enum LocalKind {
+    /// Function parameter.
     Param,
+    /// Mutable let binding.
     MutableBinding,
+    /// Immutable let binding.
     ImmutableBinding,
+    /// Compile-time const binding.
     ConstBinding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Classification recorded for a value-use node.
 pub enum LocalUse {
+    /// Reference to a local id.
     Local(LocalId),
+    /// Reference to a static definition.
     Static(nia_ids::GlobalDefId),
+    /// Reference to a module value.
     ModuleValue,
+    /// Reference to a module namespace.
     Module,
+    /// Type-prefix position in an expression.
     TypePrefix,
+    /// Unresolved or invalid use.
     Unresolved,
 }
 
+/// Resolves locals for a parsed module.
 pub fn resolve_module_locals(
     module: &Module,
     defs: &DefCollection,
@@ -173,6 +215,7 @@ pub fn resolve_module_locals(
     resolve_module_locals_from_item_tree(&item_tree, defs, values)
 }
 
+/// Resolves locals while retaining a source-version compatibility parameter.
 pub fn resolve_module_locals_with_source(
     module: &Module,
     defs: &DefCollection,
@@ -184,6 +227,7 @@ pub fn resolve_module_locals_with_source(
     resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }
 
+/// Resolves locals using node origins for stable storage identity.
 pub fn resolve_module_locals_with_origins(
     module: &Module,
     defs: &DefCollection,
@@ -195,6 +239,7 @@ pub fn resolve_module_locals_with_origins(
     resolve_module_locals_from_items(&item_tree.items, defs, values, origins.node_store())
 }
 
+/// Resolves locals from a complete module item tree.
 pub fn resolve_module_locals_from_item_tree(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
@@ -204,6 +249,7 @@ pub fn resolve_module_locals_from_item_tree(
     resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }
 
+/// Resolves active-item locals using a node-origin table.
 pub fn resolve_module_locals_from_active_item_tree_with_origins(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -214,6 +260,7 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins(
     resolve_module_locals_from_items(&item_tree.items, defs, values, origins.node_store())
 }
 
+/// Resolves active-item locals with origin and symbol providers.
 pub fn resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -231,6 +278,7 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
     )
 }
 
+/// Resolves locals from a filtered active tree against its full-tree context.
 pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
     filtered_item_tree: &ActiveModuleItemTree,
     full_item_tree: &ActiveModuleItemTree,
@@ -249,6 +297,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
     )
 }
 
+/// Resolves filtered active locals with origin and symbol providers.
 pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
     filtered_item_tree: &ActiveModuleItemTree,
     full_item_tree: &ActiveModuleItemTree,
@@ -268,6 +317,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins_and_sym
     )
 }
 
+/// Resolves item-tree locals using the legacy origins compatibility parameter.
 pub fn resolve_module_locals_from_item_tree_with_origins(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
