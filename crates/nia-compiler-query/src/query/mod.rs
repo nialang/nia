@@ -161,16 +161,20 @@ type ModuleAbiSignatureFactsValue = ModuleAbiSignatureFactsQueryValue;
 type PublicSurfacesValue = PublicSurfacesQueryValue;
 type PublicUsingScopesValue = PublicUsingScopesQueryValue;
 
+/// Loader facts and session-stable policies used to create or update a compiler database.
 #[derive(Clone)]
 pub struct CompileRequest {
     loader_facts: Arc<dyn crate::LoaderFactProvider>,
+    /// Optimization level contributing to executable query products.
     pub optimization: NiaOptimizationLevel,
+    /// Compiler timing collection policy.
     pub timings: TimingMode,
     frontend_cache_dir: Option<PathBuf>,
     verify_frontend_cache: bool,
 }
 
 impl CompileRequest {
+    /// Creates a request from a loader fact provider with caching disabled.
     pub fn new(loader_facts: impl crate::LoaderFactProvider + 'static) -> Self {
         let loader_facts: Arc<dyn crate::LoaderFactProvider> = Arc::new(loader_facts);
         Self {
@@ -182,21 +186,25 @@ impl CompileRequest {
         }
     }
 
+    /// Selects the executable optimization level.
     pub fn with_optimization(mut self, optimization: NiaOptimizationLevel) -> Self {
         self.optimization = optimization;
         self
     }
 
+    /// Selects compiler timing collection.
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
         self
     }
 
+    /// Selects the persistent frontend cache root for this query session.
     pub fn with_frontend_cache_dir(mut self, frontend_cache_dir: Option<PathBuf>) -> Self {
         self.frontend_cache_dir = frontend_cache_dir;
         self
     }
 
+    /// Enables recomputation and comparison of otherwise reusable frontend entries.
     pub fn with_frontend_cache_verification(mut self, verify: bool) -> Self {
         self.verify_frontend_cache = verify;
         self
@@ -209,6 +217,7 @@ impl CompileRequest {
     }
 }
 
+/// Incremental compiler database bound to one loader/query session.
 #[derive(Clone)]
 pub struct CompilerDatabase {
     db: QueryDb<CompilerContext>,
@@ -216,14 +225,17 @@ pub struct CompilerDatabase {
 }
 
 impl CompilerDatabase {
+    /// Creates a compiler database and registers the complete query provider graph.
     pub fn new(request: CompileRequest) -> Self {
         compiler_database_with_providers(request, CompilerQueryProviders::default())
     }
 
+    /// Returns the shared session that owns this database and its loader facts.
     pub fn query_session(&self) -> nia_query::QuerySession {
         self.db.session()
     }
 
+    /// Checks every loaded module after settling provider-demand fixed points.
     pub fn check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::AllModules)
     }
@@ -237,6 +249,7 @@ impl CompilerDatabase {
         self.db.get(CheckedProgramQuery).map(Arc::unwrap_or_clone)
     }
 
+    /// Checks the entry-reachable program scope.
     pub fn entry_check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::Entry)
     }
@@ -357,16 +370,19 @@ impl CompilerDatabase {
             .map(Arc::unwrap_or_clone)
     }
 
+    /// Returns the loader provider-fact revision observed by the query graph.
     pub fn provider_fact_revision(&self) -> QueryResult<crate::ProviderFactRevision> {
         self.db
             .get(ProviderFactRevisionQuery)
             .map(|revision| *revision)
     }
 
+    /// Produces the complete checked and backend-lowered program.
     pub fn codegen_program(&self) -> QueryResult<CodegenProgram> {
         self.settle_provider_worklist(true, Self::codegen_program_once, codegen_provider_demands)
     }
 
+    /// Produces checked executable products before backend module finalization.
     pub fn codegen_preparation(&self) -> QueryResult<CodegenPreparation> {
         self.settle_provider_worklist(
             true,
@@ -375,6 +391,7 @@ impl CompilerDatabase {
         )
     }
 
+    /// Exposes completion-order backend finalization to `consume` within its executor scope.
     pub fn with_backend_finalization_schedule<R>(
         &self,
         consume: impl for<'borrow, 'stream, 'executor> FnOnce(
@@ -459,6 +476,7 @@ impl CompilerDatabase {
         }
     }
 
+    /// Returns the number of fixed-point rounds used by the last top-level compilation.
     pub fn provider_demand_rounds(&self) -> u64 {
         self.db
             .context()
@@ -466,6 +484,10 @@ impl CompilerDatabase {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Replaces session-compatible inputs and returns the resulting invalidation set.
+    ///
+    /// The loader session, frontend cache root, and verification policy cannot
+    /// change in place because they own persisted and in-memory query identity.
     pub fn update(&self, request: CompileRequest) -> QueryResult<CompilerInvalidation> {
         let loader_session = request.loader_facts.query_session().unwrap_or_else(|| {
             panic!("Nia ICE: compiler updates require a tracked loader fact provider")
@@ -498,6 +520,7 @@ impl CompilerDatabase {
         self.invalidate_inputs(optimization_changed)
     }
 
+    /// Returns a snapshot of query execution and reuse counters.
     pub fn query_trace(&self) -> QueryTrace {
         self.db.query_trace()
     }

@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 219 completed entries in this ledger.
+- Implementation batches: 220 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1273,6 +1273,14 @@ acceptance item only when its phase-wide evidence is complete.
       locks, cancellation, process groups, and interrupted transactions;
       `nia-build` strict Rustdoc, its owner suite (211 passed, 1 ignored), and
       strict Clippy pass.
+- [x] Cross-cutting Phase D compiler-query Rustdoc now documents loader fact
+      ownership, provider-demand revision/fixed-point updates, compiler session
+      compatibility, check/codegen entry points, completion-order backend
+      finalization, source/module fingerprints, target/toolchain/runtime cache
+      namespaces, product-specific cache keys, and diagnostic-store ownership.
+      The 238 owner tests include randomized clean/incremental consistency plus
+      persisted-product corruption and verification replacement; strict
+      Rustdoc and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

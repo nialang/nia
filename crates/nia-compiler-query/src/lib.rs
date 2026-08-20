@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Incremental compiler query graph and frontend persistence contracts.
+//!
+//! This crate joins loader-owned source/module facts to semantic, executable,
+//! and backend products inside one [`nia_query::QuerySession`]. Public
+//! fingerprints identify relocatable persisted frontend products; session-local
+//! compiler databases retain query ownership, invalidation, and diagnostics.
 mod frontend_fingerprint;
 mod program_diagnostic_bundle;
 mod query;
@@ -54,10 +60,15 @@ pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
+/// Converts a query-engine failure into a compiler-owned diagnostic.
 pub fn query_error_diagnostic(error: nia_query::QueryError) -> Diagnostic {
     query::query_error_diagnostic(error)
 }
 
+/// Completion-order view over parallel backend module finalization.
+///
+/// Readiness positions are checked against query completion positions before
+/// modules are exposed, keeping deterministic collector ownership explicit.
 pub struct BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
     completions: &'borrow mut nia_query::QueryCompletionStream<
         'stream,
@@ -85,6 +96,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
         }
     }
 
+    /// Returns the shared store receiving finalized modules.
     pub fn module_store(&self) -> std::sync::Arc<nia_backend_ir::BackendModuleStore> {
         self.collector
             .as_ref()
@@ -92,6 +104,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             .module_store()
     }
 
+    /// Returns the module-to-owner directory used during publication.
     pub fn owner_directory(&self) -> std::sync::Arc<nia_backend_ir::BackendModuleOwnerDirectory> {
         self.collector
             .as_ref()
@@ -99,6 +112,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             .owner_directory()
     }
 
+    /// Waits for and publishes the next completed backend module.
     pub fn wait_next(
         &mut self,
     ) -> nia_query::QueryResult<Option<nia_backend_ir::BackendModuleReady>> {
@@ -122,6 +136,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
         Ok(Some(ready))
     }
 
+    /// Drains remaining completions and returns the complete lowering product.
     pub fn finish(mut self) -> nia_query::QueryResult<BackendLowering> {
         while self.wait_next()?.is_some() {}
         Ok(self
@@ -132,13 +147,18 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
     }
 }
 
+/// Loader item-tree projection required by a compiler query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActiveModuleItemTreeFactKind {
+    /// Items contributing to one signature family.
     Signature(nia_item_tree::SignatureItemSet),
+    /// Items required to evaluate constant signatures.
     ConstSignature,
+    /// Complete target-active module tree.
     Full,
 }
 
+/// Immutable provider-demand facts and their revision lineage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderFactSnapshot {
     revision: ProviderFactRevision,
@@ -147,6 +167,7 @@ pub struct ProviderFactSnapshot {
 }
 
 impl ProviderFactSnapshot {
+    /// Creates a snapshot and verifies that its reset revision shares a lineage.
     pub fn new(
         revision: ProviderFactRevision,
         reset_revision: ProviderFactRevision,
@@ -167,31 +188,45 @@ impl ProviderFactSnapshot {
         }
     }
 
+    /// Creates an empty snapshot at `revision`.
     pub fn empty(revision: ProviderFactRevision) -> Self {
         Self::new(revision, revision, std::iter::empty())
     }
 
+    /// Returns the current provider-fact revision.
     pub fn revision(&self) -> ProviderFactRevision {
         self.revision
     }
 
+    /// Returns the revision at which the current demand set was reset.
     pub fn reset_revision(&self) -> ProviderFactRevision {
         self.reset_revision
     }
 
+    /// Returns the deduplicated provider demands in this snapshot.
     pub fn demands(&self) -> &std::collections::HashSet<ProviderDemand> {
         &self.demands
     }
 }
 
+/// Effect of applying a compiler provider-demand batch to the loader graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderGraphUpdate {
+    /// No loader facts changed.
     Stable,
+    /// Provider discovery changed the graph.
     Changed {
+        /// Whether already resolved body facts must be recomputed.
         invalidates_resolved_body_facts: bool,
     },
 }
 
+/// Loader-owned facts consumed by the incremental compiler database.
+///
+/// Implementations must return facts from the advertised query session. Stable
+/// source identities cross persistence boundaries; module ids and node stores
+/// remain scoped to the current loaded graph.
+#[allow(missing_docs)]
 pub trait LoaderFactProvider: Send + Sync {
     fn query_session(&self) -> Option<nia_query::QuerySession>;
     fn provider_facts(&self) -> nia_query::QueryResult<ProviderFactSnapshot>;
@@ -262,7 +297,9 @@ pub trait LoaderFactProvider: Send + Sync {
     }
 }
 
+/// Complete loader snapshot usable as an untracked compiler input.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub struct LoadedProgram {
     pub graph: ModuleGraphSnapshot,
     pub provider_fact_revision: ProviderFactRevision,
@@ -422,14 +459,19 @@ impl LoaderFactProvider for LoadedProgram {
     }
 }
 
+/// Runtime model contributing to frontend and executable query identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RuntimeModel {
+    /// Compile without runtime support.
     #[default]
     Bare,
+    /// Compile a freestanding executable with its runtime resources.
     FreestandingExecutable,
 }
 
+/// Loaded source/module facts for one module.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub struct LoadedModule {
     pub id: ModuleId,
     pub path: SourcePath,
@@ -442,7 +484,9 @@ pub struct LoadedModule {
     pub parse_errors: Vec<ParseError>,
 }
 
+/// User-visible result of checking a program.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub struct CheckedProgram {
     pub graph: ModuleGraphSnapshot,
     pub optimization: OptimizationPolicy,
@@ -452,10 +496,12 @@ pub struct CheckedProgram {
 }
 
 impl CheckedProgram {
+    /// Returns the number of bodies checked for semantic validity.
     pub fn checked_body_count(&self) -> usize {
         self.checked_body_count
     }
 
+    /// Returns the number of checked bodies reachable in this report.
     pub fn reachable_body_count(&self) -> usize {
         self.reachable_body_count
     }
@@ -487,7 +533,9 @@ impl CheckedProgramAnalysis {
     }
 }
 
+/// Checked semantic products needed before backend lowering begins.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub struct CodegenPreparation {
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     pub graph: ModuleGraphSnapshot,
@@ -497,7 +545,9 @@ pub struct CodegenPreparation {
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
+/// Complete checked and backend-lowered compiler product.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub struct CodegenProgram {
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     pub graph: ModuleGraphSnapshot,
@@ -508,22 +558,28 @@ pub struct CodegenProgram {
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
+/// Diagnostic paired with its stable source path.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramDiagnostic {
+    /// Source path owning the diagnostic.
     pub path: SourcePath,
+    /// Structured diagnostic payload.
     pub diagnostic: Diagnostic,
 }
 
 impl ProgramDiagnostic {
+    /// Returns whether the diagnostic has error severity.
     pub fn is_error(&self) -> bool {
         self.diagnostic.severity == Severity::Error
     }
 
+    /// Returns whether the diagnostic has warning severity.
     pub fn is_warning(&self) -> bool {
         self.diagnostic.severity == Severity::Warning
     }
 }
 
+/// Store-owned diagnostic bundles grouped by source without flattening eagerly.
 #[derive(Clone)]
 pub struct ProgramDiagnosticBundles {
     store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
@@ -537,11 +593,13 @@ struct SourceDiagnosticBundle {
 }
 
 impl ProgramDiagnosticBundles {
+    /// Groups ordered diagnostics in a fresh diagnostic store.
     pub fn from_diagnostics(diagnostics: Vec<ProgramDiagnostic>) -> Self {
         let store = std::sync::Arc::new(nia_diagnostic::DiagnosticStore::new());
         Self::from_diagnostics_in(store, diagnostics)
     }
 
+    /// Groups ordered diagnostics in the supplied owning store.
     pub fn from_diagnostics_in(
         store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
         diagnostics: Vec<ProgramDiagnostic>,
@@ -564,6 +622,7 @@ impl ProgramDiagnosticBundles {
         }
     }
 
+    /// Wraps one already store-owned source bundle.
     pub fn from_source_bundle(
         store: std::sync::Arc<nia_diagnostic::DiagnosticStore>,
         path: SourcePath,
@@ -583,6 +642,7 @@ impl ProgramDiagnosticBundles {
         }
     }
 
+    /// Appends bundles that share the same diagnostic store owner.
     pub fn append(&self, other: &Self) -> Self {
         if !std::sync::Arc::ptr_eq(&self.store, &other.store) {
             panic!("Nia ICE: cannot append program diagnostics from different stores");
@@ -599,6 +659,7 @@ impl ProgramDiagnosticBundles {
         }
     }
 
+    /// Materializes source-qualified diagnostics in bundle order.
     pub fn to_diagnostics(&self) -> Vec<ProgramDiagnostic> {
         self.bundles
             .iter()
@@ -618,6 +679,7 @@ impl ProgramDiagnosticBundles {
             .collect()
     }
 
+    /// Returns whether the collection contains no source bundles.
     pub fn is_empty(&self) -> bool {
         self.bundles.is_empty()
     }
@@ -638,11 +700,14 @@ impl PartialEq for ProgramDiagnosticBundles {
     }
 }
 
+/// Returns whether any program diagnostic has error severity.
 pub fn has_error_diagnostics(diagnostics: &[ProgramDiagnostic]) -> bool {
     diagnostics.iter().any(ProgramDiagnostic::is_error)
 }
 
+/// Per-module checked products shared by later compiler queries.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub struct CheckedModule {
     pub id: ModuleId,
     pub path: SourcePath,
