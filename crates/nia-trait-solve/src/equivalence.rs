@@ -321,18 +321,13 @@ impl TraitSolver<'_> {
                         .zip(&right_const_args)
                         .all(|(left, right)| self.const_generic_args_equivalent(left, right))
                     && left_bindings.iter().all(|left_binding| {
-                        right_bindings
-                            .iter()
-                            .find(|right_binding| {
-                                left_binding.name == right_binding.name
-                                    && left_binding.trait_id == right_binding.trait_id
-                                    && left_binding.trait_args.len()
-                                        == right_binding.trait_args.len()
-                                    && left_binding.trait_const_args.len()
-                                        == right_binding.trait_const_args.len()
-                            })
-                            .is_some_and(|right_binding| {
-                                left_binding
+                        right_bindings.iter().any(|right_binding| {
+                            left_binding.name == right_binding.name
+                                && left_binding.trait_id == right_binding.trait_id
+                                && left_binding.trait_args.len() == right_binding.trait_args.len()
+                                && left_binding.trait_const_args.len()
+                                    == right_binding.trait_const_args.len()
+                                && left_binding
                                     .trait_args
                                     .iter()
                                     .zip(&right_binding.trait_args)
@@ -341,19 +336,19 @@ impl TraitSolver<'_> {
                                             *left, *right, active,
                                         )
                                     })
-                                    && left_binding
-                                        .trait_const_args
-                                        .iter()
-                                        .zip(&right_binding.trait_const_args)
-                                        .all(|(left, right)| {
-                                            self.const_generic_args_equivalent(left, right)
-                                        })
-                                    && self.types_equivalent_resolving_projections(
-                                        left_binding.ty,
-                                        right_binding.ty,
-                                        active,
-                                    )
-                            })
+                                && left_binding
+                                    .trait_const_args
+                                    .iter()
+                                    .zip(&right_binding.trait_const_args)
+                                    .all(|(left, right)| {
+                                        self.const_generic_args_equivalent(left, right)
+                                    })
+                                && self.types_equivalent_resolving_projections(
+                                    left_binding.ty,
+                                    right_binding.ty,
+                                    active,
+                                )
+                        })
                     })
             }
             (
@@ -382,18 +377,13 @@ impl TraitSolver<'_> {
                         .zip(&right_const_args)
                         .all(|(left, right)| self.const_generic_args_equivalent(left, right))
                     && left_bindings.iter().all(|left_binding| {
-                        right_bindings
-                            .iter()
-                            .find(|right_binding| {
-                                left_binding.name == right_binding.name
-                                    && left_binding.trait_id == right_binding.trait_id
-                                    && left_binding.trait_args.len()
-                                        == right_binding.trait_args.len()
-                                    && left_binding.trait_const_args.len()
-                                        == right_binding.trait_const_args.len()
-                            })
-                            .is_some_and(|right_binding| {
-                                left_binding
+                        right_bindings.iter().any(|right_binding| {
+                            left_binding.name == right_binding.name
+                                && left_binding.trait_id == right_binding.trait_id
+                                && left_binding.trait_args.len() == right_binding.trait_args.len()
+                                && left_binding.trait_const_args.len()
+                                    == right_binding.trait_const_args.len()
+                                && left_binding
                                     .trait_args
                                     .iter()
                                     .zip(&right_binding.trait_args)
@@ -402,19 +392,19 @@ impl TraitSolver<'_> {
                                             *left, *right, active,
                                         )
                                     })
-                                    && left_binding
-                                        .trait_const_args
-                                        .iter()
-                                        .zip(&right_binding.trait_const_args)
-                                        .all(|(left, right)| {
-                                            self.const_generic_args_equivalent(left, right)
-                                        })
-                                    && self.types_equivalent_resolving_projections(
-                                        left_binding.ty,
-                                        right_binding.ty,
-                                        active,
-                                    )
-                            })
+                                && left_binding
+                                    .trait_const_args
+                                    .iter()
+                                    .zip(&right_binding.trait_const_args)
+                                    .all(|(left, right)| {
+                                        self.const_generic_args_equivalent(left, right)
+                                    })
+                                && self.types_equivalent_resolving_projections(
+                                    left_binding.ty,
+                                    right_binding.ty,
+                                    active,
+                                )
+                        })
                     })
             }
             (
