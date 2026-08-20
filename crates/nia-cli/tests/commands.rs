@@ -628,7 +628,10 @@ fn main() i32 {
         .output_timeout_for_build("run nia emit --llvm invalid atomic");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("unsupported atomic value type"), "{stderr}");
+    assert!(
+        stderr.contains("backend IR atomic operation has an invalid contract"),
+        "{stderr}"
+    );
 }
 
 #[test]

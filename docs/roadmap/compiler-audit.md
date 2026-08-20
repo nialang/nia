@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 224 completed entries in this ledger.
+- Implementation batches: 228 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1313,6 +1313,31 @@ acceptance item only when its phase-wide evidence is complete.
       lookups. Focused acceptance and buffer-boundary tests preserve missing,
       mismatched, and falsely warm evidence. Genuinely constrained low-memory
       execution remains open Phase D evidence.
+- [x] Phase D low-memory test scheduling now reuses an active compiler session's
+      memory reservation for sequential emitted-runtime commands while retaining
+      an independent runtime scheduling slot. The nested-session regression,
+      `nia-test-support` owner suite (19 passed), strict Clippy, and focused CLI
+      build cases pass; complete 3 GiB/no-swap workspace evidence remains open
+      until the constrained run completes.
+- [x] Backend dynamic-trait validation now accepts a runtime trait-object call
+      when no concrete object vtable is materialized in the closed executable,
+      while still validating every published candidate's slot and ABI. The
+      standard-library debug error executable regression covers an empty
+      formatter-object slice and its `IntoError` dynamic calls.
+- [x] Backend place validation now preserves address-of and projection
+      contracts for compiler-generated pointer-qualified place views. The
+      process argument/iterator executable regressions that exercise indirect
+      return values pass, alongside the complete 43-case process suite and
+      strict Clippy for the affected crates.
+- [x] Link-cache acceptance now counts persisted `.link` records separately
+      from their durable per-record mutation locks. The complete linker case
+      matrix passes in ordinary execution; the constrained workspace run also
+      reached this matrix without resource failure before exposing a separate
+      later standard-library validation regression.
+- [x] Backend projection compatibility now applies readonly-view coercion
+      recursively through nested pointer and slice elements. The standard
+      `ArrayList` executable regression covering mutable/readonly iterator views
+      passes, preserving strict rejection of readonly-to-mutable misuse.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -697,7 +697,11 @@ permit. Production scheduling and the outer test-session pool read effective
 memory limits and pressure from the same resource probe implementation. Unit
 tests do not acquire a global compiler permit, and compiler/LLVM public APIs
 have identical resource semantics in test and non-test builds. Integration
-harnesses may assign weight to a complete process or compilation session.
+harnesses may assign weight to a complete process or compilation session. A
+sequential runtime command inside such a compiler/build session retains its
+separate runtime scheduling permit but reuses the session's larger memory
+reservation; otherwise an exactly full constrained-host budget could wait for
+itself after the compiler process had already exited.
 
 Query values and identities have an explicit retirement boundary. A session
 retirement request blocks new query activity, waits for current query execution,

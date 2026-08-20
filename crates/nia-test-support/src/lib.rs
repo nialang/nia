@@ -236,13 +236,27 @@ impl CommandStatusExt for Command {
 }
 
 fn acquire_runtime_resources() -> Option<TestResourceSession<'static>> {
-    // Runtime commands are not covered by compiler/build sessions. A Nia
-    // executable may spawn more executables, so charging this pool remains
-    // necessary even when the surrounding test already owns build capacity.
+    let compiler_memory_reserved = ACTIVE_COMPILER_SLOTS.with(Cell::get) != 0;
     Some(acquire_resources(
         runtime_pool(),
-        ResourceRequest::runtime(),
+        runtime_resource_request(compiler_memory_reserved),
     ))
+}
+
+fn runtime_resource_request(compiler_memory_reserved: bool) -> ResourceRequest {
+    // Runtime process pressure remains independently bounded, but a sequential
+    // runtime command inside a compiler/build session is already covered by
+    // that session's larger working-set reservation. Charging another memory
+    // token would self-block when the compiler reservation exactly fills the
+    // low-memory budget.
+    ResourceRequest::new(
+        1,
+        if compiler_memory_reserved {
+            0
+        } else {
+            RUNTIME_MEMORY_BYTES
+        },
+    )
 }
 
 fn acquire_command_resources(workload: TestWorkload) -> Option<TestResourceSession<'static>> {
@@ -460,13 +474,6 @@ impl ResourceRequest {
         Self {
             slots,
             minimum_memory_bytes,
-        }
-    }
-
-    const fn runtime() -> Self {
-        Self {
-            slots: 1,
-            minimum_memory_bytes: RUNTIME_MEMORY_BYTES,
         }
     }
 }
@@ -1101,6 +1108,17 @@ mod tests {
         drop(session);
         ACTIVE_TEST_RESOURCE_SESSIONS.with(|active| assert_eq!(active.get(), 0));
         ACTIVE_COMPILER_SLOTS.with(|active| assert_eq!(active.get(), 0));
+    }
+
+    #[test]
+    fn nested_runtime_reuses_the_compiler_memory_reservation() {
+        let nested = runtime_resource_request(true);
+        assert_eq!(nested.slots, 1);
+        assert_eq!(nested.minimum_memory_bytes, 0);
+
+        let standalone = runtime_resource_request(false);
+        assert_eq!(standalone.slots, 1);
+        assert_eq!(standalone.minimum_memory_bytes, RUNTIME_MEMORY_BYTES);
     }
 
     #[test]
