@@ -574,46 +574,14 @@ impl TraitSolver<'_> {
                             self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
                         },
                     ) && associated_type_bindings.iter().all(|binding| {
-                        actual_bindings
-                            .iter()
-                            .find(|actual_binding| {
-                                binding.name == actual_binding.name
-                                    && binding.trait_id == actual_binding.trait_id
-                                    && binding.trait_args.len() == actual_binding.trait_args.len()
-                                    && binding.trait_const_args.len()
-                                        == actual_binding.trait_const_args.len()
-                            })
-                            .is_some_and(|actual_binding| {
-                                binding
-                                    .trait_args
-                                    .iter()
-                                    .zip(&actual_binding.trait_args)
-                                    .all(|(arg, actual_arg)| {
-                                        self.match_impl_pattern_with_consts(
-                                            *arg,
-                                            *actual_arg,
-                                            substitutions,
-                                            const_substitutions,
-                                        )
-                                    })
-                                    && binding
-                                        .trait_const_args
-                                        .iter()
-                                        .zip(&actual_binding.trait_const_args)
-                                        .all(|(arg, actual_arg)| {
-                                            self.match_const_impl_pattern(
-                                                arg,
-                                                actual_arg,
-                                                const_substitutions,
-                                            )
-                                        })
-                                    && self.match_impl_pattern_with_consts(
-                                        binding.ty,
-                                        actual_binding.ty,
-                                        substitutions,
-                                        const_substitutions,
-                                    )
-                            })
+                        actual_bindings.iter().any(|actual_binding| {
+                            self.try_match_associated_type_binding(
+                                binding,
+                                actual_binding,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
                     })
                 }
                 _ => false,
@@ -646,46 +614,14 @@ impl TraitSolver<'_> {
                             self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
                         },
                     ) && associated_type_bindings.iter().all(|binding| {
-                        actual_bindings
-                            .iter()
-                            .find(|actual_binding| {
-                                binding.name == actual_binding.name
-                                    && binding.trait_id == actual_binding.trait_id
-                                    && binding.trait_args.len() == actual_binding.trait_args.len()
-                                    && binding.trait_const_args.len()
-                                        == actual_binding.trait_const_args.len()
-                            })
-                            .is_some_and(|actual_binding| {
-                                binding
-                                    .trait_args
-                                    .iter()
-                                    .zip(&actual_binding.trait_args)
-                                    .all(|(arg, actual_arg)| {
-                                        self.match_impl_pattern_with_consts(
-                                            *arg,
-                                            *actual_arg,
-                                            substitutions,
-                                            const_substitutions,
-                                        )
-                                    })
-                                    && binding
-                                        .trait_const_args
-                                        .iter()
-                                        .zip(&actual_binding.trait_const_args)
-                                        .all(|(arg, actual_arg)| {
-                                            self.match_const_impl_pattern(
-                                                arg,
-                                                actual_arg,
-                                                const_substitutions,
-                                            )
-                                        })
-                                    && self.match_impl_pattern_with_consts(
-                                        binding.ty,
-                                        actual_binding.ty,
-                                        substitutions,
-                                        const_substitutions,
-                                    )
-                            })
+                        actual_bindings.iter().any(|actual_binding| {
+                            self.try_match_associated_type_binding(
+                                binding,
+                                actual_binding,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
                     })
                 }
                 _ => false,
@@ -814,5 +750,58 @@ impl TraitSolver<'_> {
             ArrayLenTy::Infer => return None,
         };
         Some(ConstGenericArg { ty, value })
+    }
+
+    fn try_match_associated_type_binding(
+        &mut self,
+        pattern: &nia_ty::AssociatedTypeBindingTy,
+        actual: &nia_ty::AssociatedTypeBindingTy,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        if pattern.name != actual.name
+            || pattern.trait_id != actual.trait_id
+            || pattern.trait_args.len() != actual.trait_args.len()
+            || pattern.trait_const_args.len() != actual.trait_const_args.len()
+        {
+            return false;
+        }
+        let mut candidate_substitutions = substitutions.clone();
+        let mut candidate_const_substitutions = const_substitutions.clone();
+        if !pattern
+            .trait_args
+            .iter()
+            .zip(&actual.trait_args)
+            .all(|(pattern, actual)| {
+                self.match_impl_pattern_with_consts(
+                    *pattern,
+                    *actual,
+                    &mut candidate_substitutions,
+                    &mut candidate_const_substitutions,
+                )
+            })
+            || !pattern
+                .trait_const_args
+                .iter()
+                .zip(&actual.trait_const_args)
+                .all(|(pattern, actual)| {
+                    self.match_const_impl_pattern(
+                        pattern,
+                        actual,
+                        &mut candidate_const_substitutions,
+                    )
+                })
+            || !self.match_impl_pattern_with_consts(
+                pattern.ty,
+                actual.ty,
+                &mut candidate_substitutions,
+                &mut candidate_const_substitutions,
+            )
+        {
+            return false;
+        }
+        *substitutions = candidate_substitutions;
+        *const_substitutions = candidate_const_substitutions;
+        true
     }
 }
