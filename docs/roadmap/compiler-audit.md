@@ -1337,7 +1337,8 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Backend projection compatibility now applies readonly-view coercion
       recursively through nested pointer and slice elements. The standard
       `ArrayList` executable regression covering mutable/readonly iterator views
-      passes, preserving strict rejection of readonly-to-mutable misuse.
+      passes in ordinary and 3 GiB/no-swap execution (5 passed, 822.5 MiB
+      peak), preserving strict rejection of readonly-to-mutable misuse.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
