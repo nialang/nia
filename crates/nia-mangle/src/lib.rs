@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Stable symbol and type-name mangling for backend and linker boundaries.
+
 use nia_ids::{ClosureId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_symbol::{SymbolId, stable_hash};
 use nia_ty::{
@@ -6,6 +8,7 @@ use nia_ty::{
     TypeStore,
 };
 
+/// Providers used while encoding module, nominal, and array identities.
 pub struct MangleResolvers<F, G, H> {
     module_id: F,
     nominal_name: G,
@@ -13,6 +16,7 @@ pub struct MangleResolvers<F, G, H> {
 }
 
 impl<F, G, H> MangleResolvers<F, G, H> {
+    /// Creates a resolver bundle for one mangling operation.
     pub fn new(module_id: F, nominal_name: G, array_len: H) -> Self {
         Self {
             module_id,
@@ -22,6 +26,7 @@ impl<F, G, H> MangleResolvers<F, G, H> {
     }
 }
 
+/// Replaces non-ASCII identifier characters with `_`, preserving a non-empty name.
 pub fn sanitize_symbol_part(text: &str) -> String {
     let mut out: String = text
         .chars()
@@ -39,23 +44,28 @@ pub fn sanitize_symbol_part(text: &str) -> String {
     out
 }
 
+/// Encodes a stable symbol id without depending on source text.
 pub fn mangle_symbol_id(symbol: SymbolId) -> String {
     format!("sym_{:016x}", symbol.raw())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Stable module identity derived from a normalized source path.
 pub struct MangleModuleId(u64);
 
 impl MangleModuleId {
+    /// Hashes a normalized source path into a module identity.
     pub const fn from_normalized_source_path(path: &str) -> Self {
         Self(stable_hash(path))
     }
 
+    /// Returns the raw stable module hash.
     pub const fn raw(self) -> u64 {
         self.0
     }
 }
 
+/// Encodes a definition's non-generic base symbol.
 pub fn mangle_base_symbol(def_id: GlobalDefId, module: MangleModuleId, name: &str) -> String {
     format!(
         "nia__s{:016x}__d{}__{}",
@@ -65,6 +75,7 @@ pub fn mangle_base_symbol(def_id: GlobalDefId, module: MangleModuleId, name: &st
     )
 }
 
+/// Encodes a definition's base symbol using a stable symbol id.
 pub fn mangle_base_symbol_id(
     def_id: GlobalDefId,
     module: MangleModuleId,
@@ -85,6 +96,7 @@ pub fn mangle_closure_entry_symbol(owner_symbol: &str, closure_id: ClosureId) ->
     )
 }
 
+/// Encodes a concrete instance while preserving type and const argument order.
 pub fn mangle_instance_symbol_id<F, G, H>(
     def_id: GlobalDefId,
     name: SymbolId,
@@ -108,6 +120,7 @@ where
     )
 }
 
+/// Encodes a concrete instance from a source-level name and generic arguments.
 pub fn mangle_instance_symbol<F, G, H>(
     def_id: GlobalDefId,
     name: &str,
@@ -164,6 +177,7 @@ where
     }
 }
 
+/// Encodes one canonical type using the supplied nominal and const resolvers.
 pub fn mangle_type_with<F, G, H>(
     type_store: &TypeStore,
     ty: InternedTyId,
