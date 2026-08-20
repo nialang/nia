@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 206 completed entries in this ledger.
+- Implementation batches: 207 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1205,6 +1205,11 @@ acceptance item only when its phase-wide evidence is complete.
       identities, receiver/source/generated/temporary local categories, and
       stable internal storage names. `nia-ir-names` strict Rustdoc and strict
       Clippy pass; the owner contains no unit tests.
+- [x] Cross-cutting Phase A provider-summary Rustdoc now documents extension
+      target classification, conservative nominal candidates, deterministic
+      provider indexes, associated-item queries, and facade visibility filters.
+      `nia-provider-summary` strict Rustdoc, 11 owner tests, and strict Clippy
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
