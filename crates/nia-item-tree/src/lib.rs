@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Module-level item trees for conditional selection and signature queries.
+
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, ConditionExpr, EnumItem, EnumVariant,
     ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
@@ -11,77 +13,115 @@ use nia_span::Span;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Consumer-specific subset selected from an active item tree.
 pub enum SignatureItemSet {
+    /// Items needed to collect ordinary function signatures.
     Functions,
+    /// Items needed to collect extension function signatures.
     ExtensionFunctions,
+    /// Items needed to collect value signatures.
     Values,
+    /// Items needed to collect type signatures.
     Types,
+    /// Items needed to collect trait and implementation signatures.
     Traits,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Module-level items before conditional attributes are evaluated.
 pub struct ModuleItemTree {
+    /// Items in source order.
     pub items: Vec<ItemTreeNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One module-level item retaining source identity and attributes.
 pub struct ItemTreeNode {
+    /// Source range of the item.
     pub span: Span,
+    /// Versioned syntax-node identity.
     pub node_key: VersionedNodeKey,
+    /// Source attributes, including conditional attributes.
     pub attributes: Vec<Attribute>,
+    /// Declared item visibility.
     pub visibility: Visibility,
+    /// Item payload.
     pub kind: ItemTreeNodeKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Supported module-level item payloads.
 pub enum ItemTreeNodeKind {
+    /// Child module declaration.
     Module(ModuleItem),
+    /// Import or using declaration.
     Using(UsingItem),
+    /// Struct declaration.
     Struct(StructItem),
+    /// Union declaration.
     Union(UnionItem),
+    /// Trait declaration.
     Trait(TraitItem),
+    /// Inherent or trait extension declaration.
     Extend(ExtendItem),
+    /// Enum declaration.
     Enum(EnumItem),
+    /// Type-alias declaration.
     TypeAlias(TypeAliasItem),
+    /// Function declaration or definition.
     Function(FunctionItem),
+    /// Module-level value, const, or static binding.
     Binding(BindingItem),
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Conditionally selected item tree plus inactive source ranges.
 pub struct ActiveModuleItemTree {
+    /// Active items in source order.
     pub items: Vec<ItemTreeNode>,
+    /// Source ranges excluded by conditional attributes.
     pub inactive_spans: HashSet<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure produced while evaluating an item condition.
 pub struct ItemTreeError {
+    /// Source range associated with the failure.
     pub span: Span,
+    /// User-facing failure description.
     pub message: String,
 }
 
+/// Evaluates conditional item attributes for a target/configuration context.
 pub trait ConditionResolver {
+    /// Resolves one condition or returns a source-located failure.
     fn resolve_condition(&mut self, cond: &ConditionExpr) -> Result<bool, ItemTreeError>;
 }
 
 impl ModuleItemTree {
+    /// Projects module-level AST items into an item tree.
     pub fn from_module(module: &Module) -> Self {
         Self {
             items: module.items.iter().map(lower_item).collect(),
         }
     }
 
+    /// Clones every item without evaluating conditional attributes.
     pub fn active_items_without_const(&self) -> Vec<ItemTreeNode> {
         self.items.clone()
     }
 
+    /// Compares declaration-relevant syntax while ignoring bodies and identities.
     pub fn declaration_eq(&self, other: &Self) -> bool {
         item_tree_nodes_declaration_eq(&self.items, &other.items)
     }
 
+    /// Compares shallow definition shape used by definition-level invalidation.
     pub fn definition_eq(&self, other: &Self) -> bool {
         item_tree_nodes_definition_eq(&self.items, &other.items)
     }
 
+    /// Evaluates conditional attributes and records excluded item ranges.
     pub fn active_items(
         &self,
         resolver: &mut impl ConditionResolver,
@@ -96,6 +136,7 @@ impl ModuleItemTree {
 }
 
 impl ActiveModuleItemTree {
+    /// Creates an active tree from selected items and inactive ranges.
     pub fn new(items: Vec<ItemTreeNode>, inactive_spans: HashSet<Span>) -> Self {
         Self {
             items,
@@ -103,22 +144,26 @@ impl ActiveModuleItemTree {
         }
     }
 
+    /// Projects active items back into a module AST.
     pub fn to_module(&self) -> Module {
         Module {
             items: self.items.iter().map(ItemTreeNode::to_ast_item).collect(),
         }
     }
 
+    /// Compares inactive ranges and declaration-relevant item syntax.
     pub fn declaration_eq(&self, other: &Self) -> bool {
         self.inactive_spans == other.inactive_spans
             && item_tree_nodes_declaration_eq(&self.items, &other.items)
     }
 
+    /// Compares inactive ranges and shallow definition shape.
     pub fn definition_eq(&self, other: &Self) -> bool {
         self.inactive_spans == other.inactive_spans
             && item_tree_nodes_definition_eq(&self.items, &other.items)
     }
 
+    /// Filters and trims items for one signature consumer.
     pub fn signature_items(&self, set: SignatureItemSet) -> Self {
         Self {
             items: self
@@ -130,6 +175,7 @@ impl ActiveModuleItemTree {
         }
     }
 
+    /// Filters items to declarations relevant to const signature collection.
     pub fn const_signature_items(&self) -> Self {
         Self {
             items: self.items.iter().filter_map(const_signature_item).collect(),
@@ -139,6 +185,7 @@ impl ActiveModuleItemTree {
 }
 
 impl ItemTreeNode {
+    /// Projects this tree node back into an AST item.
     pub fn to_ast_item(&self) -> Item {
         Item {
             span: self.span,
@@ -669,6 +716,7 @@ fn binding_decl_eq(lhs: &BindingItem, rhs: &BindingItem) -> bool {
         && lhs.is_extern() == rhs.is_extern()
 }
 
+/// Lowers module-level AST items into the query-facing item tree.
 pub fn lower_module_items(module: &Module) -> ModuleItemTree {
     ModuleItemTree::from_module(module)
 }
