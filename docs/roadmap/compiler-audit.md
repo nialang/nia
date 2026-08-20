@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-19):
+Current snapshot (2026-08-20):
 
-- Implementation batches: 185 completed entries in this ledger.
+- Implementation batches: 186 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1119,6 +1119,11 @@ acceptance item only when its phase-wide evidence is complete.
       types, associated-binding keys, and projection const argument types.
       Owner regressions cover nominal and associated-binding-key failures that
       previously stopped before recording an otherwise inferable type.
+- [x] Phase A method/impl type-pattern matching now treats trait-object
+      associated binding keys and values as one transactional candidate. A
+      failed binding alternative cannot leak substitutions or prevent a later
+      compatible binding from being selected; method argument matching covers
+      multiple associated bindings with independent inferred type parameters.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -368,47 +368,14 @@ impl<'a> BodyChecker<'a> {
                             },
                         )
                         && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings
-                                .iter()
-                                .find(|actual_binding| {
-                                    pattern_binding.name == actual_binding.name
-                                        && pattern_binding.trait_id == actual_binding.trait_id
-                                        && pattern_binding.trait_args.len()
-                                            == actual_binding.trait_args.len()
-                                        && pattern_binding.trait_const_args.len()
-                                            == actual_binding.trait_const_args.len()
-                                        && pattern_binding
-                                            .trait_args
-                                            .iter()
-                                            .zip(&actual_binding.trait_args)
-                                            .all(|(pattern, actual)| {
-                                                self.match_type_pattern_with_consts(
-                                                    *pattern,
-                                                    *actual,
-                                                    substitutions,
-                                                    const_substitutions,
-                                                )
-                                            })
-                                        && pattern_binding
-                                            .trait_const_args
-                                            .iter()
-                                            .zip(&actual_binding.trait_const_args)
-                                            .all(|(pattern, actual)| {
-                                                self.match_const_generic_arg_pattern(
-                                                    pattern,
-                                                    actual,
-                                                    const_substitutions,
-                                                )
-                                            })
-                                })
-                                .is_some_and(|actual_binding| {
-                                    self.match_type_pattern_with_consts(
-                                        pattern_binding.ty,
-                                        actual_binding.ty,
-                                        substitutions,
-                                        const_substitutions,
-                                    )
-                                })
+                            associated_type_bindings.iter().any(|actual_binding| {
+                                self.try_match_associated_type_binding(
+                                    pattern_binding,
+                                    actual_binding,
+                                    substitutions,
+                                    const_substitutions,
+                                )
+                            })
                         })
                 }
                 _ => false,
@@ -451,47 +418,14 @@ impl<'a> BodyChecker<'a> {
                             },
                         )
                         && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings
-                                .iter()
-                                .find(|actual_binding| {
-                                    pattern_binding.name == actual_binding.name
-                                        && pattern_binding.trait_id == actual_binding.trait_id
-                                        && pattern_binding.trait_args.len()
-                                            == actual_binding.trait_args.len()
-                                        && pattern_binding.trait_const_args.len()
-                                            == actual_binding.trait_const_args.len()
-                                        && pattern_binding
-                                            .trait_args
-                                            .iter()
-                                            .zip(&actual_binding.trait_args)
-                                            .all(|(pattern, actual)| {
-                                                self.match_type_pattern_with_consts(
-                                                    *pattern,
-                                                    *actual,
-                                                    substitutions,
-                                                    const_substitutions,
-                                                )
-                                            })
-                                        && pattern_binding
-                                            .trait_const_args
-                                            .iter()
-                                            .zip(&actual_binding.trait_const_args)
-                                            .all(|(pattern, actual)| {
-                                                self.match_const_generic_arg_pattern(
-                                                    pattern,
-                                                    actual,
-                                                    const_substitutions,
-                                                )
-                                            })
-                                })
-                                .is_some_and(|actual_binding| {
-                                    self.match_type_pattern_with_consts(
-                                        pattern_binding.ty,
-                                        actual_binding.ty,
-                                        substitutions,
-                                        const_substitutions,
-                                    )
-                                })
+                            associated_type_bindings.iter().any(|actual_binding| {
+                                self.try_match_associated_type_binding(
+                                    pattern_binding,
+                                    actual_binding,
+                                    substitutions,
+                                    const_substitutions,
+                                )
+                            })
                         })
                 }
                 _ => false,
@@ -632,5 +566,58 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::GenericParam(name) => Some(nia_ty::ConstGenericValue::GenericParam(*name)),
             ArrayLenTy::Infer => None,
         }
+    }
+
+    fn try_match_associated_type_binding(
+        &mut self,
+        pattern: &nia_ty::AssociatedTypeBindingTy,
+        actual: &nia_ty::AssociatedTypeBindingTy,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        if pattern.name != actual.name
+            || pattern.trait_id != actual.trait_id
+            || pattern.trait_args.len() != actual.trait_args.len()
+            || pattern.trait_const_args.len() != actual.trait_const_args.len()
+        {
+            return false;
+        }
+        let mut candidate_substitutions = substitutions.clone();
+        let mut candidate_const_substitutions = const_substitutions.clone();
+        if !pattern
+            .trait_args
+            .iter()
+            .zip(&actual.trait_args)
+            .all(|(pattern, actual)| {
+                self.match_type_pattern_with_consts(
+                    *pattern,
+                    *actual,
+                    &mut candidate_substitutions,
+                    &mut candidate_const_substitutions,
+                )
+            })
+            || !pattern
+                .trait_const_args
+                .iter()
+                .zip(&actual.trait_const_args)
+                .all(|(pattern, actual)| {
+                    self.match_const_generic_arg_pattern(
+                        pattern,
+                        actual,
+                        &mut candidate_const_substitutions,
+                    )
+                })
+            || !self.match_type_pattern_with_consts(
+                pattern.ty,
+                actual.ty,
+                &mut candidate_substitutions,
+                &mut candidate_const_substitutions,
+            )
+        {
+            return false;
+        }
+        *substitutions = candidate_substitutions;
+        *const_substitutions = candidate_const_substitutions;
+        true
     }
 }

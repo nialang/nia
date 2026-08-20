@@ -117,6 +117,42 @@ fn main(box: Box) bool {
 }
 
 #[test]
+fn method_argument_matching_traverses_all_trait_object_associated_bindings() {
+    let checked = pipeline(
+        r#"
+trait Left {
+    type Item;
+}
+
+trait Right {
+    type Item;
+}
+
+trait Pair : Left + Right {}
+
+struct Box {}
+
+extend Box {
+    fn pick[T, U](
+        self,
+        other: &Pair[[Self as Left]::Item = T, [Self as Right]::Item = U],
+    ) i32 {
+        1
+    }
+}
+
+fn main(box: Box, value: &Pair[
+    [Self as Left]::Item = i32,
+    [Self as Right]::Item = bool,
+]) i32 {
+    box.pick(value)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn method_closure_inference_preserves_mutable_callable_borrow() {
     let checked = pipeline(
         r#"
