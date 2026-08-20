@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Conservative summaries and indexes for extension-method providers.
+
 use std::collections::HashSet;
 
 use nia_ast::{GenericParam, PathSegmentKind, TypeKind, TypeRef, UsingGroupItem, UsingSelector};
@@ -6,37 +8,53 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::{SymbolId, SymbolMap, SymbolSet, ToSymbolId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Module-local summary of extension providers.
 pub struct ProviderSummary {
     providers: Vec<Provider>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One extension block and its associated items.
 pub struct Provider {
+    /// Target type classification.
     pub target: ProviderTarget,
+    /// Optional trait implemented by the extension.
     pub trait_ref: Option<ProviderTypeRef>,
+    /// Method names declared by the extension.
     pub associated_methods: Vec<SymbolId>,
+    /// Associated-value names declared by the extension.
     pub associated_values: Vec<SymbolId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Lightweight classification of a provider type reference.
 pub struct ProviderTypeRef {
+    /// Final path segment, when one is available.
     pub last_name: Option<SymbolId>,
+    /// Whether the target is generic or structurally shaped.
     pub is_generic_or_structural_target: bool,
+    /// Whether matching must conservatively account for aliases or imports.
     pub semantic_is_conservative: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Target portion of an extension provider summary.
 pub struct ProviderTarget {
+    /// Classified target type reference.
     pub ty: ProviderTypeRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Candidate category used by nominal provider discovery.
 pub enum NominalProviderCandidate {
+    /// Provider has a definite nominal name.
     Named(SymbolId),
+    /// Provider requires conservative fallback matching.
     Conservative,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Stable module index keyed by definite nominal provider names.
 pub struct NominalProviderCandidateIndex<M> {
     named: SymbolMap<Vec<M>>,
 }
@@ -45,6 +63,7 @@ impl<M> NominalProviderCandidateIndex<M>
 where
     M: Copy + Ord + Eq,
 {
+    /// Builds an index from module summaries, sorting and deduplicating modules.
     pub fn from_summaries(
         summaries: impl IntoIterator<Item = (M, ProviderSummary)>,
     ) -> NominalProviderCandidateIndex<M> {
@@ -63,10 +82,12 @@ where
         NominalProviderCandidateIndex { named }
     }
 
+    /// Returns modules that may provide the requested nominal name.
     pub fn named(&self, name: &SymbolId) -> &[M] {
         self.named.get(name).map(Vec::as_slice).unwrap_or(&[])
     }
 
+    /// Iterates all indexed modules in key order.
     pub fn all_named(&self) -> impl Iterator<Item = M> + '_ {
         self.named
             .values()
@@ -75,14 +96,17 @@ where
 }
 
 impl ProviderSummary {
+    /// Creates a summary from already collected providers.
     pub fn from_providers(providers: Vec<Provider>) -> Self {
         Self { providers }
     }
 
+    /// Returns providers in source order.
     pub fn providers(&self) -> &[Provider] {
         &self.providers
     }
 
+    /// Extracts extension providers from an active item tree.
     pub fn from_active_item_tree(item_tree: &ActiveModuleItemTree) -> Self {
         let mut local_nominal_names = local_nominal_type_names(item_tree);
         let mut local_trait_names = local_trait_names(item_tree);
@@ -135,16 +159,19 @@ impl ProviderSummary {
         Self { providers }
     }
 
+    /// Reports whether the module contains any extension providers.
     pub fn has_providers(&self) -> bool {
         !self.providers.is_empty()
     }
 
+    /// Reports whether a provider may match a nominal target name.
     pub fn may_define_nominal_provider_for(&self, target_type_name: &SymbolId) -> bool {
         self.providers
             .iter()
             .any(|provider| provider.target.ty.may_match_nominal_name(target_type_name))
     }
 
+    /// Returns deterministic nominal provider candidates for this summary.
     pub fn nominal_provider_candidates(&self) -> Vec<NominalProviderCandidate> {
         let mut candidates = HashSet::new();
         for provider in &self.providers {
@@ -168,6 +195,7 @@ impl ProviderSummary {
         candidates
     }
 
+    /// Returns sorted definite names used by the nominal provider index.
     pub fn nominal_provider_index_names(&self) -> Vec<SymbolId> {
         let mut names = self
             .providers
@@ -179,6 +207,7 @@ impl ProviderSummary {
         names
     }
 
+    /// Returns sorted method names declared by providers.
     pub fn method_index_names(&self) -> Vec<SymbolId> {
         let mut names = self
             .providers
@@ -190,6 +219,7 @@ impl ProviderSummary {
         names
     }
 
+    /// Returns sorted trait names implemented by providers.
     pub fn trait_impl_index_names(&self) -> Vec<SymbolId> {
         let mut names = self
             .providers
@@ -206,6 +236,7 @@ impl ProviderSummary {
         names
     }
 
+    /// Reports whether an inherent provider may define an associated item.
     pub fn defines_inherent_associated_item(
         &self,
         target_type_name: &SymbolId,
@@ -218,6 +249,7 @@ impl ProviderSummary {
         })
     }
 
+    /// Reports whether a provider may define a matching trait implementation.
     pub fn defines_trait_impl(
         &self,
         target_type_name: Option<&SymbolId>,
@@ -238,6 +270,7 @@ impl ProviderSummary {
         })
     }
 
+    /// Reports whether a public extension item is visible through a facade.
     pub fn defines_public_extension_method_for_facade(
         &self,
         facade_exposes_type: impl Fn(&SymbolId) -> bool,
