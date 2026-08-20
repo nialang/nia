@@ -43,6 +43,10 @@ pub(crate) struct TransactionOutput {
     pub(crate) kind: TransactionOutputKind,
 }
 
+/// Failure while inspecting or recovering an interrupted output transaction.
+///
+/// The journal path, logical output path, and operation are retained so the
+/// caller can report which durable state was rejected without guessing.
 #[derive(Debug)]
 pub struct OutputRecoveryError {
     pub(crate) action: Option<ActionKey>,

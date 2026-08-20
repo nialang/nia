@@ -76,38 +76,59 @@ const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 const EXTERNAL_WAIT_POLL: Duration = Duration::from_millis(10);
 
+/// Deterministic visible result of executing a selected plan closure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionReport {
+    /// Steps selected and completed in canonical order.
     pub steps: Vec<StepKey>,
+    /// Actions selected and completed in canonical order.
     pub actions: Vec<ActionKey>,
+    /// Per-action cache outcomes in action order.
     pub action_cache: Vec<ActionCacheReport>,
 }
 
+/// Difference between a plan target and the current invocation target.
 #[derive(Debug)]
 pub struct TargetMismatch {
+    /// Target role, such as `host` or `artifact`.
     pub role: &'static str,
+    /// Target encoded in the frozen plan.
     pub expected: TargetSpec,
+    /// Target supplied by the current toolchain invocation.
     pub found: TargetSpec,
 }
 
+/// Details for a module import that cannot be resolved in the plan closure.
 #[derive(Debug)]
 pub struct InvalidModuleImport {
+    /// Action requesting the import.
     pub action: ActionKey,
+    /// Module containing the import.
     pub module: ModuleKey,
+    /// Source-level import name.
     pub name: String,
+    /// Stable explanation of the failed resolution.
     pub reason: String,
 }
 
+/// Structured failure from an external command action.
 #[derive(Debug)]
 pub struct ExternalCommandError {
+    /// Action that spawned the command.
     pub action: ActionKey,
+    /// Resolved program displayed to the user.
     pub program: String,
+    /// Display-safe command arguments.
     pub arguments: Vec<String>,
+    /// Physical working directory used for the process.
     pub working_directory: PathBuf,
+    /// Spawn, capture, timeout, cancellation, or exit detail.
     pub failure: ExternalCommandFailure,
 }
 
+/// Process and output failure detail retained by an external command error.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub enum ExternalCommandFailure {
     Spawn {
         error: io::Error,
@@ -145,7 +166,9 @@ pub enum ExternalCommandFailure {
     },
 }
 
+/// Typed failure while validating, scheduling, executing, or publishing a plan.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub enum CoordinatorError {
     Cancelled {
         action: ActionKey,

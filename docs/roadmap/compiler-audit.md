@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 218 completed entries in this ledger.
+- Implementation batches: 219 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1264,6 +1264,15 @@ acceptance item only when its phase-wide evidence is complete.
       request boundaries. The frontend cache owner suite also fixes the
       namespace-root regression and retains bounded corruption retirement;
       `nia-loader-query` strict Rustdoc, 94 owner tests, and strict Clippy pass.
+- [x] Cross-cutting Phase D build Rustdoc now documents runner bootstrap and
+      invocation ownership, logical plan identities, semantic freeze and
+      canonical codec boundaries, action-cache outcomes, deterministic
+      scheduling, atomic plan handoff, and recoverable output publication.
+      The existing boundary matrix covers bounded/corrupt cache records,
+      truncation and trailing bytes, cross-process cache publication, stale
+      locks, cancellation, process groups, and interrupted transactions;
+      `nia-build` strict Rustdoc, its owner suite (211 passed, 1 ignored), and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -3,6 +3,8 @@
 
 use super::*;
 
+/// Validates invocation targets, recovers interrupted output transactions, and
+/// executes the selected dependency closure in deterministic readiness waves.
 pub fn execute_build_plan(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
