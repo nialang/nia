@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 188 completed entries in this ledger.
+- Implementation batches: 189 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1131,6 +1131,10 @@ acceptance item only when its phase-wide evidence is complete.
       compares associated binding values as part of the key candidate, rather
       than rejecting a reordered binding set after selecting the first key-only
       match. Cross-store and reachability regressions cover the reordered case.
+- [x] Phase B backend instance matching now traverses trait-object associated
+      binding keys and values together, preserving extension-method type
+      substitutions while trying compatible bindings in either trait-object
+      form. The backend-lowering owner suite remains green after the fix.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
