@@ -1224,28 +1224,53 @@ impl<'a> BodyChecker<'a> {
             })
     }
 
-    /// Matches an associated binding key before inferring through it.
+    /// Probes a complete associated binding while inferring type parameters.
     ///
-    /// Key type and const arguments may themselves contain the generic
-    /// parameters being inferred, so ordinary type equality would reject the
-    /// binding before those parameters can be discovered.
-    fn associated_type_binding_key_pattern_accepts(
+    /// Binding keys are not unique when trait arguments differ, so matching
+    /// only the key can select an incompatible value and prevent a later
+    /// candidate from being considered. Reuse the method matcher, which
+    /// stages all type and const substitutions until key and value agree.
+    fn try_infer_associated_type_binding(
         &mut self,
         pattern: &AssociatedTypeBindingTy,
         actual: &AssociatedTypeBindingTy,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        pattern.name == actual.name
-            && pattern.trait_id == actual.trait_id
-            && pattern.trait_args.len() == actual.trait_args.len()
-            && pattern
-                .trait_args
-                .iter()
-                .zip(actual.trait_args.iter())
-                .all(|(pattern, actual)| self.generic_pattern_accepts_type_shape(*pattern, *actual))
-            && self.const_generic_arg_patterns_accept(
-                &pattern.trait_const_args,
-                &actual.trait_const_args,
-            )
+        let mut candidate = substitutions.clone();
+        let mut const_substitutions = SymbolMap::default();
+        if !self.try_match_associated_type_binding(
+            pattern,
+            actual,
+            &mut candidate,
+            &mut const_substitutions,
+        ) {
+            return false;
+        }
+        *substitutions = candidate;
+        true
+    }
+
+    /// Probes a complete associated binding while inferring const parameters.
+    /// Type substitutions are local to the probe because this pass publishes
+    /// only the const map.
+    fn try_infer_associated_const_binding(
+        &mut self,
+        pattern: &AssociatedTypeBindingTy,
+        actual: &AssociatedTypeBindingTy,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        let mut type_substitutions = SymbolMap::default();
+        let mut candidate = substitutions.clone();
+        if !self.try_match_associated_type_binding(
+            pattern,
+            actual,
+            &mut type_substitutions,
+            &mut candidate,
+        ) {
+            return false;
+        }
+        *substitutions = candidate;
+        true
     }
 
     pub(crate) fn materialize_inferred_type(
@@ -2082,9 +2107,10 @@ impl<'a> BodyChecker<'a> {
                     for pattern_binding in pattern_bindings {
                         if let Some(actual_binding) =
                             actual_bindings.iter().find(|actual_binding| {
-                                self.associated_type_binding_key_pattern_accepts(
+                                self.try_infer_associated_type_binding(
                                     &pattern_binding,
                                     actual_binding,
+                                    substitutions,
                                 )
                             })
                         {
@@ -2150,9 +2176,10 @@ impl<'a> BodyChecker<'a> {
                     for pattern_binding in pattern_bindings {
                         if let Some(actual_binding) =
                             actual_bindings.iter().find(|actual_binding| {
-                                self.associated_type_binding_key_pattern_accepts(
+                                self.try_infer_associated_type_binding(
                                     &pattern_binding,
                                     actual_binding,
+                                    substitutions,
                                 )
                             })
                         {
@@ -2486,10 +2513,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 for pattern in pattern_bindings {
                     if let Some(actual) = actual_bindings.iter().find(|actual| {
-                        pattern.name == actual.name
-                            && pattern.trait_id == actual.trait_id
-                            && pattern.trait_args.len() == actual.trait_args.len()
-                            && pattern.trait_const_args.len() == actual.trait_const_args.len()
+                        self.try_infer_associated_const_binding(&pattern, actual, substitutions)
                     }) {
                         for (pattern_arg, actual_arg) in
                             pattern.trait_args.iter().zip(actual.trait_args.iter())
@@ -2548,10 +2572,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 for pattern in pattern_bindings {
                     if let Some(actual) = actual_bindings.iter().find(|actual| {
-                        pattern.name == actual.name
-                            && pattern.trait_id == actual.trait_id
-                            && pattern.trait_args.len() == actual.trait_args.len()
-                            && pattern.trait_const_args.len() == actual.trait_const_args.len()
+                        self.try_infer_associated_const_binding(&pattern, actual, substitutions)
                     }) {
                         for (pattern_arg, actual_arg) in
                             pattern.trait_args.iter().zip(actual.trait_args.iter())

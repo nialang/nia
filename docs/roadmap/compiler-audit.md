@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 189 completed entries in this ledger.
+- Implementation batches: 190 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1135,6 +1135,11 @@ acceptance item only when its phase-wide evidence is complete.
       binding keys and values together, preserving extension-method type
       substitutions while trying compatible bindings in either trait-object
       form. The backend-lowering owner suite remains green after the fix.
+- [x] Phase A body-check generic inference now matches associated binding keys
+      and values transactionally for both type and const inference. A
+      value-incompatible first candidate cannot seed substitutions or hide a
+      later compatible binding; overlapping generic-key candidate regressions
+      cover the generic call path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

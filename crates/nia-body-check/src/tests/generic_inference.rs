@@ -301,6 +301,43 @@ fn main(value: &Child[[Self as Parent[i32]]::Item = i32]) () {
 }
 
 #[test]
+fn associated_binding_inference_skips_value_mismatch_candidates() {
+    let checked = pipeline(
+        r#"
+trait Parent[T] {
+    type Item;
+}
+
+trait Child : Parent[i32] + Parent[bool] {}
+
+fn inspect[T, U](expected: U, value: &Child[
+    [Self as Parent[T]]::Item = U,
+    [Self as Parent[bool]]::Item = i32,
+]) () {
+    _ = (expected, value);
+}
+
+fn main(value: &Child[
+    [Self as Parent[i32]]::Item = bool,
+    [Self as Parent[bool]]::Item = i32,
+]) () {
+    inspect(0i32, value)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let instance = checked
+        .facts
+        .iter_generic_instantiations()
+        .find(|instance| !instance.args.is_empty())
+        .expect("associated-binding value candidate instantiation");
+    assert_eq!(
+        checked.type_store.get(instance.args[0]),
+        Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+    );
+}
+
+#[test]
 fn infers_const_generic_lengths_through_tuple_arguments() {
     let checked = pipeline(
         r#"

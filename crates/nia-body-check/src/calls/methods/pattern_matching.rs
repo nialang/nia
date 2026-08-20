@@ -568,7 +568,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn try_match_associated_type_binding(
+    pub(crate) fn try_match_associated_type_binding(
         &mut self,
         pattern: &nia_ty::AssociatedTypeBindingTy,
         actual: &nia_ty::AssociatedTypeBindingTy,
