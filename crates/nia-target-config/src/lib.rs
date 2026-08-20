@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Target-configuration evaluation and conditional module pruning.
+
 use nia_ast::{
     ArrayElements, Attribute, AttributeKind, Block, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
@@ -8,18 +10,28 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
 use nia_symbol::{SymbolMap, SymbolText, known, symbol_text_from_optional_resolver};
+
+/// Target identity values exposed to conditional compilation expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
+    /// Target architecture name.
     pub arch: String,
+    /// Target vendor name.
     pub vendor: String,
+    /// Target operating-system name.
     pub os: String,
+    /// Target environment name.
     pub env: String,
+    /// Target ABI name.
     pub abi: String,
+    /// Target byte-order name.
     pub endian: String,
+    /// Target pointer width in bits.
     pub pointer_width: u32,
 }
 
 impl TargetConfig {
+    /// Builds a configuration from the host compilation target.
     pub fn host() -> Self {
         Self {
             arch: std::env::consts::ARCH.to_string(),
@@ -39,16 +51,21 @@ impl Default for TargetConfig {
     }
 }
 
+/// Result of pruning target-inactive items and expressions from a module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PruneResult {
+    /// Active item tree retaining source inactive-span metadata.
     pub active_item_tree: ActiveModuleItemTree,
+    /// User-facing diagnostics produced while evaluating target conditions.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Prunes a module using the default symbol-resolution behavior.
 pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
     prune_module_for_target_with_symbols(module, config, None)
 }
 
+/// Prunes a module and uses an optional symbol provider for diagnostics.
 pub fn prune_module_for_target_with_symbols(
     module: Module,
     config: &TargetConfig,
@@ -66,6 +83,7 @@ pub fn prune_module_for_target_with_symbols(
     }
 }
 
+/// Evaluates a target condition and records failures as diagnostics.
 pub fn eval_config_bool(
     expr: &ConditionExpr,
     config: &TargetConfig,
@@ -74,6 +92,7 @@ pub fn eval_config_bool(
     eval_config_bool_with_symbols(expr, config, diagnostics, None)
 }
 
+/// Evaluates a target condition with an optional symbol provider for diagnostics.
 pub fn eval_config_bool_with_symbols(
     expr: &ConditionExpr,
     config: &TargetConfig,
