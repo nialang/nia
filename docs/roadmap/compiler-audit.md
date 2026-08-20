@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 195 completed entries in this ledger.
+- Implementation batches: 196 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1161,6 +1161,10 @@ acceptance item only when its phase-wide evidence is complete.
       storage, const-expression preservation, provider context, versioned type
       uses, and declaration-versus-full lowering entry points. `nia-type-lower`
       strict Rustdoc, 17 owner tests, and strict Clippy pass.
+- [x] Cross-cutting Phase A value-resolution Rustdoc now documents stable node
+      products, value categories, associated-value providers, module context,
+      and module/expression entry points. `nia-value-resolve` strict Rustdoc,
+      four owner tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
