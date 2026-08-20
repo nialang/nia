@@ -4,56 +4,89 @@
 use super::*;
 use std::io;
 
+/// Declares the provider, storage, and change-detection contract for one query key.
+///
+/// Implementations must keep [`name`](Self::name) stable and unique within a
+/// [`QueryRegistry`]. Fingerprints are persisted semantic identity: they must be
+/// deterministic across processes and compiler revisions that share a domain.
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
+    /// Value produced or published for this key.
     type Value: Send + Sync + 'static;
 
+    /// Policy used to determine whether a recomputed value changed.
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::None;
+    /// Ownership policy used by the query slot.
     const STORAGE: QueryStoragePolicy = QueryStoragePolicy::CacheOwnedArc;
+    /// Source from which the slot obtains its value.
     const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::KeyExecute;
 
+    /// Stable registry and diagnostic name for this query kind.
     fn name() -> &'static str;
+    /// Human-readable description of this specific key.
     fn description(&self) -> String {
         format!("{}::{self:?}", Self::name())
     }
+    /// Computes this key's value when the provider policy is [`QueryProviderPolicy::KeyExecute`].
     fn execute_result(&self, db: &QueryDb<C>) -> QueryResult<Self::Value>;
+    /// Returns the deterministic fingerprint required by [`QueryFingerprintPolicy::StableValue`].
     fn fingerprint(&self, _value: &Self::Value) -> Option<QueryFingerprint> {
         None
     }
+    /// Tests semantic equality for [`QueryFingerprintPolicy::SemanticValue`].
+    ///
+    /// Returning `true` preserves the previous semantic fingerprint and keeps
+    /// dependent queries green after this value is recomputed.
     fn values_equal(&self, _old: &Self::Value, _new: &Self::Value) -> bool {
         false
     }
 }
 
+/// Selects whether the key computes its value or receives it from an external producer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryProviderPolicy {
+    /// Invoke [`QueryKey::execute_result`] when the slot needs a value.
     KeyExecute,
+    /// Require a producer to transfer the value with [`QueryDb::publish_owned`].
     ExternallyPublished,
 }
 
+/// Selects how shared cached values participate in red/green validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryFingerprintPolicy {
+    /// Do not retain change identity for the value.
     None,
+    /// Use the explicit deterministic fingerprint returned by [`QueryKey::fingerprint`].
     StableValue,
+    /// Compare recomputed values with [`QueryKey::values_equal`].
     SemanticValue,
 }
 
+/// Deterministic 128-bit identity for a query value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct QueryFingerprint([u64; 2]);
 
 impl QueryFingerprint {
+    /// Constructs a fingerprint from its two 64-bit lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(parts)
     }
 
+    /// Returns the two 64-bit lanes.
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
 }
 
+/// Versioned namespace that separates otherwise identical fingerprint inputs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FingerprintDomain(&'static str);
 
 impl FingerprintDomain {
+    /// Creates a domain named `nia.<segments>.vN`.
+    ///
+    /// Segments contain lowercase ASCII letters or digits and may be separated
+    /// by `.` or `-`. Versions start at one and may not contain leading zeroes.
+    /// This function panics in const evaluation when `domain` is invalid.
     pub const fn new(domain: &'static str) -> Self {
         assert!(
             valid_fingerprint_domain(domain),
@@ -62,6 +95,7 @@ impl FingerprintDomain {
         Self(domain)
     }
 
+    /// Returns the validated domain name.
     pub const fn as_str(self) -> &'static str {
         self.0
     }
@@ -115,6 +149,7 @@ const fn valid_fingerprint_domain(domain: &str) -> bool {
     !requires_alphanumeric
 }
 
+/// Incrementally constructs a deterministic, domain-separated fingerprint.
 pub struct QueryFingerprintBuilder {
     state: [u64; 2],
 }
@@ -135,6 +170,7 @@ impl QueryFingerprintBuilder {
     const SECOND_OFFSET: u64 = 0x6c62_272e_07bb_0142;
     const SECOND_PRIME: u64 = 0x9e37_79b1_85eb_ca87;
 
+    /// Starts a fingerprint in `domain`.
     pub fn new(domain: FingerprintDomain) -> Self {
         let mut builder = Self {
             state: [Self::FIRST_OFFSET, Self::SECOND_OFFSET],
@@ -143,14 +179,17 @@ impl QueryFingerprintBuilder {
         builder
     }
 
+    /// Appends one byte.
     pub fn write_u8(&mut self, value: u8) {
         self.write_raw_bytes(&[value]);
     }
 
+    /// Appends one little-endian 64-bit integer.
     pub fn write_u64(&mut self, value: u64) {
         self.write_raw_bytes(&value.to_le_bytes());
     }
 
+    /// Appends a length-prefixed byte field.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
         self.write_u64(bytes.len() as u64);
         self.write_raw_bytes(bytes);
@@ -168,16 +207,19 @@ impl QueryFingerprintBuilder {
         }
     }
 
+    /// Appends a UTF-8 string as a length-prefixed byte field.
     pub fn write_str(&mut self, text: &str) {
         self.write_bytes(text.as_bytes());
     }
 
+    /// Appends both lanes of an existing fingerprint.
     pub fn write_fingerprint(&mut self, fingerprint: QueryFingerprint) {
         for part in fingerprint.parts() {
             self.write_u64(part);
         }
     }
 
+    /// Finishes and returns the 128-bit fingerprint.
     pub fn finish(self) -> QueryFingerprint {
         QueryFingerprint(self.state)
     }
@@ -229,23 +271,35 @@ impl QueryFingerprintBytesWriter<'_> {
     }
 }
 
+/// Selects whether a query value is retained or transferred to one consumer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryStoragePolicy {
+    /// Retain an [`Arc`] in the cache and share it with every caller.
     CacheOwnedArc,
+    /// Move the value out of its slot; no value fingerprint can be retained.
     SingleConsumerOwned,
 }
 
+/// Runtime-readable contract registered for one query key type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryDescriptor {
+    /// Stable query name.
     pub name: &'static str,
+    /// Fully qualified context type name.
     pub context_type: &'static str,
+    /// Fully qualified key type name.
     pub key_type: &'static str,
+    /// Fully qualified value type name.
     pub value_type: &'static str,
+    /// Value provider policy.
     pub provider: QueryProviderPolicy,
+    /// Change-detection policy.
     pub fingerprint: QueryFingerprintPolicy,
+    /// Cached value ownership policy.
     pub storage: QueryStoragePolicy,
 }
 
+/// Declarative set of query key types accepted by a registered database.
 #[derive(Debug, Default)]
 pub struct QueryRegistry {
     descriptors: FastHashMap<TypeId, QueryDescriptor>,
@@ -253,10 +307,16 @@ pub struct QueryRegistry {
 }
 
 impl QueryRegistry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Registers `K` and validates its provider, storage, and fingerprint policies.
+    ///
+    /// Registration panics for duplicate key types or names, for fingerprinted
+    /// single-consumer values, and for externally published values that are not
+    /// un-fingerprinted single-consumer payloads.
     pub fn register<C, K>(&mut self)
     where
         C: 'static,
@@ -311,6 +371,7 @@ impl QueryRegistry {
         );
     }
 
+    /// Returns registered descriptors sorted by query name.
     pub fn descriptors(&self) -> Vec<QueryDescriptor> {
         let mut descriptors = self.descriptors.values().cloned().collect::<Vec<_>>();
         descriptors.sort_by_key(|descriptor| descriptor.name);

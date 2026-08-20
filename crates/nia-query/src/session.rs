@@ -13,6 +13,7 @@ impl Default for QuerySession {
 }
 
 impl QuerySession {
+    /// Creates a session with process-budgeted executor parallelism.
     pub fn new() -> Self {
         let parallelism = default_query_parallelism();
         Self::with_execution_budget(parallelism, process_query_execution_budget(parallelism))
@@ -43,14 +44,17 @@ impl QuerySession {
         }
     }
 
+    /// Tests whether two handles share the same dependency and cache domain.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
+    /// Returns this session executor's configured worker lane count.
     pub fn executor_parallelism(&self) -> usize {
         self.inner.executor.shared.parallelism
     }
 
+    /// Runs independent tasks concurrently and restores submission order in the result.
     pub fn run_tasks<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
     where
         T: FnOnce() -> O + Send + 'static,
@@ -60,6 +64,7 @@ impl QuerySession {
         self.run_tasks_inner(tasks)
     }
 
+    /// Runs tasks with an additional caller-provided lane bound.
     pub fn run_tasks_bounded<T, O>(
         &self,
         tasks: impl IntoIterator<Item = T>,
@@ -103,6 +108,7 @@ impl QuerySession {
         outcomes.into_iter().map(|(_, output)| output).collect()
     }
 
+    /// Creates a backpressured pool whose `finish` result is submission ordered.
     pub fn task_pool<O>(&self, max_parallelism: usize) -> QueryTaskPool<'_, O>
     where
         O: Send + 'static,

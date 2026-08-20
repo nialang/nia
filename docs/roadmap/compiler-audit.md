@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 213 completed entries in this ledger.
+- Implementation batches: 214 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1233,6 +1233,12 @@ acceptance item only when its phase-wide evidence is complete.
       span/child-path locators, store-scoped compact handles, revision
       retirement, locator-based map equality/merge, and transactional AST
       origin tables. `nia-node-id` strict Rustdoc, 18 owner tests, and strict
+      Clippy pass.
+- [x] Cross-cutting Phase D query Rustdoc now documents declarative provider,
+      storage, fingerprint, and registry contracts; shared versus owned access;
+      red/green validation; cross-database sessions; completion-order streams;
+      quiescent retirement; bounded task execution; and process-wide LLVM
+      memory permits. `nia-query` strict Rustdoc, 81 owner tests, and strict
       Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.

@@ -584,21 +584,30 @@ where
     }
 }
 
+/// Stable diagnostic identity for one typed query slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryFrame {
+    /// Stable query kind name.
     pub name: &'static str,
+    /// Debug-formatted key identity.
     pub key: String,
+    /// Human-readable query description.
     pub description: String,
 }
 
+/// Directed read edge from one query frame to another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryDependency {
+    /// Query that reads the dependency.
     pub from: QueryFrame,
+    /// Query whose value is read.
     pub to: QueryFrame,
 }
 
+/// Frames affected by one invalidation request.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct QueryInvalidation {
+    /// Root and dependent frames whose cached state was invalidated.
     pub invalidated: Vec<QueryFrame>,
 }
 
@@ -642,10 +651,21 @@ struct QueryDbRegistration<C> {
     inner: Weak<QueryDbInner<C>>,
 }
 
+/// Recoverable failure reported while executing or accessing a query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
-    Cycle { cycle: Vec<QueryFrame> },
-    InvalidInput { query: QueryFrame, message: String },
+    /// A query execution or wait-for cycle was detected.
+    Cycle {
+        /// Ordered frames that close the cycle.
+        cycle: Vec<QueryFrame>,
+    },
+    /// A provider rejected a key or required externally published input.
+    InvalidInput {
+        /// Query frame whose input was rejected.
+        query: QueryFrame,
+        /// Provider or storage diagnostic.
+        message: String,
+    },
 }
 
 impl fmt::Display for QueryError {
@@ -671,26 +691,39 @@ impl fmt::Display for QueryError {
 
 impl std::error::Error for QueryError {}
 
+/// Result returned by query execution and cache access.
 pub type QueryResult<T> = Result<T, QueryError>;
 
+/// Snapshot of persistent dependencies and per-slot counters.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct QueryTrace {
+    /// Persistent dependency edges known to this session and database.
     pub dependencies: Vec<QueryDependency>,
+    /// Per-slot execution and validation statistics.
     pub queries: Vec<QueryTraceQuery>,
 }
 
+/// Execution and validation counters for one query slot.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct QueryFrameStats {
+    /// Number of provider executions.
     pub executions: usize,
+    /// Number of shared-cache hits.
     pub cache_hits: usize,
+    /// Number of waits for another worker's slot computation.
     pub waits: usize,
+    /// Number of red/green dependency validations.
     pub validations: usize,
+    /// Number of validations that proved the cached value green.
     pub green_validations: usize,
 }
 
+/// Trace entry pairing one query frame with its counters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryTraceQuery {
+    /// Slot identity associated with these counters.
     pub frame: QueryFrame,
+    /// Snapshot of the slot's counters.
     pub stats: QueryFrameStats,
 }
 
@@ -718,6 +751,10 @@ struct QueryStackInstallGuard {
 }
 
 impl<O> QueryCompletionStream<'_, '_, O> {
+    /// Waits for and returns the next completed task in completion order.
+    ///
+    /// The returned index is the task's submission index. Worker dependency
+    /// facts are merged into the logical parent before the value is yielded.
     pub fn wait_next(&mut self) -> Option<(usize, O)> {
         let (position, (value, task_dependencies)) = self.tasks.wait_next()?;
         self.dependencies.nodes.extend(task_dependencies.nodes);
