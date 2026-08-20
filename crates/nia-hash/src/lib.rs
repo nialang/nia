@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Fast deterministic hash building blocks for compiler identity maps.
+
 use std::hash::{BuildHasherDefault, Hasher};
 
 const FAST_HASH_MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
 
 #[derive(Debug, Clone, Copy)]
+/// Compact non-cryptographic hasher used for internal map/set keys.
 pub struct FastHasher {
     hash: u64,
 }
@@ -67,6 +70,9 @@ impl Hasher for FastHasher {
     }
 }
 
+/// BuildHasher adapter for [`FastHasher`].
 pub type FastBuildHasher = BuildHasherDefault<FastHasher>;
+/// Hash map using [`FastBuildHasher`].
 pub type FastHashMap<K, V> = std::collections::HashMap<K, V, FastBuildHasher>;
+/// Hash set using [`FastBuildHasher`].
 pub type FastHashSet<T> = std::collections::HashSet<T, FastBuildHasher>;
