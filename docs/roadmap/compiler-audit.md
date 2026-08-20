@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 221 completed entries in this ledger.
+- Implementation batches: 222 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1288,6 +1288,13 @@ acceptance item only when its phase-wide evidence is complete.
       pass. The build-case matrix passed 13 cases but encountered a transient
       test-resource slot lock failure; its exact retry passed, while a clean
       whole-matrix rerun remains part of final resource evidence.
+- [x] Phase D cross-process test-resource slot creation now waits through the
+      brief interval in which a concurrent stale-slot reclaimer can lock the
+      newly visible owner inode. The creator locks before writing its owner
+      record, so normal contention is no longer reported as a fatal corrupt
+      permit. A deterministic lock-order regression, all 18
+      `nia-test-support` owner tests, strict Clippy, and the complete concurrent
+      CLI build-case matrix (14 passed) cover the repaired boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
