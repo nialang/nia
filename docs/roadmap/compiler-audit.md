@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 201 completed entries in this ledger.
+- Implementation batches: 202 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1185,6 +1185,10 @@ acceptance item only when its phase-wide evidence is complete.
       preservation, symbol-aware condition evaluation, and diagnostic
       ownership. `nia-target-config` strict Rustdoc, two owner tests, and strict
       Clippy pass.
+- [x] Cross-cutting Phase B mangling Rustdoc now documents stable module hashes,
+      sanitized symbol components, base and concrete-instance names, and
+      resolver-driven type/const encoding. `nia-mangle` strict Rustdoc, eight
+      owner tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
