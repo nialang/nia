@@ -320,36 +320,7 @@ impl TraitSolver<'_> {
                         .iter()
                         .zip(&right_const_args)
                         .all(|(left, right)| self.const_generic_args_equivalent(left, right))
-                    && left_bindings.iter().all(|left_binding| {
-                        right_bindings.iter().any(|right_binding| {
-                            left_binding.name == right_binding.name
-                                && left_binding.trait_id == right_binding.trait_id
-                                && left_binding.trait_args.len() == right_binding.trait_args.len()
-                                && left_binding.trait_const_args.len()
-                                    == right_binding.trait_const_args.len()
-                                && left_binding
-                                    .trait_args
-                                    .iter()
-                                    .zip(&right_binding.trait_args)
-                                    .all(|(left, right)| {
-                                        self.types_equivalent_resolving_projections(
-                                            *left, *right, active,
-                                        )
-                                    })
-                                && left_binding
-                                    .trait_const_args
-                                    .iter()
-                                    .zip(&right_binding.trait_const_args)
-                                    .all(|(left, right)| {
-                                        self.const_generic_args_equivalent(left, right)
-                                    })
-                                && self.types_equivalent_resolving_projections(
-                                    left_binding.ty,
-                                    right_binding.ty,
-                                    active,
-                                )
-                        })
-                    })
+                    && self.associated_bindings_equivalent(&left_bindings, &right_bindings, active)
             }
             (
                 Some(TyKind::TraitObjectPointee {
@@ -376,36 +347,7 @@ impl TraitSolver<'_> {
                         .iter()
                         .zip(&right_const_args)
                         .all(|(left, right)| self.const_generic_args_equivalent(left, right))
-                    && left_bindings.iter().all(|left_binding| {
-                        right_bindings.iter().any(|right_binding| {
-                            left_binding.name == right_binding.name
-                                && left_binding.trait_id == right_binding.trait_id
-                                && left_binding.trait_args.len() == right_binding.trait_args.len()
-                                && left_binding.trait_const_args.len()
-                                    == right_binding.trait_const_args.len()
-                                && left_binding
-                                    .trait_args
-                                    .iter()
-                                    .zip(&right_binding.trait_args)
-                                    .all(|(left, right)| {
-                                        self.types_equivalent_resolving_projections(
-                                            *left, *right, active,
-                                        )
-                                    })
-                                && left_binding
-                                    .trait_const_args
-                                    .iter()
-                                    .zip(&right_binding.trait_const_args)
-                                    .all(|(left, right)| {
-                                        self.const_generic_args_equivalent(left, right)
-                                    })
-                                && self.types_equivalent_resolving_projections(
-                                    left_binding.ty,
-                                    right_binding.ty,
-                                    active,
-                                )
-                        })
-                    })
+                    && self.associated_bindings_equivalent(&left_bindings, &right_bindings, active)
             }
             (
                 Some(TyKind::Projection {
@@ -438,5 +380,48 @@ impl TraitSolver<'_> {
             }
             _ => false,
         }
+    }
+
+    fn associated_bindings_equivalent(
+        &mut self,
+        left: &[nia_ty::AssociatedTypeBindingTy],
+        right: &[nia_ty::AssociatedTypeBindingTy],
+        active: &mut HashSet<(InternedTyId, InternedTyId)>,
+    ) -> bool {
+        if left.len() != right.len() {
+            return false;
+        }
+        let mut used = vec![false; right.len()];
+        left.iter().all(|left_binding| {
+            let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
+                (!used[index]
+                    && left_binding.name == right_binding.name
+                    && left_binding.trait_id == right_binding.trait_id
+                    && left_binding.trait_args.len() == right_binding.trait_args.len()
+                    && left_binding.trait_const_args.len() == right_binding.trait_const_args.len()
+                    && left_binding
+                        .trait_args
+                        .iter()
+                        .zip(&right_binding.trait_args)
+                        .all(|(left, right)| {
+                            self.types_equivalent_resolving_projections(*left, *right, active)
+                        })
+                    && left_binding
+                        .trait_const_args
+                        .iter()
+                        .zip(&right_binding.trait_const_args)
+                        .all(|(left, right)| self.const_generic_args_equivalent(left, right))
+                    && self.types_equivalent_resolving_projections(
+                        left_binding.ty,
+                        right_binding.ty,
+                        active,
+                    ))
+                .then_some(index)
+            }) else {
+                return false;
+            };
+            used[index] = true;
+            true
+        })
     }
 }
