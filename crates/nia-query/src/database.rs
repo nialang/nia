@@ -8,6 +8,7 @@
 use super::*;
 
 impl<C> QueryDb<C> {
+    /// Creates an unregistered database with an isolated default session.
     pub fn new(context: C) -> Self
     where
         C: Send + Sync + 'static,
@@ -15,6 +16,7 @@ impl<C> QueryDb<C> {
         Self::new_with_timings(context, nia_timing::TimingMode::Off)
     }
 
+    /// Creates an unregistered database with timing instrumentation enabled as requested.
     pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> Self
     where
         C: Send + Sync + 'static,
@@ -22,6 +24,7 @@ impl<C> QueryDb<C> {
         Self::new_with_timings_in_session(context, timings, QuerySession::new())
     }
 
+    /// Creates an unregistered database attached to an explicitly shared session.
     pub fn new_with_timings_in_session(
         context: C,
         timings: nia_timing::TimingMode,
@@ -33,6 +36,7 @@ impl<C> QueryDb<C> {
         Self::new_inner(context, timings, None, session)
     }
 
+    /// Creates a database that enforces membership in `registry` on every query access.
     pub fn new_registered(context: C, registry: QueryRegistry) -> Self
     where
         C: Send + Sync + 'static,
@@ -40,6 +44,7 @@ impl<C> QueryDb<C> {
         Self::new_registered_with_timings(context, nia_timing::TimingMode::Off, registry)
     }
 
+    /// Creates a registered database attached to an explicitly shared session.
     pub fn new_registered_in_session(
         context: C,
         registry: QueryRegistry,
@@ -56,6 +61,7 @@ impl<C> QueryDb<C> {
         )
     }
 
+    /// Creates a registered database with timing instrumentation enabled as requested.
     pub fn new_registered_with_timings(
         context: C,
         timings: nia_timing::TimingMode,
@@ -72,6 +78,7 @@ impl<C> QueryDb<C> {
         )
     }
 
+    /// Creates a registered database with explicit timing and session configuration.
     pub fn new_registered_with_timings_in_session(
         context: C,
         timings: nia_timing::TimingMode,
@@ -108,14 +115,17 @@ impl<C> QueryDb<C> {
         db
     }
 
+    /// Returns the immutable compiler context owned by this database.
     pub fn context(&self) -> &C {
         &self.inner.context
     }
 
+    /// Returns a clone of the session handle governing this database.
     pub fn session(&self) -> QuerySession {
         self.inner.session.clone()
     }
 
+    /// Lists registered query contracts sorted by query name, or an empty list for unregistered DBs.
     pub fn registered_queries(&self) -> Vec<QueryDescriptor> {
         self.inner
             .registry
@@ -124,6 +134,7 @@ impl<C> QueryDb<C> {
             .unwrap_or_default()
     }
 
+    /// Builds an [`QueryError::InvalidInput`] tied to the frame for `key`.
     pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> QueryError
     where
         K: QueryKey<C>,
@@ -134,6 +145,10 @@ impl<C> QueryDb<C> {
         }
     }
 
+    /// Gets a shared cached value, executing and memoizing it when necessary.
+    ///
+    /// `K` must use [`QueryStoragePolicy::CacheOwnedArc`]. The returned `Arc`
+    /// remains valid while invalidation or retirement removes the slot identity.
     pub fn get<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
@@ -141,6 +156,11 @@ impl<C> QueryDb<C> {
         self.try_get_cached(key)
     }
 
+    /// Gets and consumes a single-consumer owned value.
+    ///
+    /// A key-executed owned query recomputes after consumption. An externally
+    /// published query returns an error until its producer calls
+    /// [`Self::publish_owned`], and a published payload can be consumed only once.
     pub fn get_owned<K>(&self, key: K) -> QueryResult<K::Value>
     where
         K: QueryKey<C>,
@@ -557,6 +577,7 @@ impl<C> QueryDb<C> {
         }
     }
 
+    /// Evaluates shared queries in parallel and returns values in input order.
     pub fn get_many<K>(&self, keys: impl IntoIterator<Item = K>) -> QueryResult<Vec<Arc<K::Value>>>
     where
         C: Send + Sync + 'static,
@@ -567,6 +588,7 @@ impl<C> QueryDb<C> {
             .collect()
     }
 
+    /// Evaluates owned queries in parallel and returns consumed values in input order.
     pub fn get_many_owned<K>(&self, keys: impl IntoIterator<Item = K>) -> QueryResult<Vec<K::Value>>
     where
         C: Send + Sync + 'static,
@@ -577,6 +599,10 @@ impl<C> QueryDb<C> {
             .collect()
     }
 
+    /// Consumes owned query results as they complete, exposing submission indices.
+    ///
+    /// The callback is always drained after it returns or panics so worker tasks
+    /// finish and their dependency facts are merged into the parent stack.
     pub fn with_many_owned_completion<K, R>(
         &self,
         keys: impl IntoIterator<Item = K>,
@@ -691,6 +717,7 @@ impl<C> QueryDb<C> {
         values
     }
 
+    /// Returns persistent dependency edges and slot statistics for this database.
     pub fn query_trace(&self) -> QueryTrace {
         let _activity = self.inner.session.enter_activity();
         let queries = {
@@ -714,6 +741,7 @@ impl<C> QueryDb<C> {
         }
     }
 
+    /// Invalidates `key` and every known dependent while retaining slot identity.
     pub fn invalidate<K>(&self, key: K) -> QueryInvalidation
     where
         K: QueryKey<C>,
@@ -734,6 +762,9 @@ impl<C> QueryDb<C> {
         self.invalidate_cached_root(root)
     }
 
+    /// Validates a stable input fingerprint and invalidates it only when changed.
+    ///
+    /// This is the red/green fast path for [`QueryFingerprintPolicy::StableValue`].
     pub fn validate_input<K>(&self, key: K, current_value: &K::Value) -> QueryInvalidation
     where
         K: QueryKey<C>,
@@ -770,6 +801,7 @@ impl<C> QueryDb<C> {
         }
     }
 
+    /// Removes a typed slot and its dependency identity after session quiescence.
     pub fn retire<K>(&self, key: &K) -> bool
     where
         K: QueryKey<C>,
@@ -778,6 +810,7 @@ impl<C> QueryDb<C> {
         self.retire_during_retirement(key)
     }
 
+    /// Runs several invalidation or retirement operations under one quiescent barrier.
     pub fn retirement_transaction<R>(
         &self,
         operation: impl FnOnce(&QueryRetirement<'_, C>) -> R,
@@ -1114,6 +1147,7 @@ impl<C> QueryDb<C> {
 }
 
 impl<C> QueryRetirement<'_, C> {
+    /// Invalidates a key while the enclosing retirement transaction is quiescent.
     pub fn invalidate<K>(&self, key: K) -> QueryInvalidation
     where
         K: QueryKey<C>,
@@ -1121,6 +1155,7 @@ impl<C> QueryRetirement<'_, C> {
         self.db.invalidate_during_retirement(key)
     }
 
+    /// Retires a key while the enclosing retirement transaction is quiescent.
     pub fn retire<K>(&self, key: &K) -> bool
     where
         K: QueryKey<C>,

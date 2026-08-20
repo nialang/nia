@@ -46,20 +46,27 @@ struct MemoryBudgetState {
     active: usize,
 }
 
+/// Non-`Send` lease for one process-wide LLVM memory slot.
+///
+/// Nested acquisition on the same thread is reentrant; only the outer lease
+/// consumes capacity and participates in the memory-pressure wait.
 pub struct ProcessMemoryPermit<'a> {
     budget: &'a MemoryBudget,
     waited: bool,
     _not_send: PhantomData<Rc<()>>,
 }
 
+/// Waits for and acquires one process-wide LLVM memory permit.
 pub fn acquire_llvm_memory_permit() -> ProcessMemoryPermit<'static> {
     llvm_memory_budget().acquire()
 }
 
+/// Returns the configured process-wide LLVM task capacity.
 pub fn llvm_memory_task_capacity() -> usize {
     llvm_memory_budget().capacity
 }
 
+/// Returns the lower of system and cgroup memory limits when observable.
 pub fn effective_memory_limit_bytes() -> Option<usize> {
     [system_memory_bytes(), cgroup_memory_limit_bytes()]
         .into_iter()
@@ -67,6 +74,7 @@ pub fn effective_memory_limit_bytes() -> Option<usize> {
         .min()
 }
 
+/// Returns the lower of system and cgroup available-memory estimates.
 pub fn effective_available_memory_bytes() -> Option<usize> {
     [
         system_available_memory_bytes(),
@@ -78,6 +86,7 @@ pub fn effective_available_memory_bytes() -> Option<usize> {
 }
 
 impl ProcessMemoryPermit<'_> {
+    /// Reports whether acquiring this lease waited for capacity or memory pressure.
     pub fn waited(&self) -> bool {
         self.waited
     }

@@ -638,10 +638,12 @@ impl<'session, O> QueryTaskPool<'session, O>
 where
     O: Send + 'static,
 {
+    /// Returns the maximum number of accepted-but-not-yet-collected tasks.
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
+    /// Submits one task, helping/draining when the pool reaches capacity.
     pub fn submit(&mut self, task: impl FnOnce() -> O + Send + 'static) {
         if self.pending.len() >= self.capacity {
             self.wait_one();
@@ -669,6 +671,7 @@ where
         });
     }
 
+    /// Drains all accepted tasks in submission order, rethrowing the first panic afterwards.
     pub fn finish(mut self) -> Vec<O> {
         let mut panic = None;
         while !self.pending.is_empty() {
