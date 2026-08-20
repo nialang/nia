@@ -31,6 +31,7 @@ fn result(name: &str, counters: Map<String, Value>) -> BuildResult {
         wall_seconds_observed: 1.0,
         available_memory_bytes_before: None,
         corrupted_action_cache_entries: None,
+        artifact_equivalence: None,
         reports: BuildReports {
             actions: ActionReport {
                 schema_version: 1,
@@ -84,6 +85,14 @@ fn passing_results() -> Vec<BuildResult> {
             ]),
         ),
         result(
+            "source_edit_clean",
+            values(&[
+                ("build.action_cache_lookups", 3),
+                ("build.action_cache_misses", 3),
+                ("build.action_cache_hits", 0),
+            ]),
+        ),
+        result(
             "module_map_edit",
             values(&[
                 ("build.action_cache_lookups", 3),
@@ -91,6 +100,14 @@ fn passing_results() -> Vec<BuildResult> {
                 ("build.action_cache_invalidation_module", 1),
                 ("llvm.object_reuse_misses", 1),
                 ("link.result_reuse_misses", 1),
+            ]),
+        ),
+        result(
+            "module_map_edit_clean",
+            values(&[
+                ("build.action_cache_lookups", 3),
+                ("build.action_cache_misses", 3),
+                ("build.action_cache_hits", 0),
             ]),
         ),
         result(
@@ -124,7 +141,17 @@ fn passing_results() -> Vec<BuildResult> {
             ]),
         ),
     ];
-    results[4].corrupted_action_cache_entries = Some(3);
+    results[2].artifact_equivalence = Some(ArtifactEquivalence {
+        clean_state: "source_edit_clean".to_owned(),
+        compared: 2,
+        matching: 2,
+    });
+    results[4].artifact_equivalence = Some(ArtifactEquivalence {
+        clean_state: "module_map_edit_clean".to_owned(),
+        compared: 2,
+        matching: 2,
+    });
+    results[6].corrupted_action_cache_entries = Some(3);
     results
 }
 
@@ -198,7 +225,7 @@ fn acceptance_requires_typed_edit_invalidation() {
         .measurement
         .counters
         .remove("build.action_cache_invalidation_sources");
-    results[3]
+    results[4]
         .reports
         .measurement
         .counters
@@ -220,12 +247,12 @@ fn acceptance_requires_typed_edit_invalidation() {
 #[test]
 fn acceptance_requires_failed_action_and_recovered_warm_evidence() {
     let mut results = passing_results();
-    results[5]
+    results[7]
         .reports
         .measurement
         .counters
         .insert("build.action_cache_hits".to_owned(), json!(2));
-    results[6]
+    results[8]
         .reports
         .measurement
         .counters
@@ -240,6 +267,59 @@ fn acceptance_requires_failed_action_and_recovered_warm_evidence() {
     );
     assert!(acceptance.checks.iter().any(|check| {
         check.state == "failed_action" && check.counter == "build.actions_executed" && !check.passed
+    }));
+}
+
+#[test]
+fn acceptance_requires_independent_clean_artifact_comparison() {
+    let mut results = passing_results();
+    results[2].artifact_equivalence = None;
+    assert!(
+        workload_acceptance(&results)
+            .unwrap_err()
+            .contains("no independent clean artifact comparison")
+    );
+}
+
+#[test]
+fn acceptance_retains_artifact_mismatch_evidence() {
+    let mut results = passing_results();
+    results[4].artifact_equivalence.as_mut().unwrap().matching = 1;
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "module_map_edit"
+            && check.counter == "baseline.clean_equivalent_artifacts"
+            && check.expected == ExpectedValue::Exact(2)
+            && check.found == 1
+            && !check.passed
+    }));
+}
+
+#[test]
+fn acceptance_requires_cold_independent_recomputation() {
+    let mut results = passing_results();
+    results[3]
+        .reports
+        .measurement
+        .counters
+        .insert("build.action_cache_hits".to_owned(), json!(1));
+    results[3]
+        .reports
+        .measurement
+        .counters
+        .insert("build.action_cache_misses".to_owned(), json!(2));
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "source_edit_clean"
+            && check.counter == "build.action_cache_hits"
+            && !check.passed
+    }));
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "source_edit_clean"
+            && check.counter == "build.action_cache_misses"
+            && !check.passed
     }));
 }
 
@@ -278,6 +358,7 @@ fn summarizes_repeated_stage_and_counter_samples() {
             wall_seconds_observed: (index + 1) as f64,
             available_memory_bytes_before: None,
             corrupted_action_cache_entries: None,
+            artifact_equivalence: None,
             reports,
         }]);
     }

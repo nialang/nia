@@ -28,6 +28,13 @@ pub struct BuildReports {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ArtifactEquivalence {
+    pub clean_state: String,
+    pub compared: usize,
+    pub matching: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct BuildResult {
     pub name: String,
     pub command: Vec<String>,
@@ -36,6 +43,8 @@ pub struct BuildResult {
     pub available_memory_bytes_before: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub corrupted_action_cache_entries: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_equivalence: Option<ArtifactEquivalence>,
     #[serde(flatten)]
     pub reports: BuildReports,
 }

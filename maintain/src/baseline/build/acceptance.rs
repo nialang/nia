@@ -20,7 +20,9 @@ pub(super) fn validate_workload(results: &[BuildResult]) -> MaintainResult<()> {
         "clean",
         "warm",
         "source_edit",
+        "source_edit_clean",
         "module_map_edit",
+        "module_map_edit_clean",
         "corrupt_cache",
         "recovered_warm",
         "failed_action",
@@ -64,14 +66,16 @@ pub(super) fn validate_workload(results: &[BuildResult]) -> MaintainResult<()> {
 }
 
 pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<AcceptanceReport> {
-    if results.len() != 7 {
-        return Err("acceptance requires all seven build workload states".to_owned());
+    if results.len() != 9 {
+        return Err("acceptance requires all nine build workload states".to_owned());
     }
     let [
         clean,
         warm,
         source_edit,
+        source_edit_clean,
         module_map_edit,
+        module_map_edit_clean,
         corrupt_cache,
         recovered_warm,
         failed_action,
@@ -180,6 +184,28 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
     )?;
     exact(
         &mut checks,
+        "source_edit_clean",
+        source_edit_clean,
+        "build.action_cache_lookups",
+        expected_actions,
+    )?;
+    exact(
+        &mut checks,
+        "source_edit_clean",
+        source_edit_clean,
+        "build.action_cache_misses",
+        expected_actions,
+    )?;
+    exact(
+        &mut checks,
+        "source_edit_clean",
+        source_edit_clean,
+        "build.action_cache_hits",
+        0,
+    )?;
+    artifact_equivalence(&mut checks, "source_edit", source_edit, "source_edit_clean")?;
+    exact(
+        &mut checks,
         "module_map_edit",
         module_map_edit,
         "build.action_cache_lookups",
@@ -208,6 +234,33 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         "module_map_edit",
         module_map_edit,
         "link.result_reuse_misses",
+    )?;
+    exact(
+        &mut checks,
+        "module_map_edit_clean",
+        module_map_edit_clean,
+        "build.action_cache_lookups",
+        expected_actions,
+    )?;
+    exact(
+        &mut checks,
+        "module_map_edit_clean",
+        module_map_edit_clean,
+        "build.action_cache_misses",
+        expected_actions,
+    )?;
+    exact(
+        &mut checks,
+        "module_map_edit_clean",
+        module_map_edit_clean,
+        "build.action_cache_hits",
+        0,
+    )?;
+    artifact_equivalence(
+        &mut checks,
+        "module_map_edit",
+        module_map_edit,
+        "module_map_edit_clean",
     )?;
 
     let corrupted = corrupt_cache
@@ -329,4 +382,36 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         passed: checks.iter().all(|check| check.passed),
         checks,
     })
+}
+
+fn artifact_equivalence(
+    checks: &mut Vec<AcceptanceCheck>,
+    state: &str,
+    result: &BuildResult,
+    expected_clean_state: &str,
+) -> MaintainResult<()> {
+    let equivalence = result.artifact_equivalence.as_ref().ok_or_else(|| {
+        format!("build state {state:?} has no independent clean artifact comparison")
+    })?;
+    if equivalence.clean_state != expected_clean_state {
+        return Err(format!(
+            "build state {state:?} compared artifacts against {:?}, expected {expected_clean_state:?}",
+            equivalence.clean_state
+        ));
+    }
+    let compared = i64::try_from(equivalence.compared)
+        .map_err(|_| format!("build state {state:?} artifact count exceeds i64"))?;
+    let matching = i64::try_from(equivalence.matching)
+        .map_err(|_| format!("build state {state:?} matching artifact count exceeds i64"))?;
+    if compared == 0 {
+        return Err(format!("build state {state:?} compared no artifacts"));
+    }
+    checks.push(AcceptanceCheck {
+        state: state.to_owned(),
+        counter: "baseline.clean_equivalent_artifacts".to_owned(),
+        expected: ExpectedValue::Exact(compared),
+        found: matching,
+        passed: matching == compared,
+    });
+    Ok(())
 }
