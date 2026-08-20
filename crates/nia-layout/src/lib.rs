@@ -113,8 +113,11 @@ pub struct StructLayout {
 /// must never be omitted when querying this key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructLayoutKey {
+    /// Local nominal definition identity.
     pub def_id: DefId,
+    /// Concrete type arguments of the instance.
     pub args: Vec<InternedTyId>,
+    /// Concrete const arguments of the instance.
     pub const_args: Vec<ConstGenericArg>,
 }
 
@@ -128,33 +131,46 @@ struct GlobalStructLayoutKey {
 /// Physical placement of one nominal aggregate field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldLayout {
+    /// Source field definition identity.
     pub def_id: DefId,
+    /// Byte offset from the aggregate start.
     pub offset: u64,
+    /// Concrete field representation.
     pub layout: TypeLayout,
 }
 
 /// Concrete representation of a payload or fieldless enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumLayout {
+    /// Overall enum storage representation.
     pub layout: TypeLayout,
+    /// Tag storage representation.
     pub tag: TypeLayout,
+    /// Offset of the payload after the tag, when variants carry payloads.
     pub payload_offset: Option<u64>,
+    /// Per-variant payload and field placements.
     pub variants: Vec<EnumVariantLayout>,
 }
 
 /// Layout of one enum variant's payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumVariantLayout {
+    /// Source variant definition identity.
     pub def_id: DefId,
+    /// Aggregate payload representation for this variant.
     pub payload: TypeLayout,
+    /// Physical payload field placements.
     pub fields: Vec<EnumFieldLayout>,
 }
 
 /// Physical placement of one tuple or named enum payload field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumFieldLayout {
+    /// Named field identity, or `None` for tuple payload positions.
     pub def_id: Option<DefId>,
+    /// Byte offset within the variant payload.
     pub offset: u64,
+    /// Concrete field representation.
     pub layout: TypeLayout,
 }
 
@@ -164,13 +180,21 @@ pub struct EnumFieldLayout {
 /// `GlobalDefId` must first obtain the `Layouts` product for its owner module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layouts {
+    /// Target pointer width and alignment used for all computed layouts.
     pub target: TargetDataLayout,
+    /// Layouts of normalized type identities.
     pub types: HashMap<InternedTyId, TypeLayout>,
+    /// Local struct layouts keyed by definition.
     pub structs: HashMap<DefId, StructLayout>,
+    /// Local union layouts keyed by definition.
     pub unions: HashMap<DefId, StructLayout>,
+    /// Local enum layouts keyed by definition.
     pub enums: HashMap<DefId, EnumLayout>,
+    /// Concrete generic struct instances.
     pub struct_instances: HashMap<StructLayoutKey, StructLayout>,
+    /// Concrete generic union instances.
     pub union_instances: HashMap<StructLayoutKey, StructLayout>,
+    /// Diagnostics emitted during layout computation.
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -348,36 +372,58 @@ pub fn compute_layouts(
 /// batch clients can provide maps.
 #[derive(Clone, Copy, Default)]
 pub struct ProgramLayoutContext<'a> {
+    /// Optional symbol text provider for diagnostics.
     pub symbols: Option<&'a dyn SymbolText>,
+    /// Lazy lookup of layouts owned by another module.
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
+    /// Lazy lookup of evaluated global const-expression lengths.
     pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
+    /// Eager imported struct signatures.
     pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
+    /// Eager imported union signatures.
     pub unions: Option<&'a HashMap<GlobalDefId, ProgramUnionSignature>>,
+    /// Eager imported enum signatures.
     pub enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
+    /// Eager imported type aliases.
     pub type_aliases: Option<&'a HashMap<GlobalDefId, ProgramTypeAliasSignature>>,
+    /// Lazy imported struct signature lookup.
     pub struct_: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
+    /// Lazy imported union signature lookup.
     pub union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
+    /// Lazy imported enum signature lookup.
     pub enum_: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramEnumSignature>>,
+    /// Lazy imported type-alias lookup.
     pub type_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>>,
 }
 
 /// Request for the detailed layout of one struct or union instantiation.
 #[derive(Clone, Copy)]
 pub struct InstanceLayoutRequest<'a> {
+    /// Nominal definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Concrete type arguments.
     pub args: &'a [InternedTyId],
+    /// Concrete const arguments.
     pub const_args: &'a [ConstGenericArg],
 }
 
 /// Complete input required for one module-local layout computation.
 pub struct LayoutComputationInput<'a> {
+    /// Canonical store containing input types.
     pub type_store: &'a nia_ty::TypeStore,
+    /// Local definitions for the module.
     pub defs: &'a DefCollection,
+    /// Local item signatures.
     pub signatures: &'a ItemSignatures,
+    /// Explicit type roots to compute.
     pub root_types: &'a [InternedTyId],
+    /// Previously normalized type identities.
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
+    /// Array-length evaluation provider.
     pub array_lengths: &'a dyn ArrayLengthValues,
+    /// Target pointer and ABI parameters.
     pub target: TargetDataLayout,
+    /// Cross-module signatures and lazy providers.
     pub program: ProgramLayoutContext<'a>,
 }
 
@@ -399,8 +445,11 @@ impl LayoutComputationInput<'_> {
 /// Explicit roots for a demand-driven partial layout product.
 #[derive(Clone, Copy, Default)]
 pub struct LayoutRoots<'a> {
+    /// Type identities to lay out.
     pub types: &'a [InternedTyId],
+    /// Local struct definitions to lay out.
     pub structs: &'a [DefId],
+    /// Local union definitions to lay out.
     pub unions: &'a [DefId],
 }
 
