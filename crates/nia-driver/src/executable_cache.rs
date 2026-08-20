@@ -813,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn changed_link_components_report_nearest_invalidation() {
+    fn every_changed_link_component_reports_exact_invalidation() {
         let root = temp_root("invalidation");
         let cache = PersistentLinkResultCache::new(root.clone());
         let first = fingerprints(30);
@@ -821,26 +821,82 @@ mod tests {
         fs::create_dir_all(&root).expect("create cache root");
         fs::write(&linked, vec![0x7a; LINK_CACHE_STREAM_BYTES * 3 + 5]).expect("write linked");
         cache.publish(first, &linked).expect("publish first");
-        let changed = LinkResultFingerprintSet::new(
-            first.cache_key,
-            LinkResultFingerprintComponents {
-                target: LinkResultFingerprint::from_parts([99, 3]),
-                ..first.components
-            },
-        );
-
-        assert_eq!(
-            cache
-                .restore(changed, &root.join("changed"))
-                .expect("lookup changed"),
-            LinkResultCacheLookup::Invalidated(LinkResultInvalidation {
-                inputs: false,
-                toolchain: false,
-                target: true,
-                linker: false,
-                options: false,
-            })
-        );
+        let changes = [
+            (
+                LinkResultFingerprintComponents {
+                    inputs: LinkResultFingerprint::from_parts([99, 1]),
+                    ..first.components
+                },
+                LinkResultInvalidation {
+                    inputs: true,
+                    toolchain: false,
+                    target: false,
+                    linker: false,
+                    options: false,
+                },
+            ),
+            (
+                LinkResultFingerprintComponents {
+                    toolchain: LinkResultFingerprint::from_parts([99, 2]),
+                    ..first.components
+                },
+                LinkResultInvalidation {
+                    inputs: false,
+                    toolchain: true,
+                    target: false,
+                    linker: false,
+                    options: false,
+                },
+            ),
+            (
+                LinkResultFingerprintComponents {
+                    target: LinkResultFingerprint::from_parts([99, 3]),
+                    ..first.components
+                },
+                LinkResultInvalidation {
+                    inputs: false,
+                    toolchain: false,
+                    target: true,
+                    linker: false,
+                    options: false,
+                },
+            ),
+            (
+                LinkResultFingerprintComponents {
+                    linker: LinkResultFingerprint::from_parts([99, 4]),
+                    ..first.components
+                },
+                LinkResultInvalidation {
+                    inputs: false,
+                    toolchain: false,
+                    target: false,
+                    linker: true,
+                    options: false,
+                },
+            ),
+            (
+                LinkResultFingerprintComponents {
+                    options: LinkResultFingerprint::from_parts([99, 5]),
+                    ..first.components
+                },
+                LinkResultInvalidation {
+                    inputs: false,
+                    toolchain: false,
+                    target: false,
+                    linker: false,
+                    options: true,
+                },
+            ),
+        ];
+        for (index, (components, reasons)) in changes.into_iter().enumerate() {
+            let changed = LinkResultFingerprintSet::new(first.cache_key, components);
+            assert_eq!(
+                cache
+                    .restore(changed, &root.join(format!("changed-{index}")))
+                    .expect("lookup changed"),
+                LinkResultCacheLookup::Invalidated(reasons)
+            );
+        }
         let _ = fs::remove_dir_all(root);
     }
 

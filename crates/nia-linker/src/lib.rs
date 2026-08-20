@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Typed linker/archive invocation and incremental result identity.
+//!
+//! Cache identity is split into independently diagnosable input, toolchain,
+//! target, tool, and option components. Executable links are cacheable only
+//! when every external input can be represented by those components; opaque
+//! sysroots, native libraries, and raw arguments deliberately disable reuse.
+
 use std::{
     env, fs,
     io::{self, Read},
@@ -40,57 +47,79 @@ const LINK_RESULT_LINKER_DOMAIN: FingerprintDomain =
 const LINK_RESULT_OPTIONS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-options.v2");
 
+/// Stable identity for an executable link result or one of its components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LinkResultFingerprint([u64; 2]);
 
 impl LinkResultFingerprint {
+    /// Reconstructs a persisted fingerprint from two 64-bit lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(parts)
     }
 
+    /// Returns the two lanes for persistence.
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
 }
 
+/// Stable logical link key derived from ordered codegen-unit identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LinkResultCacheKey([u64; 2]);
 
 impl LinkResultCacheKey {
+    /// Reconstructs a persisted cache key from two 64-bit lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(parts)
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
 }
 
+/// Independently comparable components of executable link identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkResultFingerprintComponents {
+    /// Ordered codegen-unit and static-archive identities and contents.
     pub inputs: LinkResultFingerprint,
+    /// Compiler/toolchain compatibility identity.
     pub toolchain: LinkResultFingerprint,
+    /// Target triple, dynamic loader, and implicit target search paths.
     pub target: LinkResultFingerprint,
+    /// Canonical linker path, bytes, and flavor.
     pub linker: LinkResultFingerprint,
+    /// Structured invocation options owned by this crate.
     pub options: LinkResultFingerprint,
 }
 
+/// Complete cache identity for one executable link result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkResultFingerprintSet {
+    /// Logical key shared by revisions of the same ordered input identities.
     pub cache_key: LinkResultCacheKey,
+    /// Combined identity of every component.
     pub fingerprint: LinkResultFingerprint,
+    /// Components retained for precise invalidation reporting.
     pub components: LinkResultFingerprintComponents,
 }
 
+/// Non-input components used to validate a previously described link environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkResultEnvironmentFingerprint {
+    /// Toolchain identity component.
     pub toolchain: LinkResultFingerprint,
+    /// Target environment component.
     pub target: LinkResultFingerprint,
+    /// Linker executable component.
     pub linker: LinkResultFingerprint,
+    /// Structured options component.
     pub options: LinkResultFingerprint,
 }
 
 impl LinkResultFingerprintSet {
+    /// Combines a logical cache key and all independently stored components.
     pub fn new(cache_key: LinkResultCacheKey, components: LinkResultFingerprintComponents) -> Self {
         let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_FINGERPRINT_DOMAIN);
         for component in [
@@ -112,16 +141,23 @@ impl LinkResultFingerprintSet {
     }
 }
 
+/// Component-level reasons why a cached executable link result is stale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkResultInvalidation {
+    /// Whether typed inputs changed.
     pub inputs: bool,
+    /// Whether toolchain compatibility changed.
     pub toolchain: bool,
+    /// Whether the target environment changed.
     pub target: bool,
+    /// Whether linker identity changed.
     pub linker: bool,
+    /// Whether structured options changed.
     pub options: bool,
 }
 
 impl LinkResultInvalidation {
+    /// Compares cached and expected components.
     pub fn between(
         cached: LinkResultFingerprintComponents,
         expected: LinkResultFingerprintComponents,
@@ -135,6 +171,7 @@ impl LinkResultInvalidation {
         }
     }
 
+    /// Returns the number of changed components.
     pub fn count(self) -> u32 {
         u32::from(self.inputs)
             + u32::from(self.toolchain)
@@ -144,40 +181,59 @@ impl LinkResultInvalidation {
     }
 }
 
+/// Command-line protocol implemented by an executable linker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkerFlavor {
+    /// GNU `ld` compatible command line.
     Gnu,
+    /// LLVM `ld.lld` using the GNU-compatible command line.
     Lld,
+    /// Reserved future in-process ELF linker.
     SelfHostedElf,
 }
 
+/// Whether an executable link is fully static or permits dynamic dependencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkMode {
+    /// Request a static executable.
     Static,
+    /// Request a dynamically loadable executable.
     Dynamic,
 }
 
+/// Dynamic loader selection for a dynamic executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DynamicLinker {
+    /// Derive the standard loader from the target or native executable metadata.
     Auto,
+    /// Explicitly request no dynamic loader.
     None,
+    /// Use the exact loader path.
     Path(String),
 }
 
+/// Per-library override for static or dynamic search behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LibraryLinkMode {
+    /// Follow the enclosing executable link mode.
     Default,
+    /// Search only static libraries for this and following libraries.
     Static,
+    /// Search only dynamic libraries for this and following libraries.
     Dynamic,
 }
 
+/// One native library name and its search-mode selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeLibrary {
+    /// Linker library name, without the `-l` prefix.
     pub name: String,
+    /// Search mode applied before this library.
     pub mode: LibraryLinkMode,
 }
 
 impl NativeLibrary {
+    /// Creates a library following the enclosing link mode.
     pub fn default(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -185,6 +241,7 @@ impl NativeLibrary {
         }
     }
 
+    /// Creates a library selected from static archives.
     pub fn static_(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -192,6 +249,7 @@ impl NativeLibrary {
         }
     }
 
+    /// Creates a library selected from dynamic libraries.
     pub fn dynamic(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -200,13 +258,17 @@ impl NativeLibrary {
     }
 }
 
+/// Executable linker program and command-line flavor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableLinker {
+    /// Program name or path; an empty LLD program triggers discovery.
     pub program: String,
+    /// Command-line protocol used by the program.
     pub flavor: LinkerFlavor,
 }
 
 impl ExecutableLinker {
+    /// Selects `NIA_LINKER` when set, otherwise GNU `ld`.
     pub fn native() -> Self {
         if let Ok(program) = env::var("NIA_LINKER")
             && !program.is_empty()
@@ -216,6 +278,7 @@ impl ExecutableLinker {
         Self::with_program("ld")
     }
 
+    /// Selects an explicit GNU-compatible linker program.
     pub fn with_program(program: impl Into<String>) -> Self {
         Self {
             program: program.into(),
@@ -223,6 +286,7 @@ impl ExecutableLinker {
         }
     }
 
+    /// Selects an explicit program and command-line flavor.
     pub fn with_program_and_flavor(program: impl Into<String>, flavor: LinkerFlavor) -> Self {
         Self {
             program: program.into(),
@@ -230,6 +294,7 @@ impl ExecutableLinker {
         }
     }
 
+    /// Selects discoverable LLD, honoring `NIA_LLD` before `PATH`.
     pub fn lld() -> Self {
         Self {
             program: String::new(),
@@ -238,12 +303,15 @@ impl ExecutableLinker {
     }
 }
 
+/// Static archive tool program selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveTool {
+    /// Explicit program name/path, or empty to discover `llvm-ar` then `ar`.
     pub program: String,
 }
 
 impl ArchiveTool {
+    /// Selects `NIA_AR` when set, otherwise automatic discovery.
     pub fn native() -> Self {
         if let Ok(program) = env::var("NIA_AR")
             && !program.is_empty()
@@ -255,6 +323,7 @@ impl ArchiveTool {
         }
     }
 
+    /// Selects an explicit archive tool program.
     pub fn with_program(program: impl Into<String>) -> Self {
         Self {
             program: program.into(),
@@ -280,49 +349,66 @@ impl ArchiveTool {
     }
 }
 
+/// Stable identity for a static archive result or one of its components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArchiveFingerprint([u64; 2]);
 
 impl ArchiveFingerprint {
+    /// Reconstructs a persisted fingerprint from two 64-bit lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(parts)
     }
 
+    /// Returns the two lanes for persistence.
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
 }
 
+/// Stable logical archive key derived from ordered codegen-unit identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArchiveCacheKey([u64; 2]);
 
 impl ArchiveCacheKey {
+    /// Reconstructs a persisted cache key from two 64-bit lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(parts)
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
 }
 
+/// Independently comparable components of static archive identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchiveFingerprintComponents {
+    /// Ordered codegen-unit identities and contents.
     pub inputs: ArchiveFingerprint,
+    /// Compiler/toolchain compatibility identity.
     pub toolchain: ArchiveFingerprint,
+    /// Target architecture, OS, and ABI.
     pub target: ArchiveFingerprint,
+    /// Canonical archive-tool path and bytes.
     pub tool: ArchiveFingerprint,
+    /// Deterministic archive protocol and compiler version.
     pub options: ArchiveFingerprint,
 }
 
+/// Complete cache identity for one static archive result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchiveFingerprintSet {
+    /// Logical key shared by revisions of the same ordered member identities.
     pub cache_key: ArchiveCacheKey,
+    /// Combined identity of every component.
     pub fingerprint: ArchiveFingerprint,
+    /// Components retained for precise invalidation reporting.
     pub components: ArchiveFingerprintComponents,
 }
 
 impl ArchiveFingerprintSet {
+    /// Combines a logical cache key and all independently stored components.
     pub fn new(cache_key: ArchiveCacheKey, components: ArchiveFingerprintComponents) -> Self {
         let mut builder = QueryFingerprintBuilder::new(ARCHIVE_RESULT_FINGERPRINT_DOMAIN);
         for component in [
@@ -344,16 +430,23 @@ impl ArchiveFingerprintSet {
     }
 }
 
+/// Component-level reasons why a cached static archive is stale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchiveInvalidation {
+    /// Whether typed member inputs changed.
     pub inputs: bool,
+    /// Whether toolchain compatibility changed.
     pub toolchain: bool,
+    /// Whether target identity changed.
     pub target: bool,
+    /// Whether archive-tool identity changed.
     pub tool: bool,
+    /// Whether deterministic archive options changed.
     pub options: bool,
 }
 
 impl ArchiveInvalidation {
+    /// Compares cached and expected components.
     pub fn between(
         cached: ArchiveFingerprintComponents,
         expected: ArchiveFingerprintComponents,
@@ -367,6 +460,7 @@ impl ArchiveInvalidation {
         }
     }
 
+    /// Returns the number of changed components.
     pub fn count(self) -> u32 {
         u32::from(self.inputs)
             + u32::from(self.toolchain)
@@ -376,17 +470,25 @@ impl ArchiveInvalidation {
     }
 }
 
+/// Non-input components used to validate a static archive environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArchiveEnvironmentFingerprint {
+    /// Toolchain identity component.
     pub toolchain: ArchiveFingerprint,
+    /// Target identity component.
     pub target: ArchiveFingerprint,
+    /// Archive-tool executable component.
     pub tool: ArchiveFingerprint,
+    /// Deterministic options component.
     pub options: ArchiveFingerprint,
 }
 
+/// Target and archive-tool selection for deterministic static archives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveOptions {
+    /// Target identity recorded in archive cache entries.
     pub target: LinkTarget,
+    /// Archive tool used to materialize the result.
     pub tool: ArchiveTool,
 }
 
@@ -400,16 +502,19 @@ impl Default for ArchiveOptions {
 }
 
 impl ArchiveOptions {
+    /// Overrides the target recorded in result identity.
     pub fn with_target(mut self, target: LinkTarget) -> Self {
         self.target = target;
         self
     }
 
+    /// Overrides archive-tool discovery.
     pub fn with_tool(mut self, tool: ArchiveTool) -> Self {
         self.tool = tool;
         self
     }
 
+    /// Fingerprints the toolchain, target, resolved tool bytes, and deterministic options.
     pub fn environment_fingerprint(
         &self,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
@@ -448,6 +553,7 @@ impl ArchiveOptions {
         })
     }
 
+    /// Computes complete result identity from ordered typed inputs and the environment.
     pub fn result_fingerprint<T>(
         &self,
         inputs: &IncrementalLinkInputs<T>,
@@ -477,6 +583,7 @@ impl ArchiveOptions {
         ))
     }
 
+    /// Tests whether non-input components still describe the current environment.
     pub fn matches_result_environment(
         &self,
         expected: ArchiveFingerprintComponents,
@@ -489,6 +596,7 @@ impl ArchiveOptions {
             && current.options == expected.options)
     }
 
+    /// Builds a deterministic `rcsD` archive invocation preserving input order.
     pub fn invocation(
         &self,
         inputs: &[PathBuf],
@@ -507,20 +615,28 @@ impl ArchiveOptions {
     }
 }
 
+/// Fully resolved archive-tool process invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveInvocation {
+    /// Archive-tool executable path.
     pub program: String,
+    /// Ordered command-line arguments.
     pub args: Vec<String>,
 }
 
+/// Architecture, operating system, and ABI relevant to link behavior.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkTarget {
+    /// Target architecture spelling.
     pub arch: String,
+    /// Target operating system spelling.
     pub os: String,
+    /// Target ABI spelling, such as `gnu` or `musl`.
     pub abi: String,
 }
 
 impl LinkTarget {
+    /// Creates the process host target with the platform's default ABI.
     pub fn host() -> Self {
         Self {
             arch: env::consts::ARCH.to_string(),
@@ -529,6 +645,7 @@ impl LinkTarget {
         }
     }
 
+    /// Converts compiler target configuration, supplying the OS default ABI when absent.
     pub fn from_target_config(config: &TargetConfig) -> Self {
         Self {
             arch: config.arch.clone(),
@@ -541,27 +658,41 @@ impl LinkTarget {
         }
     }
 
+    /// Tests exact architecture, OS, and ABI equality with the process host.
     pub fn is_host(&self) -> bool {
         let host = Self::host();
         self.arch == host.arch && self.os == host.os && self.abi == host.abi
     }
 }
 
+/// Structured executable-link configuration and external inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkOptions {
+    /// Target whose executable is produced.
     pub target: LinkTarget,
+    /// Executable linker selection.
     pub linker: ExecutableLinker,
+    /// Optional entry symbol passed with `-e`.
     pub entry: Option<String>,
+    /// Static or dynamic executable mode.
     pub mode: LinkMode,
+    /// Dynamic loader policy.
     pub dynamic_linker: DynamicLinker,
+    /// Optional external sysroot.
     pub sysroot: Option<String>,
+    /// Explicit native library search paths.
     pub library_paths: Vec<String>,
+    /// Runtime search paths embedded in the result.
     pub rpaths: Vec<String>,
+    /// Native libraries searched by the linker.
     pub libraries: Vec<NativeLibrary>,
+    /// Typed static archive inputs with content fingerprints.
     pub static_archives: Vec<StaticArchiveLinkInput>,
+    /// Opaque trailing linker arguments.
     pub raw_args: Vec<String>,
 }
 
+/// Static archive input split into logical identity, physical path, and content identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticArchiveLinkInput {
     package: String,
@@ -571,6 +702,10 @@ pub struct StaticArchiveLinkInput {
 }
 
 impl StaticArchiveLinkInput {
+    /// Captures archive content from an in-memory byte slice.
+    ///
+    /// `package` and `name` participate in logical cache identity; `path` is
+    /// used only for invocation, allowing relocation without invalidation.
     pub fn from_bytes(
         package: impl Into<String>,
         name: impl Into<String>,
@@ -609,6 +744,7 @@ impl StaticArchiveLinkInput {
         })
     }
 
+    /// Returns the physical archive path used in linker invocation.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -656,6 +792,11 @@ impl Default for LinkOptions {
 }
 
 impl LinkOptions {
+    /// Computes complete executable-link identity when every external input is tracked.
+    ///
+    /// Returns `None` when a sysroot, native library, raw argument, unreadable
+    /// linker, or unresolvable linker path prevents complete identity. Callers
+    /// must execute the link without persistent result reuse in that case.
     pub fn result_fingerprint<T>(
         &self,
         inputs: &IncrementalLinkInputs<T>,
@@ -699,6 +840,7 @@ impl LinkOptions {
         )))
     }
 
+    /// Tests whether cached non-input components still match the current environment.
     pub fn matches_result_environment(
         &self,
         expected: LinkResultFingerprintComponents,
@@ -713,6 +855,10 @@ impl LinkOptions {
             && current.options == expected.options)
     }
 
+    /// Computes non-input identity when the environment is fully observable.
+    ///
+    /// Returns `None` under the same conservative conditions as
+    /// [`Self::result_fingerprint`].
     pub fn result_environment_fingerprint(
         &self,
         toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
@@ -765,26 +911,31 @@ impl LinkOptions {
         }))
     }
 
+    /// Replaces opaque linker arguments, which disable result caching.
     pub fn with_raw_args(mut self, args: Vec<String>) -> Self {
         self.raw_args = args;
         self
     }
 
+    /// Overrides executable-linker selection.
     pub fn with_linker(mut self, linker: ExecutableLinker) -> Self {
         self.linker = linker;
         self
     }
 
+    /// Overrides the artifact target.
     pub fn with_target(mut self, target: LinkTarget) -> Self {
         self.target = target;
         self
     }
 
+    /// Overrides dynamic loader selection.
     pub fn with_dynamic_linker(mut self, dynamic_linker: DynamicLinker) -> Self {
         self.dynamic_linker = dynamic_linker;
         self
     }
 
+    /// Selects dynamic mode and defaults an absent loader to automatic selection.
     pub fn with_dynamic_mode(mut self) -> Self {
         self.mode = LinkMode::Dynamic;
         if self.dynamic_linker == DynamicLinker::None {
@@ -793,36 +944,43 @@ impl LinkOptions {
         self
     }
 
+    /// Appends a native library search path.
     pub fn add_library_path(mut self, path: impl Into<String>) -> Self {
         self.library_paths.push(path.into());
         self
     }
 
+    /// Appends a runtime library search path.
     pub fn add_rpath(mut self, path: impl Into<String>) -> Self {
         self.rpaths.push(path.into());
         self
     }
 
+    /// Appends a native library following the enclosing link mode.
     pub fn add_library(mut self, library: impl Into<String>) -> Self {
         self.libraries.push(NativeLibrary::default(library));
         self
     }
 
+    /// Appends a native library forced to static search.
     pub fn add_static_library(mut self, library: impl Into<String>) -> Self {
         self.libraries.push(NativeLibrary::static_(library));
         self
     }
 
+    /// Appends a native library forced to dynamic search.
     pub fn add_dynamic_library(mut self, library: impl Into<String>) -> Self {
         self.libraries.push(NativeLibrary::dynamic(library));
         self
     }
 
+    /// Replaces typed static archive inputs.
     pub fn with_static_archives(mut self, archives: Vec<StaticArchiveLinkInput>) -> Self {
         self.static_archives = archives;
         self
     }
 
+    /// Builds a resolved linker process invocation for ordered typed inputs.
     pub fn invocation(
         &self,
         inputs: &IncrementalLinkInputs<PathBuf>,
@@ -1059,28 +1217,43 @@ impl ExecutableLinker {
     }
 }
 
+/// Fully resolved executable-link process invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkerInvocation {
+    /// Linker executable path.
     pub program: String,
+    /// Ordered command-line arguments.
     pub args: Vec<String>,
 }
 
+/// Failure while resolving a linker, archive tool, or target runtime metadata.
 #[derive(Debug)]
 pub enum LinkerConfigError {
+    /// An explicitly selected archive tool was not found.
     ArchiveToolNotFound {
+        /// Requested program name/path.
         program: String,
     },
+    /// A filesystem or executable inspection operation failed.
     Io {
+        /// Path involved in the operation.
         path: PathBuf,
+        /// Underlying I/O error.
         error: io::Error,
     },
+    /// A file expected to contain a supported ELF image was malformed.
     InvalidElf {
+        /// ELF path.
         path: PathBuf,
     },
+    /// The requested linker flavor could not be discovered.
     LinkerNotFound {
+        /// Requested command-line flavor.
         flavor: LinkerFlavor,
+        /// Program searched for.
         program: String,
     },
+    /// The flavor is reserved but has no invocation implementation.
     UnsupportedFlavor(LinkerFlavor),
 }
 
@@ -1244,6 +1417,7 @@ fn glob_file_name_matches(pattern: &str, file_name: &str) -> bool {
     file_name.starts_with(prefix) && file_name.ends_with(suffix)
 }
 
+/// Reads the host executable's ELF interpreter when supported by the host OS.
 pub fn native_dynamic_linker() -> Result<Option<String>, LinkerConfigError> {
     #[cfg(target_os = "linux")]
     {
@@ -1260,10 +1434,12 @@ pub fn native_dynamic_linker() -> Result<Option<String>, LinkerConfigError> {
     }
 }
 
+/// Returns the standard dynamic linker path for the process host target.
 pub fn standard_dynamic_linker() -> Option<String> {
     standard_dynamic_linker_for(&LinkTarget::host())
 }
 
+/// Returns a known standard dynamic linker path for a target architecture/ABI.
 pub fn standard_dynamic_linker_for(target: &LinkTarget) -> Option<String> {
     if target.os != "linux" {
         return None;
