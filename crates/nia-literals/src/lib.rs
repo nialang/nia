@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Parsing and decoding of numeric, character, and string literals.
 
+/// Evaluates an integer literal with radix prefixes, separators, and suffixes.
 pub fn eval_int_literal(text: &str) -> Result<i128, String> {
     parse_int_literal(text)
 }
 
+/// Evaluates a decimal floating-point literal after removing its suffix.
 pub fn eval_float_literal(text: &str) -> Result<f64, String> {
     let body = numeric_literal_body(text);
     body.replace('_', "")
@@ -96,18 +99,21 @@ fn digit_value(byte: u8) -> Option<u32> {
     }
 }
 
+/// Decodes a quoted character literal to its single Unicode scalar value.
 pub fn decode_char_literal(text: &str) -> Option<u32> {
     let inner = text.strip_prefix('\'')?.strip_suffix('\'')?;
     let scalars = decode_scalar_literal_inner(inner)?;
     (scalars.len() == 1).then_some(scalars[0])
 }
 
+/// Decodes a byte character literal to its single byte value.
 pub fn decode_byte_char_literal(text: &str) -> Option<u8> {
     let inner = text.strip_prefix("b'")?.strip_suffix('\'')?;
     let bytes = decode_byte_literal_inner(inner)?;
     (bytes.len() == 1).then_some(bytes[0])
 }
 
+/// Decodes and concatenates ordinary string literal parts.
 pub fn eval_string_literal_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<String> {
     let parts = collect_literal_parts(parts);
     if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
@@ -120,6 +126,7 @@ pub fn eval_string_literal_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -
     Some(out)
 }
 
+/// Decodes and concatenates byte-string literal parts.
 pub fn eval_byte_string_literal_parts<'a>(
     parts: impl IntoIterator<Item = &'a str>,
 ) -> Option<Vec<u8>> {
@@ -134,12 +141,14 @@ pub fn eval_byte_string_literal_parts<'a>(
     Some(bytes)
 }
 
+/// Decodes string literal parts into their Unicode scalar values.
 pub fn decode_string_literal_scalars<'a>(
     parts: impl IntoIterator<Item = &'a str>,
 ) -> Option<Vec<u32>> {
     eval_string_literal_parts(parts).map(|value| value.chars().map(|ch| ch as u32).collect())
 }
 
+/// Counts Unicode scalar values represented by string literal parts.
 pub fn string_literal_char_len<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<usize> {
     let parts = collect_literal_parts(parts);
     if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
@@ -150,6 +159,7 @@ pub fn string_literal_char_len<'a>(parts: impl IntoIterator<Item = &'a str>) -> 
     })
 }
 
+/// Counts bytes represented by byte-string literal parts.
 pub fn byte_string_literal_len<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<usize> {
     let parts = collect_literal_parts(parts);
     if parts.len() > 1 && parts.iter().any(|part| is_multiline_literal(part)) {
