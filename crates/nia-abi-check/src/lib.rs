@@ -25,15 +25,20 @@ use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
 /// in the requesting module's signature store until this checker expands it.
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramAbiSignatures<'a> {
+    /// Imported struct signatures keyed by global definition.
     pub structs: &'a HashMap<GlobalDefId, StructSignature>,
+    /// Imported union signatures keyed by global definition.
     pub unions: &'a HashMap<GlobalDefId, UnionSignature>,
+    /// Imported enum signatures keyed by global definition.
     pub enums: &'a HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+    /// Imported type-alias signatures keyed by global definition.
     pub type_aliases: &'a HashMap<GlobalDefId, TypeAliasSignature>,
 }
 
 /// Diagnostics produced while validating one module's foreign declarations.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbiCheck {
+    /// Diagnostics emitted while validating ABI declarations.
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -43,11 +48,17 @@ pub struct AbiCheck {
 /// cached function, type, and value signature products without cloning them.
 #[derive(Debug, Clone, Copy)]
 pub struct ModuleAbiSignatures<'a> {
+    /// Function signatures declared by the module.
     pub functions: &'a HashMap<DefId, FunctionSignature>,
+    /// Struct signatures declared by the module.
     pub structs: &'a HashMap<DefId, StructSignature>,
+    /// Union signatures declared by the module.
     pub unions: &'a HashMap<DefId, UnionSignature>,
+    /// Enum signatures declared by the module.
     pub enums: &'a HashMap<DefId, EnumSignature>,
+    /// Type aliases declared by the module.
     pub type_aliases: &'a HashMap<DefId, TypeAliasSignature>,
+    /// Global signatures declared by the module.
     pub globals: &'a HashMap<DefId, GlobalSignature>,
 }
 
