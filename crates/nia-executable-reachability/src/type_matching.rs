@@ -1313,15 +1313,20 @@ fn associated_type_bindings_equivalent(
     right_store: &TypeStore,
     right: &[AssociatedTypeBindingTy],
 ) -> bool {
-    left.len() == right.len()
-        && left.iter().all(|left_binding| {
-            right.iter().any(|right_binding| {
-                associated_type_binding_keys_equivalent(
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut used = vec![false; right.len()];
+    left.iter().all(|left_binding| {
+        let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
+            (!used[index]
+                && associated_type_binding_keys_equivalent(
                     left_store,
                     left_binding,
                     right_store,
                     right_binding,
-                ) && typed_refs_equivalent(
+                )
+                && typed_refs_equivalent(
                     TypedTyRef {
                         store: left_store,
                         ty: left_binding.ty,
@@ -1330,9 +1335,14 @@ fn associated_type_bindings_equivalent(
                         store: right_store,
                         ty: right_binding.ty,
                     },
-                )
-            })
-        })
+                ))
+            .then_some(index)
+        }) else {
+            return false;
+        };
+        used[index] = true;
+        true
+    })
 }
 
 fn associated_type_binding_keys_equivalent(
@@ -1808,6 +1818,23 @@ mod tests {
                 store: &right,
                 ty: right_ty,
             },
+        ));
+        let right_mismatch = right_append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: vec![binding(right_i32), binding(right_i32)],
+        });
+        assert!(!typed_refs_equivalent(
+            TypedTyRef {
+                store: &left,
+                ty: left_ty,
+            },
+            TypedTyRef {
+                store: &right,
+                ty: right_mismatch,
+            }
         ));
     }
 }

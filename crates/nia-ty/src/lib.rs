@@ -867,13 +867,22 @@ pub trait TypeEquivalence {
         left: &[AssociatedTypeBindingTy],
         right: &[AssociatedTypeBindingTy],
     ) -> bool {
-        left.len() == right.len()
-            && left.iter().all(|left_binding| {
-                right.iter().any(|right_binding| {
-                    self.same_associated_type_binding_key_for_equiv(left_binding, right_binding)
-                        && self.same_type_for_equiv(left_binding.ty, right_binding.ty)
-                })
-            })
+        if left.len() != right.len() {
+            return false;
+        }
+        let mut used = vec![false; right.len()];
+        left.iter().all(|left_binding| {
+            let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
+                (!used[index]
+                    && self.same_associated_type_binding_key_for_equiv(left_binding, right_binding)
+                    && self.same_type_for_equiv(left_binding.ty, right_binding.ty))
+                .then_some(index)
+            }) else {
+                return false;
+            };
+            used[index] = true;
+            true
+        })
     }
 
     fn same_associated_type_binding_key_for_equiv(
@@ -1240,6 +1249,14 @@ mod tests {
         };
 
         assert!(equivalence.same_type_for_equiv(left_ty, right_ty));
+        let right_mismatch = right_append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: vec![binding(right_i32), binding(right_i32)],
+        });
+        assert!(!equivalence.same_type_for_equiv(left_ty, right_mismatch));
     }
 
     #[test]

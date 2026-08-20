@@ -1385,10 +1385,17 @@ impl<'a> BodyChecker<'a> {
         expected: &[AssociatedTypeBindingTy],
         actual: &[AssociatedTypeBindingTy],
     ) -> bool {
-        expected.len() == actual.len()
-            && expected.iter().all(|expected_binding| {
-                actual.iter().any(|actual_binding| {
-                    actual_binding.name == expected_binding.name
+        if expected.len() != actual.len() {
+            return false;
+        }
+        let mut used = vec![false; actual.len()];
+        expected.iter().all(|expected_binding| {
+            let Some(index) = actual
+                .iter()
+                .enumerate()
+                .find_map(|(index, actual_binding)| {
+                    (!used[index]
+                        && actual_binding.name == expected_binding.name
                         && actual_binding.trait_id == expected_binding.trait_id
                         && actual_binding.trait_args.len() == expected_binding.trait_args.len()
                         && actual_binding.trait_const_args.len()
@@ -1407,9 +1414,15 @@ impl<'a> BodyChecker<'a> {
                             .all(|(actual, expected)| {
                                 self.const_generic_args_match(expected, actual)
                             })
-                        && self.types_match_normalized(expected_binding.ty, actual_binding.ty)
+                        && self.types_match_normalized(expected_binding.ty, actual_binding.ty))
+                    .then_some(index)
                 })
-            })
+            else {
+                return false;
+            };
+            used[index] = true;
+            true
+        })
     }
 
     pub(crate) fn const_generic_args_match(

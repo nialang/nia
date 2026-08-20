@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 192 completed entries in this ledger.
+- Implementation batches: 193 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1149,6 +1149,10 @@ acceptance item only when its phase-wide evidence is complete.
       associated binding key and value together in the same candidate. Reordered
       bindings with overlapping keys cannot stop at a value-incompatible first
       match.
+- [x] Phase A associated-binding equivalence now consumes each actual binding
+      at most once. Body-check, trait-solver, type-store, and reachability
+      comparisons reject mismatched duplicate-key multiplicities instead of
+      reusing one successful candidate.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
