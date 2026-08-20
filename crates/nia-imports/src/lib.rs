@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Module maps, stable identities, and import-graph construction utilities.
+
 use std::{fmt, sync::Arc};
 
 use nia_diagnostic::{Diagnostic, codes};
@@ -10,17 +12,23 @@ pub use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, stable_hash};
 
+/// Reserved module-map name for the entry package.
 pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
+/// Reserved module-map name for package-relative roots.
 pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
+/// Reserved module-map name for compiler builtins.
 pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
+/// Reserved module-map name for the standard library.
 pub const STD_MODULE_MAP_NAME: &str = "std";
 
+/// Names that cannot be inserted as ordinary package roots.
 pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
     ENTRY_MODULE_MAP_NAME,
     PACKAGE_MODULE_MAP_NAME,
     BUILTIN_MODULE_MAP_NAME,
 ];
 
+/// Reports whether text names a compiler-reserved module root.
 pub fn is_compiler_reserved_module_root(name: &str) -> bool {
     COMPILER_RESERVED_MODULE_ROOTS.contains(&name)
 }
@@ -39,18 +47,22 @@ fn reserved_module_root_symbol(name: &str) -> Option<SymbolId> {
     }
 }
 
+/// Reports whether a symbol denotes the entry module root.
 pub fn is_entry_module_root(symbol: SymbolId) -> bool {
     symbol == known::ENTRY
 }
 
+/// Reports whether a symbol denotes the standard-library root.
 pub fn is_std_module_root(symbol: SymbolId) -> bool {
     symbol == known::STD
 }
 
+/// Reports whether a symbol denotes the builtin root.
 pub fn is_builtin_module_root(symbol: SymbolId) -> bool {
     symbol == known::BUILTIN
 }
 
+/// Returns known text for a module root, with a stable fallback.
 pub fn module_symbol_text(symbol: SymbolId) -> String {
     fallback_module_symbol_text(symbol)
 }
@@ -71,23 +83,31 @@ fn resolved_module_symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> St
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Root selection mode for resolving an import path.
 pub enum ModuleRootSegment {
+    /// Resolve from the current module.
     Current,
+    /// Resolve from the current module's parent.
     Parent,
+    /// Resolve from the current package root.
     PackageRelative,
+    /// Resolve a named package or child root.
     Named(SymbolId),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Mapping from source package names to module root paths.
 pub struct ModuleMap {
     entries: SymbolMap<SourcePath>,
 }
 
 impl ModuleMap {
+    /// Creates an empty module map.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Inserts a non-reserved root, panicking on reserved names.
     pub fn insert(&mut self, name: impl Into<String>, path: SourcePath) {
         let name = name.into();
         assert!(
@@ -98,6 +118,7 @@ impl ModuleMap {
             .insert(module_root_symbol_from_text(&name), path);
     }
 
+    /// Inserts a non-reserved root and reports reserved-name errors.
     pub fn try_insert(&mut self, name: impl Into<String>, path: SourcePath) -> Result<(), String> {
         let name = name.into();
         if is_compiler_reserved_module_root(&name) {
@@ -108,52 +129,64 @@ impl ModuleMap {
         Ok(())
     }
 
+    /// Returns a copy with the entry root installed.
     pub fn with_entry(&self, entry_path: SourcePath) -> Self {
         let mut map = self.clone();
         map.entries.insert(known::ENTRY, entry_path);
         map
     }
 
+    /// Returns a copy with a default standard-library root.
     pub fn with_default_std(&self, std_path: SourcePath) -> Self {
         let mut map = self.clone();
         map.entries.entry(known::STD).or_insert(std_path);
         map
     }
 
+    /// Looks up a root by source text, including reserved aliases.
     pub fn get(&self, name: &str) -> Option<&SourcePath> {
         let symbol =
             reserved_module_root_symbol(name).unwrap_or_else(|| module_root_symbol_from_text(name));
         self.get_name(&symbol)
     }
 
+    /// Looks up a root by stable symbol identity.
     pub fn get_name(&self, name: &SymbolId) -> Option<&SourcePath> {
         self.entries.get(name)
     }
 
+    /// Reports whether a root identity is present.
     pub fn contains_root(&self, name: SymbolId) -> bool {
         self.entries.contains_key(&name)
     }
 
+    /// Returns the configured standard-library path, if any.
     pub fn std_path(&self) -> Option<&SourcePath> {
         self.get_name(&known::STD)
     }
 
+    /// Iterates root identities and source paths.
     pub fn entries(&self) -> impl Iterator<Item = (SymbolId, &SourcePath)> {
         self.entries.iter().map(|(name, path)| (*name, path))
     }
 
+    /// Reports whether this map has no roots.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Stable package and module path identity.
 pub struct ModulePath {
+    /// Package root identity.
     pub package: SymbolId,
+    /// Child module segments below the package root.
     pub segments: Vec<SymbolId>,
 }
 
 impl ModulePath {
+    /// Creates a package-root path from source text.
     pub fn root(package: impl Into<String>) -> Self {
         let package = package.into();
         Self {
@@ -163,30 +196,36 @@ impl ModulePath {
         }
     }
 
+    /// Appends one child module segment.
     pub fn child(&self, name: SymbolId) -> Self {
         let mut child = self.clone();
         child.segments.push(name);
         child
     }
 
+    /// Removes one child segment, returning `None` at the package root.
     pub fn parent(&self) -> Option<Self> {
         let mut parent = self.clone();
         parent.segments.pop()?;
         Some(parent)
     }
 
+    /// Reports whether this path is exactly a package root.
     pub fn is_package_root(&self) -> bool {
         self.segments.is_empty()
     }
 
+    /// Reports whether this path belongs to the entry package.
     pub fn is_entry_package(&self) -> bool {
         is_entry_module_root(self.package)
     }
 
+    /// Reports whether this path belongs to the standard library.
     pub fn is_std_package(&self) -> bool {
         is_std_module_root(self.package)
     }
 
+    /// Reports whether this path is the standard-library start module.
     pub fn is_std_start_module(&self) -> bool {
         self.is_std_package()
             && self
@@ -197,39 +236,47 @@ impl ModulePath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable module identity backed by a source identity.
 pub struct StableModuleKey(Arc<SourceIdentity>);
 
 impl StableModuleKey {
+    /// Creates a stable key from a source identity.
     pub fn from_source_identity(source_identity: SourceIdentity) -> Self {
         Self(Arc::new(source_identity))
     }
 
+    /// Returns the source identity carried by this key.
     pub fn source_identity(&self) -> &SourceIdentity {
         &self.0
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable definition identity combining a module key and local definition id.
 pub struct StableDefKey {
     module: StableModuleKey,
     def: DefId,
 }
 
 impl StableDefKey {
+    /// Creates a stable definition key.
     pub fn new(module: StableModuleKey, def: DefId) -> Self {
         Self { module, def }
     }
 
+    /// Returns the owning stable module key.
     pub fn module(&self) -> &StableModuleKey {
         &self.module
     }
 
+    /// Returns the local definition id.
     pub fn def(&self) -> DefId {
         self.def
     }
 }
 
 #[derive(Clone)]
+/// Mutable module graph keyed by stable source and module-path identities.
 pub struct ModuleGraph {
     module_ids: ModuleIdAllocator,
     entry: ModuleId,
@@ -271,13 +318,16 @@ impl PartialEq for ModuleGraph {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Cheaply clonable, pointer-comparable snapshot of a module graph.
 pub struct ModuleGraphSnapshot(Arc<ModuleGraph>);
 
 impl ModuleGraphSnapshot {
+    /// Wraps a graph in shared snapshot storage.
     pub fn new(graph: ModuleGraph) -> Self {
         Self(Arc::new(graph))
     }
 
+    /// Reports whether two snapshots share the same graph allocation.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
@@ -298,10 +348,12 @@ impl std::ops::Deref for ModuleGraphSnapshot {
 }
 
 impl ModuleGraph {
+    /// Creates a graph with the supplied entry source and known symbols.
     pub fn new(entry_path: SourcePath) -> Self {
         Self::with_symbol_text(entry_path, Arc::new(KnownSymbolText))
     }
 
+    /// Creates a graph with an explicit symbol-text provider.
     pub fn with_symbol_text(
         entry_path: SourcePath,
         symbols: Arc<dyn SymbolText + Send + Sync>,
@@ -340,16 +392,19 @@ impl ModuleGraph {
         }
     }
 
+    /// Returns the entry module id.
     pub fn entry(&self) -> ModuleId {
         self.entry
     }
 
+    /// Marks a module and all descendants as executable roots.
     pub fn mark_executable_root_subtree(&mut self, module_id: ModuleId) {
         if self.get(module_id).is_some() && !self.executable_root_subtrees.contains(&module_id) {
             self.executable_root_subtrees.push(module_id);
         }
     }
 
+    /// Reports whether a module is inside an executable root subtree.
     pub fn is_executable_root_module(&self, mut module_id: ModuleId) -> bool {
         loop {
             if self.executable_root_subtrees.contains(&module_id) {
@@ -362,6 +417,7 @@ impl ModuleGraph {
         }
     }
 
+    /// Looks up a module node by its allocated id.
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
         self.modules
             .get(id.local_index() as usize)
@@ -374,22 +430,27 @@ impl ModuleGraph {
             .filter(|module| module.id == id)
     }
 
+    /// Resolves a source path to its module id.
     pub fn module_id_for_path(&self, path: &str) -> Option<ModuleId> {
         self.module_id_for_source_identity(&SourceIdentity::new(path))
     }
 
+    /// Resolves a source identity to its module id.
     pub fn module_id_for_source_identity(&self, identity: &SourceIdentity) -> Option<ModuleId> {
         self.module_id_for_stable_key(&StableModuleKey::from_source_identity(identity.clone()))
     }
 
+    /// Resolves a stable module key to its allocated id.
     pub fn module_id_for_stable_key(&self, stable_key: &StableModuleKey) -> Option<ModuleId> {
         self.by_stable_key.get(stable_key).copied()
     }
 
+    /// Returns the stable key for a module id.
     pub fn stable_key(&self, module_id: ModuleId) -> Option<&StableModuleKey> {
         Some(&self.get(module_id)?.stable_key)
     }
 
+    /// Converts a global definition id to its stable key.
     pub fn stable_def_key(&self, def_id: GlobalDefId) -> Option<StableDefKey> {
         Some(StableDefKey::new(
             self.stable_key(def_id.module_id)?.clone(),
@@ -397,6 +458,7 @@ impl ModuleGraph {
         ))
     }
 
+    /// Converts a stable definition key back to a current global id.
     pub fn global_def_id_for_stable_key(&self, stable_key: &StableDefKey) -> Option<GlobalDefId> {
         Some(GlobalDefId {
             module_id: self.module_id_for_stable_key(stable_key.module())?,
@@ -404,22 +466,27 @@ impl ModuleGraph {
         })
     }
 
+    /// Resolves a module path to its allocated id.
     pub fn module_id_for_module_path(&self, path: &ModulePath) -> Option<ModuleId> {
         self.by_module_path.get(path).copied()
     }
 
+    /// Looks up a package root by symbol identity.
     pub fn package_root(&self, package: &SymbolId) -> Option<ModuleId> {
         self.package_roots.get(package).copied()
     }
 
+    /// Returns the standard-library package root, if interned.
     pub fn std_package_root(&self) -> Option<ModuleId> {
         self.package_root(&known::STD)
     }
 
+    /// Interns and returns the standard-library package root.
     pub fn intern_std_package_root(&mut self, path: SourcePath) -> ModuleId {
         self.intern_package_root(&known::STD, path)
     }
 
+    /// Marks an interned package facade active and returns its root.
     pub fn mark_package_facade_active(&mut self, package: &SymbolId) -> Option<ModuleId> {
         let module_id = self.package_root(package)?;
         self.active_package_facades
@@ -428,15 +495,18 @@ impl ModuleGraph {
         Some(module_id)
     }
 
+    /// Reports whether a package facade has been marked active.
     pub fn package_facade_active(&self, package: &SymbolId) -> bool {
         self.active_package_facades.contains_key(package)
     }
 
+    /// Returns the package root containing a module.
     pub fn current_package_root(&self, module_id: ModuleId) -> Option<ModuleId> {
         let package = &self.get(module_id)?.module_path.package;
         self.package_root(package)
     }
 
+    /// Resolves a root selector relative to a current module.
     pub fn root_module_for_segment(
         &self,
         current_module: ModuleId,
@@ -450,6 +520,7 @@ impl ModuleGraph {
         }
     }
 
+    /// Resolves a named root from a current module or package map.
     pub fn root_module_for_name(
         &self,
         current_module: ModuleId,
@@ -463,10 +534,12 @@ impl ModuleGraph {
             .or_else(|| self.package_root(&name))
     }
 
+    /// Iterates all module nodes in allocation order.
     pub fn modules(&self) -> impl Iterator<Item = &ModuleNode> {
         self.modules.iter()
     }
 
+    /// Enables used-path processing and reports whether it changed state.
     pub fn mark_process_used_paths(&mut self, module_id: ModuleId) -> bool {
         if let Some(module) = self.get_mut(module_id) {
             let was_enabled = module.process_used_paths;
@@ -478,6 +551,7 @@ impl ModuleGraph {
         }
     }
 
+    /// Marks a module semantically selected and reports whether it changed state.
     pub fn mark_semantic_selected(&mut self, module_id: ModuleId) -> bool {
         if let Some(module) = self.get_mut(module_id) {
             let was_selected = module.semantic_selected;
@@ -488,12 +562,14 @@ impl ModuleGraph {
         }
     }
 
+    /// Enables processing of declared child modules.
     pub fn mark_process_declared_children(&mut self, module_id: ModuleId) {
         if let Some(module) = self.get_mut(module_id) {
             module.process_declared_children = true;
         }
     }
 
+    /// Interns a package root unless it already exists.
     pub fn intern_package_root(&mut self, name: &SymbolId, path: SourcePath) -> ModuleId {
         if let Some(id) = self.package_roots.get(name).copied() {
             return id;
@@ -505,6 +581,7 @@ impl ModuleGraph {
         self.intern_module(path, module_path, None, false, false)
     }
 
+    /// Interns a declared child with default processing flags.
     pub fn intern_declared_child(
         &mut self,
         parent_id: ModuleId,
@@ -515,6 +592,7 @@ impl ModuleGraph {
         self.intern_declared_child_with_processing(parent_id, name, visibility, span, true, true)
     }
 
+    /// Interns a declared child while explicitly selecting graph processing flags.
     pub fn intern_declared_child_with_processing(
         &mut self,
         parent_id: ModuleId,
@@ -628,14 +706,17 @@ impl ModuleGraph {
         id
     }
 
+    /// Resolves a module symbol through the graph's symbol provider.
     pub fn module_symbol_text(&self, symbol: SymbolId) -> String {
         resolved_module_symbol_text(self.symbols.as_ref(), symbol)
     }
 
+    /// Computes the source path for a declared child module.
     pub fn declared_child_source_path(&self, parent: &ModuleNode, child: SymbolId) -> SourcePath {
         declared_child_source_path_with_symbols(self.symbols.as_ref(), parent, child)
     }
 
+    /// Computes a declared child path from explicit parent identities.
     pub fn declared_child_source_path_for(
         &self,
         parent_path: &SourcePath,
@@ -652,35 +733,54 @@ impl ModuleGraph {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// One module node and its declaration/selection metadata.
 pub struct ModuleNode {
+    /// Allocated module identity.
     pub id: ModuleId,
+    /// Stable source identity key.
     pub stable_key: StableModuleKey,
+    /// Source path used to load the module.
     pub path: SourcePath,
+    /// Package and child-segment identity.
     pub module_path: ModulePath,
+    /// Parent module, if this is not a package root.
     pub parent: Option<ModuleId>,
+    /// Declared child modules keyed by name.
     pub children: SymbolMap<ModuleId>,
+    /// Source declarations exported by this module.
     pub declarations: Vec<ModuleDeclaration>,
+    /// Whether semantic analysis selected this module.
     pub semantic_selected: bool,
+    /// Whether `using` paths should be processed.
     pub process_used_paths: bool,
+    /// Whether declared child modules should be processed.
     pub process_declared_children: bool,
 }
 
+/// Read-only lookup contract implemented by module graph products.
 pub trait ModuleGraphLookup {
+    /// Returns the entry module id.
     fn entry_module(&self) -> ModuleId;
+    /// Returns a package root module by identity.
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId>;
+    /// Returns a module's stable package path.
     fn module_path(&self, module_id: ModuleId) -> Option<ModulePath>;
+    /// Returns a module's parent.
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId>;
+    /// Resolves a declared child and its visibility.
     fn child_declaration(
         &self,
         module_id: ModuleId,
         name: &SymbolId,
     ) -> Option<(ModuleId, Visibility)>;
 
+    /// Returns the package root containing a module.
     fn current_package_root_module(&self, module_id: ModuleId) -> Option<ModuleId> {
         let package = self.module_path(module_id)?.package;
         self.package_root_module(&package)
     }
 
+    /// Resolves a root selector relative to a module.
     fn root_module_for_segment(
         &self,
         current_module: ModuleId,
@@ -796,20 +896,30 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A declared child module recorded in the graph.
 pub struct ModuleDeclaration {
+    /// Declaration name.
     pub name: SymbolId,
+    /// Source visibility of the declaration.
     pub visibility: Visibility,
+    /// Interned child module id.
     pub target: ModuleId,
+    /// Source span of the declaration.
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A module declaration resolved before graph interning.
 pub struct ResolvedModuleDeclaration {
+    /// Declaration name.
     pub name: SymbolId,
+    /// Source visibility of the declaration.
     pub visibility: Visibility,
+    /// Source span of the declaration.
     pub span: Span,
 }
 
+/// Resolves module declarations from an active item tree.
 pub fn resolve_module_declarations_from_active_item_tree(
     diagnostics: &mut Vec<Diagnostic>,
     item_tree: &ActiveModuleItemTree,
@@ -821,6 +931,7 @@ pub fn resolve_module_declarations_from_active_item_tree(
     )
 }
 
+/// Resolves module declarations with an explicit symbol provider for diagnostics.
 pub fn resolve_module_declarations_from_active_item_tree_with_symbols(
     diagnostics: &mut Vec<Diagnostic>,
     item_tree: &ActiveModuleItemTree,
@@ -853,6 +964,7 @@ pub fn resolve_module_declarations_from_active_item_tree_with_symbols(
     declarations
 }
 
+/// Adds resolved declarations to a graph, reporting invalid parent lookups.
 pub fn add_resolved_module_declarations(
     graph: &mut ModuleGraph,
     module_id: ModuleId,
@@ -869,6 +981,7 @@ pub fn add_resolved_module_declarations(
     Ok(())
 }
 
+/// Checks whether an item visibility permits module access.
 pub fn visibility_allows(
     visibility: Visibility,
     graph: &(impl ModuleGraphLookup + ?Sized),
@@ -899,6 +1012,7 @@ pub fn visibility_allows(
     }
 }
 
+/// Checks module-declaration visibility, including private descendants.
 pub fn module_declaration_visibility_allows(
     visibility: Visibility,
     graph: &(impl ModuleGraphLookup + ?Sized),
@@ -926,10 +1040,12 @@ fn is_descendant_or_self(
     false
 }
 
+/// Computes a child source path using known symbol names.
 pub fn declared_child_source_path(parent: &ModuleNode, child: SymbolId) -> SourcePath {
     declared_child_source_path_with_symbols(&KnownSymbolText, parent, child)
 }
 
+/// Computes a child source path from explicit parent identities.
 pub fn declared_child_source_path_for(
     parent_path: &SourcePath,
     parent_module_path: &ModulePath,
@@ -943,6 +1059,7 @@ pub fn declared_child_source_path_for(
     )
 }
 
+/// Computes a child source path with an explicit symbol provider.
 pub fn declared_child_source_path_with_symbols(
     symbols: &dyn SymbolText,
     parent: &ModuleNode,
@@ -951,6 +1068,7 @@ pub fn declared_child_source_path_with_symbols(
     declared_child_source_path_for_with_symbols(symbols, &parent.path, &parent.module_path, child)
 }
 
+/// Computes a child source path from explicit identities and symbols.
 pub fn declared_child_source_path_for_with_symbols(
     symbols: &dyn SymbolText,
     parent_path: &SourcePath,
