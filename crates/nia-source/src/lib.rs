@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Stable source identities, versioned files, and concurrent source storage.
+
 use std::{
     fs,
     hash::{Hash, Hasher},
@@ -7,47 +9,62 @@ use std::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Session-local identity assigned to one logical source path.
 pub struct SourceId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Monotonic version of source text stored under one [`SourceId`].
 pub struct SourceRevision(pub u64);
 
 impl SourceRevision {
+    /// Revision assigned to the first stored version of a source.
     pub const INITIAL: Self = Self(0);
 
+    /// Returns the following source revision.
     pub const fn next(self) -> Self {
         Self(self.0 + 1)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Exact identity of one version of a source file.
 pub struct SourceVersion {
+    /// Stable source identity within the source table.
     pub id: SourceId,
+    /// Text revision expected by the consumer.
     pub revision: SourceRevision,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Relocation-stable logical identity derived from normalized path text.
 pub struct SourceIdentity {
     normalized_path: String,
 }
 
 impl SourceIdentity {
+    /// Creates an identity after normalizing the supplied path text.
     pub fn new(path: impl AsRef<str>) -> Self {
         Self {
             normalized_path: normalize_path(path.as_ref()),
         }
     }
 
+    /// Clones the logical identity carried by a source path.
     pub fn from_path(path: &SourcePath) -> Self {
         path.identity.clone()
     }
 
+    /// Returns normalized logical path text.
     pub fn normalized_path(&self) -> &str {
         &self.normalized_path
     }
 }
 
 #[derive(Debug, Clone)]
+/// Physical source location paired with a logical identity.
+///
+/// Equality and hashing use only the logical identity, allowing relocated
+/// toolchain/package sources to retain stable compiler identities.
 pub struct SourcePath {
     physical_path: String,
     identity: SourceIdentity,
@@ -68,6 +85,7 @@ impl Hash for SourcePath {
 }
 
 impl SourcePath {
+    /// Creates a path whose physical location and logical identity match.
     pub fn new(path: impl Into<String>) -> Self {
         let physical_path = normalize_path(&path.into());
         Self {
@@ -85,6 +103,7 @@ impl SourcePath {
         }
     }
 
+    /// Creates a path with separate physical and relocation-stable identities.
     pub fn with_identity(
         physical_path: impl Into<String>,
         logical_identity: impl AsRef<str>,
@@ -95,15 +114,18 @@ impl SourcePath {
         }
     }
 
+    /// Returns the normalized physical path used for I/O.
     pub fn as_str(&self) -> &str {
         &self.physical_path
     }
 
+    /// Clones the logical source identity.
     pub fn identity(&self) -> SourceIdentity {
         SourceIdentity::from_path(self)
     }
 }
 
+/// Lexically normalizes `/`, `.`, and `..` path components.
 pub fn normalize_path(path: &str) -> String {
     let absolute = path.starts_with('/');
     let mut parts = Vec::new();
@@ -125,14 +147,20 @@ pub fn normalize_path(path: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Immutable snapshot of source text at one revision.
 pub struct SourceFile {
+    /// Session-local source identity.
     pub id: SourceId,
+    /// Physical path and logical identity.
     pub path: SourcePath,
+    /// Revision of the stored text.
     pub revision: SourceRevision,
+    /// Shared source text.
     pub text: Arc<str>,
 }
 
 impl SourceFile {
+    /// Creates a source file at [`SourceRevision::INITIAL`].
     pub fn new(id: SourceId, path: SourcePath, text: impl Into<Arc<str>>) -> Self {
         Self {
             id,
@@ -142,11 +170,13 @@ impl SourceFile {
         }
     }
 
+    /// Replaces the snapshot revision.
     pub fn with_revision(mut self, revision: SourceRevision) -> Self {
         self.revision = revision;
         self
     }
 
+    /// Returns the exact id/revision pair for this snapshot.
     pub fn version(&self) -> SourceVersion {
         SourceVersion {
             id: self.id,
@@ -156,6 +186,7 @@ impl SourceFile {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Concurrent bijection between logical source paths and session-local ids.
 pub struct SourceTable {
     inner: Arc<Mutex<SourceTableInner>>,
 }
@@ -168,10 +199,12 @@ struct SourceTableInner {
 }
 
 impl SourceTable {
+    /// Creates an empty source identity table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the existing id for a path or allocates the next id.
     pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
         // Source tables are shared across query workers. Poisoning means a
         // worker panicked while mutating the id map, so continuing could assign
@@ -192,6 +225,7 @@ impl SourceTable {
         id
     }
 
+    /// Looks up an id without allocating one for a missing path.
     pub fn existing_id_for_path(&self, path: &SourcePath) -> Option<SourceId> {
         self.inner
             .lock()
@@ -201,6 +235,7 @@ impl SourceTable {
             .copied()
     }
 
+    /// Returns the logical path registered for an id.
     pub fn path_for_id(&self, id: SourceId) -> Option<Arc<SourcePath>> {
         self.inner
             .lock()
@@ -212,29 +247,35 @@ impl SourceTable {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Concurrent store of the current source snapshot for each source id.
 pub struct SourceDatabase {
     table: SourceTable,
     files: Arc<Mutex<nia_hash::FastHashMap<SourceId, SourceFile>>>,
 }
 
 impl SourceDatabase {
+    /// Creates an empty source database and identity table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns or allocates the id for a logical path.
     pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
         self.table.id_for_path(path)
     }
 
+    /// Returns the path registered for an id.
     pub fn path_for_id(&self, id: SourceId) -> Option<Arc<SourcePath>> {
         self.table.path_for_id(id)
     }
 
+    /// Returns the current snapshot for a path without allocating an id.
     pub fn source_for_path(&self, path: &SourcePath) -> Option<SourceFile> {
         let id = self.table.existing_id_for_path(path)?;
         self.source_for_id(id)
     }
 
+    /// Returns the current snapshot for an id.
     pub fn source_for_id(&self, id: SourceId) -> Option<SourceFile> {
         // A poisoned source database may contain a partially updated revision.
         // Treat that as process-level corruption rather than a recoverable
@@ -246,11 +287,13 @@ impl SourceDatabase {
             .cloned()
     }
 
+    /// Returns a snapshot only when its current revision exactly matches.
     pub fn source_for_version(&self, version: SourceVersion) -> Option<SourceFile> {
         self.source_for_id(version.id)
             .filter(|file| file.revision == version.revision)
     }
 
+    /// Returns all current snapshots in unspecified order.
     pub fn source_files(&self) -> Vec<SourceFile> {
         self.files
             .lock()
@@ -260,6 +303,7 @@ impl SourceDatabase {
             .collect()
     }
 
+    /// Stores text, preserving its id and advancing an existing revision.
     pub fn set_source(&self, path: SourcePath, text: impl Into<Arc<str>>) -> SourceFile {
         let id = self.id_for_path(&path);
         // Holding this lock covers both revision selection and replacement; a
@@ -275,6 +319,7 @@ impl SourceDatabase {
         file
     }
 
+    /// Returns a cached snapshot or reads and stores the source from disk.
     pub fn read_source(&self, path: &SourcePath) -> io::Result<SourceFile> {
         if let Some(file) = self.source_for_path(path) {
             return Ok(file);
@@ -284,6 +329,7 @@ impl SourceDatabase {
         Ok(self.set_source(path.clone(), text))
     }
 
+    /// Creates an unstored empty snapshot for a path at the initial revision.
     pub fn empty_source(&self, path: &SourcePath) -> SourceFile {
         SourceFile::new(self.id_for_path(path), path.clone(), "")
     }

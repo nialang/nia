@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 210 completed entries in this ledger.
+- Implementation batches: 211 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1220,6 +1220,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Cross-cutting infrastructure span Rustdoc now defines half-open source
       ranges, saturating length, and empty-range semantics. `nia-span` strict
       Rustdoc and strict Clippy pass; the owner contains no unit tests.
+- [x] Cross-cutting Phase D source Rustdoc now documents relocation-stable
+      logical identities versus physical paths, session-local ids, monotonic
+      revisions, exact-version lookup, and concurrent current-snapshot storage.
+      `nia-source` strict Rustdoc, nine owner tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
