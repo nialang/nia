@@ -53,14 +53,17 @@ const ITEM_SIGNATURE_DOMAIN: FingerprintDomain =
 
 macro_rules! frontend_fingerprint {
     ($name:ident) => {
+        #[doc = concat!("Stable two-lane `", stringify!($name), "` identity.")]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $name(QueryFingerprint);
 
         impl $name {
+            /// Reconstructs the persisted identity from its two lanes.
             pub const fn from_parts(parts: [u64; 2]) -> Self {
                 Self(QueryFingerprint::from_parts(parts))
             }
 
+            /// Returns the two lanes for persistence and cache paths.
             pub const fn parts(self) -> [u64; 2] {
                 self.0.parts()
             }
@@ -76,9 +79,12 @@ frontend_fingerprint!(FrontendModuleMapFingerprint);
 frontend_fingerprint!(FrontendProgramSourceFingerprint);
 frontend_fingerprint!(FrontendCheckInputFingerprint);
 
+/// Program scope certified by a persisted frontend check result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FrontendCheckScope {
+    /// Every loaded module was checked.
     AllModules,
+    /// Only the entry-reachable program scope was checked.
     Entry,
 }
 
@@ -93,10 +99,12 @@ impl FrontendCheckScope {
 
 macro_rules! frontend_cache_key {
     ($name:ident, $fingerprint:ident, $domain:ident) => {
+        #[doc = concat!("Stable module-qualified `", stringify!($name), "`.")]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $name(QueryFingerprint);
 
         impl $name {
+            /// Derives the key from cache namespace, stable module, and product input.
             pub fn new(
                 namespace: FrontendCacheNamespace,
                 module: &StableModuleKey,
@@ -107,10 +115,12 @@ macro_rules! frontend_cache_key {
                 Self(builder.finish())
             }
 
+            /// Reconstructs the persisted key from its two lanes.
             pub const fn from_parts(parts: [u64; 2]) -> Self {
                 Self(QueryFingerprint::from_parts(parts))
             }
 
+            /// Returns the two lanes for persistence and cache paths.
             pub const fn parts(self) -> [u64; 2] {
                 self.0.parts()
             }
@@ -124,10 +134,12 @@ frontend_cache_key!(
     SOURCE_CACHE_KEY_DOMAIN
 );
 
+/// Cache key for one module's signature type-resolution product.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendSignatureTypeResolutionCacheKey(QueryFingerprint);
 
 impl FrontendSignatureTypeResolutionCacheKey {
+    /// Derives a key from namespace, module, signature set, and program sources.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -140,19 +152,23 @@ impl FrontendSignatureTypeResolutionCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key for one module's signature type-lowering product.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendSignatureTypeLoweringCacheKey(QueryFingerprint);
 
 impl FrontendSignatureTypeLoweringCacheKey {
+    /// Derives a key from namespace, module, signature set, and program sources.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -165,19 +181,23 @@ impl FrontendSignatureTypeLoweringCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key for one module's computed item signatures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendSignatureItemSignaturesCacheKey(QueryFingerprint);
 
 impl FrontendSignatureItemSignaturesCacheKey {
+    /// Derives a key from namespace, module, signature set, and program sources.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -190,19 +210,23 @@ impl FrontendSignatureItemSignaturesCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key for extension validation diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendExtensionValidationDiagnosticsCacheKey(QueryFingerprint);
 
 impl FrontendExtensionValidationDiagnosticsCacheKey {
+    /// Derives a key from namespace, stable module, and program sources.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -214,19 +238,23 @@ impl FrontendExtensionValidationDiagnosticsCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key for one executable body's value-reference edges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendExecutableValueRefEdgesCacheKey(QueryFingerprint);
 
 impl FrontendExecutableValueRefEdgesCacheKey {
+    /// Derives a key from namespace, module, body owner, and program sources.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -239,19 +267,23 @@ impl FrontendExecutableValueRefEdgesCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key certifying a checked frontend input scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendCheckCertificateCacheKey(QueryFingerprint);
 
 impl FrontendCheckCertificateCacheKey {
+    /// Derives a key from namespace, entry module, complete input, and scope.
     pub fn new(
         namespace: FrontendCacheNamespace,
         entry: &StableModuleKey,
@@ -264,10 +296,12 @@ impl FrontendCheckCertificateCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
@@ -293,10 +327,12 @@ frontend_cache_key!(
     PUBLIC_SURFACE_FACTS_CACHE_KEY_DOMAIN
 );
 
+/// Cache key for module facade facts and their module-map context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendFacadeFactsCacheKey(QueryFingerprint);
 
 impl FrontendFacadeFactsCacheKey {
+    /// Derives the key from namespace, module signature, and module-map identity.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -309,19 +345,23 @@ impl FrontendFacadeFactsCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key for module dependency facts and their module-map context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendModuleDependenciesCacheKey(QueryFingerprint);
 
 impl FrontendModuleDependenciesCacheKey {
+    /// Derives the key from namespace, source, and module-map identity.
     pub fn new(
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
@@ -334,19 +374,23 @@ impl FrontendModuleDependenciesCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
+/// Cache key for the entry program's provider-demand discovery plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendProviderDemandPlanCacheKey(QueryFingerprint);
 
 impl FrontendProviderDemandPlanCacheKey {
+    /// Derives the key from namespace, entry, module map, and used-path policy.
     pub fn new(
         namespace: FrontendCacheNamespace,
         entry: &SourceIdentity,
@@ -361,16 +405,19 @@ impl FrontendProviderDemandPlanCacheKey {
         Self(builder.finish())
     }
 
+    /// Reconstructs the persisted key from its two lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two lanes for persistence and cache paths.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
 impl FrontendCacheNamespace {
+    /// Derives a namespace for the current toolchain, target, and runtime.
     pub fn new(target: &TargetConfig, runtime: RuntimeModel) -> Self {
         Self::for_toolchain(
             target,
@@ -379,6 +426,7 @@ impl FrontendCacheNamespace {
         )
     }
 
+    /// Derives a namespace for an explicit toolchain identity.
     pub fn for_toolchain(
         target: &TargetConfig,
         runtime: RuntimeModel,
@@ -419,12 +467,14 @@ fn write_frontend_cache_key(
     builder.write_fingerprint(QueryFingerprint::from_parts(fingerprint));
 }
 
+/// Fingerprints exact UTF-8 source bytes.
 pub fn source_content_fingerprint(source: &str) -> SourceContentFingerprint {
     let mut builder = QueryFingerprintBuilder::new(SOURCE_CONTENT_DOMAIN);
     builder.write_bytes(source.as_bytes());
     SourceContentFingerprint(builder.finish())
 }
 
+/// Fingerprints a path-sorted complete module source manifest.
 pub fn frontend_program_source_fingerprint<'a>(
     sources: impl IntoIterator<Item = (&'a StableModuleKey, SourceContentFingerprint, usize)>,
 ) -> FrontendProgramSourceFingerprint {
@@ -455,6 +505,7 @@ fn signature_item_set_tag(set: SignatureItemSet) -> u8 {
     }
 }
 
+/// Fingerprints module mappings independently of allocation and insertion order.
 pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModuleMapFingerprint {
     let mut entries = module_map
         .entries()
@@ -474,12 +525,14 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
     FrontendModuleMapFingerprint(builder.finish())
 }
 
+/// Fingerprints lossless syntax by its exact source text.
 pub fn syntax_fingerprint(syntax: &SyntaxTree) -> SyntaxFingerprint {
     let mut builder = QueryFingerprintBuilder::new(LOSSLESS_SYNTAX_DOMAIN);
     builder.write_bytes(syntax.source().as_bytes());
     SyntaxFingerprint(builder.finish())
 }
 
+/// Fingerprints module syntax while excluding function body ranges.
 pub fn item_signature_fingerprint(
     syntax: &SyntaxTree,
     item_tree: &ModuleItemTree,
