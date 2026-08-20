@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 193 completed entries in this ledger.
+- Implementation batches: 194 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1153,6 +1153,10 @@ acceptance item only when its phase-wide evidence is complete.
       at most once. Body-check, trait-solver, type-store, and reachability
       comparisons reject mismatched duplicate-key multiplicities instead of
       reusing one successful candidate.
+- [x] Cross-cutting Phase A type-resolution Rustdoc now documents the
+      resolution product, name categories, provider context, and all public
+      active-tree/module entry points. `nia-type-resolve` strict Rustdoc,
+      seven owner tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
