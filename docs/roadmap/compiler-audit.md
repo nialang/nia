@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 190 completed entries in this ledger.
+- Implementation batches: 191 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1140,6 +1140,11 @@ acceptance item only when its phase-wide evidence is complete.
       value-incompatible first candidate cannot seed substitutions or hide a
       later compatible binding; overlapping generic-key candidate regressions
       cover the generic call path.
+- [x] Phase C const-execution type inference now probes associated binding
+      keys and values with cloned type substitutions, retaining the first
+      useful diagnostic only after every compatible candidate is exhausted.
+      Const-evaluation trait-object inference covers distinct associated-
+      binding instances with the same member name.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
