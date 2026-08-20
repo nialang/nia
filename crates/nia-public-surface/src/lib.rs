@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Public export surfaces and lexical `using` scopes across the module graph.
+
 use std::{borrow::Borrow, collections::HashMap};
 
 use nia_defs::{
@@ -27,21 +29,31 @@ use using_expansion::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
+/// Combined public-surface, using-scope, and diagnostic product.
 pub struct PublicSurfaceComputation {
+    /// Exported names for every module.
     pub surfaces: PublicSurfaces,
+    /// Resolved local using scopes for every module.
     pub using_scopes: HashMap<ModuleId, ModuleUsingScope>,
+    /// Diagnostics paired with the module that owns each error.
     pub diagnostics: Vec<(ModuleId, Diagnostic)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Export-only public-surface product and its diagnostics.
 pub struct PublicSurfaceExports {
+    /// Exported names for every module.
     pub surfaces: PublicSurfaces,
+    /// Diagnostics paired with the module that owns each error.
     pub diagnostics: Vec<(ModuleId, Diagnostic)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Using-scope product and its diagnostics.
 pub struct PublicUsingScopes {
+    /// Resolved local using scopes for every module.
     pub using_scopes: HashMap<ModuleId, ModuleUsingScope>,
+    /// Diagnostics paired with the module that owns each error.
     pub diagnostics: Vec<(ModuleId, Diagnostic)>,
 }
 
@@ -118,6 +130,7 @@ pub fn compute_public_surfaces<D: Borrow<DefCollection>>(
     )
 }
 
+/// Computes the combined product with the default known-symbol provider.
 pub fn compute_public_surface_computation<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
     graph: &ModuleGraph,
@@ -125,6 +138,7 @@ pub fn compute_public_surface_computation<D: Borrow<DefCollection>>(
     compute_public_surface_computation_with_symbols(defs_by_module, graph, &KnownSymbolText)
 }
 
+/// Computes public surfaces and using scopes with an explicit symbol provider.
 pub fn compute_public_surface_computation_with_symbols<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
     graph: &ModuleGraph,
@@ -146,6 +160,7 @@ pub fn compute_public_surface_computation_with_symbols<D: Borrow<DefCollection>>
     }
 }
 
+/// Computes exported public surfaces with the default known-symbol provider.
 pub fn compute_exported_public_surfaces<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
     graph: &ModuleGraph,
@@ -153,6 +168,7 @@ pub fn compute_exported_public_surfaces<D: Borrow<DefCollection>>(
     compute_exported_public_surfaces_with_symbols(defs_by_module, graph, &KnownSymbolText)
 }
 
+/// Computes exported public surfaces with an explicit symbol provider.
 pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
     graph: &ModuleGraph,
@@ -374,6 +390,7 @@ fn using_host_waits_on_unprocessed_module(
         .is_some_and(|module| !module.process_used_paths)
 }
 
+/// Resolves using scopes from surfaces with the default symbol provider.
 pub fn compute_using_scopes_from_surfaces<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
     graph: &ModuleGraph,
@@ -387,6 +404,7 @@ pub fn compute_using_scopes_from_surfaces<D: Borrow<DefCollection>>(
     )
 }
 
+/// Resolves using scopes from an immutable public-surface snapshot.
 pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>(
     defs_by_module: &[D],
     graph: &ModuleGraph,
