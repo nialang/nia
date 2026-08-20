@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Resolves source type references to semantic definitions and generic names.
+//!
+//! The resolver records node-local identities and diagnostics while keeping
+//! module/import visibility decisions in the supplied program context.
 use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{
@@ -28,31 +32,48 @@ use resolver::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
+/// The complete type-name and const-generic resolution product for a module.
 pub struct TypeResolution {
+    /// Type-name resolutions keyed by source node site.
     pub node_type_names: HashMap<NodeSite, TypeNameResolution>,
+    /// Qualified type references resolved to global definitions.
     pub node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
+    /// Const-generic parameter names keyed by versioned node identity.
     pub node_const_generic_names: NodeMap<SymbolId>,
+    /// Diagnostics emitted while resolving the module.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Semantic category recorded for a source type name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeNameResolution {
+    /// A primitive type spelling.
     Primitive(PrimitiveTypeSpelling),
+    /// A builtin trait.
     BuiltinTrait(BuiltinTrait),
+    /// A definition local to the resolved module.
     Def(DefId),
+    /// A definition owned by another module.
     External(GlobalDefId),
+    /// A generic type parameter.
     GenericParam,
+    /// An associated type projection.
     AssociatedType,
+    /// An unresolved or invalid type name.
     Error,
 }
 
+/// Optional program-wide definition and module-graph providers.
 #[derive(Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
+    /// Resolves a module id to its definitions.
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
+    /// Provides module graph and import visibility information.
     pub graph: Option<&'a dyn ModuleGraphLookup>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
+    /// Creates a context without program-wide providers.
     pub fn empty() -> Self {
         Self {
             defs: None,
@@ -84,11 +105,13 @@ impl ModuleDefs<'_> {
     }
 }
 
+/// Resolves all type references in a parsed module.
 pub fn resolve_module_types(module: &Module, defs: &DefCollection) -> TypeResolution {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_types_from_item_tree(&item_tree, defs)
 }
 
+/// Resolves module types while retaining symbol text for diagnostics.
 pub fn resolve_module_types_with_symbols(
     module: &Module,
     defs: &DefCollection,
@@ -106,6 +129,7 @@ pub fn resolve_module_types_with_symbols(
     )
 }
 
+/// Resolves module types with cross-module graph and definition providers.
 pub fn resolve_module_types_with_graph(
     module: &Module,
     defs: &DefCollection,
@@ -124,6 +148,7 @@ pub fn resolve_module_types_with_graph(
     )
 }
 
+/// Resolves module types with graph, public-surface, and using-scope context.
 pub fn resolve_module_types_with_context(
     module: &Module,
     defs: &DefCollection,
@@ -144,6 +169,7 @@ pub fn resolve_module_types_with_context(
     )
 }
 
+/// Resolves types from an already lowered module item tree.
 pub fn resolve_module_types_from_item_tree(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
@@ -159,6 +185,7 @@ pub fn resolve_module_types_from_item_tree(
     )
 }
 
+/// Resolves all active items, including function bodies, in an item tree.
 pub fn resolve_module_types_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -182,6 +209,7 @@ pub fn resolve_module_types_from_active_item_tree(
     )
 }
 
+/// Resolves only active declarations, excluding function-body type references.
 pub fn resolve_module_declaration_types_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -205,6 +233,7 @@ pub fn resolve_module_declaration_types_from_active_item_tree(
     )
 }
 
+/// Resolves active items while using caller-provided symbol text.
 pub fn resolve_module_types_from_active_item_tree_with_symbols(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -225,6 +254,7 @@ pub fn resolve_module_types_from_active_item_tree_with_symbols(
     )
 }
 
+/// Resolves active items into a caller-owned versioned node store.
 pub fn resolve_module_types_from_active_item_tree_with_symbols_in_store(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -249,6 +279,7 @@ pub fn resolve_module_types_from_active_item_tree_with_symbols_in_store(
     )
 }
 
+/// Resolves active declarations while using caller-provided symbol text.
 pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -269,6 +300,7 @@ pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols(
     )
 }
 
+/// Resolves active declarations into a caller-owned versioned node store.
 pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
