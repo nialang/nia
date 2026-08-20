@@ -1387,32 +1387,28 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         expected.len() == actual.len()
             && expected.iter().all(|expected_binding| {
-                actual
-                    .iter()
-                    .find(|actual_binding| {
-                        actual_binding.name == expected_binding.name
-                            && actual_binding.trait_id == expected_binding.trait_id
-                            && actual_binding.trait_args.len() == expected_binding.trait_args.len()
-                            && actual_binding.trait_const_args.len()
-                                == expected_binding.trait_const_args.len()
-                            && actual_binding
-                                .trait_args
-                                .iter()
-                                .zip(expected_binding.trait_args.iter())
-                                .all(|(actual, expected)| {
-                                    self.types_match_normalized(*expected, *actual)
-                                })
-                            && actual_binding
-                                .trait_const_args
-                                .iter()
-                                .zip(expected_binding.trait_const_args.iter())
-                                .all(|(actual, expected)| {
-                                    self.const_generic_args_match(expected, actual)
-                                })
-                    })
-                    .is_some_and(|actual_binding| {
-                        self.types_match_normalized(expected_binding.ty, actual_binding.ty)
-                    })
+                actual.iter().any(|actual_binding| {
+                    actual_binding.name == expected_binding.name
+                        && actual_binding.trait_id == expected_binding.trait_id
+                        && actual_binding.trait_args.len() == expected_binding.trait_args.len()
+                        && actual_binding.trait_const_args.len()
+                            == expected_binding.trait_const_args.len()
+                        && actual_binding
+                            .trait_args
+                            .iter()
+                            .zip(expected_binding.trait_args.iter())
+                            .all(|(actual, expected)| {
+                                self.types_match_normalized(*expected, *actual)
+                            })
+                        && actual_binding
+                            .trait_const_args
+                            .iter()
+                            .zip(expected_binding.trait_const_args.iter())
+                            .all(|(actual, expected)| {
+                                self.const_generic_args_match(expected, actual)
+                            })
+                        && self.types_match_normalized(expected_binding.ty, actual_binding.ty)
+                })
             })
     }
 

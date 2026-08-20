@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 191 completed entries in this ledger.
+- Implementation batches: 192 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1145,6 +1145,10 @@ acceptance item only when its phase-wide evidence is complete.
       useful diagnostic only after every compatible candidate is exhausted.
       Const-evaluation trait-object inference covers distinct associated-
       binding instances with the same member name.
+- [x] Phase A body-check and trait-solver structural equivalence now tests
+      associated binding key and value together in the same candidate. Reordered
+      bindings with overlapping keys cannot stop at a value-incompatible first
+      match.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
