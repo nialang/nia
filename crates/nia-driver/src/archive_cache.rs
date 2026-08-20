@@ -778,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn changed_archive_components_report_nearest_invalidation() {
+    fn every_changed_archive_component_reports_exact_invalidation() {
         let root = temp_root("invalidation");
         let cache = PersistentArchiveCache::new(root.clone());
         let first = fingerprints(30);
@@ -786,26 +786,82 @@ mod tests {
         fs::create_dir_all(&root).expect("create cache root");
         fs::write(&archive, vec![0x7a; ARCHIVE_CACHE_STREAM_BYTES * 3 + 5]).expect("write archive");
         cache.publish(first, &archive).expect("publish first");
-        let changed = ArchiveFingerprintSet::new(
-            first.cache_key,
-            ArchiveFingerprintComponents {
-                target: ArchiveFingerprint::from_parts([99, 3]),
-                ..first.components
-            },
-        );
-
-        assert_eq!(
-            cache
-                .restore(changed, &root.join("changed"))
-                .expect("lookup changed"),
-            ArchiveCacheLookup::Invalidated(ArchiveInvalidation {
-                inputs: false,
-                toolchain: false,
-                target: true,
-                tool: false,
-                options: false,
-            })
-        );
+        let changes = [
+            (
+                ArchiveFingerprintComponents {
+                    inputs: ArchiveFingerprint::from_parts([99, 1]),
+                    ..first.components
+                },
+                ArchiveInvalidation {
+                    inputs: true,
+                    toolchain: false,
+                    target: false,
+                    tool: false,
+                    options: false,
+                },
+            ),
+            (
+                ArchiveFingerprintComponents {
+                    toolchain: ArchiveFingerprint::from_parts([99, 2]),
+                    ..first.components
+                },
+                ArchiveInvalidation {
+                    inputs: false,
+                    toolchain: true,
+                    target: false,
+                    tool: false,
+                    options: false,
+                },
+            ),
+            (
+                ArchiveFingerprintComponents {
+                    target: ArchiveFingerprint::from_parts([99, 3]),
+                    ..first.components
+                },
+                ArchiveInvalidation {
+                    inputs: false,
+                    toolchain: false,
+                    target: true,
+                    tool: false,
+                    options: false,
+                },
+            ),
+            (
+                ArchiveFingerprintComponents {
+                    tool: ArchiveFingerprint::from_parts([99, 4]),
+                    ..first.components
+                },
+                ArchiveInvalidation {
+                    inputs: false,
+                    toolchain: false,
+                    target: false,
+                    tool: true,
+                    options: false,
+                },
+            ),
+            (
+                ArchiveFingerprintComponents {
+                    options: ArchiveFingerprint::from_parts([99, 5]),
+                    ..first.components
+                },
+                ArchiveInvalidation {
+                    inputs: false,
+                    toolchain: false,
+                    target: false,
+                    tool: false,
+                    options: true,
+                },
+            ),
+        ];
+        for (index, (components, reasons)) in changes.into_iter().enumerate() {
+            let changed = ArchiveFingerprintSet::new(first.cache_key, components);
+            assert_eq!(
+                cache
+                    .restore(changed, &root.join(format!("changed-{index}")))
+                    .expect("lookup changed"),
+                ArchiveCacheLookup::Invalidated(reasons)
+            );
+        }
         let _ = fs::remove_dir_all(root);
     }
 
