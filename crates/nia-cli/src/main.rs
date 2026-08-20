@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Command-line ownership for compiler inspection, checking, emission, and builds.
+//!
+//! Global target, module-map, optimization, timing, and toolchain options are
+//! parsed once and then translated into typed `nia-driver` or `nia-build`
+//! requests. Native outputs remain file-only, inspection output uses stdout,
+//! and diagnostics/timings use stderr. Panics cross one installed ICE boundary
+//! and become a failed process exit rather than unwinding through the CLI.
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
 use std::{env, fs, num::NonZeroUsize, path::PathBuf, process::ExitCode, sync::Arc};

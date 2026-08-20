@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 220 completed entries in this ledger.
+- Implementation batches: 221 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1281,6 +1281,13 @@ acceptance item only when its phase-wide evidence is complete.
       The 238 owner tests include randomized clean/incremental consistency plus
       persisted-product corruption and verification replacement; strict
       Rustdoc and strict Clippy pass.
+- [x] Cross-cutting Phase D CLI crate documentation now records typed option
+      translation, stdout/stderr and native-output ownership, toolchain/build
+      dispatch, timing policy, and the process ICE boundary. Strict Rustdoc,
+      three parser/ICE owner tests, the command-case matrix, and strict Clippy
+      pass. The build-case matrix passed 13 cases but encountered a transient
+      test-resource slot lock failure; its exact retry passed, while a clean
+      whole-matrix rerun remains part of final resource evidence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
