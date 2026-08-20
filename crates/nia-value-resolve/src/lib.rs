@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Resolves value names, qualified values, modules, and associated values.
+//!
+//! Products are keyed by stable node identities so later semantic phases can
+//! reuse resolutions across incremental item-tree revisions.
 use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};
@@ -19,9 +23,13 @@ use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver
 use nia_ty::PrimitiveTy;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Value-resolution facts and diagnostics for one module or expression set.
 pub struct ValueResolution {
+    /// Unqualified value-name resolutions.
     pub node_names: NodeMap<ValueNameResolution>,
+    /// Qualified value references resolved to global definitions.
     pub node_qualified_values: NodeMap<GlobalDefId>,
+    /// Builtin associated values resolved by the semantic name.
     pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
     /// For spans whose value resolves to an enum variant (brought in via
     /// `using` or accessed as `mod::Enum::Variant`), the parent enum's
@@ -33,10 +41,12 @@ pub struct ValueResolution {
     /// Populated by value-resolve so downstream phases can recognise these
     /// as type prefixes without re-resolving the module alias.
     pub node_qualified_type_prefixes: NodeMap<GlobalDefId>,
+    /// Diagnostics emitted while resolving values.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug)]
+/// Incremental builder for a [`ValueResolution`] product.
 pub struct ValueResolutionBuilder {
     node_names: NodeMapBuilder<ValueNameResolution>,
     node_qualified_values: NodeMapBuilder<GlobalDefId>,
@@ -47,6 +57,7 @@ pub struct ValueResolutionBuilder {
 }
 
 impl ValueResolution {
+    /// Creates an empty resolution product backed by a node store.
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             node_names: NodeMap::with_store(store),
@@ -58,6 +69,7 @@ impl ValueResolution {
         }
     }
 
+    /// Creates a mutable builder backed by a node store.
     pub fn builder(store: &NodeStore) -> ValueResolutionBuilder {
         ValueResolutionBuilder {
             node_names: NodeMap::builder(store),
@@ -69,6 +81,7 @@ impl ValueResolution {
         }
     }
 
+    /// Converts this product into a builder for incremental extension.
     pub fn into_builder(self) -> ValueResolutionBuilder {
         ValueResolutionBuilder {
             node_names: self.node_names.into_builder(),
@@ -80,6 +93,7 @@ impl ValueResolution {
         }
     }
 
+    /// Merges another product into this one.
     pub fn extend(self, other: Self) -> Self {
         let mut builder = self.into_builder();
         builder.extend(other);
@@ -88,14 +102,17 @@ impl ValueResolution {
 }
 
 impl ValueResolutionBuilder {
+    /// Records an unqualified value resolution.
     pub fn insert_node_name(&mut self, locator: VersionedNodeKey, resolution: ValueNameResolution) {
         self.node_names.insert(locator, resolution);
     }
 
+    /// Records a qualified value definition.
     pub fn insert_node_qualified_value(&mut self, locator: VersionedNodeKey, def_id: GlobalDefId) {
         self.node_qualified_values.insert(locator, def_id);
     }
 
+    /// Merges another resolution product into this builder.
     pub fn extend(&mut self, resolution: ValueResolution) {
         self.node_names.extend_map(resolution.node_names);
         self.node_qualified_values
@@ -109,6 +126,7 @@ impl ValueResolutionBuilder {
         self.diagnostics.extend(resolution.diagnostics);
     }
 
+    /// Finalizes the builder into a resolution product.
     pub fn finish(self) -> ValueResolution {
         ValueResolution {
             node_names: self.node_names.finish(),
@@ -122,21 +140,32 @@ impl ValueResolutionBuilder {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Semantic category recorded for a value name.
 pub enum ValueNameResolution {
+    /// Definition local to the current module.
     Def(DefId),
+    /// Definition owned by another module.
     External(GlobalDefId),
+    /// Module namespace reference.
     Module,
+    /// Local value whose resolution is deferred to a later phase.
     LocalDeferred,
+    /// Unresolved or invalid value name.
     Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Kind of target accepted by an associated-value resolver.
 pub enum AssociatedValueTarget {
+    /// Nominal type definition target.
     Nominal(GlobalDefId),
+    /// Primitive type target.
     Primitive(PrimitiveTy),
 }
 
+/// Resolves an associated value for a type target and name.
 pub trait AssociatedValueResolver {
+    /// Returns the global definition of an associated value, if present.
     fn associated_value(
         &self,
         target: AssociatedValueTarget,
@@ -145,6 +174,7 @@ pub trait AssociatedValueResolver {
 }
 
 #[derive(Clone, Copy)]
+/// Optional providers and node storage used by value resolution.
 pub struct ValueResolveOptions<'a> {
     associated_values: Option<&'a dyn AssociatedValueResolver>,
     symbols: Option<&'a dyn SymbolText>,
@@ -152,6 +182,7 @@ pub struct ValueResolveOptions<'a> {
 }
 
 impl<'a> ValueResolveOptions<'a> {
+    /// Builds options from optional associated-value and symbol providers.
     pub fn with_store(
         associated_values: Option<&'a dyn AssociatedValueResolver>,
         symbols: Option<&'a dyn SymbolText>,
@@ -179,12 +210,16 @@ where
 }
 
 #[derive(Clone, Copy)]
+/// Optional cross-module definition and import-graph providers.
 pub struct ProgramDefsContext<'a> {
+    /// Resolves module ids to shared definitions.
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
+    /// Provides module graph visibility information.
     pub graph: Option<&'a dyn ModuleGraphLookup>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
+    /// Creates a context without program-wide providers.
     pub fn empty() -> Self {
         Self {
             defs: None,
@@ -216,11 +251,13 @@ impl ModuleDefs<'_> {
     }
 }
 
+/// Resolves values in a parsed module using local definitions only.
 pub fn resolve_module_values(module: &Module, defs: &DefCollection) -> ValueResolution {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_values_from_item_tree(&item_tree, defs)
 }
 
+/// Resolves module values with cross-module graph and definition providers.
 pub fn resolve_module_values_with_graph(
     module: &Module,
     defs: &DefCollection,
@@ -242,6 +279,7 @@ pub fn resolve_module_values_with_graph(
     )
 }
 
+/// Resolves module values while retaining symbol text for diagnostics.
 pub fn resolve_module_values_with_symbols(
     module: &Module,
     defs: &DefCollection,
@@ -262,6 +300,7 @@ pub fn resolve_module_values_with_symbols(
     )
 }
 
+/// Resolves module values with graph, public-surface, and using-scope context.
 pub fn resolve_module_values_with_context(
     module: &Module,
     defs: &DefCollection,
@@ -285,6 +324,7 @@ pub fn resolve_module_values_with_context(
     )
 }
 
+/// Resolves values from a complete module item tree.
 pub fn resolve_module_values_from_item_tree(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
@@ -303,6 +343,7 @@ pub fn resolve_module_values_from_item_tree(
     )
 }
 
+/// Resolves values from all active items using the default associated resolver.
 pub fn resolve_module_values_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -320,6 +361,7 @@ pub fn resolve_module_values_from_active_item_tree(
     )
 }
 
+/// Resolves active values with an optional associated-value provider.
 pub fn resolve_module_values_from_active_item_tree_with_associated_values(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -339,6 +381,7 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values(
     )
 }
 
+/// Resolves active values with associated-value and symbol providers.
 pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -359,6 +402,7 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_sy
     )
 }
 
+/// Resolves active values into a caller-owned node store.
 pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
@@ -387,6 +431,7 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_sy
     )
 }
 
+/// Resolves names in a collection of standalone expressions.
 pub fn resolve_module_values_from_exprs(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
@@ -404,6 +449,7 @@ pub fn resolve_module_values_from_exprs(
     )
 }
 
+/// Resolves expression values with an optional associated-value provider.
 pub fn resolve_module_values_from_exprs_with_associated_values(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
@@ -423,6 +469,7 @@ pub fn resolve_module_values_from_exprs_with_associated_values(
     )
 }
 
+/// Resolves expression values with associated-value and symbol providers.
 pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
@@ -443,6 +490,7 @@ pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols(
     )
 }
 
+/// Resolves expressions into a caller-owned node store.
 pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
