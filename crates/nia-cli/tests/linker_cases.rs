@@ -104,6 +104,10 @@ fn run_typed_link_cache(initial: &Path, edit: &Path) {
     assert_eq!(
         std::fs::read_dir(keys[0].path())
             .expect("read link entries")
+            .filter_map(Result::ok)
+            .filter(
+                |entry| entry.path().extension().and_then(|value| value.to_str()) == Some("link")
+            )
             .count(),
         1
     );

@@ -696,6 +696,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if (debug::Error::Flush(fs::Error::BadFd).asExitCode() as i32) != 9 {
         return process::exit(6)!;
     }
+
     !()
 }
 "#,

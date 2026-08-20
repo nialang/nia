@@ -2272,34 +2272,37 @@ impl BackendValidator<'_> {
         ) {
             (
                 Some(TyKind::Pointer {
-                    is_readonly: true,
+                    is_readonly: actual_readonly,
                     elem: actual_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_readonly: false,
+                    is_readonly: selected_readonly,
                     elem: selected_elem,
                 }),
             )
             | (
                 Some(TyKind::VolatilePointer {
-                    is_readonly: true,
+                    is_readonly: actual_readonly,
                     elem: actual_elem,
                 }),
                 Some(TyKind::VolatilePointer {
-                    is_readonly: false,
+                    is_readonly: selected_readonly,
                     elem: selected_elem,
                 }),
             )
             | (
                 Some(TyKind::Slice {
-                    is_readonly: true,
+                    is_readonly: actual_readonly,
                     elem: actual_elem,
                 }),
                 Some(TyKind::Slice {
-                    is_readonly: false,
+                    is_readonly: selected_readonly,
                     elem: selected_elem,
                 }),
-            ) => self.same_type(*actual_elem, *selected_elem),
+            ) => {
+                (*actual_readonly || !*selected_readonly)
+                    && self.projection_result_compatible(*actual_elem, *selected_elem)
+            }
             _ => false,
         }
     }
@@ -3941,14 +3944,10 @@ impl BackendValidator<'_> {
                 targets.push(entry.function.clone());
             }
         }
-        if targets.is_empty() {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                "backend IR dynamic trait call has no matching object vtable",
-            ));
-            return None;
-        }
+        // A dynamic call can consume a trait object supplied at runtime even
+        // when this closed program never constructs a concrete object of that
+        // type. Validate every materialized runtime candidate, but do not
+        // require one merely to validate the call contract itself.
         Some(targets)
     }
 
@@ -4136,7 +4135,15 @@ impl BackendValidator<'_> {
             return None;
         }
         let selected_ty = self.validate_place_path(place)?;
-        if !self.projection_result_compatible(place.ty, selected_ty) {
+        let place_storage_ty = match self.ty_kind(place.ty) {
+            Some(TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. })
+                if self.same_type(*elem, selected_ty) =>
+            {
+                *elem
+            }
+            _ => place.ty,
+        };
+        if !self.projection_result_compatible(place_storage_ty, selected_ty) {
             self.invalid_place(
                 place.span,
                 "result type does not match the selected storage",
@@ -4309,7 +4316,18 @@ impl BackendValidator<'_> {
             self.invalid_place(span, "address-of result is not a pointer");
             return;
         };
-        if !self.same_type(*elem, place.ty) {
+        let place_storage_ty = match self.ty_kind(place.ty) {
+            Some(
+                TyKind::Pointer {
+                    elem: place_elem, ..
+                }
+                | TyKind::VolatilePointer {
+                    elem: place_elem, ..
+                },
+            ) if self.same_type(*place_elem, *elem) => *place_elem,
+            _ => place.ty,
+        };
+        if !self.same_type(*elem, place_storage_ty) {
             self.invalid_place(span, "address-of pointee does not match its place type");
         }
     }

@@ -56,7 +56,11 @@ a cross-process memory budget derived from effective CPU and memory limits. The
 test budget is at most half of visible memory, nested build commands are charged
 at twice the scheduling weight of ordinary compiler work, and new work waits
 while system or cgroup available memory is under pressure. Machine categories
-do not select separate test paths: WSL uses the Linux VM's visible resources,
+do not select separate test paths. A runtime command issued sequentially from
+an active compiler/build test keeps its independent runtime process slot but
+reuses the larger compiler memory reservation, so an exactly full low-memory
+budget cannot deadlock itself after the compiler child has exited. WSL uses the
+Linux VM's visible resources,
 containers and constrained rental hosts use the tightest inherited cgroup
 limit, and bare Linux hosts use system resources. If memory cannot be detected,
 compiler-heavy tests run serially. This keeps the default command conservative
