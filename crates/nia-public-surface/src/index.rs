@@ -16,6 +16,7 @@ pub struct TypeExposureIndex {
 }
 
 impl TypeExposureIndex {
+    /// Builds a stable reverse index from type definitions to exposed names.
     pub fn from_defs_surfaces_and_using_scopes<D: Borrow<DefCollection>>(
         defs_by_module: &[D],
         surfaces: &PublicSurfaces,
@@ -73,6 +74,7 @@ impl TypeExposureIndex {
         Self { names_by_target }
     }
 
+    /// Returns sorted, deduplicated names exposing one target definition.
     pub fn names_for(&self, target: GlobalDefId) -> &[SymbolId] {
         self.names_by_target
             .get(&target)

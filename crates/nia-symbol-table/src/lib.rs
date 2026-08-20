@@ -18,9 +18,13 @@ pub use nia_symbol::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Details of a stable symbol hash collision.
 pub struct SymbolCollision {
+    /// Hash identity shared by the colliding texts.
     pub symbol: SymbolId,
+    /// Text already registered for the identity.
     pub existing: Arc<str>,
+    /// Text rejected because it has the same identity.
     pub incoming: Arc<str>,
 }
 
@@ -54,6 +58,7 @@ struct SymbolTableInner {
 }
 
 impl SymbolTable {
+    /// Creates a table pre-populated with all well-known compiler symbols.
     pub fn new() -> Self {
         let table = Self {
             inner: Arc::new(RwLock::new(SymbolTableInner::default())),
@@ -62,6 +67,7 @@ impl SymbolTable {
         table
     }
 
+    /// Interns text by stable hash, reporting collisions instead of overwriting.
     pub fn intern(&self, text: &str) -> Result<SymbolId, SymbolCollision> {
         let symbol = SymbolId::from_stable_hash(stable_hash(text));
         let incoming = Arc::<str>::from(text);
@@ -80,6 +86,7 @@ impl SymbolTable {
         }
     }
 
+    /// Resolves a symbol to its registered text, if present.
     pub fn resolve(&self, symbol: SymbolId) -> Option<Arc<str>> {
         self.inner
             .read()
@@ -89,6 +96,7 @@ impl SymbolTable {
             .cloned()
     }
 
+    /// Creates a clonable resolver view backed by this table.
     pub fn resolver(&self) -> SymbolResolver {
         SymbolResolver {
             table: self.clone(),
@@ -127,15 +135,18 @@ impl SymbolText for SymbolTable {
 }
 
 #[derive(Debug, Clone)]
+/// Read-only symbol text resolver backed by a shared [`SymbolTable`].
 pub struct SymbolResolver {
     table: SymbolTable,
 }
 
 impl SymbolResolver {
+    /// Resolves a symbol through the shared table.
     pub fn resolve(&self, symbol: SymbolId) -> Option<Arc<str>> {
         self.table.resolve(symbol)
     }
 
+    /// Creates a display adapter with unresolved-symbol fallback formatting.
     pub fn display(&self, symbol: SymbolId) -> ResolvedSymbolDisplay<'_> {
         ResolvedSymbolDisplay {
             resolver: self,
@@ -144,6 +155,7 @@ impl SymbolResolver {
     }
 }
 
+/// Deferred display wrapper for a resolved or unresolved symbol.
 pub struct ResolvedSymbolDisplay<'a> {
     resolver: &'a SymbolResolver,
     symbol: SymbolId,
