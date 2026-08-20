@@ -356,37 +356,13 @@ impl<'a> BodyChecker<'a> {
                                 self.pattern_subsumes_inner(*general, *specific, substitutions)
                             })
                         && general_bindings.iter().all(|general_binding| {
-                            specific_bindings
-                                .iter()
-                                .find(|specific_binding| {
-                                    general_binding.name == specific_binding.name
-                                        && general_binding.trait_id == specific_binding.trait_id
-                                        && general_binding.trait_args.len()
-                                            == specific_binding.trait_args.len()
-                                        && self.const_pattern_args_subsume(
-                                            &general_binding.trait_const_args,
-                                            &specific_binding.trait_const_args,
-                                            substitutions,
-                                        )
-                                        && general_binding
-                                            .trait_args
-                                            .iter()
-                                            .zip(&specific_binding.trait_args)
-                                            .all(|(general, specific)| {
-                                                self.pattern_subsumes_inner(
-                                                    *general,
-                                                    *specific,
-                                                    substitutions,
-                                                )
-                                            })
-                                })
-                                .is_some_and(|specific_binding| {
-                                    self.pattern_subsumes_inner(
-                                        general_binding.ty,
-                                        specific_binding.ty,
-                                        substitutions,
-                                    )
-                                })
+                            specific_bindings.iter().any(|specific_binding| {
+                                self.associated_binding_subsumes(
+                                    general_binding,
+                                    specific_binding,
+                                    substitutions,
+                                )
+                            })
                         })
                 }
                 _ => false,
@@ -418,37 +394,13 @@ impl<'a> BodyChecker<'a> {
                                 self.pattern_subsumes_inner(*general, *specific, substitutions)
                             })
                         && general_bindings.iter().all(|general_binding| {
-                            specific_bindings
-                                .iter()
-                                .find(|specific_binding| {
-                                    general_binding.name == specific_binding.name
-                                        && general_binding.trait_id == specific_binding.trait_id
-                                        && general_binding.trait_args.len()
-                                            == specific_binding.trait_args.len()
-                                        && self.const_pattern_args_subsume(
-                                            &general_binding.trait_const_args,
-                                            &specific_binding.trait_const_args,
-                                            substitutions,
-                                        )
-                                        && general_binding
-                                            .trait_args
-                                            .iter()
-                                            .zip(&specific_binding.trait_args)
-                                            .all(|(general, specific)| {
-                                                self.pattern_subsumes_inner(
-                                                    *general,
-                                                    *specific,
-                                                    substitutions,
-                                                )
-                                            })
-                                })
-                                .is_some_and(|specific_binding| {
-                                    self.pattern_subsumes_inner(
-                                        general_binding.ty,
-                                        specific_binding.ty,
-                                        substitutions,
-                                    )
-                                })
+                            specific_bindings.iter().any(|specific_binding| {
+                                self.associated_binding_subsumes(
+                                    general_binding,
+                                    specific_binding,
+                                    substitutions,
+                                )
+                            })
                         })
                 }
                 _ => false,
@@ -514,6 +466,42 @@ impl<'a> BodyChecker<'a> {
             value,
         };
         self.record_const_pattern_subsumption(*name, specific, substitutions)
+    }
+
+    fn associated_binding_subsumes(
+        &mut self,
+        general: &nia_ty::AssociatedTypeBindingTy,
+        specific: &nia_ty::AssociatedTypeBindingTy,
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        if general.name != specific.name
+            || general.trait_id != specific.trait_id
+            || general.trait_args.len() != specific.trait_args.len()
+            || general.trait_const_args.len() != specific.trait_const_args.len()
+        {
+            return false;
+        }
+        let mut candidate = substitutions.clone();
+        if !self.const_pattern_args_subsume(
+            &general.trait_const_args,
+            &specific.trait_const_args,
+            &mut candidate,
+        ) {
+            return false;
+        }
+        if !general
+            .trait_args
+            .iter()
+            .zip(&specific.trait_args)
+            .all(|(general, specific)| {
+                self.pattern_subsumes_inner(*general, *specific, &mut candidate)
+            })
+            || !self.pattern_subsumes_inner(general.ty, specific.ty, &mut candidate)
+        {
+            return false;
+        }
+        *substitutions = candidate;
+        true
     }
 
     fn const_pattern_args_subsume(
