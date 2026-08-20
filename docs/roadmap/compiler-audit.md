@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 222 completed entries in this ledger.
+- Implementation batches: 223 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1295,6 +1295,15 @@ acceptance item only when its phase-wide evidence is complete.
       permit. A deterministic lock-order regression, all 18
       `nia-test-support` owner tests, strict Clippy, and the complete concurrent
       CLI build-case matrix (14 passed) cover the repaired boundary.
+- [x] Phase D representative build baseline completed its default three
+      independent samples on Linux/WSL2 with an 8.18 GB effective memory limit.
+      All 21 ordered states and all 102 per-sample acceptance checks passed:
+      clean and warm lookup cardinality, source and module-map typed
+      invalidation, compiler-object and link reuse, corruption of five action
+      entries, recovered warm reuse, and failed-action isolation. The generated
+      schema-v3 evidence retained machine resources, process measurements, and
+      every counter; independent clean recomputation of each edited state and
+      genuinely constrained low-memory execution remain open Phase D evidence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
