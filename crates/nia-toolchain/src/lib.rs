@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Toolchain resource discovery and compatibility identity.
+//!
+//! A layout binds one compiler executable to a canonical resource root, a
+//! versioned manifest, the standard library, and runtime startup modules.
+//! Compatibility identity deliberately excludes filesystem paths so an intact
+//! installation can be relocated without invalidating compiler caches.
+
 use nia_compat::{COMPILER_VERSION, toolchain};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target_config::TargetConfig;
@@ -7,8 +14,10 @@ use std::{fmt, fs, io, path::PathBuf};
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.compatibility-identity.v1");
 
+/// File name of the versioned compatibility manifest under a resource root.
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
 
+/// Path-independent compatibility identity read from `toolchain.meta`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolchainIdentity {
     compiler_version: String,
@@ -17,10 +26,12 @@ pub struct ToolchainIdentity {
     build_protocol_schema: u32,
 }
 
+/// Stable fingerprint of all fields in [`ToolchainIdentity`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ToolchainIdentityFingerprint(nia_query::QueryFingerprint);
 
 impl ToolchainIdentityFingerprint {
+    /// Returns the identity fingerprint expected by this compiler build.
     pub fn current() -> Self {
         ToolchainIdentity {
             compiler_version: COMPILER_VERSION.to_string(),
@@ -31,32 +42,39 @@ impl ToolchainIdentityFingerprint {
         .fingerprint()
     }
 
+    /// Reconstructs a persisted fingerprint from its two 64-bit lanes.
     pub const fn from_parts(parts: [u64; 2]) -> Self {
         Self(nia_query::QueryFingerprint::from_parts(parts))
     }
 
+    /// Returns the two 64-bit lanes for persistence.
     pub const fn parts(self) -> [u64; 2] {
         self.0.parts()
     }
 }
 
 impl ToolchainIdentity {
+    /// Returns the compiler version required by the resource bundle.
     pub fn compiler_version(&self) -> &str {
         &self.compiler_version
     }
 
+    /// Returns the resource directory layout schema version.
     pub const fn resource_layout_schema(&self) -> u32 {
         self.resource_layout_schema
     }
 
+    /// Returns the standard-library source schema version.
     pub const fn std_schema(&self) -> u32 {
         self.std_schema
     }
 
+    /// Returns the build runner protocol schema version.
     pub const fn build_protocol_schema(&self) -> u32 {
         self.build_protocol_schema
     }
 
+    /// Computes a deterministic fingerprint over every compatibility field.
     pub fn fingerprint(&self) -> ToolchainIdentityFingerprint {
         let mut builder = QueryFingerprintBuilder::new(COMPATIBILITY_IDENTITY_DOMAIN);
         builder.write_str(&self.compiler_version);
@@ -67,17 +85,20 @@ impl ToolchainIdentity {
     }
 }
 
+/// Runtime source modules shipped in the resolved resource bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeResources {
     freestanding_start_module: PathBuf,
 }
 
 impl RuntimeResources {
+    /// Returns the startup module used for freestanding executables.
     pub fn freestanding_start_module(&self) -> &std::path::Path {
         &self.freestanding_start_module
     }
 }
 
+/// Validated compiler executable, resources, identity, and target configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolchainLayout {
     compiler_executable: PathBuf,
@@ -90,6 +111,12 @@ pub struct ToolchainLayout {
 }
 
 impl ToolchainLayout {
+    /// Resolves and validates every resource named by `request`.
+    ///
+    /// The resource root is canonicalized before exposure. The manifest must
+    /// exactly match this compiler's layout, standard-library, build-protocol,
+    /// and compiler versions; required standard-library and runtime files must
+    /// be regular files.
     pub fn resolve(request: ToolchainLayoutRequest) -> Result<Self, ToolchainLayoutError> {
         validate_file(
             &request.compiler_executable,
@@ -148,35 +175,43 @@ impl ToolchainLayout {
         })
     }
 
+    /// Returns the compiler executable supplied by the request.
     pub fn compiler_executable(&self) -> &std::path::Path {
         &self.compiler_executable
     }
 
+    /// Returns the canonical resource root.
     pub fn resource_root(&self) -> &std::path::Path {
         &self.resource_root
     }
 
+    /// Returns the validated standard-library root module.
     pub fn std_module(&self) -> &std::path::Path {
         &self.std_module
     }
 
+    /// Returns the manifest compatibility identity.
     pub const fn identity(&self) -> &ToolchainIdentity {
         &self.identity
     }
 
+    /// Returns the host target used to execute compiler-side tools.
     pub const fn host_target(&self) -> &TargetConfig {
         &self.host_target
     }
 
+    /// Returns the independently selected target for produced artifacts.
     pub const fn artifact_target(&self) -> &TargetConfig {
         &self.artifact_target
     }
 
+    /// Returns validated runtime resource paths.
     pub const fn runtime(&self) -> &RuntimeResources {
         &self.runtime
     }
 }
 
+/// Inputs selecting a compiler executable, resource root, and artifact target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolchainLayoutRequest {
     compiler_executable: PathBuf,
@@ -185,6 +220,7 @@ pub struct ToolchainLayoutRequest {
 }
 
 impl ToolchainLayoutRequest {
+    /// Selects resources at `../lib/nia` relative to the executable directory.
     pub fn installed(compiler_executable: impl Into<PathBuf>) -> Self {
         Self {
             compiler_executable: compiler_executable.into(),
@@ -193,6 +229,7 @@ impl ToolchainLayoutRequest {
         }
     }
 
+    /// Selects an explicit resource root, primarily for development layouts.
     pub fn explicit(
         compiler_executable: impl Into<PathBuf>,
         resource_root: impl Into<PathBuf>,
@@ -204,6 +241,7 @@ impl ToolchainLayoutRequest {
         }
     }
 
+    /// Overrides the artifact target while leaving compiler tools on the host target.
     pub fn with_artifact_target(mut self, target: TargetConfig) -> Self {
         self.artifact_target = target;
         self
@@ -216,11 +254,16 @@ enum ResourceRootSelection {
     Explicit(PathBuf),
 }
 
+/// Semantic role of a required toolchain filesystem resource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceRole {
+    /// Compiler executable used to invoke this toolchain.
     CompilerExecutable,
+    /// Directory containing the manifest and shipped sources.
     ResourceRoot,
+    /// Root source module of the standard library.
     StandardLibrary,
+    /// Startup source module for freestanding executables.
     FreestandingRuntime,
 }
 
@@ -235,49 +278,83 @@ impl fmt::Display for ResourceRole {
     }
 }
 
+/// Failure to discover, parse, or validate a toolchain layout.
 #[derive(Debug)]
 pub enum ToolchainLayoutError {
+    /// An installed-layout request used an executable path with no parent.
     MissingExecutableParent {
+        /// Requested compiler executable path.
         path: PathBuf,
     },
+    /// The selected resource root could not be canonicalized.
     ReadResourceRoot {
+        /// Selected resource root path.
         path: PathBuf,
+        /// Filesystem failure.
         error: io::Error,
     },
+    /// A resource expected to be a directory has another file type.
     NotDirectory {
+        /// Resource being validated.
         role: ResourceRole,
+        /// Resource path.
         path: PathBuf,
     },
+    /// The compatibility manifest could not be read as UTF-8 text.
     ReadManifest {
+        /// Manifest path.
         path: PathBuf,
+        /// Filesystem or decoding failure.
         error: io::Error,
     },
+    /// Metadata for a required resource could not be read.
     ReadResource {
+        /// Resource being validated.
         role: ResourceRole,
+        /// Resource path.
         path: PathBuf,
+        /// Filesystem failure.
         error: io::Error,
     },
+    /// A manifest line has invalid syntax, an unknown/duplicate field, or an invalid number.
     MalformedManifest {
+        /// Manifest path.
         path: PathBuf,
+        /// One-based source line containing the error.
         line: usize,
+        /// Description of the malformed input.
         message: String,
     },
+    /// A required compatibility field is absent.
     MissingManifestField {
+        /// Manifest path.
         path: PathBuf,
+        /// Missing field name.
         field: &'static str,
     },
+    /// A compatibility field does not match this compiler build.
     IncompatibleManifestField {
+        /// Manifest path.
         path: PathBuf,
+        /// Incompatible field name.
         field: &'static str,
+        /// Value required by this compiler.
         expected: String,
+        /// Value found in the manifest.
         found: String,
     },
+    /// A required resource does not exist.
     MissingResource {
+        /// Missing resource role.
         role: ResourceRole,
+        /// Expected resource path.
         path: PathBuf,
     },
+    /// A required regular file has another file type.
     NotFile {
+        /// Resource being validated.
         role: ResourceRole,
+        /// Resource path.
         path: PathBuf,
     },
 }
