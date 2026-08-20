@@ -32,6 +32,24 @@ fn readonly_pointer_accepts(pattern_readonly: bool, actual_readonly: bool) -> bo
 }
 
 impl Analyzer<'_> {
+    fn associated_binding_types_match_after_inference(
+        &mut self,
+        pattern: &nia_ty::AssociatedTypeBindingTy,
+        actual: &nia_ty::AssociatedTypeBindingTy,
+        substitutions: &SymbolMap<InternedTyId>,
+    ) -> bool {
+        pattern
+            .trait_args
+            .iter()
+            .zip(&actual.trait_args)
+            .chain(std::iter::once((&pattern.ty, &actual.ty)))
+            .all(|(pattern, actual)| {
+                let pattern = self.substitute_ty_generics_from_map(*pattern, substitutions);
+                self.type_contains_generic(pattern)
+                    || self.const_function_types_match(pattern, *actual)
+            })
+    }
+
     fn const_generic_args_allow_inference(
         &mut self,
         pattern: &[ConstGenericArg],
@@ -59,37 +77,67 @@ impl Analyzer<'_> {
         // member name. Source order is not semantic, so a positional zip would
         // make inference change when equivalent bounds are reordered.
         for pattern_binding in pattern {
-            let Some(actual_binding) = actual.iter().find(|actual_binding| {
-                actual_binding.trait_id == pattern_binding.trait_id
-                    && actual_binding.name == pattern_binding.name
-                    && actual_binding.trait_args.len() == pattern_binding.trait_args.len()
-                    && self.const_generic_args_allow_inference(
+            let mut first_error = None;
+            let mut matched = false;
+            for actual_binding in actual {
+                if actual_binding.trait_id != pattern_binding.trait_id
+                    || actual_binding.name != pattern_binding.name
+                    || actual_binding.trait_args.len() != pattern_binding.trait_args.len()
+                    || !self.const_generic_args_allow_inference(
                         &pattern_binding.trait_const_args,
                         &actual_binding.trait_const_args,
                     )
-            }) else {
-                continue;
-            };
-            for (pattern_arg, actual_arg) in pattern_binding
-                .trait_args
-                .iter()
-                .zip(&actual_binding.trait_args)
-            {
-                self.infer_generics_from_tys(
-                    span,
-                    target_module_id,
-                    *pattern_arg,
-                    *actual_arg,
-                    substitutions,
-                )?;
+                {
+                    continue;
+                }
+                let mut candidate = substitutions.clone();
+                let result = (|| {
+                    for (pattern_arg, actual_arg) in pattern_binding
+                        .trait_args
+                        .iter()
+                        .zip(&actual_binding.trait_args)
+                    {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            *pattern_arg,
+                            *actual_arg,
+                            &mut candidate,
+                        )?;
+                    }
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        pattern_binding.ty,
+                        actual_binding.ty,
+                        &mut candidate,
+                    )?;
+                    Ok::<_, ConstError>(())
+                })();
+                match result {
+                    Ok(())
+                        if self.associated_binding_types_match_after_inference(
+                            pattern_binding,
+                            actual_binding,
+                            &candidate,
+                        ) =>
+                    {
+                        *substitutions = candidate;
+                        matched = true;
+                        break;
+                    }
+                    Ok(()) => {}
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
             }
-            self.infer_generics_from_tys(
-                span,
-                target_module_id,
-                pattern_binding.ty,
-                actual_binding.ty,
-                substitutions,
-            )?;
+            if !matched {
+                if let Some(error) = first_error {
+                    return Err(error);
+                }
+                continue;
+            }
         }
         Ok(())
     }

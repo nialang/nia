@@ -951,6 +951,59 @@ const RESULT: usize = run();
 }
 
 #[test]
+fn const_execution_inference_tries_later_associated_binding_candidates() {
+    let fixture = check_source(
+        r#"
+trait Slot[T] {
+    type Item;
+}
+
+trait Both : Slot[i32] + Slot[bool] {}
+
+struct Store {}
+
+extend Store : Slot[i32] {
+    type Item = bool;
+}
+
+extend Store : Slot[bool] {
+    type Item = i32;
+}
+
+extend Store : Both {}
+
+const fn inspect[T, U](expected: U, value: &Both[
+    [Self as Slot[T]]::Item = U,
+    [Self as Slot[i32]]::Item = bool,
+]) usize {
+    let _ = (expected, value);
+    7
+}
+
+const fn run() usize {
+    let store = Store {};
+    let value: &Both[
+        [Self as Slot[i32]]::Item = bool,
+        [Self as Slot[bool]]::Item = i32,
+    ] = &store;
+    inspect(0i32, value)
+}
+
+const RESULT: usize = run();
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "RESULT"),
+        ConstValue::Int(IntConst::signed(7))
+    );
+}
+
+#[test]
 fn const_generic_inference_rejects_evidence_below_mismatched_const_argument() {
     let fixture = check_source(
         r#"
