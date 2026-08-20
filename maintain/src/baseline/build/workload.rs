@@ -1,10 +1,11 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use super::BuildResult;
 use super::acceptance::validate_workload;
 use super::process::run_bounded;
 use super::reports::parse_build_reports;
+use super::{ArtifactEquivalence, BuildResult};
 use crate::{MaintainResult, TemporaryDirectory};
 
 pub fn build_command(
@@ -72,8 +73,85 @@ fn run_state(
         wall_seconds_observed: output.elapsed,
         available_memory_bytes_before: output.available_memory,
         corrupted_action_cache_entries: None,
+        artifact_equivalence: None,
         reports,
     })
+}
+
+const REPRESENTATIVE_ARTIFACTS: [&str; 2] = ["source-app", "generated-app"];
+const ARTIFACT_COMPARE_BUFFER_BYTES: usize = 64 * 1024;
+
+fn streams_match(left: &Path, right: &Path) -> MaintainResult<bool> {
+    let mut left = fs::File::open(left)
+        .map_err(|error| format!("failed to open {}: {error}", left.display()))?;
+    let mut right = fs::File::open(right)
+        .map_err(|error| format!("failed to open {}: {error}", right.display()))?;
+    if left
+        .metadata()
+        .map_err(|error| format!("failed to inspect artifact: {error}"))?
+        .len()
+        != right
+            .metadata()
+            .map_err(|error| format!("failed to inspect clean artifact: {error}"))?
+            .len()
+    {
+        return Ok(false);
+    }
+    let mut left_buffer = [0; ARTIFACT_COMPARE_BUFFER_BYTES];
+    let mut right_buffer = [0; ARTIFACT_COMPARE_BUFFER_BYTES];
+    loop {
+        let left_read = left
+            .read(&mut left_buffer)
+            .map_err(|error| format!("failed to read incremental artifact: {error}"))?;
+        let right_read = right
+            .read(&mut right_buffer)
+            .map_err(|error| format!("failed to read clean artifact: {error}"))?;
+        if left_read != right_read || left_buffer[..left_read] != right_buffer[..right_read] {
+            return Ok(false);
+        }
+        if left_read == 0 {
+            return Ok(true);
+        }
+    }
+}
+
+fn compare_representative_artifacts(
+    incremental: &Path,
+    clean: &Path,
+    clean_state: &str,
+) -> MaintainResult<ArtifactEquivalence> {
+    let incremental = incremental.join(".nia-build");
+    let clean = clean.join(".nia-build");
+    let mut matching = 0;
+    for artifact in REPRESENTATIVE_ARTIFACTS {
+        if streams_match(&incremental.join(artifact), &clean.join(artifact))? {
+            matching += 1;
+        }
+    }
+    Ok(ArtifactEquivalence {
+        clean_state: clean_state.to_owned(),
+        compared: REPRESENTATIVE_ARTIFACTS.len(),
+        matching,
+    })
+}
+
+fn replace_source(workspace: &Path) -> MaintainResult<()> {
+    fs::copy(
+        workspace.join("src/main.edited.nia"),
+        workspace.join("src/main.nia"),
+    )
+    .map_err(|error| format!("failed to edit build fixture source: {error}"))?;
+    Ok(())
+}
+
+fn replace_module_map(workspace: &Path) -> MaintainResult<()> {
+    let build_script = fs::read_to_string(workspace.join("build.nia"))
+        .map_err(|error| format!("failed to read build fixture: {error}"))?;
+    fs::write(
+        workspace.join("build.nia"),
+        build_script.replace("deps/helper.nia", "deps/helper_edited.nia"),
+    )
+    .map_err(|error| format!("failed to edit build fixture module map: {error}"))
 }
 
 fn copy_tree(source: &Path, destination: &Path) -> MaintainResult<()> {
@@ -150,6 +228,8 @@ pub(super) fn run_workload(
 ) -> MaintainResult<(Vec<BuildResult>, TemporaryDirectory)> {
     let temporary = TemporaryDirectory::new("nia-build-baseline-")?;
     let workspace = temporary.path().join("representative");
+    let source_edit_clean_workspace = temporary.path().join("source-edit-clean");
+    let module_map_edit_clean_workspace = temporary.path().join("module-map-edit-clean");
     copy_tree(fixture, &workspace)?;
 
     // Each transition is observed before applying the next mutation. Reusing
@@ -173,12 +253,8 @@ pub(super) fn run_workload(
         None,
         true,
     )?);
-    fs::copy(
-        workspace.join("src/main.edited.nia"),
-        workspace.join("src/main.nia"),
-    )
-    .map_err(|error| format!("failed to edit build fixture source: {error}"))?;
-    results.push(run_state(
+    replace_source(&workspace)?;
+    let mut source_edit = run_state(
         nia,
         resource_root,
         &workspace,
@@ -186,15 +262,28 @@ pub(super) fn run_workload(
         timeout_seconds,
         None,
         true,
+    )?;
+    copy_tree(fixture, &source_edit_clean_workspace)?;
+    replace_source(&source_edit_clean_workspace)?;
+    let source_edit_clean = run_state(
+        nia,
+        resource_root,
+        &source_edit_clean_workspace,
+        "source_edit_clean",
+        timeout_seconds,
+        None,
+        true,
+    )?;
+    source_edit.artifact_equivalence = Some(compare_representative_artifacts(
+        &workspace,
+        &source_edit_clean_workspace,
+        "source_edit_clean",
     )?);
-    let build_script = fs::read_to_string(workspace.join("build.nia"))
-        .map_err(|error| format!("failed to read build fixture: {error}"))?;
-    fs::write(
-        workspace.join("build.nia"),
-        build_script.replace("deps/helper.nia", "deps/helper_edited.nia"),
-    )
-    .map_err(|error| format!("failed to edit build fixture module map: {error}"))?;
-    results.push(run_state(
+    results.push(source_edit);
+    results.push(source_edit_clean);
+
+    replace_module_map(&workspace)?;
+    let mut module_map_edit = run_state(
         nia,
         resource_root,
         &workspace,
@@ -202,7 +291,26 @@ pub(super) fn run_workload(
         timeout_seconds,
         None,
         true,
+    )?;
+    copy_tree(fixture, &module_map_edit_clean_workspace)?;
+    replace_source(&module_map_edit_clean_workspace)?;
+    replace_module_map(&module_map_edit_clean_workspace)?;
+    let module_map_edit_clean = run_state(
+        nia,
+        resource_root,
+        &module_map_edit_clean_workspace,
+        "module_map_edit_clean",
+        timeout_seconds,
+        None,
+        true,
+    )?;
+    module_map_edit.artifact_equivalence = Some(compare_representative_artifacts(
+        &workspace,
+        &module_map_edit_clean_workspace,
+        "module_map_edit_clean",
     )?);
+    results.push(module_map_edit);
+    results.push(module_map_edit_clean);
     let corrupted = corrupt_action_cache(&workspace)?;
     let mut corrupt = run_state(
         nia,
@@ -235,4 +343,29 @@ pub(super) fn run_workload(
     )?);
     validate_workload(&results)?;
     Ok((results, temporary))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestDirectory;
+
+    #[test]
+    fn artifact_comparison_crosses_fixed_buffer_boundaries() {
+        let directory = TestDirectory::new("build-artifact-comparison");
+        let left = directory.path().join("left");
+        let right = directory.path().join("right");
+        let mut contents = vec![0x5a; ARTIFACT_COMPARE_BUFFER_BYTES * 2 + 1];
+        fs::write(&left, &contents).unwrap();
+        fs::write(&right, &contents).unwrap();
+        assert!(streams_match(&left, &right).unwrap());
+
+        contents[ARTIFACT_COMPARE_BUFFER_BYTES] ^= 0xff;
+        fs::write(&right, &contents).unwrap();
+        assert!(!streams_match(&left, &right).unwrap());
+
+        contents.pop();
+        fs::write(&right, &contents).unwrap();
+        assert!(!streams_match(&left, &right).unwrap());
+    }
 }

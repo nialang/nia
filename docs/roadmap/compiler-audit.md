@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 223 completed entries in this ledger.
+- Implementation batches: 224 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1304,6 +1304,15 @@ acceptance item only when its phase-wide evidence is complete.
       schema-v3 evidence retained machine resources, process measurements, and
       every counter; independent clean recomputation of each edited state and
       genuinely constrained low-memory execution remain open Phase D evidence.
+- [x] Phase D representative build baseline schema v4 now recomputes source-
+      edited and module-map-edited fixtures in separate cold-cache workspaces,
+      then compares both emitted executables byte-for-byte through fixed 64 KiB
+      buffers. Its default three-sample run covered 27 ordered states and all
+      126 acceptance checks; all six incremental/clean comparisons matched both
+      artifacts, and each independent recomputation missed all three action
+      lookups. Focused acceptance and buffer-boundary tests preserve missing,
+      mismatched, and falsely warm evidence. Genuinely constrained low-memory
+      execution remains open Phase D evidence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
