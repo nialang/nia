@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 212 completed entries in this ledger.
+- Implementation batches: 213 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1228,6 +1228,11 @@ acceptance item only when its phase-wide evidence is complete.
       selection, inactive ranges, versioned node identity, declaration versus
       shallow-definition comparison, signature-consumer filtering, and AST
       projection. `nia-item-tree` strict Rustdoc, ten owner tests, and strict
+      Clippy pass.
+- [x] Cross-cutting Phase E node-identity Rustdoc now documents versioned
+      span/child-path locators, store-scoped compact handles, revision
+      retirement, locator-based map equality/merge, and transactional AST
+      origin tables. `nia-node-id` strict Rustdoc, 18 owner tests, and strict
       Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.

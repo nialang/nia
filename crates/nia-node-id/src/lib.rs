@@ -20,63 +20,91 @@ use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Broad syntax category used to disambiguate co-located nodes.
 pub enum SyntaxKind {
+    /// Module root.
     Module,
+    /// Module-level item.
     Item,
+    /// Statement.
     Stmt,
+    /// Expression.
     Expr,
+    /// Type reference.
     Type,
+    /// Pattern.
     Pattern,
+    /// Function or closure parameter.
     Param,
+    /// General syntax node.
     Syntax,
+    /// Lexical token.
     Token,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Lossless child-index path from a syntax root.
 pub struct NodeChildPath {
     steps: Vec<u32>,
 }
 
 impl NodeChildPath {
+    /// Creates the empty root path.
     pub fn root() -> Self {
         Self { steps: Vec::new() }
     }
 
+    /// Creates a path from ordered child indices.
     pub fn from_steps(steps: impl Into<Vec<u32>>) -> Self {
         Self {
             steps: steps.into(),
         }
     }
 
+    /// Returns child indices from root to node.
     pub fn steps(&self) -> &[u32] {
         &self.steps
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Source position strategy used by a stable node locator.
 pub enum NodePosition {
+    /// Source span position.
     Span(Span),
+    /// Exact syntax child path.
     ChildPath(NodeChildPath),
+    /// Range between two syntax child paths.
     ChildPathRange {
+        /// Inclusive start path.
         start: NodeChildPath,
+        /// Exclusive end path.
         end: NodeChildPath,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Revision-independent node site within one source.
 pub struct NodeSite {
+    /// Owning source identity.
     pub source_id: SourceId,
+    /// Syntax category.
     pub kind: SyntaxKind,
+    /// Position within the source syntax.
     pub position: NodePosition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Stable node locator scoped to an exact source revision.
 pub struct VersionedNodeKey {
+    /// Source, kind, and position identity.
     pub site: NodeSite,
+    /// Source revision containing the node.
     pub revision: SourceRevision,
 }
 
 impl VersionedNodeKey {
+    /// Creates a span-based locator.
     pub fn span(version: SourceVersion, kind: SyntaxKind, span: Span) -> Self {
         Self {
             site: NodeSite {
@@ -88,6 +116,7 @@ impl VersionedNodeKey {
         }
     }
 
+    /// Creates a child-path locator.
     pub fn child_path(version: SourceVersion, kind: SyntaxKind, path: NodeChildPath) -> Self {
         Self {
             site: NodeSite {
@@ -99,6 +128,7 @@ impl VersionedNodeKey {
         }
     }
 
+    /// Creates a child-path-range locator.
     pub fn child_path_range(
         version: SourceVersion,
         kind: SyntaxKind,
@@ -115,6 +145,7 @@ impl VersionedNodeKey {
         }
     }
 
+    /// Returns the owning source version.
     pub fn source_version(&self) -> SourceVersion {
         SourceVersion {
             id: self.site.source_id,
@@ -122,20 +153,24 @@ impl VersionedNodeKey {
         }
     }
 
+    /// Returns the revision-independent site.
     pub fn site(&self) -> &NodeSite {
         &self.site
     }
 
+    /// Returns the syntax category.
     pub fn kind(&self) -> SyntaxKind {
         self.site.kind
     }
 
+    /// Returns the source position strategy.
     pub fn position(&self) -> &NodePosition {
         &self.site.position
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Identity of the [`NodeStore`] that owns a compact node handle.
 pub struct NodeStoreId(u32);
 
 impl NodeStoreId {
@@ -149,9 +184,11 @@ impl NodeStoreId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Monotonic node index within one store.
 pub struct NodeIndex(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Compact session-local node handle scoped to one store.
 pub struct NodeId {
     store_id: NodeStoreId,
     index: NodeIndex,
@@ -206,6 +243,7 @@ impl Default for NodeStore {
 }
 
 impl NodeStore {
+    /// Creates an empty node store with a fresh store identity.
     pub fn new() -> Self {
         Self {
             id: NodeStoreId::fresh(),
@@ -221,10 +259,12 @@ impl NodeStore {
         }
     }
 
+    /// Returns this store's unique session-local identity.
     pub fn id(&self) -> NodeStoreId {
         self.id
     }
 
+    /// Resolves an active handle owned by this store to its locator.
     pub fn locator(&self, node_id: NodeId) -> Option<VersionedNodeKey> {
         if node_id.store_id != self.id {
             return None;
@@ -239,6 +279,7 @@ impl NodeStore {
         revision.and_then(|revision| revision.locator(node_id.index))
     }
 
+    /// Resolves an active locator to its compact handle.
     pub fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
         let revision = self
             .core
@@ -255,6 +296,7 @@ impl NodeStore {
             })
     }
 
+    /// Returns the number of nodes across active source revisions.
     pub fn len(&self) -> usize {
         let revisions = self
             .core
@@ -267,10 +309,12 @@ impl NodeStore {
         revisions.into_iter().map(|revision| revision.len()).sum()
     }
 
+    /// Reports whether all active revisions are empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Returns the number of active source revisions.
     pub fn active_revision_count(&self) -> usize {
         self.core
             .lock()
@@ -279,6 +323,7 @@ impl NodeStore {
             .len()
     }
 
+    /// Retires a source revision and returns its number of invalidated handles.
     pub fn retire_revision(&self, version: SourceVersion) -> usize {
         let mut core = self.core.lock().expect("node store lock poisoned");
         let Some(revision) = core.revisions.remove(&version) else {
@@ -453,11 +498,13 @@ pub struct NodeMap<V> {
 }
 
 #[derive(Debug)]
+/// Mutable builder for a locator-keyed [`NodeMap`].
 pub struct NodeMapBuilder<V> {
     append: NodeStoreAppend,
     nodes: HashMap<NodeId, V>,
 }
 
+/// Iterator yielding stable locators and borrowed node-map values.
 pub struct NodeMapIter<'a, V> {
     revisions: &'a NodeRevisionSet,
     entries: hash_map::Iter<'a, NodeId, V>,
@@ -493,6 +540,7 @@ impl<V: PartialEq> PartialEq for NodeMap<V> {
 impl<V: Eq> Eq for NodeMap<V> {}
 
 impl<V> NodeMap<V> {
+    /// Creates an empty map backed by an existing node store.
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             store: store.clone(),
@@ -501,6 +549,7 @@ impl<V> NodeMap<V> {
         }
     }
 
+    /// Creates an empty mutable builder backed by an existing store.
     pub fn builder(store: &NodeStore) -> NodeMapBuilder<V> {
         NodeMapBuilder {
             append: store.append(),
@@ -508,19 +557,23 @@ impl<V> NodeMap<V> {
         }
     }
 
+    /// Looks up a value by stable locator.
     pub fn get(&self, locator: &VersionedNodeKey) -> Option<&V> {
         self.node_id(locator)
             .and_then(|node_id| self.nodes.get(&node_id))
     }
 
+    /// Reports whether a locator has a value in this map.
     pub fn contains_key(&self, locator: &VersionedNodeKey) -> bool {
         self.node_id(locator).is_some()
     }
 
+    /// Looks up a value by a compact handle owned by this map's store.
     pub fn get_by_id(&self, node_id: NodeId) -> Option<&V> {
         self.nodes.get(&node_id)
     }
 
+    /// Returns this map's compact handle for a locator.
     pub fn node_id(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
         self.revisions
             .id_for_locator(locator)
@@ -531,14 +584,17 @@ impl<V> NodeMap<V> {
             .filter(|node_id| self.nodes.contains_key(node_id))
     }
 
+    /// Returns the identity of the backing node store.
     pub fn store_id(&self) -> NodeStoreId {
         self.store.id()
     }
 
+    /// Returns the backing node store.
     pub fn node_store(&self) -> &NodeStore {
         &self.store
     }
 
+    /// Iterates stable locators and borrowed values.
     pub fn iter(&self) -> NodeMapIter<'_, V> {
         NodeMapIter {
             revisions: &self.revisions,
@@ -546,10 +602,12 @@ impl<V> NodeMap<V> {
         }
     }
 
+    /// Iterates values in unspecified order.
     pub fn values(&self) -> hash_map::Values<'_, NodeId, V> {
         self.nodes.values()
     }
 
+    /// Iterates stable locators in unspecified order.
     pub fn keys(&self) -> impl Iterator<Item = VersionedNodeKey> + '_ {
         self.nodes.keys().map(|node_id| {
             self.revisions
@@ -558,6 +616,7 @@ impl<V> NodeMap<V> {
         })
     }
 
+    /// Consumes the map into stable locator/value entries.
     pub fn into_entries(self) -> impl Iterator<Item = (VersionedNodeKey, V)> {
         let Self {
             revisions, nodes, ..
@@ -572,6 +631,7 @@ impl<V> NodeMap<V> {
         })
     }
 
+    /// Converts this immutable product back into a mutable builder.
     pub fn into_builder(self) -> NodeMapBuilder<V> {
         NodeMapBuilder {
             append: NodeStoreAppend {
@@ -582,38 +642,45 @@ impl<V> NodeMap<V> {
         }
     }
 
+    /// Returns the number of stored values.
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
+    /// Reports whether the map contains no values.
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 }
 
 impl<V> NodeMapBuilder<V> {
+    /// Inserts or replaces a value, returning the previous value.
     pub fn insert(&mut self, locator: VersionedNodeKey, value: V) -> Option<V> {
         self.nodes.insert(self.append.intern(locator), value)
     }
 
+    /// Inserts a value only when the locator is absent.
     pub fn insert_if_absent(&mut self, locator: VersionedNodeKey, value: V) {
         self.nodes
             .entry(self.append.intern(locator))
             .or_insert(value);
     }
 
+    /// Removes and returns a value by locator.
     pub fn remove(&mut self, locator: &VersionedNodeKey) -> Option<V> {
         self.append
             .id_for_locator(locator)
             .and_then(|node_id| self.nodes.remove(&node_id))
     }
 
+    /// Inserts entries in iteration order, with later duplicates winning.
     pub fn extend(&mut self, entries: impl IntoIterator<Item = (VersionedNodeKey, V)>) {
         for (locator, value) in entries {
             self.insert(locator, value);
         }
     }
 
+    /// Merges another map by stable locator, with source values winning.
     pub fn extend_map(&mut self, nodes: NodeMap<V>) {
         if self.append.store.id == nodes.store.id {
             let NodeMap {
@@ -634,6 +701,7 @@ impl<V> NodeMapBuilder<V> {
         }
     }
 
+    /// Publishes the immutable node-map product.
     pub fn finish(self) -> NodeMap<V> {
         let NodeStoreAppend { store, revisions } = self.append;
         NodeMap {
@@ -716,6 +784,7 @@ impl PartialEq for NodeOriginTable {
 impl Eq for NodeOriginTable {}
 
 impl NodeOriginTable {
+    /// Creates an empty origin table backed by an existing store.
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             store: store.clone(),
@@ -724,6 +793,7 @@ impl NodeOriginTable {
         }
     }
 
+    /// Creates an empty transactional origin-table builder.
     pub fn builder(store: &NodeStore) -> NodeOriginTableBuilder {
         NodeOriginTableBuilder {
             append: store.append(),
@@ -732,27 +802,33 @@ impl NodeOriginTable {
         }
     }
 
+    /// Looks up a compact handle by AST kind and span.
     pub fn node_id(&self, kind: SyntaxKind, span: Span) -> Option<NodeId> {
         self.nodes.get(&(kind, span)).copied()
     }
 
+    /// Looks up a stable locator by AST kind and span.
     pub fn locator(&self, kind: SyntaxKind, span: Span) -> Option<VersionedNodeKey> {
         self.node_id(kind, span)
             .and_then(|node_id| self.revisions.locator(node_id.index))
     }
 
+    /// Returns the identity of the backing node store.
     pub fn store_id(&self) -> NodeStoreId {
         self.store.id()
     }
 
+    /// Returns the backing node store.
     pub fn node_store(&self) -> &NodeStore {
         &self.store
     }
 
+    /// Reports whether the table has no origins.
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
+    /// Returns the number of accepted AST origins.
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
@@ -787,6 +863,7 @@ impl NodeOriginTableBuilder {
         }
     }
 
+    /// Inserts or replaces an AST origin and records it for rollback.
     pub fn insert(&mut self, kind: SyntaxKind, span: Span, locator: VersionedNodeKey) -> NodeId {
         let node_id = self.append.intern(locator);
         let origin = (kind, span);
@@ -795,6 +872,7 @@ impl NodeOriginTableBuilder {
         node_id
     }
 
+    /// Publishes the accepted immutable origin table.
     pub fn finish(self) -> NodeOriginTable {
         let NodeStoreAppend { store, revisions } = self.append;
         NodeOriginTable {
