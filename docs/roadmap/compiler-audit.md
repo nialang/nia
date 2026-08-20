@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 197 completed entries in this ledger.
+- Implementation batches: 198 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1169,6 +1169,10 @@ acceptance item only when its phase-wide evidence is complete.
       local products, lexical binding categories, type-prefix identities,
       filtered active-tree context, and origin-aware entry points.
       `nia-local-resolve` strict Rustdoc, 17 owner tests, and strict Clippy pass.
+- [x] Cross-cutting Phase A type-normalization Rustdoc now documents alias
+      expansion inputs, normalized identity products, recursive-cycle
+      diagnostics, and explicit-input normalization scope. `nia-type-normalize`
+      strict Rustdoc, nine owner tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

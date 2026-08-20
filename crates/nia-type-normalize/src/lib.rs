@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Normalizes interned types by expanding aliases and recursively canonicalizing
+//! nested type and const-argument components.
 use std::collections::{HashMap, HashSet};
 
 use nia_diagnostic::{Diagnostic, codes};
@@ -9,18 +11,27 @@ use nia_symbol::SymbolMap;
 use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend};
 
 #[derive(Debug, Clone, PartialEq)]
+/// Normalized type identities and diagnostics for one module.
 pub struct TypeNormalization {
+    /// Mapping from each requested type id to its normalized identity.
     pub normalized: HashMap<InternedTyId, InternedTyId>,
+    /// Diagnostics such as recursive type-alias cycles.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Inputs required to normalize a set of interned types.
 pub struct TypeNormalizationInput<'a> {
+    /// Module whose aliases and diagnostics are being resolved.
     pub module_id: ModuleId,
+    /// Canonical store containing the input type identities.
     pub type_store: &'a TypeStore,
+    /// Type identities that should be normalized.
     pub input_ids: &'a [InternedTyId],
+    /// Signatures supplying type-alias definitions.
     pub signatures: &'a ItemSignatures,
 }
 
+/// Normalizes the explicit input type set and all nested components.
 pub fn normalize_module_types(input: TypeNormalizationInput<'_>) -> TypeNormalization {
     let mut normalizer = TypeNormalizer {
         module_id: input.module_id,
@@ -742,6 +753,7 @@ impl<'a> TypeNormalizer<'a, '_> {
 }
 
 impl TypeNormalization {
+    /// Returns the normalized identity, or the original id when it was not requested.
     pub fn normalize(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }
