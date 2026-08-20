@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 186 completed entries in this ledger.
+- Implementation batches: 188 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1124,6 +1124,13 @@ acceptance item only when its phase-wide evidence is complete.
       failed binding alternative cannot leak substitutions or prevent a later
       compatible binding from being selected; method argument matching covers
       multiple associated bindings with independent inferred type parameters.
+- [x] Phase A trait-solver candidate filtering now matches each trait-object
+      associated binding's key and value transactionally, preserving type and
+      const substitutions while trying later compatible candidates.
+- [x] Phase A `nia-ty` and executable-reachability trait-object equivalence now
+      compares associated binding values as part of the key candidate, rather
+      than rejecting a reordered binding set after selecting the first key-only
+      match. Cross-store and reachability regressions cover the reordered case.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

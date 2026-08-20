@@ -1315,28 +1315,23 @@ fn associated_type_bindings_equivalent(
 ) -> bool {
     left.len() == right.len()
         && left.iter().all(|left_binding| {
-            right
-                .iter()
-                .find(|right_binding| {
-                    associated_type_binding_keys_equivalent(
-                        left_store,
-                        left_binding,
-                        right_store,
-                        right_binding,
-                    )
-                })
-                .is_some_and(|right_binding| {
-                    typed_refs_equivalent(
-                        TypedTyRef {
-                            store: left_store,
-                            ty: left_binding.ty,
-                        },
-                        TypedTyRef {
-                            store: right_store,
-                            ty: right_binding.ty,
-                        },
-                    )
-                })
+            right.iter().any(|right_binding| {
+                associated_type_binding_keys_equivalent(
+                    left_store,
+                    left_binding,
+                    right_store,
+                    right_binding,
+                ) && typed_refs_equivalent(
+                    TypedTyRef {
+                        store: left_store,
+                        ty: left_binding.ty,
+                    },
+                    TypedTyRef {
+                        store: right_store,
+                        ty: right_binding.ty,
+                    },
+                )
+            })
         })
 }
 
@@ -1764,5 +1759,55 @@ mod tests {
                 }) if *elem == i32_ty
             ));
         }
+    }
+
+    #[test]
+    fn trait_object_equivalence_matches_duplicate_binding_keys_by_value() {
+        let module_id = module();
+        let left = TypeStore::new();
+        let right = TypeStore::new();
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_i32 = left_append.primitive(PrimitiveTy::I32);
+        let left_bool = left_append.primitive(PrimitiveTy::Bool);
+        let right_i32 = right_append.primitive(PrimitiveTy::I32);
+        let right_bool = right_append.primitive(PrimitiveTy::Bool);
+        let trait_id = TraitId::Source(GlobalDefId {
+            module_id,
+            def_id: DefId(9),
+        });
+        let name = symbol("Item");
+        let binding = |ty| AssociatedTypeBindingTy {
+            name,
+            trait_id: Some(trait_id),
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            ty,
+        };
+        let left_ty = left_append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: vec![binding(left_i32), binding(left_bool)],
+        });
+        let right_ty = right_append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: vec![binding(right_bool), binding(right_i32)],
+        });
+
+        assert!(typed_refs_equivalent(
+            TypedTyRef {
+                store: &left,
+                ty: left_ty,
+            },
+            TypedTyRef {
+                store: &right,
+                ty: right_ty,
+            },
+        ));
     }
 }

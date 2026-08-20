@@ -869,14 +869,10 @@ pub trait TypeEquivalence {
     ) -> bool {
         left.len() == right.len()
             && left.iter().all(|left_binding| {
-                right
-                    .iter()
-                    .find(|right_binding| {
-                        self.same_associated_type_binding_key_for_equiv(left_binding, right_binding)
-                    })
-                    .is_some_and(|right_binding| {
-                        self.same_type_for_equiv(left_binding.ty, right_binding.ty)
-                    })
+                right.iter().any(|right_binding| {
+                    self.same_associated_type_binding_key_for_equiv(left_binding, right_binding)
+                        && self.same_type_for_equiv(left_binding.ty, right_binding.ty)
+                })
             })
     }
 
@@ -1199,6 +1195,51 @@ mod tests {
         for (left, right) in left_types.into_iter().zip(right_types) {
             assert!(equivalence.same_type_for_equiv(left, right));
         }
+    }
+
+    #[test]
+    fn associated_binding_equivalence_matches_values_with_duplicate_keys() {
+        let left = TypeStore::new();
+        let right = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_i32 = left_append.primitive(PrimitiveTy::I32);
+        let left_bool = left_append.primitive(PrimitiveTy::Bool);
+        let right_i32 = right_append.primitive(PrimitiveTy::I32);
+        let right_bool = right_append.primitive(PrimitiveTy::Bool);
+        let trait_id = TraitId::Source(nia_ids::GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(8),
+        });
+        let name = SymbolId::from_stable_hash(8);
+        let binding = |ty| AssociatedTypeBindingTy {
+            name,
+            trait_id: Some(trait_id),
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            ty,
+        };
+        let left_ty = left_append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: vec![binding(left_i32), binding(left_bool)],
+        });
+        let right_ty = right_append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: vec![binding(right_bool), binding(right_i32)],
+        });
+        let equivalence = DualStoreEquivalence {
+            left: &left,
+            right: &right,
+        };
+
+        assert!(equivalence.same_type_for_equiv(left_ty, right_ty));
     }
 
     #[test]
