@@ -15,7 +15,9 @@ use std::{
 
 static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Failure while durably publishing or reading a canonical build plan.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub enum PlanHandoffError {
     Encode(PlanCodecError),
     MissingParent {
@@ -106,6 +108,7 @@ impl fmt::Display for PlanHandoffError {
 
 impl std::error::Error for PlanHandoffError {}
 
+/// Atomically publishes `plan` through a synced same-directory temporary file.
 pub fn publish_build_plan(path: &Path, plan: &BuildPlan) -> Result<(), PlanHandoffError> {
     let encoded = plan.encode().map_err(PlanHandoffError::Encode)?;
     let parent = path
@@ -143,6 +146,7 @@ pub fn publish_build_plan(path: &Path, plan: &BuildPlan) -> Result<(), PlanHando
         })
 }
 
+/// Reads a bounded plan payload and revalidates its canonical semantic form.
 pub fn read_build_plan(path: &Path) -> Result<BuildPlan, PlanHandoffError> {
     let file = fs::File::open(path).map_err(|error| PlanHandoffError::Open {
         path: path.to_path_buf(),

@@ -70,49 +70,83 @@ const GENERATED_FILE_STREAM_BUFFER_BYTES: usize = 64 * 1024;
 // strings, each bounded by the canonical build-plan codec.
 const MAX_GENERATED_FILE_OUTPUT_IDENTITY_BYTES: usize = 3 * MAX_PLAN_STRING_BYTES + 25;
 
+/// Diagnostic outcome for one selected action's cache lookup or publication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionCacheReport {
+    /// Stable action whose cache was inspected.
     pub action: ActionKey,
+    /// Hit or typed miss classification.
     pub outcome: ActionCacheOutcome,
 }
 
+/// Result of consulting an action cache.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionCacheOutcome {
+    /// A complete, identity-matching entry was restored.
     Hit,
+    /// No entry was restored; the reason describes the fallback path.
     Miss(ActionCacheMissReason),
 }
 
+/// Why an action cache lookup did not produce a reusable result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActionCacheMissReason {
+    /// No entry exists for the requested identity.
     NotFound,
+    /// An entry exists but one or more identity components changed.
     Invalidated(Vec<ActionCacheInvalidation>),
+    /// The action policy explicitly disallows caching.
     Uncacheable,
+    /// The entry failed protocol, checksum, or size validation.
     Corrupt,
+    /// The entry could not be read; execution falls back to the owner.
     ReadError,
+    /// Publication failed after the owner produced its result.
     WriteError,
 }
 
+/// Independent identity component reported for an invalidated action cache entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionCacheInvalidation {
+    /// Command identity changed.
     Command,
+    /// Resolved external tool changed.
     ExternalTool,
+    /// Declared environment changed.
     Environment,
+    /// Declared input identity changed.
     Inputs,
+    /// Dependency artifact identity changed.
     Dependencies,
+    /// Logical working directory changed.
     WorkingDirectory,
+    /// Package-root mapping changed.
     PackageRoots,
+    /// Generated or declared source bytes changed.
     Contents,
+    /// Artifact identity changed.
     Artifact,
+    /// Source manifest changed.
     Sources,
+    /// Module identity changed.
     Module,
+    /// Target identity changed.
     Target,
+    /// Optimization mode changed.
     Optimization,
+    /// Runtime mode changed.
     Runtime,
+    /// Linker or archive inputs changed.
     Linker,
+    /// Output identity changed.
     Output,
+    /// Compiler identity changed.
     Compiler,
+    /// Resource-layout schema changed.
     ResourceLayout,
+    /// Standard-library schema changed.
     StandardLibrary,
+    /// Build protocol schema changed.
     BuildProtocol,
 }
 

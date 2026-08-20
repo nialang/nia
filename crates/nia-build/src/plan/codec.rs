@@ -13,7 +13,9 @@ pub(crate) const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const MAX_ITEMS: usize = 100_000;
 pub(crate) const MAX_PLAN_STRING_BYTES: usize = 1024 * 1024;
 
+/// Rejection reason for a non-canonical, unsupported, or invalid plan encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum PlanCodecError {
     TooLarge {
         limit: usize,
@@ -49,6 +51,7 @@ impl fmt::Display for PlanCodecError {
 impl std::error::Error for PlanCodecError {}
 
 impl BuildPlan {
+    /// Encodes this frozen plan in the registered canonical bounded format.
     pub fn encode(&self) -> Result<Vec<u8>, PlanCodecError> {
         let mut writer = Writer::new();
         writer.bytes(BUILD_PLAN.magic);
@@ -82,6 +85,7 @@ impl BuildPlan {
         writer.finish()
     }
 
+    /// Decodes, bounds, and semantically freezes one canonical plan payload.
     pub fn decode(bytes: &[u8]) -> Result<Self, PlanCodecError> {
         if bytes.len() > MAX_PLAN_BYTES {
             return Err(PlanCodecError::TooLarge {

@@ -52,18 +52,27 @@ pub use coordinator::*;
 pub use output_recovery::OutputRecoveryError;
 pub use plan::*;
 
+/// Inputs and policy knobs for resolving and running one build invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
+    /// Toolchain resources used by the host runner and compiler actions.
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
+    /// Optional package or workspace root. `None` searches from the current directory.
     pub root: Option<PathBuf>,
+    /// Optional named build step; `None` selects the plan default.
     pub step: Option<String>,
+    /// Whether compiler timing information is emitted.
     pub timings: TimingMode,
+    /// Format used when timing information is enabled.
     pub timing_format: TimingFormat,
+    /// Optional upper bound on concurrently ready build actions.
     pub max_parallel_actions: Option<NonZeroUsize>,
+    /// Optimization mode passed to compiler actions.
     pub optimization: OptimizationMode,
 }
 
 impl BuildRequest {
+    /// Creates a request with repository defaults for all optional policies.
     pub fn new(toolchain: Arc<nia_toolchain::ToolchainLayout>) -> Self {
         Self {
             toolchain,
@@ -76,69 +85,99 @@ impl BuildRequest {
         }
     }
 
+    /// Selects the package root from which `build.nia` is discovered.
     pub fn with_root(mut self, root: impl Into<PathBuf>) -> Self {
         self.root = Some(root.into());
         self
     }
 
+    /// Selects a named build step.
     pub fn with_step(mut self, step: impl Into<String>) -> Self {
         self.step = Some(step.into());
         self
     }
 
+    /// Enables or disables compiler timing output.
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
         self
     }
 
+    /// Selects the timing output format.
     pub fn with_timing_format(mut self, timing_format: TimingFormat) -> Self {
         self.timing_format = timing_format;
         self
     }
 
+    /// Limits the number of ready actions that may run concurrently.
     pub fn with_max_parallel_actions(mut self, max_parallel_actions: NonZeroUsize) -> Self {
         self.max_parallel_actions = Some(max_parallel_actions);
         self
     }
 
+    /// Selects the optimization mode for compiler actions.
     pub fn with_optimization(mut self, optimization: OptimizationMode) -> Self {
         self.optimization = optimization;
         self
     }
 }
 
+/// Fully resolved, invocation-local paths and build policies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildInvocation {
+    /// Toolchain resources used by this invocation.
     pub toolchain: Arc<nia_toolchain::ToolchainLayout>,
+    /// Root directory of the package being built.
     pub package_root: PathBuf,
+    /// Physical path to the package's `build.nia` source.
     pub build_script: PathBuf,
+    /// Invocation-local build output directory.
     pub build_dir: PathBuf,
+    /// Invocation-local persistent action-cache directory.
     pub cache_dir: PathBuf,
+    /// Directory containing the generated host runner.
     pub runner_dir: PathBuf,
+    /// Path to the generated runner executable.
     pub runner_executable: PathBuf,
+    /// Private runner configuration handoff path.
     pub runner_config: PathBuf,
+    /// Temporary draft-plan handoff path.
     pub plan_draft: PathBuf,
+    /// Durable canonical plan path.
     pub plan_path: PathBuf,
+    /// Selected build-step policy.
     pub step: BuildStepSelection,
+    /// Timing policy inherited from the request.
     pub timings: TimingMode,
+    /// Timing format inherited from the request.
     pub timing_format: TimingFormat,
+    /// Ready-action parallelism inherited from the request.
     pub max_parallel_actions: Option<NonZeroUsize>,
+    /// Optimization mode inherited from the request.
     pub optimization: OptimizationMode,
 }
 
+/// How the coordinator selects a step from a frozen build plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildStepSelection {
+    /// Use the plan's declared default step.
     Default,
+    /// Use the named step after semantic validation.
     Named(String),
 }
 
+/// Source text and logical path used to compile the generated runner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRunnerSource {
+    /// Stable logical source path presented to the compiler.
     pub path: String,
+    /// Generated Nia source text.
     pub source: String,
 }
 
+/// Failure at one of the build bootstrap, runner, handoff, or execution stages.
 #[derive(Debug)]
+#[allow(missing_docs)]
 pub enum BuildError {
     CurrentDirectory {
         error: io::Error,
@@ -348,6 +387,7 @@ fn write_runner_output(f: &mut fmt::Formatter<'_>, stream: &str, bytes: &[u8]) -
 
 impl std::error::Error for BuildError {}
 
+/// Runs one build request from package discovery through action publication.
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
     nia_timing::collect_to_stderr(
         TimingOptions::new(request.timings).with_format(request.timing_format),
@@ -522,6 +562,7 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
     }
 }
 
+/// Resolves package paths and invocation-private directories without running actions.
 pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation, BuildError> {
     let start = match request.root {
         Some(root) => root,
@@ -561,6 +602,7 @@ fn next_build_invocation_name() -> String {
     format!("{}-{sequence}", std::process::id())
 }
 
+/// Produces the generated host-runner source for a resolved invocation.
 pub fn build_runner_source(invocation: &BuildInvocation) -> Result<BuildRunnerSource, BuildError> {
     let path = invocation
         .runner_dir

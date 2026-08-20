@@ -23,10 +23,18 @@ pub use codec::*;
 use dependencies::*;
 pub use handoff::*;
 
+/// Error returned when a package, module, artifact, action, or step name is invalid.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StableNameError {
+    /// The name has no bytes.
     Empty,
-    InvalidCharacter { index: usize, character: char },
+    /// A byte position contains a character outside the stable-name alphabet.
+    InvalidCharacter {
+        /// Byte offset of the invalid character.
+        index: usize,
+        /// Character outside the stable-name alphabet.
+        character: char,
+    },
 }
 
 impl fmt::Display for StableNameError {
@@ -55,20 +63,24 @@ fn validate_stable_name(name: &str) -> Result<(), StableNameError> {
     Ok(())
 }
 
+/// Stable package identity used by all plan keys.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PackageKey(String);
 
 impl PackageKey {
+    /// Validates and constructs a package key.
     pub fn new(name: impl Into<String>) -> Result<Self, StableNameError> {
         let name = name.into();
         validate_stable_name(&name)?;
         Ok(Self(name))
     }
 
+    /// Returns the reserved root-package key.
     pub fn root() -> Self {
         Self("root".to_string())
     }
 
+    /// Returns the validated stable name.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -76,6 +88,7 @@ impl PackageKey {
 
 macro_rules! define_node_key {
     ($name:ident) => {
+        #[doc = concat!("Stable package-qualified `", stringify!($name), "` identity.")]
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name {
             package: PackageKey,
@@ -83,6 +96,7 @@ macro_rules! define_node_key {
         }
 
         impl $name {
+            /// Validates and constructs a key in the supplied package.
             pub fn new(
                 package: PackageKey,
                 name: impl Into<String>,
@@ -92,10 +106,12 @@ macro_rules! define_node_key {
                 Ok(Self { package, name })
             }
 
+            /// Returns the owning package.
             pub fn package(&self) -> &PackageKey {
                 &self.package
             }
 
+            /// Returns the validated local name.
             pub fn name(&self) -> &str {
                 &self.name
             }
@@ -108,28 +124,42 @@ define_node_key!(ArtifactKey);
 define_node_key!(ActionKey);
 define_node_key!(StepKey);
 
+/// Namespace used to resolve a logical path without exposing host paths.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LogicalPathRoot {
+    /// A path relative to a declared package root.
     Package(PackageKey),
+    /// Invocation build output.
     Build,
+    /// Persistent action cache.
     Cache,
+    /// Toolchain resources.
     Toolchain,
+    /// An artifact's output root.
     Artifact(ArtifactKey),
 }
 
+/// Validated slash-separated path paired with a typed logical root.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LogicalPath {
     root: LogicalPathRoot,
     components: Vec<String>,
 }
 
+/// Rejection reason for a logical path that cannot cross the plan protocol.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LogicalPathError {
+    /// An absolute path was supplied.
     Absolute,
+    /// Two separators produced an empty component.
     EmptyComponent,
+    /// A `.` component was supplied.
     CurrentDirectory,
+    /// A `..` component could escape its typed root.
     ParentDirectory,
+    /// Backslash is not the protocol separator.
     Backslash,
+    /// NUL is not representable in a plan path.
     Nul,
 }
 
@@ -149,6 +179,7 @@ impl fmt::Display for LogicalPathError {
 impl std::error::Error for LogicalPathError {}
 
 impl LogicalPath {
+    /// Validates and constructs a logical path under `root`.
     pub fn new(root: LogicalPathRoot, path: &str) -> Result<Self, LogicalPathError> {
         if path.starts_with('/') {
             return Err(LogicalPathError::Absolute);
@@ -173,14 +204,17 @@ impl LogicalPath {
         Ok(Self { root, components })
     }
 
+    /// Returns the typed namespace root.
     pub fn root(&self) -> &LogicalPathRoot {
         &self.root
     }
 
+    /// Returns validated path components in protocol order.
     pub fn components(&self) -> &[String] {
         &self.components
     }
 
+    /// Joins components using the canonical `/` protocol separator.
     pub fn protocol_path(&self) -> String {
         self.components.join("/")
     }
@@ -196,105 +230,162 @@ impl LogicalPath {
     }
 }
 
+/// Target triple fields and pointer width captured by a frozen plan.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TargetSpec {
+    /// Target architecture.
     pub arch: String,
+    /// Target vendor.
     pub vendor: String,
+    /// Target operating system.
     pub os: String,
+    /// Target environment.
     pub env: String,
+    /// Target ABI.
     pub abi: String,
+    /// Target byte order (`little` or `big`).
     pub endian: String,
+    /// Target pointer width in bits.
     pub pointer_width: u32,
 }
 
+/// Optimization level encoded into compiler actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OptimizationMode {
+    /// No optimization.
     O0,
+    /// Basic optimization.
     O1,
+    /// Standard optimization.
     O2,
+    /// Aggressive optimization.
     O3,
+    /// Optimize for size.
     Os,
+    /// Aggressively optimize for size.
     Oz,
 }
 
+/// Runtime model selected for an artifact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Runtime {
+    /// No runtime support is linked.
     Bare,
+    /// Freestanding runtime support is linked.
     Freestanding,
 }
 
+/// Named module import and its logical source path.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ModuleImport {
+    /// Name exposed by the importing module.
     pub name: String,
+    /// Logical source path of the imported module.
     pub path: LogicalPath,
 }
 
+/// Module source and import facts consumed by compiler actions.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanModule {
+    /// Stable module identity.
     pub key: ModuleKey,
+    /// Root source file for the module.
     pub root_source: LogicalPath,
+    /// Optimization level for this module.
     pub optimization: OptimizationMode,
+    /// Declared imports in source order before freeze canonicalization.
     pub imports: Vec<ModuleImport>,
 }
 
+/// Package identity and logical checkout root.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanPackage {
+    /// Stable package identity.
     pub key: PackageKey,
     /// Package root relative to the invocation's root package.
     /// The root package is represented by the empty path.
     pub root: String,
 }
 
+/// Rejection reason for a package root mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PackageRootError {
+    /// The root package must map to the empty logical path.
     RootPackageMustBeEmpty,
+    /// A non-root package must identify its checkout-relative root.
     ExternalPackageMustBeNonempty,
+    /// The root is not a valid relative logical path.
     InvalidPath(LogicalPathError),
 }
 
+/// Product kind emitted for an artifact.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PlanArtifactKind {
+    /// Host executable product.
     Executable,
+    /// Directory of native object work products.
     ObjectSet,
+    /// Static library archive.
     StaticArchive,
 }
 
+/// Artifact declaration and its output identity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanArtifact {
+    /// Stable artifact identity.
     pub key: ArtifactKey,
+    /// Module that defines the artifact's executable roots.
     pub root_module: ModuleKey,
+    /// Product kind emitted for this artifact.
     pub kind: PlanArtifactKind,
+    /// Logical product destination.
     pub output: LogicalPath,
+    /// Runtime model linked into the product.
     pub runtime: Runtime,
 }
 
+/// How an external command locates its program.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandProgram {
+    /// Resolve a declared logical tool path.
     Path(LogicalPath),
+    /// Search the declared process path for a program name.
     Search(String),
 }
 
+/// One hermetic command argument.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandArgument {
+    /// Literal argument bytes represented as UTF-8.
     Literal(String),
+    /// Resolve a declared input logical path.
     InputPath(LogicalPath),
+    /// Resolve a declared staged output logical path.
     OutputPath(LogicalPath),
 }
 
+/// One explicitly declared environment input.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EnvironmentInput {
+    /// Environment variable name.
     pub name: String,
+    /// Optional value; `None` reads the inherited value under the policy.
     pub value: Option<String>,
 }
 
+/// Whether undeclared environment variables are inherited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandEnvironmentPolicy {
+    /// Inherit the process environment.
     Inherit,
+    /// Start with an empty environment and apply declarations.
     Clear,
 }
 
+/// Whether a command result can enter the persistent action cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CommandCachePolicy {
+    /// Never persist this command's outputs.
     Uncacheable,
     /// Cache by the resolved tool, cleared declared environment, and explicit
     /// `inputs`. The working directory contributes logical location identity,
@@ -302,14 +393,20 @@ pub enum CommandCachePolicy {
     DeclaredInputs,
 }
 
+/// Scheduling/resource class reserved by an action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ActionResourceClass {
+    /// Reserve the complete inherited action capacity.
     Conservative,
+    /// CPU-bound work consuming one action slot.
     Cpu,
+    /// I/O-bound work consuming one action slot.
     Io,
 }
 
+/// Typed operation performed by a plan action.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(missing_docs)]
 pub enum ActionKind {
     CompilerCheck {
         module: ModuleKey,
@@ -346,13 +443,17 @@ pub enum ActionKind {
     },
 }
 
+/// Stable action key paired with its typed operation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanAction {
+    /// Stable action identity.
     pub key: ActionKey,
+    /// Action operation and declared inputs/outputs.
     pub kind: ActionKind,
 }
 
 impl PlanAction {
+    /// Returns the scheduler resource class implied by this action kind.
     pub fn resource_class(&self) -> ActionResourceClass {
         match &self.kind {
             ActionKind::ExternalCommand { resource_class, .. } => *resource_class,
@@ -367,34 +468,54 @@ impl PlanAction {
     }
 }
 
+/// Dependency-graph step selecting one action.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanStep {
+    /// Stable step identity.
     pub key: StepKey,
+    /// Action executed by this step.
     pub action: ActionKey,
+    /// Steps that must complete before this one is ready.
     pub dependencies: Vec<StepKey>,
 }
 
+/// Two actions claiming overlapping logical outputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputCollision {
+    /// Conflicting logical destination.
     pub path: LogicalPath,
+    /// First canonical owner of the destination.
     pub first: ActionKey,
+    /// Conflicting owner of the destination.
     pub second: ActionKey,
 }
 
+/// Mutable plan assembled by the build-script API before freezing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlanDraft {
+    /// Package whose checkout anchors relative package roots.
     pub root_package: PackageKey,
+    /// Declared package root mappings.
     pub packages: Vec<PlanPackage>,
+    /// Target used to compile and run build tools.
     pub host_target: TargetSpec,
+    /// Target used for requested artifacts.
     pub artifact_target: TargetSpec,
+    /// Module declarations.
     pub modules: Vec<PlanModule>,
+    /// Artifact declarations.
     pub artifacts: Vec<PlanArtifact>,
+    /// Action declarations.
     pub actions: Vec<PlanAction>,
+    /// Dependency-graph steps.
     pub steps: Vec<PlanStep>,
+    /// Build-script default step.
     pub default_step: Option<StepKey>,
+    /// Invocation-selected step, when explicitly requested.
     pub selected_step: Option<StepKey>,
 }
 
+/// Canonical immutable plan accepted by the coordinator and codec.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlan {
     schema_version: u32,
@@ -410,7 +531,9 @@ pub struct BuildPlan {
     selected_step: Option<StepKey>,
 }
 
+/// Semantic validation failure while freezing a build plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum PlanError {
     DuplicatePackage(PackageKey),
     MissingPackage(PackageKey),
@@ -485,9 +608,12 @@ pub enum PlanError {
     InvalidActionTarget(Box<InvalidActionTarget>),
 }
 
+/// Target mismatch attached to an invalid compiler action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidActionTarget {
+    /// Action carrying the mismatched target.
     pub action: ActionKey,
+    /// Target requested by the action.
     pub target: TargetSpec,
 }
 
@@ -500,6 +626,7 @@ impl fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 impl BuildPlan {
+    /// Canonicalizes and validates a draft into the only executable plan form.
     pub fn freeze(mut draft: BuildPlanDraft) -> Result<Self, PlanError> {
         validate_target(&draft.host_target, "host")?;
         validate_target(&draft.artifact_target, "artifact")?;
@@ -537,36 +664,47 @@ impl BuildPlan {
         })
     }
 
+    /// Returns the registered binary protocol schema version.
     pub fn schema_version(&self) -> u32 {
         self.schema_version
     }
+    /// Returns the root package identity.
     pub fn root_package(&self) -> &PackageKey {
         &self.root_package
     }
+    /// Returns canonical package declarations.
     pub fn packages(&self) -> &[PlanPackage] {
         &self.packages
     }
+    /// Returns the host compiler target.
     pub fn host_target(&self) -> &TargetSpec {
         &self.host_target
     }
+    /// Returns the artifact target.
     pub fn artifact_target(&self) -> &TargetSpec {
         &self.artifact_target
     }
+    /// Returns canonical module declarations.
     pub fn modules(&self) -> &[PlanModule] {
         &self.modules
     }
+    /// Returns canonical artifact declarations.
     pub fn artifacts(&self) -> &[PlanArtifact] {
         &self.artifacts
     }
+    /// Returns canonical action declarations.
     pub fn actions(&self) -> &[PlanAction] {
         &self.actions
     }
+    /// Returns canonical dependency steps.
     pub fn steps(&self) -> &[PlanStep] {
         &self.steps
     }
+    /// Returns the plan-declared default step, if any.
     pub fn default_step(&self) -> Option<&StepKey> {
         self.default_step.as_ref()
     }
+    /// Returns the explicitly selected step, if any.
     pub fn selected_step(&self) -> Option<&StepKey> {
         self.selected_step.as_ref()
     }
