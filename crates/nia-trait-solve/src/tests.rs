@@ -160,6 +160,92 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
 }
 
 #[test]
+fn trait_object_impl_matching_checks_binding_value_before_committing_candidate() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let i32_ty = append.primitive(PrimitiveTy::I32);
+    let bool_ty = append.primitive(PrimitiveTy::Bool);
+    let object_trait = TraitId::Source(GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    });
+    let obligation_trait = TraitId::Source(GlobalDefId {
+        module_id,
+        def_id: DefId(2),
+    });
+    let item = SymbolId::from_stable_hash(20);
+    let binding = |ty| nia_ty::AssociatedTypeBindingTy {
+        name: item,
+        trait_id: None,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        ty,
+    };
+    let pattern_ty = append.intern(TyKind::TraitObject {
+        is_readonly: false,
+        trait_id: object_trait,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        associated_type_bindings: vec![binding(i32_ty), binding(bool_ty)],
+    });
+    let actual_ty = append.intern(TyKind::TraitObject {
+        is_readonly: false,
+        trait_id: object_trait,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        associated_type_bindings: vec![binding(bool_ty), binding(i32_ty)],
+    });
+    let trait_impls = vec![ProgramTraitImplSignature {
+        module_id,
+        impl_id: TraitImplId(20),
+        builtin: None,
+        generics: Vec::new(),
+        generic_params: Vec::new(),
+        target_ty: pattern_ty,
+        trait_id: obligation_trait,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        where_predicates: Vec::new(),
+        associated_types: Vec::new(),
+        associated_values: Vec::new(),
+    }];
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+
+    let selection = solver.match_user_impl_at(
+        &TraitGoal {
+            self_ty: actual_ty,
+            trait_id: obligation_trait,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+        },
+        0,
+    );
+    assert!(
+        selection.is_some(),
+        "a later compatible associated binding must be considered after an incompatible key match"
+    );
+}
+
+#[test]
 fn callable_pointees_are_unsized_while_callable_views_are_sized() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
