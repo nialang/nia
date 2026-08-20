@@ -4,6 +4,7 @@ use nia_ty::{PrimitiveTy, RangeTyKind};
 
 use super::{TargetDataLayout, TypeLayout};
 
+/// Computes the scalar representation for one primitive type.
 pub fn primitive_layout(primitive: PrimitiveTy, target: TargetDataLayout) -> TypeLayout {
     let (size, align) = match primitive {
         PrimitiveTy::I8 | PrimitiveTy::U8 | PrimitiveTy::Bool => (1, 1),
@@ -27,6 +28,7 @@ pub fn fat_pointer_layout(target: TargetDataLayout) -> Option<TypeLayout> {
     })
 }
 
+/// Computes a contiguous array representation with checked arithmetic.
 pub fn array_layout(element: &TypeLayout, len: u64) -> Option<TypeLayout> {
     Some(TypeLayout {
         size: element.size.checked_mul(len)?,
@@ -97,6 +99,7 @@ pub fn vector_layout(
     })
 }
 
+/// Computes a union representation with all fields overlaid at offset zero.
 pub fn union_layout_from_fields<'a>(
     fields: impl IntoIterator<Item = &'a TypeLayout>,
 ) -> Option<TypeLayout> {
@@ -124,6 +127,7 @@ pub(super) fn align_to(value: u64, align: u64) -> Option<u64> {
     }
 }
 
+/// Computes a tagged-union representation with a one-byte discriminant.
 pub fn tagged_union_layout(payloads: &[TypeLayout]) -> Option<TypeLayout> {
     let tag = TypeLayout { size: 1, align: 1 };
     tagged_union_layout_with_tag(&tag, payloads)
