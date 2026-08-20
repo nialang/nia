@@ -1760,21 +1760,13 @@ impl<'a> ModuleLowerer<'a> {
                             self.match_extension_type_pattern(*pattern, actual, substitutions)
                         })
                         && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings
-                                .iter()
-                                .find(|actual_binding| {
-                                    self.associated_type_binding_keys_match(
-                                        pattern_binding,
-                                        actual_binding,
-                                    )
-                                })
-                                .is_some_and(|actual_binding| {
-                                    self.match_extension_type_pattern(
-                                        pattern_binding.ty,
-                                        actual_binding.ty,
-                                        substitutions,
-                                    )
-                                })
+                            associated_type_bindings.iter().any(|actual_binding| {
+                                self.match_extension_associated_type_binding(
+                                    pattern_binding,
+                                    actual_binding,
+                                    substitutions,
+                                )
+                            })
                         })
                 }
                 _ => false,
@@ -1802,21 +1794,13 @@ impl<'a> ModuleLowerer<'a> {
                             self.match_extension_type_pattern(*pattern, actual, substitutions)
                         })
                         && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings
-                                .iter()
-                                .find(|actual_binding| {
-                                    self.associated_type_binding_keys_match(
-                                        pattern_binding,
-                                        actual_binding,
-                                    )
-                                })
-                                .is_some_and(|actual_binding| {
-                                    self.match_extension_type_pattern(
-                                        pattern_binding.ty,
-                                        actual_binding.ty,
-                                        substitutions,
-                                    )
-                                })
+                            associated_type_bindings.iter().any(|actual_binding| {
+                                self.match_extension_associated_type_binding(
+                                    pattern_binding,
+                                    actual_binding,
+                                    substitutions,
+                                )
+                            })
                         })
                 }
                 _ => false,
@@ -2308,5 +2292,34 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .zip(&right.trait_args)
                 .all(|(left, right)| self.types_match(*left, *right))
+    }
+
+    fn match_extension_associated_type_binding(
+        &mut self,
+        pattern: &nia_ty::AssociatedTypeBindingTy,
+        actual: &nia_ty::AssociatedTypeBindingTy,
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> bool {
+        if pattern.name != actual.name
+            || pattern.trait_id != actual.trait_id
+            || pattern.trait_args.len() != actual.trait_args.len()
+            || pattern.trait_const_args != actual.trait_const_args
+        {
+            return false;
+        }
+        let mut candidate = substitutions.clone();
+        if !pattern
+            .trait_args
+            .iter()
+            .zip(&actual.trait_args)
+            .all(|(pattern, actual)| {
+                self.match_extension_type_pattern(*pattern, *actual, &mut candidate)
+            })
+            || !self.match_extension_type_pattern(pattern.ty, actual.ty, &mut candidate)
+        {
+            return false;
+        }
+        *substitutions = candidate;
+        true
     }
 }
