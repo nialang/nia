@@ -1865,4 +1865,28 @@ mod tests {
         assert!(!staged.exists());
         fs::remove_dir_all(root).expect("remove cache root");
     }
+
+    #[test]
+    fn all_frontend_products_share_the_versioned_namespace_root() {
+        let root = test_root("namespace-root");
+        let cache = PersistentFrontendCache::new(root.clone());
+        let provider_key = FrontendProviderSummaryCacheKey::from_parts([1, 2]);
+        let plan_key = FrontendProviderDemandPlanCacheKey::from_parts([3, 4]);
+        let provider_path = cache.provider_summary_path(provider_key);
+        let plan_path = cache.provider_demand_plan_path(plan_key);
+        let expected_root = root.join("artifacts/frontend/v4");
+        assert_eq!(
+            provider_path.parent().and_then(Path::parent),
+            Some(expected_root.as_path())
+        );
+        assert_eq!(
+            plan_path.parent().and_then(Path::parent),
+            Some(expected_root.as_path())
+        );
+        assert_eq!(
+            provider_path.parent().and_then(Path::parent),
+            plan_path.parent().and_then(Path::parent)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
 }

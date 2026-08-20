@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Incremental source loading, module graph discovery, and frontend products.
+//!
+//! Loader query state is scoped to a [`nia_query::QuerySession`]. Persistent
+//! frontend products use versioned logical source identities and verify their
+//! source/module-map dependencies before reuse; a cache miss or invalidated
+//! entry falls back to the in-memory query graph.
+
 mod facade_facts;
 mod frontend_cache;
 mod graph;
@@ -60,6 +67,7 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
     registry
 }
 
+/// Loads a program from an entry path using the host target and default runtime.
 pub fn load_program(
     entry_path: impl Into<String>,
     toolchain: Arc<ToolchainLayout>,
@@ -67,6 +75,7 @@ pub fn load_program(
     load_program_with_map(entry_path, ModuleMap::default(), toolchain)
 }
 
+/// Loads a program with explicit package/module mappings.
 pub fn load_program_with_map(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
@@ -75,6 +84,7 @@ pub fn load_program_with_map(
     load_program_with_map_and_entry_runtime(entry_path, module_map, EntryRuntime::None, toolchain)
 }
 
+/// Loads a program with mappings and an explicit entry runtime model.
 pub fn load_program_with_map_and_entry_runtime(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
@@ -89,31 +99,42 @@ pub fn load_program_with_map_and_entry_runtime(
     )
 }
 
+/// Loads a program using the complete request configuration.
 pub fn load_program_request(request: LoadRequest) -> QueryResult<LoadedProgram> {
     LoaderDatabase::new(request).load_program()
 }
 
+/// Query-backed loader database with mutable source revisions.
 #[derive(Clone)]
 pub struct LoaderDatabase {
     db: QueryDb<LoaderContext>,
     sources: SourceDatabase,
 }
 
+/// Presence and stable content identity of one loaded source input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceInputContent {
+    /// The module was discovered but has no readable source file.
     Missing,
+    /// The module has source bytes and their stable identity.
     Present {
+        /// Stable content fingerprint.
         fingerprint: SourceContentFingerprint,
+        /// Source byte length used alongside the fingerprint.
         byte_len: usize,
     },
 }
 
+/// One logical module path and its source-input status.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceInput {
+    /// Relocation-aware source path.
     pub path: SourcePath,
+    /// Presence and content identity.
     pub content: SourceInputContent,
 }
 
+/// Deterministically sorted source manifest for a loaded module graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceInputManifest {
     sources: Vec<SourceInput>,
@@ -162,20 +183,24 @@ impl SourceInputManifest {
         }
     }
 
+    /// Returns entries sorted by normalized logical source identity.
     pub fn sources(&self) -> &[SourceInput] {
         &self.sources
     }
 
+    /// Returns a program fingerprint when every discovered source is present.
     pub fn fingerprint(&self) -> Option<FrontendProgramSourceFingerprint> {
         self.fingerprint
     }
 }
 
 impl LoaderDatabase {
+    /// Creates a loader with an isolated default query session.
     pub fn new(request: LoadRequest) -> Self {
         Self::new_in_session(request, QuerySession::new())
     }
 
+    /// Creates a loader sharing dependency and execution state with `session`.
     pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
         let entry_path = request.entry_path;
         let package_roots_with_used_paths = if request.package_root_used_paths {
@@ -266,10 +291,12 @@ impl LoaderDatabase {
         Self { db, sources }
     }
 
+    /// Returns the query session governing this loader.
     pub fn query_session(&self) -> QuerySession {
         self.db.session()
     }
 
+    /// Loads the complete program, replaying a verified provider-demand plan first.
     pub fn load_program(&self) -> QueryResult<LoadedProgram> {
         self.replay_provider_demand_plan()?;
         self.db
@@ -277,6 +304,7 @@ impl LoaderDatabase {
             .map(|program| program.to_program())
     }
 
+    /// Builds a deterministic source manifest from the discovered module graph.
     pub fn source_input_manifest(&self) -> QueryResult<SourceInputManifest> {
         self.replay_provider_demand_plan()?;
         let graph = self.db.get(graph::ModuleGraphQuery)?;
@@ -301,10 +329,12 @@ impl LoaderDatabase {
         Ok(SourceInputManifest::new(sources))
     }
 
+    /// Returns the mutable-source database owned by this loader.
     pub fn sources(&self) -> &SourceDatabase {
         &self.sources
     }
 
+    /// Replaces source text, retires the previous revision, and invalidates dependents atomically.
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
         let path = SourcePath::new(path.into());
         let source_id = self.sources.id_for_path(&path);
@@ -329,6 +359,7 @@ impl LoaderDatabase {
         })
     }
 
+    /// Invalidates one source and retires its revision-owned query identities.
     pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
         let path = SourcePath::new(path.into());
         let source_id = self.sources.id_for_path(&path);
@@ -351,10 +382,12 @@ impl LoaderDatabase {
         })
     }
 
+    /// Returns loader query dependencies and per-slot statistics.
     pub fn query_trace(&self) -> nia_query::QueryTrace {
         self.db.query_trace()
     }
 
+    /// Adds provider demands and advances the provider graph until callers settle it.
     pub fn update_provider_demands(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
@@ -684,24 +717,36 @@ impl LoaderFactProvider for LoaderDatabase {
     }
 }
 
+/// Complete loader configuration, including source, target, runtime, and cache policy.
 #[derive(Debug, Clone)]
 pub struct LoadRequest {
+    /// Entry source path.
     pub entry_path: SourcePath,
+    /// Explicit package/module mappings.
     pub module_map: ModuleMap,
+    /// Initial in-memory source database.
     pub sources: SourceDatabase,
+    /// Artifact target used for conditional frontend selection.
     pub target: TargetConfig,
+    /// Entry runtime model.
     pub entry_runtime: EntryRuntime,
+    /// Whether package-root `using` paths participate in the source manifest.
     pub package_root_used_paths: bool,
+    /// Optional persistent frontend cache root.
     pub frontend_cache_dir: Option<PathBuf>,
+    /// Whether semantically valid cache products must be recomputed and verified.
     pub verify_frontend_cache: bool,
+    /// Optional resolved toolchain supplying std modules and identity.
     pub toolchain: Option<Arc<ToolchainLayout>>,
 }
 
 impl LoadRequest {
+    /// Creates a request from a string entry path with host/default settings.
     pub fn new(entry_path: impl Into<String>) -> Self {
         Self::from_source_path(SourcePath::new(entry_path.into()))
     }
 
+    /// Creates a request preserving an already normalized [`SourcePath`].
     pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
             entry_path,
@@ -716,51 +761,62 @@ impl LoadRequest {
         }
     }
 
+    /// Replaces explicit module/package mappings.
     pub fn with_module_map(mut self, module_map: ModuleMap) -> Self {
         self.module_map = module_map;
         self
     }
 
+    /// Supplies an initial source database, useful for in-memory compilation.
     pub fn with_sources(mut self, sources: SourceDatabase) -> Self {
         self.sources = sources;
         self
     }
 
+    /// Selects the artifact target used by conditional item selection.
     pub fn with_target(mut self, target: TargetConfig) -> Self {
         self.target = target;
         self
     }
 
+    /// Selects the entry runtime model.
     pub fn with_entry_runtime(mut self, entry_runtime: EntryRuntime) -> Self {
         self.entry_runtime = entry_runtime;
         self
     }
 
+    /// Enables package-root paths in provider/source dependency identity.
     pub fn with_package_root_used_paths(mut self, package_root_used_paths: bool) -> Self {
         self.package_root_used_paths = package_root_used_paths;
         self
     }
 
+    /// Selects or disables the persistent frontend cache root.
     pub fn with_frontend_cache_dir(mut self, frontend_cache_dir: Option<PathBuf>) -> Self {
         self.frontend_cache_dir = frontend_cache_dir;
         self
     }
 
+    /// Enables semantic verification and replacement of valid-but-stale cache products.
     pub fn with_frontend_cache_verification(mut self, verify: bool) -> Self {
         self.verify_frontend_cache = verify;
         self
     }
 
+    /// Supplies a resolved toolchain for std modules and compatibility identity.
     pub fn with_toolchain_layout(mut self, toolchain: Arc<ToolchainLayout>) -> Self {
         self.toolchain = Some(toolchain);
         self
     }
 }
 
+/// Runtime mode injected for the entry module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum EntryRuntime {
     #[default]
+    /// No freestanding startup module is injected.
     None,
+    /// Inject the freestanding startup module and executable entry behavior.
     Freestanding,
 }
 

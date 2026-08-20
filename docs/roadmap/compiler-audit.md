@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 217 completed entries in this ledger.
+- Implementation batches: 218 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1258,6 +1258,12 @@ acceptance item only when its phase-wide evidence is complete.
       toolchain, target, linker/tool, and option component. `nia-linker` strict
       Rustdoc and 26 owner tests plus all 635 `nia-driver` owner tests and strict
       Clippy pass.
+- [x] Cross-cutting Phase D loader Rustdoc now documents source-manifest
+      identity, session sharing, source revision retirement, provider-demand
+      updates, persistent frontend cache verification, and target/runtime
+      request boundaries. The frontend cache owner suite also fixes the
+      namespace-root regression and retains bounded corruption retirement;
+      `nia-loader-query` strict Rustdoc, 94 owner tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
