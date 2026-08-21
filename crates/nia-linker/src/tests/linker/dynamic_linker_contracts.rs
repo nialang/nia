@@ -106,3 +106,70 @@ fn ld_so_conf_reader_follows_simple_include_patterns() {
         "{paths:?}"
     );
 }
+
+#[test]
+fn ld_so_conf_includes_are_sorted_and_oversized_files_are_ignored() {
+    let root = env::temp_dir().join(format!(
+        "nia-linker-ld-so-conf-bounds-{}",
+        std::process::id()
+    ));
+    let first = root.join("first");
+    let second = root.join("second");
+    let smuggled = root.join("smuggled");
+    let conf_dir = root.join("conf.d");
+    for path in [&first, &second, &smuggled, &conf_dir] {
+        fs::create_dir_all(path).expect("create ld.so.conf fixture directory");
+    }
+    fs::write(
+        root.join("ld.so.conf"),
+        format!("include {}\n", conf_dir.join("*.conf").display()),
+    )
+    .expect("write root conf");
+    fs::write(conf_dir.join("b.conf"), format!("{}\n", second.display()))
+        .expect("write second conf");
+    fs::write(conf_dir.join("a.conf"), format!("{}\n", first.display())).expect("write first conf");
+    let oversized = conf_dir.join("c.conf");
+    fs::write(&oversized, format!("{}\n", smuggled.display()))
+        .expect("write oversized conf prefix");
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&oversized)
+        .expect("open oversized conf");
+    file.set_len((MAX_LD_SO_CONF_FILE_BYTES + 1) as u64)
+        .expect("extend oversized conf");
+
+    let mut paths = Vec::new();
+    read_ld_so_conf(&mut paths, &root.join("ld.so.conf"), 0);
+
+    assert_eq!(
+        paths,
+        [
+            first.to_string_lossy().into_owned(),
+            second.to_string_lossy().into_owned(),
+        ]
+    );
+}
+
+#[test]
+fn ld_so_conf_reader_visits_canonical_files_once() {
+    let root = env::temp_dir().join(format!(
+        "nia-linker-ld-so-conf-cycle-{}",
+        std::process::id()
+    ));
+    let lib = root.join("lib");
+    fs::create_dir_all(&lib).expect("create lib dir");
+    fs::write(
+        root.join("ld.so.conf"),
+        format!(
+            "{}\ninclude {}\n",
+            lib.display(),
+            root.join("ld.so.conf").display()
+        ),
+    )
+    .expect("write cyclic conf");
+
+    let mut paths = Vec::new();
+    read_ld_so_conf(&mut paths, &root.join("ld.so.conf"), 0);
+
+    assert_eq!(paths, [lib.to_string_lossy().into_owned()]);
+}

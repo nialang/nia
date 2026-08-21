@@ -2211,6 +2211,11 @@ Linux host dynamic-linker discovery likewise reads only the fixed ELF header,
 each declared program header, and a bounded 4 KiB interpreter payload. Invalid
 offset arithmetic, out-of-file tables, concurrent truncation, and oversized
 interpreter records are rejected before allocating from file-controlled sizes.
+Host `ld.so.conf` discovery canonicalizes and visits each configuration once,
+sorts include matches before consuming them, and enforces per-file, aggregate,
+file-count, and directory-entry budgets. Consequently native default library
+paths and their link-result identity do not depend on directory enumeration
+order or unbounded configuration input.
 
 The Driver owns the sole persistent link-result cache. It computes the
 fingerprint and attempts restoration before writing temporary object files or

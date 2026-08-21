@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 233 completed entries in this ledger.
+- Implementation batches: 234 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1368,6 +1368,12 @@ acceptance item only when its phase-wide evidence is complete.
       reject truncated, out-of-file, overflowing, or oversized records. The 28
       `nia-linker` owner tests include valid and oversized interpreter fixtures;
       formatting and strict Clippy pass.
+- [x] Phase D Linux default-library discovery now canonicalizes and visits each
+      `ld.so.conf` input once, sorts include matches before recursion, and bounds
+      individual/aggregate bytes, file count, and directory matches. Oversized
+      files and include cycles cannot drive unbounded work or make link-result
+      target identity depend on filesystem enumeration order. The 30
+      `nia-linker` owner tests, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
