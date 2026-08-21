@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 242 completed entries in this ledger.
+- Implementation batches: 243 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1304,13 +1304,14 @@ acceptance item only when its phase-wide evidence is complete.
       schema-v3 evidence retained machine resources, process measurements, and
       every counter; independent clean recomputation of each edited state and
       genuinely constrained low-memory execution remain open Phase D evidence.
-- [x] Phase D representative build baseline schema v4 now recomputes source-
+- [x] Phase D representative build baseline schema v5 now recomputes source-
       edited and module-map-edited fixtures in separate cold-cache workspaces,
       then compares both emitted executables byte-for-byte through fixed 64 KiB
-      buffers. Its default three-sample run covered 27 ordered states and all
-      126 acceptance checks; all six incremental/clean comparisons matched both
-      artifacts, and each independent recomputation missed all three action
-      lookups. Focused acceptance and buffer-boundary tests preserve missing,
+      buffers. Its default three-sample run covered 27 ordered states and 135
+      acceptance checks; all six incremental/clean comparisons matched both
+      artifacts, every state had a distinct child-process PID, and the named
+      `source-app` comparison records both `src/main.nia` and its mapped helper
+      module. Focused acceptance and buffer-boundary tests preserve missing,
       mismatched, and falsely warm evidence. Genuinely constrained low-memory
       execution remains open Phase D evidence.
 - [x] Phase D low-memory test scheduling now reuses an active compiler session's
@@ -1435,6 +1436,14 @@ acceptance item only when its phase-wide evidence is complete.
       failure-position cancellation, active-wave draining, and dependent
       suppression; query owner tests now cover 83 cases with the new lifecycle
       assertions.
+- [x] Phase D representative clean/incremental evidence is now self-describing
+      in build baseline schema v5. Every ordered state records the PID of its
+      separately spawned `nia build` process, acceptance requires nine distinct
+      state processes, and artifact comparisons separately require the
+      multi-module `source-app` (entry plus mapped helper module) to match its
+      independent cold-workspace recomputation. The existing source-edit and
+      module-map-edit comparisons therefore provide explicit multi-module and
+      cross-process evidence rather than relying on fixture inspection.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

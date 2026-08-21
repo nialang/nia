@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use super::acceptance::validate_workload;
 use super::process::run_bounded;
 use super::reports::parse_build_reports;
-use super::{ArtifactEquivalence, BuildResult};
+use super::{ArtifactComparison, ArtifactEquivalence, BuildResult};
 use crate::{MaintainResult, TemporaryDirectory};
 
 pub fn build_command(
@@ -69,6 +69,7 @@ fn run_state(
         .into_iter()
         .chain(command[3..].iter().cloned())
         .collect(),
+        process_id: output.process_id,
         return_code: output.status.code().unwrap_or(-1),
         wall_seconds_observed: output.elapsed,
         available_memory_bytes_before: output.available_memory,
@@ -78,7 +79,6 @@ fn run_state(
     })
 }
 
-const REPRESENTATIVE_ARTIFACTS: [&str; 2] = ["source-app", "generated-app"];
 const ARTIFACT_COMPARE_BUFFER_BYTES: usize = 64 * 1024;
 
 fn streams_match(left: &Path, right: &Path) -> MaintainResult<bool> {
@@ -119,19 +119,31 @@ fn compare_representative_artifacts(
     incremental: &Path,
     clean: &Path,
     clean_state: &str,
+    source_app_modules: &[&str],
 ) -> MaintainResult<ArtifactEquivalence> {
     let incremental = incremental.join(".nia-build");
     let clean = clean.join(".nia-build");
-    let mut matching = 0;
-    for artifact in REPRESENTATIVE_ARTIFACTS {
-        if streams_match(&incremental.join(artifact), &clean.join(artifact))? {
-            matching += 1;
-        }
-    }
+    let comparisons = vec![
+        ArtifactComparison {
+            name: "source-app".to_owned(),
+            source_modules: source_app_modules
+                .iter()
+                .map(|module| (*module).to_owned())
+                .collect(),
+            matching: streams_match(&incremental.join("source-app"), &clean.join("source-app"))?,
+        },
+        ArtifactComparison {
+            name: "generated-app".to_owned(),
+            source_modules: vec!["generated.nia".to_owned()],
+            matching: streams_match(
+                &incremental.join("generated-app"),
+                &clean.join("generated-app"),
+            )?,
+        },
+    ];
     Ok(ArtifactEquivalence {
         clean_state: clean_state.to_owned(),
-        compared: REPRESENTATIVE_ARTIFACTS.len(),
-        matching,
+        comparisons,
     })
 }
 
@@ -278,6 +290,7 @@ pub(super) fn run_workload(
         &workspace,
         &source_edit_clean_workspace,
         "source_edit_clean",
+        &["src/main.nia", "deps/helper.nia"],
     )?);
     results.push(source_edit);
     results.push(source_edit_clean);
@@ -308,6 +321,7 @@ pub(super) fn run_workload(
         &workspace,
         &module_map_edit_clean_workspace,
         "module_map_edit_clean",
+        &["src/main.nia", "deps/helper_edited.nia"],
     )?);
     results.push(module_map_edit);
     results.push(module_map_edit_clean);

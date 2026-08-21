@@ -11,6 +11,7 @@ use crate::system::resources::probe_host_resources;
 const MIN_AVAILABLE_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 pub(super) struct BoundedOutput {
+    pub(super) process_id: u32,
     pub(super) status: ExitStatus,
     pub(super) stdout: Vec<u8>,
     pub(super) stderr: Vec<u8>,
@@ -96,6 +97,7 @@ pub(super) fn run_bounded(
     let mut child = process
         .spawn()
         .map_err(|error| format!("failed to run {}: {error}", command.join(" ")))?;
+    let process_id = child.id();
     let stdout = read_pipe(child.stdout.take().expect("piped child stdout"));
     let stderr = read_pipe(child.stderr.take().expect("piped child stderr"));
     let deadline = started + Duration::from_secs(timeout_seconds);
@@ -118,6 +120,7 @@ pub(super) fn run_bounded(
         thread::sleep(Duration::from_millis(25));
     };
     Ok(BoundedOutput {
+        process_id,
         status,
         stdout: join_pipe(stdout, "stdout")?,
         stderr: join_pipe(stderr, "stderr")?,

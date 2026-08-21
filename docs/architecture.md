@@ -2391,6 +2391,14 @@ Cross-module references should go through using aliases, public surfaces,
 qualified paths, and stable `GlobalDefId`s. Phases should avoid storing direct
 filesystem paths as semantic identity.
 
+The representative build baseline exercises this boundary through `source-app`,
+whose entry module imports the fixture's separately mapped `helper` module. Each
+ordered build state is a separate `nia build` process. Incremental source and
+module-map edits are compared byte-for-byte with independent cold-workspace
+recomputations, and baseline acceptance records both distinct process identities
+and the multi-module artifact comparison instead of inferring either property
+from a passing build.
+
 Module cycles are load-time errors. Loaded modules keep separate `ModuleId`s
 and source paths, and references still go through explicit using aliases and
 normal visibility checks. Recursive aliases, const dependencies, layouts,

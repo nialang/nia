@@ -23,10 +23,11 @@ fn timing_report(wall: f64, rss: i64, counters: Value) -> Value {
     })
 }
 
-fn result(name: &str, counters: Map<String, Value>) -> BuildResult {
+fn fixture_result(process_id: u32, name: &str, counters: Map<String, Value>) -> BuildResult {
     BuildResult {
         name: name.to_owned(),
         command: Vec::new(),
+        process_id,
         return_code: 0,
         wall_seconds_observed: 1.0,
         available_memory_bytes_before: None,
@@ -55,6 +56,11 @@ fn passing_results() -> Vec<BuildResult> {
             .iter()
             .map(|(name, value)| ((*name).to_owned(), json!(value)))
             .collect()
+    };
+    let mut next_process_id = 1000;
+    let mut result = |name: &str, counters| {
+        next_process_id += 1;
+        fixture_result(next_process_id, name, counters)
     };
     let mut results = vec![
         result(
@@ -143,13 +149,27 @@ fn passing_results() -> Vec<BuildResult> {
     ];
     results[2].artifact_equivalence = Some(ArtifactEquivalence {
         clean_state: "source_edit_clean".to_owned(),
-        compared: 2,
-        matching: 2,
+        comparisons: vec![
+            ArtifactComparison {
+                name: "source-app".to_owned(),
+                source_modules: vec!["src/main.nia".to_owned(), "deps/helper.nia".to_owned()],
+                matching: true,
+            },
+            ArtifactComparison {
+                name: "generated-app".to_owned(),
+                source_modules: vec!["generated.nia".to_owned()],
+                matching: true,
+            },
+        ],
     });
     results[4].artifact_equivalence = Some(ArtifactEquivalence {
         clean_state: "module_map_edit_clean".to_owned(),
-        compared: 2,
-        matching: 2,
+        comparisons: results[2]
+            .artifact_equivalence
+            .as_ref()
+            .unwrap()
+            .comparisons
+            .clone(),
     });
     results[6].corrupted_action_cache_entries = Some(3);
     results
@@ -282,9 +302,49 @@ fn acceptance_requires_independent_clean_artifact_comparison() {
 }
 
 #[test]
+fn acceptance_requires_distinct_processes_for_each_state() {
+    let mut results = passing_results();
+    results[3].process_id = results[2].process_id;
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "workload"
+            && check.counter == "baseline.distinct_state_processes"
+            && check.expected == ExpectedValue::Exact(9)
+            && check.found == 8
+            && !check.passed
+    }));
+}
+
+#[test]
+fn acceptance_requires_multi_module_artifact_equivalence() {
+    let mut results = passing_results();
+    results[2]
+        .artifact_equivalence
+        .as_mut()
+        .unwrap()
+        .comparisons[0]
+        .matching = false;
+    let acceptance = workload_acceptance(&results).unwrap();
+    assert!(!acceptance.passed);
+    assert!(acceptance.checks.iter().any(|check| {
+        check.state == "source_edit"
+            && check.counter == "baseline.clean_equivalent_multi_module_artifacts"
+            && check.expected == ExpectedValue::Exact(1)
+            && check.found == 0
+            && !check.passed
+    }));
+}
+
+#[test]
 fn acceptance_retains_artifact_mismatch_evidence() {
     let mut results = passing_results();
-    results[4].artifact_equivalence.as_mut().unwrap().matching = 1;
+    results[4]
+        .artifact_equivalence
+        .as_mut()
+        .unwrap()
+        .comparisons[1]
+        .matching = false;
     let acceptance = workload_acceptance(&results).unwrap();
     assert!(!acceptance.passed);
     assert!(acceptance.checks.iter().any(|check| {
@@ -354,6 +414,7 @@ fn summarizes_repeated_stage_and_counter_samples() {
         runs.push(vec![BuildResult {
             name: "warm".to_owned(),
             command: Vec::new(),
+            process_id: index as u32 + 1,
             return_code: 0,
             wall_seconds_observed: (index + 1) as f64,
             available_memory_bytes_before: None,

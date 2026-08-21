@@ -116,6 +116,10 @@ The typed query/fact graph is the only dependency and invalidation truth source.
 - Incremental results must remain equivalent to clean recomputation. Randomized
   edit sequences and clean/incremental differential tests are preferred for
   cross-query invalidation contracts.
+- Representative build acceptance must make its process and module boundaries
+  machine-checkable. Each incremental and independent-clean state runs in a
+  fresh compiler process, records that process identity, and compares at least
+  one executable whose source graph contains more than one module.
 - Concurrent slot, cycle, invalidation, and red-green state machines require
   deterministic tests; model or race-focused tests are required where ordinary
   examples cannot exercise the transition safely.
