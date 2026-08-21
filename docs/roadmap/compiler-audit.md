@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 238 completed entries in this ledger.
+- Implementation batches: 240 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1400,6 +1400,24 @@ acceptance item only when its phase-wide evidence is complete.
       preserves deterministic traversal without silently changing established
       include resolution. All 31 `nia-linker` tests, strict Clippy, workspace
       check, and formatting pass.
+- [x] Phase D persisted compiler signature products now have direct stale-
+      identity matrices at their codec owner boundary. Valid envelopes for
+      signature type resolution, signature type lowering, item signatures,
+      extension validation diagnostics, executable value-reference edges, and
+      check certificates reject every duplicated key, namespace, stable
+      module/entry, program-source/input, signature-set, source-length, body-
+      owner, and scope field independently. These tests complement each
+      product's roundtrip/corruption coverage and the shared storage tests for
+      atomic publication and replacement-preserving retirement. All 244
+      `nia-compiler-query` owner tests pass.
+- [x] Phase D loader dependency manifests now directly verify their complete
+      persisted identity instead of relying only on derived cache paths. A
+      valid checksummed record installed at the expected path is retired when
+      its duplicated key, namespace, stable module, or source fingerprint is
+      stale; the existing cross-session roundtrip, corruption recovery,
+      semantic verification replacement, and shared concurrent replacement
+      tests complete this product's persistence evidence. All 95
+      `nia-loader-query` owner tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

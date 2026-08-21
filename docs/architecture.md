@@ -663,8 +663,25 @@ Executable reachability pruning is intentionally outside the provider file in
 behind `query/backend_lowering.rs`; providers should wire query dependencies and
 timing boundaries rather than owning program analysis or backend input shape.
 
-The query frontend owns batch compilation. It does not own persistent
-cross-session caches or editor scheduling, cancellation, and priority policy.
+The query frontend owns batch compilation and the persistent products derived
+directly from its facts. `nia-loader-query` owns provider summaries, facade
+facts, module dependencies, public-surface facts, source-to-item-signature
+dependency manifests, and provider-demand plans. `nia-compiler-query` owns
+signature type resolution, signature type lowering, item signatures, extension
+validation diagnostics, executable value-reference edges, and check
+certificates. It does not own editor scheduling, cancellation, or priority
+policy.
+
+Every persisted frontend envelope repeats its content-addressed key and the
+stable inputs needed to validate a lookup, rather than trusting the directory
+path alone. Decoders authenticate the payload, reject truncation and trailing
+bytes, and require every repeated identity field to match the caller's current
+namespace, logical source/module, and product inputs. Corruption or stale
+identity is retired under the per-key storage lock only while the same observed
+record remains installed, so a stale reader cannot delete a concurrent
+replacement. Non-replacing publication uses that same lock and preserves the
+existing winner. Optional verification recomputes semantic products and
+replaces structurally valid but semantically stale entries.
 
 Query keys declare an explicit storage policy. The default
 `CacheOwnedArc` policy retains one immutable value in its slot and publishes

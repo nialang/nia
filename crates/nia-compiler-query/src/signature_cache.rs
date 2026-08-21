@@ -478,6 +478,9 @@ mod tests {
     #[path = "executable_edges.rs"]
     mod executable_edges;
 
+    #[path = "entry_identity_contracts.rs"]
+    mod entry_identity_contracts;
+
     #[path = "type_lowering.rs"]
     mod type_lowering;
 }
