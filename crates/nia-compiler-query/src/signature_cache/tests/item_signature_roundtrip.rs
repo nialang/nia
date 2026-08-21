@@ -131,7 +131,17 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
                     kind: item_signatures::GenericParamSignatureKind::Const { ty: primitive },
                 }],
                 where_predicates: where_predicates.clone(),
-                supertraits: vec![item_signatures::TraitSupertraitSignature { ty: trait_ty, span }],
+                supertraits: vec![item_signatures::TraitSupertraitSignature {
+                    ty: trait_ty,
+                    associated_type_bindings: vec![
+                        item_signatures::AssociatedTypeBindingSignature {
+                            name: item_name,
+                            ty: primitive,
+                            span,
+                        },
+                    ],
+                    span,
+                }],
                 associated_types: vec![item_signatures::TraitAssociatedTypeSignature {
                     def_id: DefId(41),
                     name: item_name,

@@ -146,6 +146,65 @@ fn main() i32 {
 }
 
 #[test]
+fn supertrait_associated_bindings_reach_default_methods_and_impl_validation() {
+    let root = temp_dir("supertrait_associated_bindings_reach_default_methods_and_impl_validation");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parent {
+    type Item;
+}
+
+trait Child : Parent[Item = i32] {
+    fn value(&self) i32 {
+        let item: [Self as Parent]::Item = 7;
+        item
+    }
+}
+
+struct Good {}
+extend Good : Parent { type Item = i32; }
+extend Good : Child {}
+
+struct Bad {}
+extend Bad : Parent { type Item = bool; }
+extend Bad : Child {}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("does not satisfy associated type bindings of supertrait `Parent`"))
+            .count(),
+        1,
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
+                .diagnostic
+                .summary
+                .contains("type mismatch in binding initializer")
+                && !diagnostic
+                    .diagnostic
+                    .summary
+                    .contains("type mismatch in function body")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_supertraits_require_the_exact_parent_instance() {
     let root = temp_dir("const_generic_supertraits_require_the_exact_parent_instance");
     write(

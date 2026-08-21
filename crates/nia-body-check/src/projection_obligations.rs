@@ -1173,14 +1173,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         obligations: &mut Vec<TraitObligation>,
         obligation: TraitObligation,
-        visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<ConstGenericArg>)>,
+        visited: &mut HashSet<TraitObligation>,
     ) {
-        let key = (
-            obligation.trait_id,
-            obligation.trait_args.clone(),
-            obligation.trait_const_args.clone(),
-        );
-        if !visited.insert(key) {
+        if !visited.insert(obligation.clone()) {
             return;
         }
         if !obligations
@@ -1221,17 +1216,30 @@ impl<'a> BodyChecker<'a> {
                         &obligation.trait_const_args,
                     );
                 for supertrait in &trait_signature.supertraits {
-                    let supertrait = self.substitute_generics_and_consts(
+                    let supertrait_ty = self.substitute_generics_and_consts(
                         supertrait.ty,
                         &substitutions,
                         &const_substitutions,
                     );
-                    let supertrait = self.normalization.normalize(supertrait);
+                    let supertrait_ty = self.normalization.normalize(supertrait_ty);
                     let Some((trait_id, trait_args, trait_const_args)) =
-                        self.trait_id_and_args(supertrait)
+                        self.trait_id_and_args(supertrait_ty)
                     else {
                         continue;
                     };
+                    let associated_type_bindings = supertrait
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| TraitObligationAssociatedTypeBinding {
+                            name: binding.name,
+                            ty: self.substitute_generics_and_consts_with_self(
+                                binding.ty,
+                                &substitutions,
+                                &const_substitutions,
+                                obligation.self_ty,
+                            ),
+                        })
+                        .collect();
                     self.push_trait_obligation_with_supertraits_inner(
                         obligations,
                         TraitObligation {
@@ -1239,7 +1247,7 @@ impl<'a> BodyChecker<'a> {
                             trait_id,
                             trait_args,
                             trait_const_args,
-                            associated_type_bindings: Vec::new(),
+                            associated_type_bindings,
                         },
                         visited,
                     );

@@ -1261,7 +1261,7 @@ fn validate_supertrait_impls(
 ) {
     let append = input.type_store.append_for_module(module.module_id);
     for supertrait in &trait_signature.signature.supertraits {
-        let Some(supertrait) = substitute_trait_bound(
+        let Some(supertrait_ty) = substitute_trait_bound(
             &append,
             input.type_store,
             supertrait.ty,
@@ -1280,12 +1280,18 @@ fn validate_supertrait_impls(
             def_id: supertrait_def_id,
             args: supertrait_args,
             const_args: supertrait_const_args,
-        }) = input.type_store.get(supertrait).cloned()
+        }) = input.type_store.get(supertrait_ty).cloned()
         else {
             continue;
         };
         let supertrait_id = TraitId::Source(supertrait_def_id);
         let trait_impls = (input.trait_impls_for_trait)(supertrait_id);
+        let supertrait_goal = TraitGoal {
+            self_ty: trait_goal.self_ty,
+            trait_id: supertrait_id,
+            trait_args: supertrait_args.clone(),
+            trait_const_args: supertrait_const_args.clone(),
+        };
         if !has_matching_trait_impl(
             input.type_store,
             trait_goal.self_ty,
@@ -1302,8 +1308,87 @@ fn validate_supertrait_impls(
                     trait_name(module, supertrait_def_id, input.symbols)
                 ),
             ));
+            continue;
+        }
+        let (substitutions, const_substitutions) = substitutions_from_generic_params(
+            &trait_signature.signature.generic_params,
+            &trait_goal.trait_args,
+            &trait_goal.trait_const_args,
+        );
+        let bindings = supertrait
+            .associated_type_bindings
+            .iter()
+            .map(|binding| {
+                (
+                    binding.name,
+                    substitute_type(
+                        &append,
+                        module,
+                        input.type_store,
+                        binding.ty,
+                        &substitutions,
+                        &const_substitutions,
+                        TypeSubstitutionTarget {
+                            projection: None,
+                            self_ty: Some(trait_goal.self_ty),
+                        },
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        if !supertrait_associated_bindings_hold(
+            module,
+            input.type_store,
+            &trait_impls,
+            &supertrait_goal,
+            &bindings,
+        ) {
+            diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                impl_signature.span,
+                format!(
+                    "implementation of trait does not satisfy associated type bindings of supertrait `{}`",
+                    trait_name(module, supertrait_def_id, input.symbols)
+                ),
+            ));
         }
     }
+}
+
+fn supertrait_associated_bindings_hold(
+    module: &ExtensionModuleInput<'_>,
+    type_store: &TypeStore,
+    trait_impls: &[ProgramTraitImplSignature],
+    goal: &TraitGoal,
+    bindings: &[(SymbolId, InternedTyId)],
+) -> bool {
+    if bindings.is_empty() {
+        return true;
+    }
+    let context = TraitSolverContext {
+        type_store,
+        normalization: module.normalization,
+        trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module.module_id,
+        local_enums: &module.signatures.enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    bindings.iter().all(|(name, expected_ty)| {
+        solver
+            .resolve_associated_type(
+                goal.self_ty,
+                goal.trait_id,
+                &goal.trait_args,
+                &goal.trait_const_args,
+                name,
+            )
+            .is_some_and(|actual_ty| solver.types_equivalent(actual_ty, *expected_ty))
+    })
 }
 
 fn substitute_trait_bound(
@@ -1396,6 +1481,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         trait_const_args,
     } = &input.trait_goal;
     let mut assumptions = Vec::new();
+    let mut associated_type_assumptions = Vec::new();
     push_trait_goal_assumption_with_supertraits(
         TraitGoalExpansionContext {
             type_store: input.type_store,
@@ -1404,22 +1490,25 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         },
         input.trait_goal.clone(),
         &mut assumptions,
+        &mut associated_type_assumptions,
     );
-    let mut associated_type_assumptions = input
-        .impl_signature
-        .associated_types
-        .iter()
-        .map(|associated_type| AssociatedTypeProjectionEq {
-            goal: TraitGoal {
-                self_ty: *self_ty,
-                trait_id: *trait_id,
-                trait_args: trait_args.clone(),
-                trait_const_args: trait_const_args.clone(),
-            },
-            name: associated_type.name,
-            ty: input.module.normalization.normalize(associated_type.ty),
-        })
-        .collect::<Vec<_>>();
+    associated_type_assumptions.extend(
+        input
+            .impl_signature
+            .associated_types
+            .iter()
+            .map(|associated_type| AssociatedTypeProjectionEq {
+                goal: TraitGoal {
+                    self_ty: *self_ty,
+                    trait_id: *trait_id,
+                    trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
+                },
+                name: associated_type.name,
+                ty: input.module.normalization.normalize(associated_type.ty),
+            })
+            .collect::<Vec<_>>(),
+    );
     push_where_predicate_solver_assumptions(
         input.module,
         input.type_store,
@@ -1482,7 +1571,13 @@ fn trait_impls_for_trait_goal_and_supertraits(
     trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
 ) -> Vec<ProgramTraitImplSignature> {
     let mut goals = Vec::new();
-    push_trait_goal_assumption_with_supertraits(context, goal, &mut goals);
+    let mut associated_type_assumptions = Vec::new();
+    push_trait_goal_assumption_with_supertraits(
+        context,
+        goal,
+        &mut goals,
+        &mut associated_type_assumptions,
+    );
     let mut seen = HashSet::new();
     goals
         .into_iter()
@@ -1521,6 +1616,7 @@ fn push_where_predicate_solver_assumptions(
                     trait_const_args: trait_const_args.clone(),
                 },
                 assumptions,
+                associated_type_assumptions,
             );
             for binding in &bound.associated_type_bindings {
                 let ty = module.normalization.normalize(binding.ty);
@@ -1543,11 +1639,13 @@ fn push_trait_goal_assumption_with_supertraits(
     context: TraitGoalExpansionContext<'_>,
     goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
+    associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
 ) {
     push_trait_goal_assumption_with_supertraits_inner(
         context,
         goal,
         assumptions,
+        associated_type_assumptions,
         &mut HashSet::new(),
     );
 }
@@ -1556,6 +1654,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     context: TraitGoalExpansionContext<'_>,
     goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
+    associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
     visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
 ) {
     let TraitGoal {
@@ -1597,6 +1696,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                         trait_const_args: Vec::new(),
                     },
                     assumptions,
+                    associated_type_assumptions,
                     visited,
                 );
             }
@@ -1615,7 +1715,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 .type_store
                 .append_for_module(context.module.module_id);
             for supertrait in &trait_signature.signature.supertraits {
-                let supertrait = substitute_type(
+                let supertrait_ty = substitute_type(
                     &append,
                     context.module,
                     context.type_store,
@@ -1628,19 +1728,39 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     },
                 );
                 let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
-                    trait_id_and_args(context.type_store, supertrait)
+                    trait_id_and_args(context.type_store, supertrait_ty)
                 else {
                     continue;
                 };
+                let supertrait_goal = TraitGoal {
+                    self_ty,
+                    trait_id: supertrait_id,
+                    trait_args: supertrait_args,
+                    trait_const_args: supertrait_const_args,
+                };
+                for binding in &supertrait.associated_type_bindings {
+                    associated_type_assumptions.push(AssociatedTypeProjectionEq {
+                        goal: supertrait_goal.clone(),
+                        name: binding.name,
+                        ty: substitute_type(
+                            &append,
+                            context.module,
+                            context.type_store,
+                            binding.ty,
+                            &substitutions,
+                            &const_substitutions,
+                            TypeSubstitutionTarget {
+                                projection: None,
+                                self_ty: Some(self_ty),
+                            },
+                        ),
+                    });
+                }
                 push_trait_goal_assumption_with_supertraits_inner(
                     context,
-                    TraitGoal {
-                        self_ty,
-                        trait_id: supertrait_id,
-                        trait_args: supertrait_args,
-                        trait_const_args: supertrait_const_args,
-                    },
+                    supertrait_goal,
                     assumptions,
+                    associated_type_assumptions,
                     visited,
                 );
             }

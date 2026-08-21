@@ -96,6 +96,32 @@ a + b
 }
 
 #[test]
+fn supertrait_associated_bindings_are_signature_type_roots() {
+    let signatures = signatures_ok(
+        r#"
+trait Parent {
+    type Item;
+}
+
+trait Child : Parent[Item = (i32, bool)] {}
+"#,
+    );
+
+    let child = signatures
+        .traits
+        .values()
+        .find(|signature| !signature.supertraits.is_empty())
+        .expect("Child trait signature");
+    let supertrait = child.supertraits.first().expect("Parent supertrait");
+    let binding = supertrait
+        .associated_type_bindings
+        .first()
+        .expect("Parent::Item binding");
+    assert_eq!(binding.name, sym("Item"));
+    assert!(signatures.type_roots().contains(&binding.ty));
+}
+
+#[test]
 fn collects_item_signatures_from_active_item_tree_only() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

@@ -753,6 +753,26 @@ fn main(pair: Box[(i32, bool)]) i32 {
 }
 
 #[test]
+fn supertrait_associated_binding_is_available_in_default_method() {
+    let checked = pipeline(
+        r#"
+trait Parent {
+    type Item;
+}
+
+trait Child : Parent[Item = i32] {
+    fn value(&self) i32 {
+        let item: [Self as Parent]::Item = 7;
+        item
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn resolves_receiver_parse_facade_through_result_protocol() {
     let checked = pipeline_with_len_provider(
         r#"
