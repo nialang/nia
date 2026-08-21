@@ -289,8 +289,8 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 243 completed entries in this ledger.
-- Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
+- Implementation batches: 244 completed entries in this ledger.
+- Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
   requires the corresponding fixed acceptance item plus the cross-cutting
@@ -1302,8 +1302,9 @@ acceptance item only when its phase-wide evidence is complete.
       invalidation, compiler-object and link reuse, corruption of five action
       entries, recovered warm reuse, and failed-action isolation. The generated
       schema-v3 evidence retained machine resources, process measurements, and
-      every counter; independent clean recomputation of each edited state and
-      genuinely constrained low-memory execution remain open Phase D evidence.
+      every counter. The later schema-v5 and 3 GiB/no-swap workspace batches
+      close the independent-recomputation and constrained-memory gaps recorded
+      by this original run.
 - [x] Phase D representative build baseline schema v5 now recomputes source-
       edited and module-map-edited fixtures in separate cold-cache workspaces,
       then compares both emitted executables byte-for-byte through fixed 64 KiB
@@ -1312,14 +1313,14 @@ acceptance item only when its phase-wide evidence is complete.
       artifacts, every state had a distinct child-process PID, and the named
       `source-app` comparison records both `src/main.nia` and its mapped helper
       module. Focused acceptance and buffer-boundary tests preserve missing,
-      mismatched, and falsely warm evidence. Genuinely constrained low-memory
-      execution remains open Phase D evidence.
+      mismatched, and falsely warm evidence. The complete 3 GiB/no-swap
+      workspace run below supplies the constrained-memory evidence.
 - [x] Phase D low-memory test scheduling now reuses an active compiler session's
       memory reservation for sequential emitted-runtime commands while retaining
       an independent runtime scheduling slot. The nested-session regression,
       `nia-test-support` owner suite (19 passed), strict Clippy, and focused CLI
-      build cases pass; complete 3 GiB/no-swap workspace evidence remains open
-      until the constrained run completes.
+      build cases pass; the complete constrained workspace run below verifies
+      the same accounting under default libtest concurrency.
 - [x] Backend dynamic-trait validation now accepts a runtime trait-object call
       when no concrete object vtable is materialized in the closed executable,
       while still validating every published candidate's slot and ABI. The
@@ -1444,10 +1445,22 @@ acceptance item only when its phase-wide evidence is complete.
       independent cold-workspace recomputation. The existing source-edit and
       module-map-edit comparisons therefore provide explicit multi-module and
       cross-process evidence rather than relying on fixture inspection.
+- [x] Phase D fixed acceptance is closed across all four required gates. The
+      persisted-product inventory has roundtrip, corruption, complete stale-
+      identity, and replacement coverage at its codec/cache owners; query and
+      build lifecycle races have deterministic owner tests; schema-v5 baseline
+      samples prove independent-process multi-module incremental/clean artifact
+      equivalence; and the all-feature workspace passes at normal libtest
+      concurrency under a 3 GiB/no-swap cgroup with a 2.1 GiB recorded peak.
+      The same constrained command was rerun successfully on the schema-v5
+      acceptance head, including 14/14 CLI build cases, 635/635 driver tests,
+      and 83/83 query tests. Required owner crates also have strict
+      Rustdoc/Clippy and focused boundary evidence recorded above; broader final
+      validation remains tracked separately.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
-- [ ] Phase D: query, cache, loader, import, and build state.
+- [x] Phase D: query, cache, loader, import, and build state.
 - [ ] Phase E: frontend, identity, diagnostics, and structural boundaries.
 - [ ] Phase F: standard library and runtime.
 - [ ] Cross-cutting Rustdoc/comment completion and test-gap closure.
