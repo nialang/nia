@@ -123,6 +123,12 @@ The typed query/fact graph is the only dependency and invalidation truth source.
   and domain separation appropriate to the product. Entries repeat and validate
   their identity, reject truncation and trailing data, and retire corruption
   rather than attempting a compatibility decode.
+- Persistent cache retirement and publication for one content-addressed path
+  use the same mutation lock. A reader may remove a corrupt record only when the
+  bounded bytes or oversized state it observed still occupy that path; it must
+  preserve a valid replacement published before retirement acquires the lock.
+  Immutable publishers revalidate an existing winner under that lock rather
+  than silently overwriting it.
 - Verification mode recomputes the product and replaces a well-formed but
   semantically stale artifact. A cache hit is not proof of correctness.
 

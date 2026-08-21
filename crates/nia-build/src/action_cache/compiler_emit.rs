@@ -1033,6 +1033,49 @@ mod tests {
     }
 
     #[test]
+    fn compiler_emit_corruption_republishes_and_stale_retirement_preserves_it() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-compiler-emit-cache-replacement-{}-{}",
+            std::process::id(),
+            CACHE_STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = CompilerEmitCache::new(root.clone());
+        let identity = identity();
+        let reference = reference(1);
+        cache
+            .publish(&identity, reference)
+            .expect("publish emit entry");
+        assert_eq!(
+            cache.lookup(&identity).expect("load emit entry"),
+            CompilerEmitCacheLookup::Hit(reference)
+        );
+
+        let path = cache.path(identity.fingerprints);
+        let observed = b"corrupt emit entry".to_vec();
+        fs::write(&path, &observed).expect("install corrupt emit entry");
+        assert_eq!(
+            cache.lookup(&identity).expect("load corrupt emit entry"),
+            CompilerEmitCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists());
+
+        cache
+            .publish(&identity, reference)
+            .expect("republish emit entry");
+        cache
+            .retire_corrupt(&path, &observed)
+            .expect("retire stale emit observation");
+        assert_eq!(
+            cache
+                .lookup(&identity)
+                .expect("load replacement emit entry"),
+            CompilerEmitCacheLookup::Hit(reference)
+        );
+
+        fs::remove_dir_all(root).expect("remove compiler emit cache fixture");
+    }
+
+    #[test]
     fn compiler_emit_lookup_retires_oversized_entries_without_reading_them() {
         let identity = identity();
         let root = std::env::temp_dir().join(format!(
