@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 244 completed entries in this ledger.
+- Implementation batches: 245 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1457,6 +1457,16 @@ acceptance item only when its phase-wide evidence is complete.
       and 83/83 query tests. Required owner crates also have strict
       Rustdoc/Clippy and focused boundary evidence recorded above; broader final
       validation remains tracked separately.
+- [x] Phase A where-bound validation now preserves associated-type bindings
+      through generic/method candidate filtering, final function and method
+      call checks, and recursive nominal-type obligations. Concrete projection
+      mismatches fail with binding-specific call diagnostics, while matching
+      bindings remain accepted. Impl-based reverse inference additionally
+      rejects phase products whose trait type-argument arity differs from the
+      requested goal instead of accepting a truncated `zip`. Body-check owner
+      regressions cover accepted and rejected bindings, nominal instantiations,
+      and a deliberately malformed upstream impl signature; trait-solver owner
+      tests and body-check strict Clippy remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -1581,7 +1581,7 @@ impl<'a> BodyChecker<'a> {
     /// container. Treating `[T; N]` as a complete expected type before `N` is
     /// inferred causes eager tuple/aggregate diagnostics even when the later
     /// instantiated argument type is valid.
-    fn type_contains_const_generic_param(&self, ty: InternedTyId) -> bool {
+    pub(crate) fn type_contains_const_generic_param(&self, ty: InternedTyId) -> bool {
         let const_arg_contains_param = |arg: &ConstGenericArg| {
             matches!(arg.value, ConstGenericValue::GenericParam(_))
                 || self.type_contains_const_generic_param(arg.ty)

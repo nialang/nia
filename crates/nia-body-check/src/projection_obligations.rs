@@ -5,7 +5,8 @@ use crate::BodyChecker;
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
-    FunctionSignature, ProgramTraitImplSignature, TraitImplSignature, WherePredicateSignature,
+    AssociatedTypeBindingSignature, FunctionSignature, ProgramTraitImplSignature,
+    TraitImplSignature, WherePredicateSignature,
 };
 use nia_sema_ir::AssociatedConstProjection;
 use nia_span::Span;
@@ -415,6 +416,45 @@ impl<'a> BodyChecker<'a> {
                                 self.trait_ty_name(trait_id, &trait_args)
                             ),
                         ));
+                    continue;
+                }
+                for binding in &bound.associated_type_bindings {
+                    let Some(actual_ty) = self.resolve_associated_type_projection(
+                        predicate.ty,
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        &binding.name,
+                    ) else {
+                        self.diagnostics
+                            .push(nia_diagnostic::Diagnostic::user_error_at(
+                                nia_diagnostic::codes::TYPE_CHECK,
+                                span,
+                                format!(
+                                    "associated type binding not satisfied: {}::{} could not be resolved",
+                                    self.trait_ty_name(trait_id, &trait_args),
+                                    self.symbol_name(binding.name)
+                                ),
+                            ));
+                        continue;
+                    };
+                    let expected_ty = self.normalize_projection(binding.ty);
+                    let actual_ty = self.normalize_projection(actual_ty);
+                    if !self.types_equivalent_without_projection_resolution(expected_ty, actual_ty)
+                    {
+                        self.diagnostics
+                            .push(nia_diagnostic::Diagnostic::user_error_at(
+                                nia_diagnostic::codes::TYPE_CHECK,
+                                span,
+                                format!(
+                                    "associated type binding not satisfied: {}::{} expected {}, got {}",
+                                    self.trait_ty_name(trait_id, &trait_args),
+                                    self.symbol_name(binding.name),
+                                    self.ty_name(expected_ty),
+                                    self.ty_name(actual_ty)
+                                ),
+                            ));
+                    }
                 }
             }
         }
@@ -464,7 +504,7 @@ impl<'a> BodyChecker<'a> {
             }
 
             let mut candidate = substitutions.clone();
-            let mut ok = true;
+            let mut ok = trait_args.len() == impl_signature.trait_args.len();
             for (required_arg, impl_arg) in trait_args.iter().zip(&impl_signature.trait_args) {
                 let impl_arg = *impl_arg;
                 let impl_arg = self.substitute_generics(impl_arg, &impl_substitutions);
@@ -1325,14 +1365,52 @@ impl<'a> BodyChecker<'a> {
                     else {
                         return false;
                     };
-                    this.current_context_proves_trait_obligation_with_const_args(
+                    if !this.current_context_proves_trait_obligation_with_const_args(
                         predicate.ty,
                         trait_id,
-                        trait_args,
-                        trait_const_args,
+                        trait_args.clone(),
+                        trait_const_args.clone(),
+                    ) {
+                        return false;
+                    }
+                    this.where_bound_associated_type_bindings_hold(
+                        predicate.ty,
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        &bound.associated_type_bindings,
                     )
                 })
             })
+        })
+    }
+
+    fn where_bound_associated_type_bindings_hold(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+        bindings: &[AssociatedTypeBindingSignature],
+    ) -> bool {
+        bindings.iter().all(|binding| {
+            if self.type_contains_generic_param(binding.ty)
+                || self.type_contains_const_generic_param(binding.ty)
+            {
+                return true;
+            }
+            let Some(actual_ty) = self.resolve_associated_type_projection(
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                &binding.name,
+            ) else {
+                return false;
+            };
+            let expected_ty = self.normalize_projection(binding.ty);
+            let actual_ty = self.normalize_projection(actual_ty);
+            self.types_equivalent_without_projection_resolution(expected_ty, actual_ty)
         })
     }
 
@@ -1629,7 +1707,14 @@ impl<'a> BodyChecker<'a> {
                     trait_id,
                     trait_args,
                     trait_const_args,
-                    associated_type_bindings: Vec::new(),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| TraitObligationAssociatedTypeBinding {
+                            name: binding.name,
+                            ty: binding.ty,
+                        })
+                        .collect(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
                     self.diagnostics
@@ -1700,12 +1785,33 @@ impl<'a> BodyChecker<'a> {
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        solver.resolve(TraitGoal {
+        let resolution = solver.resolve(TraitGoal {
             self_ty: required.self_ty,
             trait_id: required.trait_id,
             trait_args: required.trait_args.clone(),
             trait_const_args: required.trait_const_args.clone(),
-        })
+        });
+        if !matches!(
+            resolution,
+            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
+        ) {
+            return resolution;
+        }
+        for binding in &required.associated_type_bindings {
+            let Some(actual_ty) = solver.resolve_associated_type(
+                required.self_ty,
+                required.trait_id,
+                &required.trait_args,
+                &required.trait_const_args,
+                &binding.name,
+            ) else {
+                return TraitResolution::Unsatisfied;
+            };
+            if !solver.types_equivalent(actual_ty, binding.ty) {
+                return TraitResolution::Unsatisfied;
+            }
+        }
+        resolution
     }
 
     fn trait_goals_for_obligations(&self, obligations: &[TraitObligation]) -> Vec<TraitGoal> {

@@ -1480,6 +1480,17 @@ Type-checks function bodies and expression semantics. It owns:
 Body checking consumes earlier tables instead of rediscovering definitions or
 types from source text.
 
+A source where-bound is a complete obligation: its self type, trait identity,
+type and const arguments, and associated-type bindings travel together. Generic
+and method candidate filtering may defer an associated binding while its type
+still contains unsubstituted parameters, but it must check every concrete
+binding before accepting the candidate. Final call validation and recursive
+nominal-type validation prove the trait goal and each associated projection
+equality; proving only the bare trait goal is insufficient. Program trait-impl
+signatures are phase products at this boundary, so candidate matching also
+requires exact trait type- and const-argument arity rather than relying on
+`zip` truncation.
+
 All body-check entry points read existing handles from the compilation
 `TypeStore` and publish inferred or substituted structural types through a
 module-scoped `TypeStoreAppend`. They never borrow a mutable interner, and query
