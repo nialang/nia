@@ -7,6 +7,7 @@
 //! sysroots, native libraries, and raw arguments deliberately disable reuse.
 
 use std::{
+    collections::HashSet,
     env, fs,
     io::{self, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -46,6 +47,10 @@ const LINK_RESULT_LINKER_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-linker.v2");
 const LINK_RESULT_OPTIONS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-options.v2");
+const MAX_LD_SO_CONF_FILE_BYTES: usize = 1024 * 1024;
+const MAX_LD_SO_CONF_TOTAL_BYTES: usize = 4 * 1024 * 1024;
+const MAX_LD_SO_CONF_FILES: usize = 1024;
+const MAX_LD_SO_CONF_INCLUDE_ENTRIES: usize = 4096;
 
 /// Stable identity for an executable link result or one of its components.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1368,27 +1373,81 @@ fn insert_existing_library_path(paths: &mut Vec<String>, path: &str) {
 }
 
 fn read_ld_so_conf(paths: &mut Vec<String>, path: &Path, depth: usize) {
+    let mut budget = LdSoConfReadBudget {
+        remaining_bytes: MAX_LD_SO_CONF_TOTAL_BYTES,
+        remaining_files: MAX_LD_SO_CONF_FILES,
+        visited: HashSet::new(),
+    };
+    read_ld_so_conf_bounded(paths, path, depth, &mut budget);
+}
+
+struct LdSoConfReadBudget {
+    remaining_bytes: usize,
+    remaining_files: usize,
+    visited: HashSet<PathBuf>,
+}
+
+fn read_ld_so_conf_bounded(
+    paths: &mut Vec<String>,
+    path: &Path,
+    depth: usize,
+    budget: &mut LdSoConfReadBudget,
+) {
     if depth > 8 {
         return;
     }
-    let Ok(contents) = fs::read_to_string(path) else {
+    let Ok(canonical_path) = fs::canonicalize(path) else {
         return;
     };
-    let base = path.parent().unwrap_or_else(|| Path::new("/"));
+    if budget.remaining_files == 0 || !budget.visited.insert(canonical_path.clone()) {
+        return;
+    }
+    let Ok(mut file) = fs::File::open(&canonical_path) else {
+        return;
+    };
+    let Ok(file_len) = file.metadata().map(|metadata| metadata.len()) else {
+        return;
+    };
+    let allowed = budget.remaining_bytes.min(MAX_LD_SO_CONF_FILE_BYTES);
+    if file_len > allowed as u64 {
+        return;
+    }
+    let mut encoded = Vec::with_capacity(usize::try_from(file_len).unwrap_or(allowed));
+    if file
+        .by_ref()
+        .take((allowed + 1) as u64)
+        .read_to_end(&mut encoded)
+        .is_err()
+        || encoded.len() > allowed
+    {
+        return;
+    }
+    let Ok(contents) = String::from_utf8(encoded) else {
+        return;
+    };
+    budget.remaining_bytes -= contents.len();
+    budget.remaining_files -= 1;
+    let base = canonical_path.parent().unwrap_or_else(|| Path::new("/"));
     for line in contents.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
         }
         if let Some(pattern) = line.strip_prefix("include ") {
-            read_ld_so_conf_include(paths, base, pattern.trim(), depth + 1);
+            read_ld_so_conf_include(paths, base, pattern.trim(), depth + 1, budget);
         } else {
             insert_existing_library_path(paths, line);
         }
     }
 }
 
-fn read_ld_so_conf_include(paths: &mut Vec<String>, base: &Path, pattern: &str, depth: usize) {
+fn read_ld_so_conf_include(
+    paths: &mut Vec<String>,
+    base: &Path,
+    pattern: &str,
+    depth: usize,
+    budget: &mut LdSoConfReadBudget,
+) {
     let pattern_path = Path::new(pattern);
     let pattern_path = if pattern_path.is_absolute() {
         pattern_path.to_path_buf()
@@ -1404,14 +1463,22 @@ fn read_ld_so_conf_include(paths: &mut Vec<String>, base: &Path, pattern: &str, 
     let Ok(entries) = fs::read_dir(parent) else {
         return;
     };
+    let mut matching = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
         if glob_file_name_matches(file_pattern, file_name) {
-            read_ld_so_conf(paths, &path, depth);
+            if matching.len() == MAX_LD_SO_CONF_INCLUDE_ENTRIES {
+                return;
+            }
+            matching.push(path);
         }
+    }
+    matching.sort_unstable();
+    for path in matching {
+        read_ld_so_conf_bounded(paths, &path, depth, budget);
     }
 }
 
