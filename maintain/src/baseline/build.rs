@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 pub use acceptance::workload_acceptance;
 pub use reports::parse_build_reports;
 pub use schema::{
-    AcceptanceCheck, AcceptanceReport, ActionReport, ArtifactEquivalence, BuildReports,
-    BuildResult, Distribution, ExpectedValue, Measurement, Number, StateSummary,
+    AcceptanceCheck, AcceptanceReport, ActionReport, ArtifactComparison, ArtifactEquivalence,
+    BuildReports, BuildResult, Distribution, ExpectedValue, Measurement, Number, StateSummary,
 };
 use schema::{AggregateAcceptance, BuildBaseline, BuildRunSample};
 pub use summary::summarize_runs;
@@ -101,7 +101,7 @@ pub fn run(options: &Options) -> MaintainResult<()> {
         .map(|run| workload_acceptance(run))
         .collect::<MaintainResult<Vec<_>>>()?;
     let baseline = BuildBaseline {
-        schema_version: 4,
+        schema_version: 5,
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
         fixture: "benchmarks/build/representative",

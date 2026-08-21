@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 use super::{AcceptanceCheck, AcceptanceReport, BuildResult, ExpectedValue};
 use crate::MaintainResult;
@@ -89,6 +90,19 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
     // work in later states without baking fixture-specific constants here.
     let expected_actions = counter(clean, "build.action_cache_lookups")?;
     let mut checks = Vec::new();
+
+    let distinct_processes = results
+        .iter()
+        .map(|result| result.process_id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    checks.push(AcceptanceCheck {
+        state: "workload".to_owned(),
+        counter: "baseline.distinct_state_processes".to_owned(),
+        expected: ExpectedValue::Exact(results.len() as i64),
+        found: distinct_processes as i64,
+        passed: distinct_processes == results.len(),
+    });
 
     fn exact(
         checks: &mut Vec<AcceptanceCheck>,
@@ -399,10 +413,16 @@ fn artifact_equivalence(
             equivalence.clean_state
         ));
     }
-    let compared = i64::try_from(equivalence.compared)
+    let compared = i64::try_from(equivalence.comparisons.len())
         .map_err(|_| format!("build state {state:?} artifact count exceeds i64"))?;
-    let matching = i64::try_from(equivalence.matching)
-        .map_err(|_| format!("build state {state:?} matching artifact count exceeds i64"))?;
+    let matching = i64::try_from(
+        equivalence
+            .comparisons
+            .iter()
+            .filter(|comparison| comparison.matching)
+            .count(),
+    )
+    .map_err(|_| format!("build state {state:?} matching artifact count exceeds i64"))?;
     if compared == 0 {
         return Err(format!("build state {state:?} compared no artifacts"));
     }
@@ -412,6 +432,34 @@ fn artifact_equivalence(
         expected: ExpectedValue::Exact(compared),
         found: matching,
         passed: matching == compared,
+    });
+    let multi_module = equivalence
+        .comparisons
+        .iter()
+        .filter(|comparison| comparison.source_modules.len() > 1)
+        .collect::<Vec<_>>();
+    let multi_module_compared = i64::try_from(multi_module.len())
+        .map_err(|_| format!("build state {state:?} multi-module artifact count exceeds i64"))?;
+    let multi_module_matching = i64::try_from(
+        multi_module
+            .iter()
+            .filter(|comparison| comparison.matching)
+            .count(),
+    )
+    .map_err(|_| {
+        format!("build state {state:?} matching multi-module artifact count exceeds i64")
+    })?;
+    if multi_module_compared == 0 {
+        return Err(format!(
+            "build state {state:?} compared no multi-module artifacts"
+        ));
+    }
+    checks.push(AcceptanceCheck {
+        state: state.to_owned(),
+        counter: "baseline.clean_equivalent_multi_module_artifacts".to_owned(),
+        expected: ExpectedValue::Exact(multi_module_compared),
+        found: multi_module_matching,
+        passed: multi_module_matching == multi_module_compared,
     });
     Ok(())
 }

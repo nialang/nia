@@ -28,16 +28,23 @@ pub struct BuildReports {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ArtifactComparison {
+    pub name: String,
+    pub source_modules: Vec<String>,
+    pub matching: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ArtifactEquivalence {
     pub clean_state: String,
-    pub compared: usize,
-    pub matching: usize,
+    pub comparisons: Vec<ArtifactComparison>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BuildResult {
     pub name: String,
     pub command: Vec<String>,
+    pub process_id: u32,
     pub return_code: i32,
     pub wall_seconds_observed: f64,
     pub available_memory_bytes_before: Option<u64>,
