@@ -732,6 +732,17 @@ separate runtime scheduling permit but reuses the session's larger memory
 reservation; otherwise an exactly full constrained-host budget could wait for
 itself after the compiler process had already exited.
 
+Query waits have a separate process-wide wait-for graph because a provider may
+block on a query in another worker or session. Thread-local stacks catch direct
+recursion; the wait graph catches disjoint-worker and cross-session cycles before
+condition-variable blocking. Every temporary wait edge has an RAII guard, and
+cycle failure removes the edge before returning the error, so a later unrelated
+query cannot inherit stale wait state. Session retirement closes admission before
+draining active work and uses an RAII guard to reopen admission even if the
+retirement callback panics. Deterministic owner tests assert both removal of the
+participating nodes after parallel/cross-session cycle failures and successful
+query admission after retirement panic.
+
 Query values and identities have an explicit retirement boundary. A session
 retirement request blocks new query activity, waits for current query execution,
 validation, invalidation, and tracing to become quiescent, then removes the

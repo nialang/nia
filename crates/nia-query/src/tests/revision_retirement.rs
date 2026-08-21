@@ -105,6 +105,32 @@ fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically(
 }
 
 #[test]
+fn panicking_retirement_transaction_reopens_query_admission() {
+    let db = QueryDb::new(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    assert_eq!(*db.expect_get(Double(3)), 6);
+
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        db.retirement_transaction(|_| panic!("retirement fixture panic"));
+    }))
+    .expect_err("retirement operation should panic");
+    assert!(panic.is::<&'static str>());
+    assert!(
+        !db.inner
+            .session
+            .inner
+            .activity
+            .lock()
+            .expect("query activity lock poisoned")
+            .retiring
+    );
+
+    assert_eq!(*db.expect_get(Double(4)), 8);
+    assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn retirement_waits_for_active_query_before_releasing_cached_slot() {
     let control = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
     let db = QueryDb::new(RaceContext {

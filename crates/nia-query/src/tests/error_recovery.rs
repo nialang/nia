@@ -1,5 +1,16 @@
 use super::*;
 
+fn assert_wait_graph_released(nodes: impl IntoIterator<Item = QueryNodeId>) {
+    let wait_graph = query_wait_graph()
+        .lock()
+        .expect("query wait-for graph lock poisoned");
+    for node in nodes {
+        assert!(!wait_graph.edges.contains_key(&node));
+        assert!(!wait_graph.edges.values().any(|target| *target == node));
+        assert!(!wait_graph.frames.contains_key(&node));
+    }
+}
+
 #[test]
 fn reports_same_thread_query_cycles() {
     let db = QueryDb::new(TestContext {
@@ -123,6 +134,10 @@ fn distinct_workers_detect_cross_stack_query_cycles() {
         nia_timing::TimingMode::Off,
         session,
     );
+    let cycle_nodes = [
+        db.slot_for(&ParallelCycle::Left).node_id,
+        db.slot_for(&ParallelCycle::Right).node_id,
+    ];
     let worker_db = db.clone();
     let (sender, receiver) = std::sync::mpsc::channel();
 
@@ -139,6 +154,7 @@ fn distinct_workers_detect_cross_stack_query_cycles() {
         "parallel query cycle must fail instead of leaving both workers blocked"
     );
     worker.join().expect("parallel cycle worker");
+    assert_wait_graph_released(cycle_nodes);
 }
 
 #[test]
@@ -164,6 +180,10 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
         nia_timing::TimingMode::Off,
         QuerySession::with_parallelism(1),
     );
+    let cycle_nodes = [
+        left_db.slot_for(&CrossSessionCycle::Left).node_id,
+        right_db.slot_for(&CrossSessionCycle::Right).node_id,
+    ];
     *left_link.lock().expect("left cycle link lock poisoned") = Some(left_db.clone());
     *right_link.lock().expect("right cycle link lock poisoned") = Some(right_db.clone());
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -193,6 +213,7 @@ fn distinct_sessions_detect_cross_stack_query_cycles() {
     right_thread.join().expect("right cycle worker");
     *left_link.lock().expect("left cycle link lock poisoned") = None;
     *right_link.lock().expect("right cycle link lock poisoned") = None;
+    assert_wait_graph_released(cycle_nodes);
 }
 
 #[test]
