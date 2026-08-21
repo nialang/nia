@@ -957,6 +957,44 @@ mod tests {
     }
 
     #[test]
+    fn compiler_check_corruption_republishes_and_stale_retirement_preserves_it() {
+        let root = std::env::temp_dir().join(format!(
+            "nia-compiler-check-cache-replacement-{}-{}",
+            std::process::id(),
+            CACHE_STAGE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let cache = CompilerCheckCache::new(root.clone());
+        let identity = identity();
+        cache.publish(&identity).expect("publish check entry");
+        assert_eq!(
+            cache.lookup(&identity).expect("load check entry"),
+            CompilerCheckCacheLookup::Hit
+        );
+
+        let path = cache.path(identity.fingerprints);
+        let observed = b"corrupt check entry".to_vec();
+        fs::write(&path, &observed).expect("install corrupt check entry");
+        assert_eq!(
+            cache.lookup(&identity).expect("load corrupt check entry"),
+            CompilerCheckCacheLookup::Miss(ActionCacheMissReason::Corrupt)
+        );
+        assert!(!path.exists());
+
+        cache.publish(&identity).expect("republish check entry");
+        cache
+            .retire_corrupt(&path, &observed)
+            .expect("retire stale check observation");
+        assert_eq!(
+            cache
+                .lookup(&identity)
+                .expect("load replacement check entry"),
+            CompilerCheckCacheLookup::Hit
+        );
+
+        fs::remove_dir_all(root).expect("remove compiler check cache fixture");
+    }
+
+    #[test]
     fn compiler_check_lookup_retires_oversized_entries_without_reading_them() {
         let identity = identity();
         let root = std::env::temp_dir().join(format!(
