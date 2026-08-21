@@ -308,11 +308,12 @@ trait Parent[T] {
     type Item;
 }
 
-trait Child : Parent[i32] + Parent[bool] {}
+trait Child : Parent[i32] + Parent[bool] + Parent[usize] {}
 
 fn inspect[T, U](expected: U, value: &Child[
     [Self as Parent[T]]::Item = U,
-    [Self as Parent[bool]]::Item = i32,
+    [Self as Parent[i32]]::Item = bool,
+    [Self as Parent[usize]]::Item = bool,
 ]) () {
     _ = (expected, value);
 }
@@ -320,6 +321,7 @@ fn inspect[T, U](expected: U, value: &Child[
 fn main(value: &Child[
     [Self as Parent[i32]]::Item = bool,
     [Self as Parent[bool]]::Item = i32,
+    [Self as Parent[usize]]::Item = bool,
 ]) () {
     inspect(0i32, value)
 }

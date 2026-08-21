@@ -90,6 +90,64 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn trait_object_upcast_tracks_declared_supertrait_binding_edits() {
+    const VALID: &str = r#"
+trait Parent {
+    type Item;
+    fn value(&self) [Self as Parent]::Item;
+}
+trait Child : Parent[Item = i32] {}
+fn upcast(child: &Child) &Parent[Item = i32] { child }
+fn read(child: &Child) i32 { child.value() }
+fn main() i32 { 0 }
+"#;
+    const INVALID: &str = r#"
+trait Parent {
+    type Item;
+    fn value(&self) [Self as Parent]::Item;
+}
+trait Child : Parent[Item = bool] {}
+fn upcast(child: &Child) &Parent[Item = i32] { child }
+fn read(child: &Child) i32 { child.value() }
+fn main() i32 { 0 }
+"#;
+
+    fn summaries(program: CheckedProgram) -> Vec<String> {
+        let mut summaries = program
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.diagnostic.summary.clone())
+            .collect::<Vec<_>>();
+        summaries.sort();
+        summaries
+    }
+
+    let mut fixture = LoadedProgramFixture::new("main.nia", VALID);
+    let module_id = fixture.entry_id();
+    let incremental = fixture.database();
+    assert!(incremental.check_program().diagnostics.is_empty());
+
+    fixture.update_module_source(module_id, INVALID, SourceRevision(1));
+    incremental.update(CompileRequest::new(fixture.program()));
+    let incremental_invalid = summaries(incremental.check_program());
+    let clean_invalid = summaries(
+        LoadedProgramFixture::new("main.nia", INVALID)
+            .database()
+            .check_program(),
+    );
+    assert_eq!(incremental_invalid, clean_invalid);
+    assert!(
+        incremental_invalid
+            .iter()
+            .any(|summary| summary.contains("type mismatch"))
+    );
+
+    fixture.update_module_source(module_id, VALID, SourceRevision(2));
+    incremental.update(CompileRequest::new(fixture.program()));
+    assert!(incremental.check_program().diagnostics.is_empty());
+}
+
+#[test]
 fn function_body_type_update_refreshes_revision_bearing_signature_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

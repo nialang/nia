@@ -674,6 +674,12 @@ impl<'a> BodyChecker<'a> {
         ) {
             return Vec::new();
         }
+        let associated_type_bindings = self.trait_object_bindings_with_supertraits(
+            trait_id,
+            &trait_args,
+            &trait_const_args,
+            &associated_type_bindings,
+        );
         let mut candidates = Vec::new();
         let mut next_slot = 0;
         let mut visiting = Vec::new();

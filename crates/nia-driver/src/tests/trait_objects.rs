@@ -862,6 +862,105 @@ fn main() i32 {
 }
 
 #[test]
+fn trait_object_upcast_uses_declared_supertrait_associated_type_bindings() {
+    let root = temp_dir("trait_object_upcast_uses_declared_supertrait_associated_type_bindings");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parent {
+    type Item;
+
+    fn parent(& self) [Self as Parent]::Item;
+}
+
+trait Child : Parent[Item = i32] {
+    fn child(& self) i32;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Parent {
+    type Item = i32;
+
+    fn parent(& self) i32 {
+        self.value
+    }
+}
+
+extend Counter : Child {
+    fn child(& self) i32 {
+        self.value + 1
+    }
+}
+
+fn as_parent(child: & Child) & Parent[Item = i32] {
+    child
+}
+
+fn read_child(child: & Child) i32 {
+    child.parent()
+}
+
+fn main() i32 {
+    let mut counter = Counter { value: 20 };
+    let mut child: & Child = & counter;
+    as_parent(child).parent() + read_child(child)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        trait_object_upcast_count(module) >= 1
+            && module
+                .body_ir
+                .function_bodies
+                .values()
+                .any(|body| body_contains_dynamic_trait_callee(body))
+    }));
+}
+
+#[test]
+fn trait_object_upcast_rejects_mismatched_declared_supertrait_binding() {
+    let root = temp_dir("trait_object_upcast_rejects_mismatched_declared_supertrait_binding");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parent {
+    type Item;
+}
+
+trait Child : Parent[Item = i32] {}
+
+fn reject_wrong_parent(child: & Child) & Parent[Item = bool] {
+    child
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program
+            .modules
+            .iter()
+            .all(|module| trait_object_upcast_count(module) == 0)
+    );
+}
+
+#[test]
 fn trait_object_upcast_rejects_unbound_supertrait_associated_type_fakeref() {
     let root = temp_dir("trait_object_upcast_rejects_unbound_supertrait_associated_type_fakeref");
     write(

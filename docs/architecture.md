@@ -1504,6 +1504,15 @@ explicit parent impl's associated type before accepting the child impl. The
 item-signature cache schema is versioned when this shape changes; older entries
 are rejected rather than decoded with the old positional layout.
 
+The instantiated binding is also an intrinsic guarantee of a child trait
+object. A value of type `&Child` where `Child : Parent[Item = i32]` is object
+safe for parent methods returning `Parent::Item`, and may upcast to
+`&Parent[Item = i32]` without restating the equality on `Child`. Object-safety
+checks, dynamic-method projection normalization, and upcast validation derive
+these guarantees through the same cycle-guarded supertrait traversal. Bindings
+not present on that path are never synthesized, and incompatible target
+bindings remain rejected.
+
 All body-check entry points read existing handles from the compilation
 `TypeStore` and publish inferred or substituted structural types through a
 module-scoped `TypeStoreAppend`. They never borrow a mutable interner, and query
