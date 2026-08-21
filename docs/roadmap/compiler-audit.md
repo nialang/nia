@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 237 completed entries in this ledger.
+- Implementation batches: 238 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1393,6 +1393,12 @@ acceptance item only when its phase-wide evidence is complete.
       covers nested resolution, repeated parents, absolute roots, and distinct
       `SourcePath` identities, including actual parent/child file reads. All 12
       `nia-source` and 94 `nia-loader-query` tests, strict Clippy, workspace
+      check, and formatting pass.
+- [x] Phase D `ld.so.conf` canonical identities now serve only cycle/duplicate
+      suppression; relative includes remain anchored to the visible config
+      pathname, including when that file is a symlink. The Unix regression
+      preserves deterministic traversal without silently changing established
+      include resolution. All 31 `nia-linker` tests, strict Clippy, workspace
       check, and formatting pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.

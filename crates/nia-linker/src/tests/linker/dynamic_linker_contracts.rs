@@ -173,3 +173,28 @@ fn ld_so_conf_reader_visits_canonical_files_once() {
 
     assert_eq!(paths, [lib.to_string_lossy().into_owned()]);
 }
+
+#[test]
+#[cfg(unix)]
+fn ld_so_conf_symlink_keeps_the_include_base_of_the_visible_path() {
+    use std::os::unix::fs::symlink;
+
+    let root = env::temp_dir().join(format!(
+        "nia-linker-ld-so-conf-symlink-{}",
+        std::process::id()
+    ));
+    let visible = root.join("visible");
+    let storage = root.join("storage");
+    let lib = visible.join("lib");
+    fs::create_dir_all(&lib).expect("create visible lib dir");
+    fs::create_dir_all(&storage).expect("create storage dir");
+    fs::write(storage.join("real.conf"), "include child.conf\n").expect("write real config");
+    fs::write(visible.join("child.conf"), format!("{}\n", lib.display()))
+        .expect("write visible child config");
+    symlink(storage.join("real.conf"), visible.join("ld.so.conf")).expect("link visible config");
+
+    let mut paths = Vec::new();
+    read_ld_so_conf(&mut paths, &visible.join("ld.so.conf"), 0);
+
+    assert_eq!(paths, [lib.to_string_lossy().into_owned()]);
+}

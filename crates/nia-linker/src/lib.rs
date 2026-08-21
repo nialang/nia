@@ -1427,7 +1427,7 @@ fn read_ld_so_conf_bounded(
     };
     budget.remaining_bytes -= contents.len();
     budget.remaining_files -= 1;
-    let base = canonical_path.parent().unwrap_or_else(|| Path::new("/"));
+    let base = path.parent().unwrap_or_else(|| Path::new("/"));
     for line in contents.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
