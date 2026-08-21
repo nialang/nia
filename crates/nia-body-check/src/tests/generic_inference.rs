@@ -678,6 +678,81 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_generic_from_where_bound_associated_type_binding() {
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] : Source {
+    type Item = T;
+}
+
+fn infer_item[S, Item](source: S) i32
+where S: Source[Item = Item]
+{
+    _ = source;
+    0
+}
+
+fn main(source: Box[i32]) i32 {
+    infer_item[_, _](source)
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn associated_type_binding_candidate_does_not_leak_partial_inference() {
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] : Source {
+    type Item = T;
+}
+
+fn reject_pair[S, Item](source: S) i32
+where S: Source[Item = (Item, Item)]
+{
+    _ = source;
+    0
+}
+
+fn main(pair: Box[(i32, bool)]) i32 {
+    reject_pair[_, _](pair)
+}
+"#,
+    );
+
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("cannot infer generic parameter `Item`"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn resolves_receiver_parse_facade_through_result_protocol() {
     let checked = pipeline_with_len_provider(
         r#"

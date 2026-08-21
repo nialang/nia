@@ -102,7 +102,9 @@ it does not make a reset implicit.
   must not silently reduce it to a bare trait goal. Consumers of impl-signature
   products check exact argument arity before pairwise matching so malformed or
   stale upstream facts fail closed instead of benefiting from truncated `zip`
-  comparisons.
+  comparisons. Inference probes clone their substitution state and commit it
+  only after the complete impl header and associated binding set matches; a
+  failed nested binding must not leak a partial generic inference.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.
