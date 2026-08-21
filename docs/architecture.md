@@ -681,8 +681,9 @@ submission order without creating query nodes or dependency edges. All three
 use the same batch implementation, queue, workers, panic boundary, and nested
 progress rules; query batches additionally merge the logical parent dependency
 stack. Nested batches reuse the permit already held by the current execution
-thread. Distinct sessions retain separate queues and query graphs but share one
-process-wide CPU budget. That budget inherits the
+thread. Session shutdown first closes executor admission and then drains every
+accepted task before joining its workers. Distinct sessions retain separate
+queues and query graphs but share one process-wide CPU budget. That budget inherits the
 Cargo/GNU Make jobserver when one is available; otherwise it creates a local
 jobserver from the process-visible parallelism, including one implicit process
 token in either case. There is no environment-variable worker-count override.
