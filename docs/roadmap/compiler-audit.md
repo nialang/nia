@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 232 completed entries in this ledger.
+- Implementation batches: 233 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1362,6 +1362,12 @@ acceptance item only when its phase-wide evidence is complete.
       rejects truncation or growth, and retains conservative cache disabling for
       an unreadable linker. The 27 `nia-linker` owner tests, including a
       multi-buffer equivalence regression, formatting, and strict Clippy pass.
+- [x] Phase D Linux host dynamic-linker discovery now reads the fixed ELF header
+      and individual program headers by offset instead of allocating the entire
+      host executable. Checked table arithmetic and a 4 KiB `PT_INTERP` limit
+      reject truncated, out-of-file, overflowing, or oversized records. The 28
+      `nia-linker` owner tests include valid and oversized interpreter fixtures;
+      formatting and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
