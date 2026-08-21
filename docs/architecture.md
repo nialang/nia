@@ -2305,7 +2305,9 @@ Every source-tree invocation selects `lib` as an explicit resource root.
 Installed invocations resolve their relocatable resource layout through
 `ToolchainLayout`. CLI code passes that typed layout into Driver and build
 requests and never derives production resources from a compile-time checkout
-path.
+path. The fixed-field `toolchain.meta` compatibility manifest is read through a
+64 KiB stream limit before UTF-8 parsing, so an oversized installed resource
+cannot allocate from its full file length or smuggle a valid prefix.
 
 Compiler commands preserve the distinction between bare/object/IR emission and
 freestanding executable startup described by the language and ABI references.

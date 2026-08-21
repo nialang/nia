@@ -9,10 +9,11 @@
 use nia_compat::{COMPILER_VERSION, toolchain};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target_config::TargetConfig;
-use std::{fmt, fs, io, path::PathBuf};
+use std::{fmt, fs, io, io::Read, path::PathBuf};
 
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.toolchain.compatibility-identity.v1");
+const MAX_RESOURCE_MANIFEST_BYTES: usize = 64 * 1024;
 
 /// File name of the versioned compatibility manifest under a resource root.
 pub const RESOURCE_MANIFEST_NAME: &str = "toolchain.meta";
@@ -145,7 +146,7 @@ impl ToolchainLayout {
         }
 
         let manifest_path = resource_root.join(RESOURCE_MANIFEST_NAME);
-        let manifest = fs::read_to_string(&manifest_path).map_err(|error| {
+        let manifest = read_resource_manifest(&manifest_path).map_err(|error| {
             ToolchainLayoutError::ReadManifest {
                 path: manifest_path.clone(),
                 error,
@@ -209,6 +210,30 @@ impl ToolchainLayout {
     pub const fn runtime(&self) -> &RuntimeResources {
         &self.runtime
     }
+}
+
+fn read_resource_manifest(path: &std::path::Path) -> io::Result<String> {
+    let file = fs::File::open(path)?;
+    if file.metadata()?.len() > MAX_RESOURCE_MANIFEST_BYTES as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "toolchain resource manifest exceeds the {MAX_RESOURCE_MANIFEST_BYTES}-byte limit"
+            ),
+        ));
+    }
+    let mut encoded = Vec::new();
+    file.take((MAX_RESOURCE_MANIFEST_BYTES + 1) as u64)
+        .read_to_end(&mut encoded)?;
+    if encoded.len() > MAX_RESOURCE_MANIFEST_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "toolchain resource manifest exceeds the {MAX_RESOURCE_MANIFEST_BYTES}-byte limit"
+            ),
+        ));
+    }
+    String::from_utf8(encoded).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 /// Inputs selecting a compiler executable, resource root, and artifact target.
@@ -704,6 +729,32 @@ mod tests {
             ),
             "{error}"
         );
+    }
+
+    #[test]
+    fn oversized_resource_manifest_is_rejected_without_parsing_its_prefix() {
+        let root = temp_dir("oversized_manifest");
+        let executable = write_layout(&root);
+        let manifest = root.join("lib/nia/toolchain.meta");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&manifest)
+            .expect("open manifest");
+        file.set_len((MAX_RESOURCE_MANIFEST_BYTES + 1) as u64)
+            .expect("extend manifest");
+
+        let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
+            .expect_err("oversized manifest");
+
+        assert!(
+            matches!(
+                error,
+                ToolchainLayoutError::ReadManifest { ref error, .. }
+                    if error.kind() == io::ErrorKind::InvalidData
+            ),
+            "{error}"
+        );
+        assert!(error.to_string().contains("65536-byte limit"), "{error}");
     }
 
     #[test]

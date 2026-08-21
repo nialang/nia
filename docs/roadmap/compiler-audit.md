@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 234 completed entries in this ledger.
+- Implementation batches: 235 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1374,6 +1374,11 @@ acceptance item only when its phase-wide evidence is complete.
       files and include cycles cannot drive unbounded work or make link-result
       target identity depend on filesystem enumeration order. The 30
       `nia-linker` owner tests, formatting, and strict Clippy pass.
+- [x] Phase D toolchain resource-manifest reads now enforce a 64 KiB stream
+      budget before UTF-8 and field parsing. Metadata rejects known oversized
+      files without allocation, while the `max + 1` read catches concurrent
+      growth and prevents a valid compatibility prefix from being accepted.
+      All five `nia-toolchain` owner tests, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
