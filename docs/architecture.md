@@ -2201,8 +2201,11 @@ path/binary/flavor, and structured link options respectively. A versioned
 aggregate domain combines those component fingerprints; exact aggregate
 equality is the only reuse condition. The encoder uses fixed discriminants and
 length-delimited values and does not hash `Debug` output or temporary
-object/output paths. Links with a sysroot, explicit native libraries, or raw
-linker arguments are not declared cacheable because those options may name
+object/output paths. Linker and archive-tool binaries are fingerprinted from an
+opened file through a fixed 64 KiB buffer; truncation or growth rejects that
+observation without allocating the complete executable. Links with a sysroot,
+explicit native libraries, or raw linker arguments are not declared cacheable
+because those options may name
 external files outside the tracked input set.
 
 The Driver owns the sole persistent link-result cache. It computes the
