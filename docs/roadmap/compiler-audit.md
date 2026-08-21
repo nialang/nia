@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 247 completed entries in this ledger.
+- Implementation batches: 248 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1485,6 +1485,13 @@ acceptance item only when its phase-wide evidence is complete.
       identical diagnostics. All 253 body-check, 245 compiler-query, and 636
       driver tests pass together with the owner/signature-cache suites, strict
       Clippy, and workspace checks.
+- [x] Phase A body-check method inference and overload specialization now
+      compare trait-object associated bindings as a complete unordered
+      bijection. Candidate probes backtrack with isolated type/const
+      substitutions, and one actual binding cannot satisfy multiple pattern
+      bindings; obligation deduplication uses the same order-independent,
+      single-consumption rule. All 253 body-check tests, 42 focused driver
+      associated-type tests, and strict body-check Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -355,15 +355,11 @@ impl<'a> BodyChecker<'a> {
                             .all(|(general, specific)| {
                                 self.pattern_subsumes_inner(*general, *specific, substitutions)
                             })
-                        && general_bindings.iter().all(|general_binding| {
-                            specific_bindings.iter().any(|specific_binding| {
-                                self.associated_binding_subsumes(
-                                    general_binding,
-                                    specific_binding,
-                                    substitutions,
-                                )
-                            })
-                        })
+                        && self.associated_bindings_subsume(
+                            &general_bindings,
+                            &specific_bindings,
+                            substitutions,
+                        )
                 }
                 _ => false,
             },
@@ -393,15 +389,11 @@ impl<'a> BodyChecker<'a> {
                             .all(|(general, specific)| {
                                 self.pattern_subsumes_inner(*general, *specific, substitutions)
                             })
-                        && general_bindings.iter().all(|general_binding| {
-                            specific_bindings.iter().any(|specific_binding| {
-                                self.associated_binding_subsumes(
-                                    general_binding,
-                                    specific_binding,
-                                    substitutions,
-                                )
-                            })
-                        })
+                        && self.associated_bindings_subsume(
+                            &general_bindings,
+                            &specific_bindings,
+                            substitutions,
+                        )
                 }
                 _ => false,
             },
@@ -502,6 +494,61 @@ impl<'a> BodyChecker<'a> {
         }
         *substitutions = candidate;
         true
+    }
+
+    fn associated_bindings_subsume(
+        &mut self,
+        general: &[nia_ty::AssociatedTypeBindingTy],
+        specific: &[nia_ty::AssociatedTypeBindingTy],
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        if general.len() != specific.len() {
+            return false;
+        }
+        self.associated_bindings_subsume_inner(
+            general,
+            specific,
+            0,
+            &mut vec![false; specific.len()],
+            substitutions,
+        )
+    }
+
+    fn associated_bindings_subsume_inner(
+        &mut self,
+        general: &[nia_ty::AssociatedTypeBindingTy],
+        specific: &[nia_ty::AssociatedTypeBindingTy],
+        general_index: usize,
+        used: &mut [bool],
+        substitutions: &mut PatternSubstitutions,
+    ) -> bool {
+        let Some(general_binding) = general.get(general_index) else {
+            return true;
+        };
+        for (specific_index, specific_binding) in specific.iter().enumerate() {
+            if used[specific_index] {
+                continue;
+            }
+            let mut candidate = substitutions.clone();
+            if !self.associated_binding_subsumes(general_binding, specific_binding, &mut candidate)
+            {
+                continue;
+            }
+            used[specific_index] = true;
+            let matched = self.associated_bindings_subsume_inner(
+                general,
+                specific,
+                general_index + 1,
+                used,
+                &mut candidate,
+            );
+            used[specific_index] = false;
+            if matched {
+                *substitutions = candidate;
+                return true;
+            }
+        }
+        false
     }
 
     fn const_pattern_args_subsume(

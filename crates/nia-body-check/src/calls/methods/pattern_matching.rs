@@ -367,16 +367,12 @@ impl<'a> BodyChecker<'a> {
                                 )
                             },
                         )
-                        && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings.iter().any(|actual_binding| {
-                                self.try_match_associated_type_binding(
-                                    pattern_binding,
-                                    actual_binding,
-                                    substitutions,
-                                    const_substitutions,
-                                )
-                            })
-                        })
+                        && self.match_associated_type_binding_patterns(
+                            &pattern_bindings,
+                            &associated_type_bindings,
+                            substitutions,
+                            const_substitutions,
+                        )
                 }
                 _ => false,
             },
@@ -417,16 +413,12 @@ impl<'a> BodyChecker<'a> {
                                 )
                             },
                         )
-                        && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings.iter().any(|actual_binding| {
-                                self.try_match_associated_type_binding(
-                                    pattern_binding,
-                                    actual_binding,
-                                    substitutions,
-                                    const_substitutions,
-                                )
-                            })
-                        })
+                        && self.match_associated_type_binding_patterns(
+                            &pattern_bindings,
+                            &associated_type_bindings,
+                            substitutions,
+                            const_substitutions,
+                        )
                 }
                 _ => false,
             },
@@ -619,5 +611,70 @@ impl<'a> BodyChecker<'a> {
         *substitutions = candidate_substitutions;
         *const_substitutions = candidate_const_substitutions;
         true
+    }
+
+    fn match_associated_type_binding_patterns(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        if patterns.len() != actuals.len() {
+            return false;
+        }
+        self.match_associated_type_binding_patterns_inner(
+            patterns,
+            actuals,
+            0,
+            &mut vec![false; actuals.len()],
+            substitutions,
+            const_substitutions,
+        )
+    }
+
+    fn match_associated_type_binding_patterns_inner(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index] {
+                continue;
+            }
+            let mut candidate_substitutions = substitutions.clone();
+            let mut candidate_const_substitutions = const_substitutions.clone();
+            if !self.try_match_associated_type_binding(
+                pattern,
+                actual,
+                &mut candidate_substitutions,
+                &mut candidate_const_substitutions,
+            ) {
+                continue;
+            }
+            used[actual_index] = true;
+            let matched = self.match_associated_type_binding_patterns_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+                &mut candidate_substitutions,
+                &mut candidate_const_substitutions,
+            );
+            used[actual_index] = false;
+            if matched {
+                *substitutions = candidate_substitutions;
+                *const_substitutions = candidate_const_substitutions;
+                return true;
+            }
+        }
+        false
     }
 }
