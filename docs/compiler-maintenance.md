@@ -104,7 +104,10 @@ it does not make a reset implicit.
   stale upstream facts fail closed instead of benefiting from truncated `zip`
   comparisons. Inference probes clone their substitution state and commit it
   only after the complete impl header and associated binding set matches; a
-  failed nested binding must not leak a partial generic inference.
+  failed nested binding must not leak a partial generic inference. Associated
+  binding vectors are unordered semantic sets: comparisons consume every
+  candidate at most once and backtrack over compatible keys, since a greedy
+  first match can reject a later valid permutation.
 - Supertrait declarations are persisted as complete trait obligations too. Any
   associated-type binding attached to a supertrait travels through collection,
   type-root discovery, cache encoding, body assumptions, and impl validation.

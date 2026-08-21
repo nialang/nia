@@ -1913,14 +1913,33 @@ impl<'a> BodyChecker<'a> {
                 .all(|(left, right)| {
                     self.types_equivalent_without_projection_resolution(*left, *right)
                 })
-            && left
-                .associated_type_bindings
-                .iter()
-                .zip(&right.associated_type_bindings)
-                .all(|(left, right)| {
-                    left.name == right.name
-                        && self.types_equivalent_without_projection_resolution(left.ty, right.ty)
-                })
+            && self.trait_obligation_bindings_equivalent(
+                &left.associated_type_bindings,
+                &right.associated_type_bindings,
+            )
+    }
+
+    fn trait_obligation_bindings_equivalent(
+        &mut self,
+        left: &[TraitObligationAssociatedTypeBinding],
+        right: &[TraitObligationAssociatedTypeBinding],
+    ) -> bool {
+        let mut used = vec![false; right.len()];
+        left.iter().all(|left_binding| {
+            let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
+                (!used[index]
+                    && left_binding.name == right_binding.name
+                    && self.types_equivalent_without_projection_resolution(
+                        left_binding.ty,
+                        right_binding.ty,
+                    ))
+                .then_some(index)
+            }) else {
+                return false;
+            };
+            used[index] = true;
+            true
+        })
     }
 
     pub(crate) fn types_equivalent_without_projection_resolution(
