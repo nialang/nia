@@ -1489,7 +1489,11 @@ nominal-type validation prove the trait goal and each associated projection
 equality; proving only the bare trait goal is insufficient. Program trait-impl
 signatures are phase products at this boundary, so candidate matching also
 requires exact trait type- and const-argument arity rather than relying on
-`zip` truncation.
+`zip` truncation. Reverse inference from an impl matches concrete associated
+type definitions against bound bindings after substituting the impl target's
+type and const parameters. The complete target, trait arguments, const
+arguments, and binding set is one transactional candidate: a later mismatch
+cannot publish substitutions inferred from an earlier component.
 
 All body-check entry points read existing handles from the compilation
 `TypeStore` and publish inferred or substituted structural types through a

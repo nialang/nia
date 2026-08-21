@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 245 completed entries in this ledger.
+- Implementation batches: 246 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1467,6 +1467,15 @@ acceptance item only when its phase-wide evidence is complete.
       regressions cover accepted and rejected bindings, nominal instantiations,
       and a deliberately malformed upstream impl signature; trait-solver owner
       tests and body-check strict Clippy remain green.
+- [x] Phase A where-bound reverse inference now derives unresolved type
+      parameters from the selected impl's associated type definitions, after
+      substituting type and const parameters captured from the impl target.
+      Target, trait arguments, const arguments, and all associated bindings are
+      matched as one candidate, so a nested binding mismatch cannot leak an
+      earlier partial substitution. Owner regressions cover successful
+      `Source[Item = Item]` inference and rejection of `(Item, Item)` against
+      `(i32, bool)`; all 252 body-check and 244 compiler-query tests plus strict
+      body-check Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

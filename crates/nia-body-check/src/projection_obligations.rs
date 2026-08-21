@@ -476,9 +476,8 @@ impl<'a> BodyChecker<'a> {
             };
             self.push_where_predicate_trait_impl_candidates(
                 self_ty,
-                trait_id,
-                &trait_args,
-                &trait_const_args,
+                (trait_id, &trait_args, &trait_const_args),
+                &bound.associated_type_bindings,
                 substitutions,
                 &mut candidates,
             );
@@ -489,25 +488,34 @@ impl<'a> BodyChecker<'a> {
     fn push_where_predicate_trait_impl_candidates(
         &mut self,
         self_ty: InternedTyId,
-        trait_id: TraitId,
-        trait_args: &[InternedTyId],
-        trait_const_args: &[ConstGenericArg],
+        trait_ref: (TraitId, &[InternedTyId], &[ConstGenericArg]),
+        associated_type_bindings: &[AssociatedTypeBindingSignature],
         substitutions: &SymbolMap<InternedTyId>,
         candidates: &mut Vec<SymbolMap<InternedTyId>>,
     ) {
+        let (trait_id, trait_args, trait_const_args) = trait_ref;
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
             let impl_target_ty = impl_signature.target_ty;
             let mut impl_substitutions = SymbolMap::default();
-            if !self.match_type_pattern(impl_target_ty, self_ty, &mut impl_substitutions) {
+            let mut impl_const_substitutions = SymbolMap::default();
+            if !self.match_type_pattern_with_consts(
+                impl_target_ty,
+                self_ty,
+                &mut impl_substitutions,
+                &mut impl_const_substitutions,
+            ) {
                 continue;
             }
 
             let mut candidate = substitutions.clone();
             let mut ok = trait_args.len() == impl_signature.trait_args.len();
             for (required_arg, impl_arg) in trait_args.iter().zip(&impl_signature.trait_args) {
-                let impl_arg = *impl_arg;
-                let impl_arg = self.substitute_generics(impl_arg, &impl_substitutions);
+                let impl_arg = self.substitute_generics_and_consts(
+                    *impl_arg,
+                    &impl_substitutions,
+                    &impl_const_substitutions,
+                );
                 if !self.match_where_candidate_type(*required_arg, impl_arg, &mut candidate) {
                     ok = false;
                     break;
@@ -522,8 +530,43 @@ impl<'a> BodyChecker<'a> {
                     .zip(&impl_signature.trait_const_args)
                 {
                     let mut impl_arg = impl_arg.clone();
-                    impl_arg.ty = self.substitute_generics(impl_arg.ty, &impl_substitutions);
+                    impl_arg.ty = self.substitute_generics_and_consts(
+                        impl_arg.ty,
+                        &impl_substitutions,
+                        &impl_const_substitutions,
+                    );
+                    if let ConstGenericValue::GenericParam(name) = impl_arg.value
+                        && let Some(substitution) = impl_const_substitutions.get(&name)
+                    {
+                        impl_arg.value = substitution.value.clone();
+                    }
                     if !self.const_generic_args_match(required_arg, &impl_arg) {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok {
+                for binding in associated_type_bindings {
+                    let mut matching_associated_types = impl_signature
+                        .associated_types
+                        .iter()
+                        .filter(|associated_type| associated_type.name == binding.name);
+                    let Some(associated_type) = matching_associated_types.next() else {
+                        ok = false;
+                        break;
+                    };
+                    if matching_associated_types.next().is_some() {
+                        ok = false;
+                        break;
+                    }
+                    let required_ty = self.substitute_ty(binding.ty, &candidate);
+                    let actual_ty = self.substitute_generics_and_consts(
+                        associated_type.ty,
+                        &impl_substitutions,
+                        &impl_const_substitutions,
+                    );
+                    if !self.match_type_pattern(required_ty, actual_ty, &mut candidate) {
                         ok = false;
                         break;
                     }
