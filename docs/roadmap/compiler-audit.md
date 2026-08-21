@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 230 completed entries in this ledger.
+- Implementation batches: 231 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1351,6 +1351,11 @@ acceptance item only when its phase-wide evidence is complete.
       single-job build/test run completed without an OOM and reached a 2.1 GiB
       peak, closing the constrained-workspace resource evidence that exposed
       and verified the nested-session and in-process-driver fixes above.
+- [x] Phase D query-executor shutdown now closes admission before draining its
+      queue and joining the worker set. A direct owner regression proves that
+      dropping the final session handle completes every already accepted task;
+      the stable architecture record now states this lifetime contract alongside
+      nested execution and the process-wide CPU budget.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

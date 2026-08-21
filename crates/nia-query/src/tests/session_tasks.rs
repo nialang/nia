@@ -72,3 +72,26 @@ fn bounded_session_tasks_preserve_order_and_limit_worker_lanes() {
     assert_eq!(peak_active.load(Ordering::SeqCst), 2);
     assert_eq!(session.inner.executor.peak_active(), 2);
 }
+
+#[test]
+fn dropping_session_drains_all_accepted_executor_tasks() {
+    let session = QuerySession::with_parallelism(2);
+    let completed = Arc::new(AtomicUsize::new(0));
+    let task_count = 8;
+    let tasks = (0..task_count)
+        .map(|batch| {
+            let completed = Arc::clone(&completed);
+            QueryTask {
+                batch,
+                run: Box::new(move || {
+                    completed.fetch_add(1, Ordering::SeqCst);
+                }),
+            }
+        })
+        .collect();
+
+    session.inner.executor.submit_all(tasks);
+    drop(session);
+
+    assert_eq!(completed.load(Ordering::SeqCst), task_count);
+}
