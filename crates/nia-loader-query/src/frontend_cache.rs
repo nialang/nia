@@ -1867,6 +1867,51 @@ mod tests {
     }
 
     #[test]
+    fn dependency_manifest_identity_rejects_each_stale_field() {
+        let root = test_root("dependency-manifest-identity");
+        let cache = PersistentFrontendCache::new(root.clone());
+        let key = FrontendSourceCacheKey::from_parts([1, 2]);
+        let stale_key = FrontendSourceCacheKey::from_parts([3, 4]);
+        let namespace = FrontendCacheNamespace::from_parts([5, 6]);
+        let stale_namespace = FrontendCacheNamespace::from_parts([7, 8]);
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let stale_module =
+            StableModuleKey::from_source_identity(SourceIdentity::new("src/other.nia"));
+        let source = SourceContentFingerprint::from_parts([9, 10]);
+        let stale_source = SourceContentFingerprint::from_parts([11, 12]);
+        let item_signature = ItemSignatureFingerprint::from_parts([13, 14]);
+
+        cache
+            .publish_dependency_manifest(key, namespace, &module, source, item_signature)
+            .expect("publish dependency manifest");
+        assert_eq!(
+            cache
+                .load_dependency_manifest(key, namespace, &module, source)
+                .expect("load dependency manifest"),
+            DependencyManifestCacheLookup::Hit(item_signature)
+        );
+
+        let path = cache.dependency_manifest_path(key);
+        for stale in [
+            encode_dependency_manifest(stale_key, namespace, &module, source, item_signature),
+            encode_dependency_manifest(key, stale_namespace, &module, source, item_signature),
+            encode_dependency_manifest(key, namespace, &stale_module, source, item_signature),
+            encode_dependency_manifest(key, namespace, &module, stale_source, item_signature),
+        ] {
+            fs::write(&path, stale).expect("install stale dependency manifest");
+            assert_eq!(
+                cache
+                    .load_dependency_manifest(key, namespace, &module, source)
+                    .expect("load stale dependency manifest"),
+                DependencyManifestCacheLookup::Corrupt
+            );
+            assert!(!path.exists());
+        }
+
+        fs::remove_dir_all(root).expect("remove cache root");
+    }
+
+    #[test]
     fn all_frontend_products_share_the_versioned_namespace_root() {
         let root = test_root("namespace-root");
         let cache = PersistentFrontendCache::new(root.clone());
