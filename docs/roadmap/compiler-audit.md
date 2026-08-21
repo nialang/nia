@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 235 completed entries in this ledger.
+- Implementation batches: 236 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1379,6 +1379,13 @@ acceptance item only when its phase-wide evidence is complete.
       files without allocation, while the `max + 1` read catches concurrent
       growth and prevents a valid compatibility prefix from being accepted.
       All five `nia-toolchain` owner tests, formatting, and strict Clippy pass.
+- [x] Phase D filesystem source loading now has one 64 MiB stream budget owned
+      by `nia-source` and shared by loader queries, CLI entry inspection, and
+      diagnostic source recovery. Known oversized files are rejected before
+      allocation, concurrent growth cannot hide behind a valid UTF-8 prefix,
+      and rejected inputs are not installed in the source database. The ten
+      `nia-source`, 94 `nia-loader-query`, and three CLI owner tests, affected
+      strict Clippy, consumer checks, and formatting pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

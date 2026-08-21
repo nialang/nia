@@ -4,9 +4,42 @@
 use std::{
     fs,
     hash::{Hash, Hasher},
-    io,
+    io::{self, Read},
+    path::Path,
     sync::{Arc, Mutex},
 };
+
+/// Maximum UTF-8 source bytes accepted from one filesystem file.
+pub const MAX_SOURCE_FILE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Reads one UTF-8 source file through the shared compiler input budget.
+///
+/// Metadata rejects an already oversized file before allocation. Reading at
+/// most `max + 1` bytes also detects growth after that metadata observation, so
+/// a valid source prefix cannot hide an oversized trailing payload.
+pub fn read_source_text(path: impl AsRef<Path>) -> io::Result<String> {
+    let path = path.as_ref();
+    let file = fs::File::open(path)?;
+    let length = file.metadata()?.len();
+    if length > MAX_SOURCE_FILE_BYTES as u64 {
+        return Err(source_file_too_large());
+    }
+    let capacity = usize::try_from(length).unwrap_or(MAX_SOURCE_FILE_BYTES);
+    let mut encoded = Vec::with_capacity(capacity);
+    file.take((MAX_SOURCE_FILE_BYTES + 1) as u64)
+        .read_to_end(&mut encoded)?;
+    if encoded.len() > MAX_SOURCE_FILE_BYTES {
+        return Err(source_file_too_large());
+    }
+    String::from_utf8(encoded).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+fn source_file_too_large() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("source file exceeds the {MAX_SOURCE_FILE_BYTES}-byte limit"),
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Session-local identity assigned to one logical source path.
@@ -325,7 +358,7 @@ impl SourceDatabase {
             return Ok(file);
         }
 
-        let text = fs::read_to_string(path.as_str())?;
+        let text = read_source_text(path.as_str())?;
         Ok(self.set_source(path.clone(), text))
     }
 
@@ -453,5 +486,24 @@ mod tests {
 
         assert_eq!(sources.source_for_version(first.version()), None);
         assert_eq!(sources.source_for_version(second.version()), Some(second));
+    }
+
+    #[test]
+    fn filesystem_source_reads_reject_oversized_files_before_storing_them() {
+        let path =
+            std::env::temp_dir().join(format!("nia-source-oversized-{}", std::process::id()));
+        let file = fs::File::create(&path).expect("create oversized source");
+        file.set_len((MAX_SOURCE_FILE_BYTES + 1) as u64)
+            .expect("extend oversized source");
+        let source_path = SourcePath::new(path.to_string_lossy());
+        let sources = SourceDatabase::new();
+
+        let error = sources
+            .read_source(&source_path)
+            .expect_err("oversized source must be rejected");
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("67108864-byte limit"), "{error}");
+        assert_eq!(sources.source_for_path(&source_path), None);
     }
 }

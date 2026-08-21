@@ -8,7 +8,6 @@ use nia_diagnostic::{
     render_diagnostic,
 };
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
-use std::fs;
 
 pub fn optimization_report(program: &CodegenProgram) -> String {
     let mut out = optimization_report_lines_from_parts(
@@ -397,7 +396,7 @@ fn diagnostic_source(
     {
         return source.to_string();
     }
-    fs::read_to_string(path).unwrap_or_default()
+    nia_source::read_source_text(path).unwrap_or_default()
 }
 
 fn enabled_passes_name(passes: &[&'static str]) -> String {
