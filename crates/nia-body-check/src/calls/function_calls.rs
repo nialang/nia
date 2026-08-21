@@ -1087,29 +1087,8 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.generic_pattern_accepts_type_shape(*pattern, actual)
                         })
-                    && pattern_bindings.iter().all(|pattern_binding| {
-                        actual_bindings.iter().any(|actual_binding| {
-                            pattern_binding.name == actual_binding.name
-                                && pattern_binding.trait_id == actual_binding.trait_id
-                                && pattern_binding.trait_args.len()
-                                    == actual_binding.trait_args.len()
-                                && pattern_binding
-                                    .trait_args
-                                    .iter()
-                                    .zip(actual_binding.trait_args.iter())
-                                    .all(|(pattern, actual)| {
-                                        self.generic_pattern_accepts_type_shape(*pattern, *actual)
-                                    })
-                                && self.const_generic_arg_patterns_accept(
-                                    &pattern_binding.trait_const_args,
-                                    &actual_binding.trait_const_args,
-                                )
-                                && self.generic_pattern_accepts_type_shape(
-                                    pattern_binding.ty,
-                                    actual_binding.ty,
-                                )
-                        })
-                    })
+                    && self
+                        .generic_binding_patterns_accept_shapes(&pattern_bindings, &actual_bindings)
             }
             (
                 TyKind::TraitObjectPointee {
@@ -1136,29 +1115,8 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.generic_pattern_accepts_type_shape(*pattern, actual)
                         })
-                    && pattern_bindings.iter().all(|pattern_binding| {
-                        actual_bindings.iter().any(|actual_binding| {
-                            pattern_binding.name == actual_binding.name
-                                && pattern_binding.trait_id == actual_binding.trait_id
-                                && pattern_binding.trait_args.len()
-                                    == actual_binding.trait_args.len()
-                                && pattern_binding
-                                    .trait_args
-                                    .iter()
-                                    .zip(actual_binding.trait_args.iter())
-                                    .all(|(pattern, actual)| {
-                                        self.generic_pattern_accepts_type_shape(*pattern, *actual)
-                                    })
-                                && self.const_generic_arg_patterns_accept(
-                                    &pattern_binding.trait_const_args,
-                                    &actual_binding.trait_const_args,
-                                )
-                                && self.generic_pattern_accepts_type_shape(
-                                    pattern_binding.ty,
-                                    actual_binding.ty,
-                                )
-                        })
-                    })
+                    && self
+                        .generic_binding_patterns_accept_shapes(&pattern_bindings, &actual_bindings)
             }
             (
                 TyKind::Projection {
@@ -1191,6 +1149,63 @@ impl<'a> BodyChecker<'a> {
             }
             _ => false,
         }
+    }
+
+    fn generic_binding_patterns_accept_shapes(
+        &mut self,
+        patterns: &[AssociatedTypeBindingTy],
+        actuals: &[AssociatedTypeBindingTy],
+    ) -> bool {
+        if patterns.len() != actuals.len() {
+            return false;
+        }
+        self.generic_binding_patterns_accept_shapes_inner(
+            patterns,
+            actuals,
+            0,
+            &mut vec![false; actuals.len()],
+        )
+    }
+
+    fn generic_binding_patterns_accept_shapes_inner(
+        &mut self,
+        patterns: &[AssociatedTypeBindingTy],
+        actuals: &[AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index]
+                || pattern.name != actual.name
+                || pattern.trait_id != actual.trait_id
+                || pattern.trait_args.len() != actual.trait_args.len()
+                || !pattern.trait_args.iter().zip(actual.trait_args.iter()).all(
+                    |(pattern, actual)| self.generic_pattern_accepts_type_shape(*pattern, *actual),
+                )
+                || !self.const_generic_arg_patterns_accept(
+                    &pattern.trait_const_args,
+                    &actual.trait_const_args,
+                )
+                || !self.generic_pattern_accepts_type_shape(pattern.ty, actual.ty)
+            {
+                continue;
+            }
+            used[actual_index] = true;
+            let matched = self.generic_binding_patterns_accept_shapes_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+            );
+            used[actual_index] = false;
+            if matched {
+                return true;
+            }
+        }
+        false
     }
 
     fn const_generic_array_len_pattern_accepts(

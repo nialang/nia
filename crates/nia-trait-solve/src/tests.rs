@@ -160,13 +160,15 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
 }
 
 #[test]
-fn trait_object_impl_matching_checks_binding_value_before_committing_candidate() {
+fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = TypeStore::new();
     let append = type_store.append_for_module(module_id);
     let i32_ty = append.primitive(PrimitiveTy::I32);
     let bool_ty = append.primitive(PrimitiveTy::Bool);
+    let generic_name = SymbolId::from_stable_hash(19);
+    let generic_ty = append.intern(TyKind::GenericParam(generic_name));
     let object_trait = TraitId::Source(GlobalDefId {
         module_id,
         def_id: DefId(1),
@@ -188,29 +190,47 @@ fn trait_object_impl_matching_checks_binding_value_before_committing_candidate()
         trait_id: object_trait,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
-        associated_type_bindings: vec![binding(i32_ty), binding(bool_ty)],
+        associated_type_bindings: vec![binding(generic_ty), binding(i32_ty)],
     });
     let actual_ty = append.intern(TyKind::TraitObject {
         is_readonly: false,
         trait_id: object_trait,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
-        associated_type_bindings: vec![binding(bool_ty), binding(i32_ty)],
+        associated_type_bindings: vec![binding(i32_ty), binding(bool_ty)],
     });
-    let trait_impls = vec![ProgramTraitImplSignature {
+    let duplicate_pattern_ty = append.intern(TyKind::TraitObject {
+        is_readonly: false,
+        trait_id: object_trait,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        associated_type_bindings: vec![binding(i32_ty), binding(i32_ty)],
+    });
+    let make_impl = |impl_id, generics: Vec<SymbolId>, target_ty| ProgramTraitImplSignature {
         module_id,
-        impl_id: TraitImplId(20),
+        impl_id,
         builtin: None,
-        generics: Vec::new(),
-        generic_params: Vec::new(),
-        target_ty: pattern_ty,
+        generic_params: generics
+            .iter()
+            .copied()
+            .map(|name| nia_item_signatures::GenericParamSignature {
+                name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Type,
+            })
+            .collect(),
+        generics,
+        target_ty,
         trait_id: obligation_trait,
         trait_args: Vec::new(),
         trait_const_args: Vec::new(),
         where_predicates: Vec::new(),
         associated_types: Vec::new(),
         associated_values: Vec::new(),
-    }];
+    };
+    let trait_impls = vec![
+        make_impl(TraitImplId(20), vec![generic_name], pattern_ty),
+        make_impl(TraitImplId(21), Vec::new(), duplicate_pattern_ty),
+    ];
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -230,18 +250,30 @@ fn trait_object_impl_matching_checks_binding_value_before_committing_candidate()
     };
     let mut solver = context.solver(&[]);
 
-    let selection = solver.match_user_impl_at(
+    let selection = solver
+        .match_user_impl_at(
+            &TraitGoal {
+                self_ty: actual_ty,
+                trait_id: obligation_trait,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            },
+            0,
+        )
+        .expect("a complete binding permutation should match");
+    assert_eq!(selection.substitutions.get(&generic_name), Some(&bool_ty));
+    let reused_selection = solver.match_user_impl_at(
         &TraitGoal {
             self_ty: actual_ty,
             trait_id: obligation_trait,
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
         },
-        0,
+        1,
     );
     assert!(
-        selection.is_some(),
-        "a later compatible associated binding must be considered after an incompatible key match"
+        reused_selection.is_none(),
+        "one actual binding must not satisfy two pattern bindings"
     );
 }
 
