@@ -107,7 +107,9 @@ it does not make a reset implicit.
   failed nested binding must not leak a partial generic inference. Associated
   binding vectors are unordered semantic sets: comparisons consume every
   candidate at most once and backtrack over compatible keys, since a greedy
-  first match can reject a later valid permutation.
+  first match can reject a later valid permutation. This applies to fast shape
+  filters and specialization ordering as well as final impl selection; a
+  permissive prefilter is still unsound when it changes which candidate wins.
 - Supertrait declarations are persisted as complete trait obligations too. Any
   associated-type binding attached to a supertrait travels through collection,
   type-root discovery, cache encoding, body assumptions, and impl validation.

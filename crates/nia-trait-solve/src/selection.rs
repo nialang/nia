@@ -573,16 +573,12 @@ impl TraitSolver<'_> {
                         |(arg, actual_arg)| {
                             self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
                         },
-                    ) && associated_type_bindings.iter().all(|binding| {
-                        actual_bindings.iter().any(|actual_binding| {
-                            self.try_match_associated_type_binding(
-                                binding,
-                                actual_binding,
-                                substitutions,
-                                const_substitutions,
-                            )
-                        })
-                    })
+                    ) && self.match_associated_type_binding_patterns(
+                        &associated_type_bindings,
+                        &actual_bindings,
+                        substitutions,
+                        const_substitutions,
+                    )
                 }
                 _ => false,
             },
@@ -613,16 +609,12 @@ impl TraitSolver<'_> {
                         |(arg, actual_arg)| {
                             self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
                         },
-                    ) && associated_type_bindings.iter().all(|binding| {
-                        actual_bindings.iter().any(|actual_binding| {
-                            self.try_match_associated_type_binding(
-                                binding,
-                                actual_binding,
-                                substitutions,
-                                const_substitutions,
-                            )
-                        })
-                    })
+                    ) && self.match_associated_type_binding_patterns(
+                        &associated_type_bindings,
+                        &actual_bindings,
+                        substitutions,
+                        const_substitutions,
+                    )
                 }
                 _ => false,
             },
@@ -803,5 +795,70 @@ impl TraitSolver<'_> {
         *substitutions = candidate_substitutions;
         *const_substitutions = candidate_const_substitutions;
         true
+    }
+
+    fn match_associated_type_binding_patterns(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        if patterns.len() != actuals.len() {
+            return false;
+        }
+        self.match_associated_type_binding_patterns_inner(
+            patterns,
+            actuals,
+            0,
+            &mut vec![false; actuals.len()],
+            substitutions,
+            const_substitutions,
+        )
+    }
+
+    fn match_associated_type_binding_patterns_inner(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index] {
+                continue;
+            }
+            let mut candidate_substitutions = substitutions.clone();
+            let mut candidate_const_substitutions = const_substitutions.clone();
+            if !self.try_match_associated_type_binding(
+                pattern,
+                actual,
+                &mut candidate_substitutions,
+                &mut candidate_const_substitutions,
+            ) {
+                continue;
+            }
+            used[actual_index] = true;
+            let matched = self.match_associated_type_binding_patterns_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+                &mut candidate_substitutions,
+                &mut candidate_const_substitutions,
+            );
+            used[actual_index] = false;
+            if matched {
+                *substitutions = candidate_substitutions;
+                *const_substitutions = candidate_const_substitutions;
+                return true;
+            }
+        }
+        false
     }
 }
