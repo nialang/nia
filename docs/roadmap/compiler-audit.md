@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-20):
 
-- Implementation batches: 228 completed entries in this ledger.
+- Implementation batches: 229 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1339,6 +1339,14 @@ acceptance item only when its phase-wide evidence is complete.
       `ArrayList` executable regression covering mutable/readonly iterator views
       passes in ordinary and 3 GiB/no-swap execution (5 passed, 822.5 MiB
       peak), preserving strict rejection of readonly-to-mutable misuse.
+- [x] Phase D direct in-process `nia-driver` unit tests now retain the shared
+      compiler resource session instead of bypassing it, while explicit case
+      sessions are reused without double charging. Under 3 GiB/no-swap, the
+      default-concurrency 635-test owner suite changed from an OOM at the exact
+      3 GiB limit to 635/635 passing with a 1.1 GiB peak. The reentrant-session
+      regression, 20 `nia-test-support` tests, workspace check, formatting, and
+      strict Clippy for both owner crates pass. Complete constrained workspace
+      evidence remains open until the final rerun succeeds.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

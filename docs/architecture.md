@@ -697,7 +697,9 @@ permit. Production scheduling and the outer test-session pool read effective
 memory limits and pressure from the same resource probe implementation. Unit
 tests do not acquire a global compiler permit, and compiler/LLVM public APIs
 have identical resource semantics in test and non-test builds. Integration
-harnesses may assign weight to a complete process or compilation session. A
+harnesses may assign weight to a complete process or compilation session.
+Driver unit tests retain the same session around direct in-process compiler
+work; an existing explicit case session is reused rather than nested. A
 sequential runtime command inside such a compiler/build session retains its
 separate runtime scheduling permit but reuses the session's larger memory
 reservation; otherwise an exactly full constrained-host budget could wait for

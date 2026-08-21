@@ -144,6 +144,16 @@ pub fn acquire_test_resources(workload: TestWorkload) -> TestResourceSession<'st
         .register_for_current_thread(workload)
 }
 
+/// Acquires a compiler/build session unless the current test worker already
+/// owns one. Test helpers that construct a driver inside an explicit case
+/// session can use this boundary without charging the same working set twice.
+#[doc(hidden)]
+pub fn acquire_test_resources_if_needed(
+    workload: TestWorkload,
+) -> Option<TestResourceSession<'static>> {
+    (ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) == 0).then(|| acquire_test_resources(workload))
+}
+
 pub trait CommandExt {
     fn output_timeout_for_compiler(&mut self, context: &str) -> Output;
     fn output_timeout_for_build(&mut self, context: &str) -> Output;
@@ -705,6 +715,17 @@ pub struct TestResourceSession<'a> {
     not_send: PhantomData<Rc<()>>,
 }
 
+impl std::fmt::Debug for TestResourceSession<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TestResourceSession")
+            .field("reservations", &self.reservations.len())
+            .field("registered_with_thread", &self.registered_with_thread)
+            .field("compiler_slots", &self.compiler_slots)
+            .finish()
+    }
+}
+
 impl TestResourceSession<'_> {
     fn new<const N: usize>(reservations: [ResourceReservation<'_>; N]) -> TestResourceSession<'_> {
         TestResourceSession {
@@ -1119,6 +1140,14 @@ mod tests {
         let standalone = runtime_resource_request(false);
         assert_eq!(standalone.slots, 1);
         assert_eq!(standalone.minimum_memory_bytes, RUNTIME_MEMORY_BYTES);
+    }
+
+    #[test]
+    fn nested_test_resource_acquisition_reuses_the_outer_session() {
+        let outer = acquire_test_resources(TestWorkload::Compiler);
+        assert!(acquire_test_resources_if_needed(TestWorkload::Compiler).is_none());
+        drop(outer);
+        assert!(acquire_test_resources_if_needed(TestWorkload::Compiler).is_some());
     }
 
     #[test]

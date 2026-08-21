@@ -278,6 +278,8 @@ pub struct Driver {
     object_cache: Option<std::sync::Arc<crate::object_cache::PersistentObjectWorkProductCache>>,
     link_cache: Option<std::sync::Arc<crate::executable_cache::PersistentLinkResultCache>>,
     archive_cache: Option<std::sync::Arc<crate::archive_cache::PersistentArchiveCache>>,
+    #[cfg(test)]
+    _test_resources: Option<nia_test_support::TestResourceSession<'static>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -386,6 +388,10 @@ impl Driver {
             object_cache,
             link_cache,
             archive_cache,
+            #[cfg(test)]
+            _test_resources: nia_test_support::acquire_test_resources_if_needed(
+                nia_test_support::TestWorkload::Compiler,
+            ),
         }
     }
 

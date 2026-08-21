@@ -66,6 +66,10 @@ limit, and bare Linux hosts use system resources. If memory cannot be detected,
 compiler-heavy tests run serially. This keeps the default command conservative
 without private environment variables or a workspace-wide libtest thread
 restriction.
+Unit tests that construct a `nia-driver` `Driver` directly acquire the same
+compiler-session boundary, including frontend/driver work that never launches
+an external compiler process. A surrounding case session is reused instead of
+being charged twice.
 
 The `test` profile uses `opt-level = 1` because integration tests execute Nia as
 a compiler, not merely as a command parser. Debug assertions and overflow
