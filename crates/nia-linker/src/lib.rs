@@ -8,7 +8,7 @@
 
 use std::{
     env, fs,
-    io::{self, Read},
+    io::{self, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -1582,66 +1582,110 @@ fn default_abi_for_os(os: &str) -> String {
     }
 }
 
-fn elf_interpreter(path: &PathBuf) -> Result<Option<String>, LinkerConfigError> {
+fn elf_interpreter(path: &Path) -> Result<Option<String>, LinkerConfigError> {
     const EI_CLASS: usize = 4;
     const EI_DATA: usize = 5;
     const ELFCLASS64: u8 = 2;
     const ELFDATA2LSB: u8 = 1;
     const PT_INTERP: u32 = 3;
     const ELF_HEADER_LEN: usize = 64;
-    const PROGRAM_HEADER_LEN_64: usize = 56;
+    const PROGRAM_HEADER_LEN_64: u64 = 56;
+    const MAX_INTERPRETER_BYTES: u64 = 4096;
 
-    let bytes = fs::read(path).map_err(|error| LinkerConfigError::Io {
-        path: path.clone(),
+    let mut file = fs::File::open(path).map_err(|error| LinkerConfigError::Io {
+        path: path.to_path_buf(),
         error,
     })?;
-    if bytes.len() < ELF_HEADER_LEN
-        || &bytes[0..4] != b"\x7fELF"
-        || bytes[EI_CLASS] != ELFCLASS64
-        || bytes[EI_DATA] != ELFDATA2LSB
+    let file_len = file
+        .metadata()
+        .map_err(|error| LinkerConfigError::Io {
+            path: path.to_path_buf(),
+            error,
+        })?
+        .len();
+    if file_len < ELF_HEADER_LEN as u64 {
+        return Err(invalid_elf(path));
+    }
+    let mut header = [0; ELF_HEADER_LEN];
+    read_elf_bytes(&mut file, path, 0, &mut header)?;
+    if &header[0..4] != b"\x7fELF"
+        || header[EI_CLASS] != ELFCLASS64
+        || header[EI_DATA] != ELFDATA2LSB
     {
-        return Err(LinkerConfigError::InvalidElf { path: path.clone() });
+        return Err(invalid_elf(path));
     }
 
-    let phoff = read_u64(&bytes, 32)
-        .ok_or_else(|| LinkerConfigError::InvalidElf { path: path.clone() })?
-        as usize;
-    let phentsize = read_u16(&bytes, 54)
-        .ok_or_else(|| LinkerConfigError::InvalidElf { path: path.clone() })?
-        as usize;
-    let phnum = read_u16(&bytes, 56)
-        .ok_or_else(|| LinkerConfigError::InvalidElf { path: path.clone() })?
-        as usize;
+    let phoff = read_u64(&header, 32).ok_or_else(|| invalid_elf(path))?;
+    let phentsize = u64::from(read_u16(&header, 54).ok_or_else(|| invalid_elf(path))?);
+    let phnum = u64::from(read_u16(&header, 56).ok_or_else(|| invalid_elf(path))?);
     if phentsize < PROGRAM_HEADER_LEN_64 {
-        return Err(LinkerConfigError::InvalidElf { path: path.clone() });
+        return Err(invalid_elf(path));
+    }
+    let table_len = phentsize
+        .checked_mul(phnum)
+        .ok_or_else(|| invalid_elf(path))?;
+    let table_end = phoff
+        .checked_add(table_len)
+        .ok_or_else(|| invalid_elf(path))?;
+    if table_end > file_len {
+        return Err(invalid_elf(path));
     }
 
     for index in 0..phnum {
         let offset = phoff + index * phentsize;
-        let Some(p_type) = read_u32(&bytes, offset) else {
-            return Err(LinkerConfigError::InvalidElf { path: path.clone() });
-        };
+        let mut program_header = [0; PROGRAM_HEADER_LEN_64 as usize];
+        read_elf_bytes(&mut file, path, offset, &mut program_header)?;
+        let p_type = read_u32(&program_header, 0).ok_or_else(|| invalid_elf(path))?;
         if p_type != PT_INTERP {
             continue;
         }
-        let p_offset = read_u64(&bytes, offset + 8)
-            .ok_or_else(|| LinkerConfigError::InvalidElf { path: path.clone() })?
-            as usize;
-        let p_filesz = read_u64(&bytes, offset + 32)
-            .ok_or_else(|| LinkerConfigError::InvalidElf { path: path.clone() })?
-            as usize;
-        let Some(slice) = bytes.get(p_offset..p_offset + p_filesz) else {
-            return Err(LinkerConfigError::InvalidElf { path: path.clone() });
-        };
-        let nul = slice
+        let p_offset = read_u64(&program_header, 8).ok_or_else(|| invalid_elf(path))?;
+        let p_filesz = read_u64(&program_header, 32).ok_or_else(|| invalid_elf(path))?;
+        let interpreter_end = p_offset
+            .checked_add(p_filesz)
+            .ok_or_else(|| invalid_elf(path))?;
+        if p_filesz > MAX_INTERPRETER_BYTES || interpreter_end > file_len {
+            return Err(invalid_elf(path));
+        }
+        let interpreter_len = usize::try_from(p_filesz).map_err(|_| invalid_elf(path))?;
+        let mut interpreter = vec![0; interpreter_len];
+        read_elf_bytes(&mut file, path, p_offset, &mut interpreter)?;
+        let nul = interpreter
             .iter()
             .position(|byte| *byte == 0)
-            .unwrap_or(slice.len());
-        return String::from_utf8(slice[..nul].to_vec())
+            .unwrap_or(interpreter.len());
+        interpreter.truncate(nul);
+        return String::from_utf8(interpreter)
             .map(Some)
-            .map_err(|_| LinkerConfigError::InvalidElf { path: path.clone() });
+            .map_err(|_| invalid_elf(path));
     }
     Ok(None)
+}
+
+fn invalid_elf(path: &Path) -> LinkerConfigError {
+    LinkerConfigError::InvalidElf {
+        path: path.to_path_buf(),
+    }
+}
+
+fn read_elf_bytes(
+    file: &mut fs::File,
+    path: &Path,
+    offset: u64,
+    bytes: &mut [u8],
+) -> Result<(), LinkerConfigError> {
+    file.seek(SeekFrom::Start(offset))
+        .and_then(|_| file.read_exact(bytes))
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::UnexpectedEof {
+                invalid_elf(path)
+            } else {
+                LinkerConfigError::Io {
+                    path: path.to_path_buf(),
+                    error,
+                }
+            }
+        })
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {

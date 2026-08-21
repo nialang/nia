@@ -45,6 +45,45 @@ fn detects_native_dynamic_linker_from_usr_bin_env() {
 }
 
 #[test]
+fn elf_interpreter_reads_bounded_program_headers_and_payload() {
+    let root = env::temp_dir().join(format!("nia-linker-elf-{}", std::process::id()));
+    fs::create_dir_all(&root).expect("create ELF test root");
+    let path = root.join("program");
+    let interpreter = b"/lib64/ld-linux-x86-64.so.2\0";
+    let mut elf = vec![0; 64 + 56 + interpreter.len()];
+    elf[0..4].copy_from_slice(b"\x7fELF");
+    elf[4] = 2;
+    elf[5] = 1;
+    elf[32..40].copy_from_slice(&64u64.to_le_bytes());
+    elf[54..56].copy_from_slice(&56u16.to_le_bytes());
+    elf[56..58].copy_from_slice(&1u16.to_le_bytes());
+    elf[64..68].copy_from_slice(&3u32.to_le_bytes());
+    elf[72..80].copy_from_slice(&120u64.to_le_bytes());
+    elf[96..104].copy_from_slice(&(interpreter.len() as u64).to_le_bytes());
+    elf[120..].copy_from_slice(interpreter);
+    fs::write(&path, elf).expect("write ELF fixture");
+
+    assert_eq!(
+        elf_interpreter(&path).expect("read ELF interpreter"),
+        Some("/lib64/ld-linux-x86-64.so.2".to_string())
+    );
+
+    let mut oversized = fs::read(&path).expect("read ELF fixture");
+    oversized[96..104].copy_from_slice(&4097u64.to_le_bytes());
+    fs::write(&path, oversized).expect("write oversized ELF fixture");
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("open oversized ELF fixture");
+    file.set_len(120 + 4097)
+        .expect("extend oversized ELF fixture");
+    assert!(matches!(
+        elf_interpreter(&path),
+        Err(LinkerConfigError::InvalidElf { .. })
+    ));
+}
+
+#[test]
 fn ld_so_conf_reader_follows_simple_include_patterns() {
     let root = env::temp_dir().join(format!("nia-linker-ld-so-conf-{}", std::process::id()));
     let lib = root.join("lib");

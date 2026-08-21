@@ -2207,6 +2207,10 @@ observation without allocating the complete executable. Links with a sysroot,
 explicit native libraries, or raw linker arguments are not declared cacheable
 because those options may name
 external files outside the tracked input set.
+Linux host dynamic-linker discovery likewise reads only the fixed ELF header,
+each declared program header, and a bounded 4 KiB interpreter payload. Invalid
+offset arithmetic, out-of-file tables, concurrent truncation, and oversized
+interpreter records are rejected before allocating from file-controlled sizes.
 
 The Driver owns the sole persistent link-result cache. It computes the
 fingerprint and attempts restoration before writing temporary object files or
