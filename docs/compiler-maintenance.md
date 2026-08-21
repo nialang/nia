@@ -110,6 +110,8 @@ it does not make a reset implicit.
   first match can reject a later valid permutation. This applies to fast shape
   filters and specialization ordering as well as final impl selection; a
   permissive prefilter is still unsound when it changes which candidate wins.
+  Backend extension instantiation and backend type equivalence preserve this
+  rule so code generation cannot select a weaker instance than body checking.
 - Supertrait declarations are persisted as complete trait obligations too. Any
   associated-type binding attached to a supertrait travels through collection,
   type-root discovery, cache encoding, body assumptions, and impl validation.

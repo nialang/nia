@@ -1759,15 +1759,11 @@ impl<'a> ModuleLowerer<'a> {
                         .all(|(pattern, actual)| {
                             self.match_extension_type_pattern(*pattern, actual, substitutions)
                         })
-                        && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings.iter().any(|actual_binding| {
-                                self.match_extension_associated_type_binding(
-                                    pattern_binding,
-                                    actual_binding,
-                                    substitutions,
-                                )
-                            })
-                        })
+                        && self.match_extension_associated_type_bindings(
+                            &pattern_bindings,
+                            &associated_type_bindings,
+                            substitutions,
+                        )
                 }
                 _ => false,
             },
@@ -1793,15 +1789,11 @@ impl<'a> ModuleLowerer<'a> {
                         .all(|(pattern, actual)| {
                             self.match_extension_type_pattern(*pattern, actual, substitutions)
                         })
-                        && pattern_bindings.iter().all(|pattern_binding| {
-                            associated_type_bindings.iter().any(|actual_binding| {
-                                self.match_extension_associated_type_binding(
-                                    pattern_binding,
-                                    actual_binding,
-                                    substitutions,
-                                )
-                            })
-                        })
+                        && self.match_extension_associated_type_bindings(
+                            &pattern_bindings,
+                            &associated_type_bindings,
+                            substitutions,
+                        )
                 }
                 _ => false,
             },
@@ -2218,16 +2210,7 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .zip(&right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
-                    && left_bindings.iter().all(|left_binding| {
-                        right_bindings
-                            .iter()
-                            .find(|right_binding| {
-                                self.associated_type_binding_keys_match(left_binding, right_binding)
-                            })
-                            .is_some_and(|right_binding| {
-                                self.types_match(left_binding.ty, right_binding.ty)
-                            })
-                    })
+                    && self.associated_type_bindings_match(&left_bindings, &right_bindings)
             }
             (
                 Some(TyKind::Range {
@@ -2294,6 +2277,29 @@ impl<'a> ModuleLowerer<'a> {
                 .all(|(left, right)| self.types_match(*left, *right))
     }
 
+    fn associated_type_bindings_match(
+        &mut self,
+        left: &[nia_ty::AssociatedTypeBindingTy],
+        right: &[nia_ty::AssociatedTypeBindingTy],
+    ) -> bool {
+        if left.len() != right.len() {
+            return false;
+        }
+        let mut used = vec![false; right.len()];
+        left.iter().all(|left_binding| {
+            let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
+                (!used[index]
+                    && self.associated_type_binding_keys_match(left_binding, right_binding)
+                    && self.types_match(left_binding.ty, right_binding.ty))
+                .then_some(index)
+            }) else {
+                return false;
+            };
+            used[index] = true;
+            true
+        })
+    }
+
     fn match_extension_associated_type_binding(
         &mut self,
         pattern: &nia_ty::AssociatedTypeBindingTy,
@@ -2321,5 +2327,59 @@ impl<'a> ModuleLowerer<'a> {
         }
         *substitutions = candidate;
         true
+    }
+
+    fn match_extension_associated_type_bindings(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> bool {
+        if patterns.len() != actuals.len() {
+            return false;
+        }
+        self.match_extension_associated_type_bindings_inner(
+            patterns,
+            actuals,
+            0,
+            &mut vec![false; actuals.len()],
+            substitutions,
+        )
+    }
+
+    fn match_extension_associated_type_bindings_inner(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index] {
+                continue;
+            }
+            let mut candidate = substitutions.clone();
+            if !self.match_extension_associated_type_binding(pattern, actual, &mut candidate) {
+                continue;
+            }
+            used[actual_index] = true;
+            let matched = self.match_extension_associated_type_bindings_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+                &mut candidate,
+            );
+            used[actual_index] = false;
+            if matched {
+                *substitutions = candidate;
+                return true;
+            }
+        }
+        false
     }
 }
