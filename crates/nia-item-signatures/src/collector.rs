@@ -393,6 +393,8 @@ impl<'a> SignatureCollector<'a> {
                     .iter()
                     .map(|supertrait| TraitSupertraitSignature {
                         ty: self.ty_for_type(supertrait),
+                        associated_type_bindings: self
+                            .associated_type_binding_signatures(supertrait),
                         span: supertrait.span,
                     })
                     .collect(),

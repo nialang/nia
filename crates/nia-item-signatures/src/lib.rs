@@ -60,7 +60,15 @@ impl ItemSignatures {
         }
         for signature in self.traits.values() {
             collect_where_type_roots(&signature.where_predicates, &mut roots);
-            roots.extend(signature.supertraits.iter().map(|supertrait| supertrait.ty));
+            for supertrait in &signature.supertraits {
+                roots.push(supertrait.ty);
+                roots.extend(
+                    supertrait
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| binding.ty),
+                );
+            }
             roots.extend(signature.associated_values.iter().map(|value| value.ty));
             for method in &signature.methods {
                 collect_function_type_roots(&method.signature, &mut roots);
@@ -304,6 +312,7 @@ pub struct TraitSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSupertraitSignature {
     pub ty: InternedTyId,
+    pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
     pub span: Span,
 }
 
@@ -483,16 +492,19 @@ pub struct ConstSignature {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
     use nia_ids::ModuleIdAllocator;
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
     use nia_symbol::{ToSymbolId, stable_hash};
-    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
+    use nia_type_lower::{
+        ProgramDefsContext, TypeLoweringContext, lower_module_types_with_context,
+    };
     use nia_type_resolve::resolve_module_types;
 
     include!("tests/item_signatures/test_support.rs");

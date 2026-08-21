@@ -112,12 +112,12 @@ pub mod formats {
     /// Persisted lowered signature types.
     pub const SIGNATURE_TYPE_LOWERING: PersistedFormat =
         PersistedFormat::new("signature-type-lowering", b"NIASL003", 3);
-    // Schema 9 records declaration-kind metadata for trait generic parameters.
-    // Older payloads cannot be decoded positionally because their following
-    // where-predicate bytes would otherwise be mistaken for this new vector.
+    // Schema 10 records associated-type bindings on supertrait declarations.
+    // Older payloads cannot be decoded positionally because the supertrait
+    // span bytes would otherwise be mistaken for the new binding vector.
     /// Persisted item signature collection.
     pub const SIGNATURE_ITEM_SIGNATURES: PersistedFormat =
-        PersistedFormat::new("signature-item-signatures", b"NIASI009", 9);
+        PersistedFormat::new("signature-item-signatures", b"NIASI010", 10);
     /// Persisted extension-validation diagnostic set.
     pub const EXTENSION_VALIDATION_DIAGNOSTICS: PersistedFormat =
         PersistedFormat::new("extension-validation-diagnostics", b"NIAEV002", 2);

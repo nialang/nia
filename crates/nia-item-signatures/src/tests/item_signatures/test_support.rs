@@ -16,11 +16,18 @@ fn signatures_ok(source: &str) -> ItemSignatures {
         resolved.diagnostics
     );
     let type_store = TypeStore::new();
+    let program_defs = HashMap::from([(module_id, Arc::new(defs.clone()))]);
+    let defs_by_module = |module_id| program_defs.get(&module_id).cloned();
     let lowered = lower_module_types_with_context(
         module_id,
         &module,
         &resolved,
-        TypeLoweringContext::empty(&type_store),
+        TypeLoweringContext::from_program_defs(
+            &type_store,
+            ProgramDefsContext {
+                defs: Some(&defs_by_module),
+            },
+        ),
     );
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let signatures = collect_item_signatures(ItemSignatureInput {

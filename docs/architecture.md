@@ -1495,6 +1495,15 @@ type and const parameters. The complete target, trait arguments, const
 arguments, and binding set is one transactional candidate: a later mismatch
 cannot publish substitutions inferred from an earlier component.
 
+Trait declarations use the same complete obligation product for supertraits.
+When a supertrait declares `Parent[Item = T]`, item-signature collection and
+its persisted schema retain that binding beside the parent trait type. Body and
+program-signature consumers instantiate the binding with the child trait's
+generic and `Self` context, add it to projection assumptions, and validate an
+explicit parent impl's associated type before accepting the child impl. The
+item-signature cache schema is versioned when this shape changes; older entries
+are rejected rather than decoded with the old positional layout.
+
 All body-check entry points read existing handles from the compilation
 `TypeStore` and publish inferred or substituted structural types through a
 module-scoped `TypeStoreAppend`. They never borrow a mutable interner, and query

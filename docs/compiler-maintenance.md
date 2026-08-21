@@ -105,6 +105,11 @@ it does not make a reset implicit.
   comparisons. Inference probes clone their substitution state and commit it
   only after the complete impl header and associated binding set matches; a
   failed nested binding must not leak a partial generic inference.
+- Supertrait declarations are persisted as complete trait obligations too. Any
+  associated-type binding attached to a supertrait travels through collection,
+  type-root discovery, cache encoding, body assumptions, and impl validation.
+  Adding such a field requires a persisted-format version change so old entries
+  fail closed instead of being read with a shifted positional layout.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

@@ -365,6 +365,7 @@ pub(crate) fn write_trait_signature(
     write_u64(encoded, signature.supertraits.len() as u64);
     for supertrait in &signature.supertraits {
         write_type_index(encoded, graph.intern(supertrait.ty)?);
+        write_associated_type_bindings(encoded, &supertrait.associated_type_bindings, graph)?;
         write_span(encoded, supertrait.span);
     }
     write_u64(encoded, signature.associated_types.len() as u64);
@@ -413,6 +414,9 @@ pub(crate) fn read_trait_signature(
     for _ in 0..supertrait_len {
         supertraits.push(item_signatures::TraitSupertraitSignature {
             ty: read_type_index(cursor, types)?,
+            associated_type_bindings: read_associated_type_bindings(
+                cursor, types, symbols, source_len,
+            )?,
             span: read_span(cursor, source_len)?,
         });
     }
@@ -804,12 +808,7 @@ pub(crate) fn write_where_predicates(
         write_u64(encoded, predicate.bounds.len() as u64);
         for bound in &predicate.bounds {
             write_type_index(encoded, graph.intern(bound.trait_ty)?);
-            write_u64(encoded, bound.associated_type_bindings.len() as u64);
-            for binding in &bound.associated_type_bindings {
-                graph.write_symbol(encoded, binding.name)?;
-                write_type_index(encoded, graph.intern(binding.ty)?);
-                write_span(encoded, binding.span);
-            }
+            write_associated_type_bindings(encoded, &bound.associated_type_bindings, graph)?;
             write_span(encoded, bound.span);
         }
         write_span(encoded, predicate.span);
@@ -831,15 +830,8 @@ pub(crate) fn read_where_predicates(
         let mut bounds = Vec::with_capacity(bound_len);
         for _ in 0..bound_len {
             let trait_ty = read_type_index(cursor, types)?;
-            let binding_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
-            let mut associated_type_bindings = Vec::with_capacity(binding_len);
-            for _ in 0..binding_len {
-                associated_type_bindings.push(item_signatures::AssociatedTypeBindingSignature {
-                    name: read_symbol(cursor, symbols)?,
-                    ty: read_type_index(cursor, types)?,
-                    span: read_span(cursor, source_len)?,
-                });
-            }
+            let associated_type_bindings =
+                read_associated_type_bindings(cursor, types, symbols, source_len)?;
             bounds.push(item_signatures::WhereBoundSignature {
                 trait_ty,
                 associated_type_bindings,
@@ -853,6 +845,38 @@ pub(crate) fn read_where_predicates(
         });
     }
     Some(predicates)
+}
+
+fn write_associated_type_bindings(
+    encoded: &mut Vec<u8>,
+    bindings: &[item_signatures::AssociatedTypeBindingSignature],
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, bindings.len() as u64);
+    for binding in bindings {
+        graph.write_symbol(encoded, binding.name)?;
+        write_type_index(encoded, graph.intern(binding.ty)?);
+        write_span(encoded, binding.span);
+    }
+    Ok(())
+}
+
+fn read_associated_type_bindings(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<Vec<item_signatures::AssociatedTypeBindingSignature>> {
+    let binding_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut bindings = Vec::with_capacity(binding_len);
+    for _ in 0..binding_len {
+        bindings.push(item_signatures::AssociatedTypeBindingSignature {
+            name: read_symbol(cursor, symbols)?,
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        });
+    }
+    Some(bindings)
 }
 
 pub(crate) fn write_symbols(

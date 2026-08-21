@@ -28,6 +28,68 @@ fn function_body_update_refreshes_handles_but_keeps_public_snapshots_green() {
 }
 
 #[test]
+fn supertrait_associated_binding_edits_match_clean_recomputation() {
+    const VALID: &str = r#"
+trait Parent { type Item; }
+trait Child : Parent[Item = i32] {
+    fn value(&self) i32 {
+        let item: [Self as Parent]::Item = 7;
+        item
+    }
+}
+struct Value {}
+extend Value : Parent { type Item = i32; }
+extend Value : Child {}
+fn main() i32 { 0 }
+"#;
+    const INVALID: &str = r#"
+trait Parent { type Item; }
+trait Child : Parent[Item = bool] {
+    fn value(&self) i32 {
+        let item: [Self as Parent]::Item = 7;
+        item
+    }
+}
+struct Value {}
+extend Value : Parent { type Item = i32; }
+extend Value : Child {}
+fn main() i32 { 0 }
+"#;
+
+    fn summaries(program: CheckedProgram) -> Vec<String> {
+        let mut summaries = program
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.diagnostic.summary.clone())
+            .collect::<Vec<_>>();
+        summaries.sort();
+        summaries
+    }
+
+    let mut fixture = LoadedProgramFixture::new("main.nia", VALID);
+    let module_id = fixture.entry_id();
+    let incremental = fixture.database();
+    assert!(incremental.check_program().diagnostics.is_empty());
+
+    fixture.update_module_source(module_id, INVALID, SourceRevision(1));
+    incremental.update(CompileRequest::new(fixture.program()));
+    let incremental_invalid = summaries(incremental.check_program());
+    let clean_invalid = summaries(
+        LoadedProgramFixture::new("main.nia", INVALID)
+            .database()
+            .check_program(),
+    );
+    assert_eq!(incremental_invalid, clean_invalid);
+    assert!(incremental_invalid.iter().any(|summary| {
+        summary.contains("does not satisfy associated type bindings of supertrait `Parent`")
+    }));
+
+    fixture.update_module_source(module_id, VALID, SourceRevision(2));
+    incremental.update(CompileRequest::new(fixture.program()));
+    assert!(incremental.check_program().diagnostics.is_empty());
+}
+
+#[test]
 fn function_body_type_update_refreshes_revision_bearing_signature_queries() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
