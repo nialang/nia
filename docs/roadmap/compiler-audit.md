@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-20):
+Current snapshot (2026-08-21):
 
-- Implementation batches: 229 completed entries in this ledger.
+- Implementation batches: 230 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1345,8 +1345,12 @@ acceptance item only when its phase-wide evidence is complete.
       default-concurrency 635-test owner suite changed from an OOM at the exact
       3 GiB limit to 635/635 passing with a 1.1 GiB peak. The reentrant-session
       regression, 20 `nia-test-support` tests, workspace check, formatting, and
-      strict Clippy for both owner crates pass. Complete constrained workspace
-      evidence remains open until the final rerun succeeds.
+      strict Clippy for both owner crates pass.
+- [x] The complete all-feature workspace test suite now passes with normal
+      libtest concurrency under a 3 GiB cgroup memory limit and no swap. The
+      single-job build/test run completed without an OOM and reached a 2.1 GiB
+      peak, closing the constrained-workspace resource evidence that exposed
+      and verified the nested-session and in-process-driver fixes above.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
