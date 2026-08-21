@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 236 completed entries in this ledger.
+- Implementation batches: 237 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1386,6 +1386,14 @@ acceptance item only when its phase-wide evidence is complete.
       and rejected inputs are not installed in the source database. The ten
       `nia-source`, 94 `nia-loader-query`, and three CLI owner tests, affected
       strict Clippy, consumer checks, and formatting pass.
+- [x] Phase D source identity normalization now preserves unresolved leading
+      `..` components in relative paths while clamping absolute paths at their
+      root. Parent-relative sources no longer read a different physical file or
+      collide with the corresponding child-path identity. The focused matrix
+      covers nested resolution, repeated parents, absolute roots, and distinct
+      `SourcePath` identities, including actual parent/child file reads. All 12
+      `nia-source` and 94 `nia-loader-query` tests, strict Clippy, workspace
+      check, and formatting pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
