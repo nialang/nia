@@ -15,6 +15,7 @@ nia-driver.workspace = true
 nia-ice.workspace = true
 nia-loader-query.workspace = true
 nia-linker.workspace = true
+nia-source.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
 

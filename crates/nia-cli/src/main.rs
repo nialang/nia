@@ -8,7 +8,7 @@
 //! and become a failed process exit rather than unwinding through the CLI.
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
-use std::{env, fs, num::NonZeroUsize, path::PathBuf, process::ExitCode, sync::Arc};
+use std::{env, num::NonZeroUsize, path::PathBuf, process::ExitCode, sync::Arc};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
 use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
@@ -249,7 +249,7 @@ fn resolve_toolchain_layout(
 }
 
 fn read_source(path: &str) -> Result<String, String> {
-    let source = match fs::read_to_string(path) {
+    let source = match nia_source::read_source_text(path) {
         Ok(source) => source,
         Err(err) => {
             return Err(format!("failed to read `{path}`: {err}"));

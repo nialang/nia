@@ -326,6 +326,13 @@ Owns source identity for compiler sessions:
 - `SourceRevision` identifies a concrete version of that source;
 - `SourceFile` carries id, path, revision, and text.
 
+All filesystem-backed compiler source reads use the `nia-source` 64 MiB stream
+budget before UTF-8 decoding. Metadata rejects an already oversized input
+without allocating from its length, and a `max + 1` read rejects growth after
+the metadata observation. In-memory `set_source` inputs remain caller-owned and
+are not silently truncated. CLI inspection, loader queries, and diagnostic
+source recovery share this same file boundary.
+
 `SourceId` is session-local. Persistent cross-session incremental compilation
 must use a separate fingerprint or cache key rather than treating `SourceId` as
 stable across compiler runs.

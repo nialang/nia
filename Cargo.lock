@@ -299,6 +299,7 @@ dependencies = [
  "nia-ice",
  "nia-linker",
  "nia-loader-query",
+ "nia-source",
  "nia-test-support",
  "nia-timing",
  "nia-toolchain",
