@@ -527,10 +527,6 @@ impl ArchiveOptions {
                     path: PathBuf::from(&program),
                     error,
                 })?;
-        let tool_bytes = fs::read(&program_path).map_err(|error| LinkerConfigError::Io {
-            path: program_path.clone(),
-            error,
-        })?;
         let mut toolchain = QueryFingerprintBuilder::new(ARCHIVE_TOOLCHAIN_DOMAIN);
         for part in toolchain_identity.parts() {
             toolchain.write_u64(part);
@@ -541,7 +537,12 @@ impl ArchiveOptions {
         target.write_str(&self.target.abi);
         let mut tool = QueryFingerprintBuilder::new(ARCHIVE_TOOL_DOMAIN);
         tool.write_str(&program_path.to_string_lossy());
-        tool.write_bytes(&tool_bytes);
+        write_fingerprint_file(&mut tool, &program_path).map_err(|error| {
+            LinkerConfigError::Io {
+                path: program_path.clone(),
+                error,
+            }
+        })?;
         let mut options = QueryFingerprintBuilder::new(ARCHIVE_OPTIONS_DOMAIN);
         options.write_str(nia_compat::COMPILER_VERSION);
         options.write_str("rcsD");
@@ -767,10 +768,21 @@ fn stream_fingerprint_bytes(
     if reader.read(&mut trailing)? != 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "static archive grew while it was fingerprinted",
+            "file grew while it was fingerprinted",
         ));
     }
     Ok(())
+}
+
+fn write_fingerprint_file(
+    fingerprint: &mut QueryFingerprintBuilder,
+    path: &Path,
+) -> io::Result<()> {
+    let mut file = fs::File::open(path)?;
+    let length = file.metadata()?.len();
+    let mut writer = fingerprint.bytes_writer(length);
+    stream_fingerprint_bytes(&mut file, &mut writer, length)?;
+    writer.finish()
 }
 
 impl Default for LinkOptions {
@@ -870,10 +882,6 @@ impl LinkOptions {
         let Some(linker_path) = resolved_linker_path(&linker.program) else {
             return Ok(None);
         };
-        let linker_bytes = match fs::read(&linker_path) {
-            Ok(bytes) => bytes,
-            Err(_) => return Ok(None),
-        };
         let mut toolchain = QueryFingerprintBuilder::new(LINK_RESULT_TOOLCHAIN_DOMAIN);
         for part in toolchain_identity.parts() {
             toolchain.write_u64(part);
@@ -892,7 +900,9 @@ impl LinkOptions {
 
         let mut linker_component = QueryFingerprintBuilder::new(LINK_RESULT_LINKER_DOMAIN);
         linker_component.write_str(&linker_path.to_string_lossy());
-        linker_component.write_bytes(&linker_bytes);
+        if write_fingerprint_file(&mut linker_component, &linker_path).is_err() {
+            return Ok(None);
+        }
         linker_component.write_u8(linker_flavor_tag(linker.flavor));
 
         let mut options = QueryFingerprintBuilder::new(LINK_RESULT_OPTIONS_DOMAIN);
@@ -1690,6 +1700,21 @@ mod tests {
         )
         .expect_err("archive truncation must be rejected");
         assert_eq!(truncation.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn streamed_file_fingerprint_matches_bytes_across_buffer_boundaries() {
+        let bytes = (0..(64 * 1024 * 3 + 17))
+            .map(|index| (index % 251) as u8)
+            .collect::<Vec<_>>();
+        let path = fingerprint_linker("streamed-tool-fingerprint", &bytes);
+        let mut expected = QueryFingerprintBuilder::new(ARCHIVE_TOOL_DOMAIN);
+        expected.write_bytes(&bytes);
+        let mut streamed = QueryFingerprintBuilder::new(ARCHIVE_TOOL_DOMAIN);
+
+        write_fingerprint_file(&mut streamed, &path).expect("stream tool fingerprint");
+
+        assert_eq!(streamed.finish(), expected.finish());
     }
 
     #[path = "linker/fingerprint_contracts.rs"]
