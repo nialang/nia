@@ -119,6 +119,12 @@ The typed query/fact graph is the only dependency and invalidation truth source.
 - Concurrent slot, cycle, invalidation, and red-green state machines require
   deterministic tests; model or race-focused tests are required where ordinary
   examples cannot exercise the transition safely.
+- Query wait-for edges are temporary state, not dependency history. Cycle
+  detection must release every edge/frame on both normal wait completion and
+  cycle failure, and retirement admission must be reopened by RAII after a
+  callback panic. Build schedulers likewise keep cancellation tied to canonical
+  action position, wait for the active wave, and never dispatch dependents after
+  a failure.
 - Cache keys include schema, compiler, target, options, stable input identity,
   and domain separation appropriate to the product. Entries repeat and validate
   their identity, reject truncation and trailing data, and retire corruption

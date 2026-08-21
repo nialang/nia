@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 241 completed entries in this ledger.
+- Implementation batches: 242 completed entries in this ledger.
 - Fixed acceptance items: 0 of 8 completed (the eight unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1427,6 +1427,14 @@ acceptance item only when its phase-wide evidence is complete.
       stale identity/invalidation matrices, and bounded oversized retirement.
       The stable maintenance rules now require publication and retirement to
       share a per-path mutation lock and revalidate the observed winner.
+- [x] Phase D query/build concurrency evidence now closes two lifecycle gaps:
+      deterministic parallel and cross-session cycle tests assert that the
+      process-wide wait-for graph retains no edges or frames for participating
+      nodes after failure, and a retirement-transaction panic test proves RAII reopens query
+      admission for later work. Existing scheduler tests retain canonical
+      failure-position cancellation, active-wave draining, and dependent
+      suppression; query owner tests now cover 83 cases with the new lifecycle
+      assertions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
