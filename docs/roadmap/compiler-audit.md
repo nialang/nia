@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 249 completed entries in this ledger.
+- Implementation batches: 250 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1499,6 +1499,12 @@ acceptance item only when its phase-wide evidence is complete.
       cannot reuse one actual binding to admit a malformed candidate. Direct
       solver regressions cover both backtracking and rejected reuse; all 11
       trait-solver and 253 body-check tests plus strict affected Clippy pass.
+- [x] Phase A/B backend extension instantiation now preserves the frontend's
+      associated-binding set semantics. Trait-object patterns backtrack over a
+      complete one-to-one binding permutation before committing generic
+      substitutions, and backend type equality cannot reuse the first matching
+      key for duplicate bindings. All 112 backend-lower and 264 LLVM codegen
+      owner/consumer tests plus strict backend-lower Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
