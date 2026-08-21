@@ -537,6 +537,147 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_call_when_where_bound_associated_type_binding_mismatches() {
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+}
+
+struct Good {}
+struct Bad {}
+
+extend Good : Source {
+    type Item = i32;
+}
+
+extend Bad : Source {
+    type Item = bool;
+}
+
+fn require[T](value: T) ()
+where T: Source[Item = i32]
+{
+    _ = value;
+}
+
+fn main(good: Good, bad: Bad) () {
+    require(good);
+    require(bad);
+}
+"#,
+    );
+
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("associated type binding not satisfied"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic.summary.contains("Item") && diagnostic.summary.contains("expected i32, got bool")
+    }));
+}
+
+#[test]
+fn rejects_nominal_type_when_where_bound_associated_type_binding_mismatches() {
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+}
+
+struct Good {}
+struct Bad {}
+
+extend Good : Source {
+    type Item = i32;
+}
+
+extend Bad : Source {
+    type Item = bool;
+}
+
+struct Holder[T]
+where T: Source[Item = i32]
+{
+    value: T,
+}
+
+fn accept(value: Holder[Good]) () {
+    _ = value;
+}
+
+fn reject(value: Holder[Bad]) () {
+    _ = value;
+}
+"#,
+    );
+
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("trait bound not satisfied: Bad: Source"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(checked.diagnostics.iter().all(|diagnostic| {
+        !diagnostic
+            .summary
+            .contains("trait bound not satisfied: Good: Source")
+    }));
+}
+
+#[test]
+fn malformed_trait_impl_type_arity_cannot_infer_where_candidate() {
+    let checked = pipeline_with_program_trait_impls(
+        r#"
+trait Marker {}
+
+extend i32 : Marker {}
+
+fn make[T]() i32
+where T: Marker
+{
+    0
+}
+
+fn main() i32 {
+    make[_]()
+}
+"#,
+        |trait_impls| {
+            let impl_signature = trait_impls
+                .iter_mut()
+                .next()
+                .expect("Marker implementation");
+            impl_signature.trait_args.push(impl_signature.target_ty);
+        },
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer generic parameter `T`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn resolves_receiver_parse_facade_through_result_protocol() {
     let checked = pipeline_with_len_provider(
         r#"

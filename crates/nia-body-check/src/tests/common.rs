@@ -225,6 +225,21 @@ pub(super) fn pipeline_with_values(
     )
 }
 
+pub(super) fn pipeline_with_program_trait_impls(
+    source: &str,
+    adjust_trait_impls: impl FnOnce(&mut Vec<ProgramTraitImplSignature>),
+) -> TestBodyCheck {
+    pipeline_with_options_and_trait_impls(
+        source,
+        |_, _, _| {},
+        adjust_trait_impls,
+        true,
+        crate::BodyCheckFilter::All,
+        crate::BodyCheckProduct::Full,
+        true,
+    )
+}
+
 fn pipeline_with_options(
     source: &str,
     adjust_values: impl FnOnce(
@@ -232,6 +247,30 @@ fn pipeline_with_options(
         &nia_defs::DefCollection,
         &mut nia_value_resolve::ValueResolutionBuilder,
     ),
+    include_visible_extensions: bool,
+    filter: crate::BodyCheckFilter<'_>,
+    product: crate::BodyCheckProduct,
+    require_valid_const_declarations: bool,
+) -> TestBodyCheck {
+    pipeline_with_options_and_trait_impls(
+        source,
+        adjust_values,
+        |_| {},
+        include_visible_extensions,
+        filter,
+        product,
+        require_valid_const_declarations,
+    )
+}
+
+fn pipeline_with_options_and_trait_impls(
+    source: &str,
+    adjust_values: impl FnOnce(
+        &nia_ast::Module,
+        &nia_defs::DefCollection,
+        &mut nia_value_resolve::ValueResolutionBuilder,
+    ),
+    adjust_trait_impls: impl FnOnce(&mut Vec<ProgramTraitImplSignature>),
     include_visible_extensions: bool,
     filter: crate::BodyCheckFilter<'_>,
     product: crate::BodyCheckProduct,
@@ -386,6 +425,7 @@ fn pipeline_with_options(
     );
     let mut program_signatures = EmptyBodyProgramSignatures::new();
     program_signatures.trait_impls = single_module_trait_impls(module_id, &signatures, &type_store);
+    adjust_trait_impls(&mut program_signatures.trait_impls);
     let origins = NodeOriginTable::default();
     let body_input = BodyCheckInput {
         type_store: &type_store,
