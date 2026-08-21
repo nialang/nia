@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-21):
 
-- Implementation batches: 250 completed entries in this ledger.
+- Implementation batches: 251 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1505,6 +1505,15 @@ acceptance item only when its phase-wide evidence is complete.
       substitutions, and backend type equality cannot reuse the first matching
       key for duplicate bindings. All 112 backend-lower and 264 LLVM codegen
       owner/consumer tests plus strict backend-lower Clippy pass.
+- [x] Phase A trait objects now inherit associated-type equalities declared by
+      their supertrait graph. A bare `&Child` for
+      `Child : Parent[Item = i32]` is object safe for parent projection methods
+      and upcasts to `&Parent[Item = i32]`; a `bool` target and an unrelated
+      parent binding remain rejected. The traversal substitutes child type and
+      const arguments, is cycle guarded, and feeds object safety, dynamic call
+      normalization, and upcast validation. Clean/incremental edits agree, and
+      all 253 body-check, 246 compiler-query, 638 driver, and 265 LLVM codegen
+      tests plus strict affected Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

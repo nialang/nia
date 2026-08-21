@@ -25,6 +25,13 @@ struct TraitObjectTraitRef {
     const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
+struct TraitObjectUpcastBindings<'a> {
+    source: TraitObjectTraitRef,
+    target: TraitObjectTraitRef,
+    target_bindings: &'a [AssociatedTypeBindingTy],
+    source_bindings: &'a [AssociatedTypeBindingTy],
+}
+
 struct ObjectSafetyCheck<'a> {
     span: Span,
     // A synthetic `Self` marker lets object-safety checks detect uses of
@@ -69,13 +76,20 @@ impl<'a> BodyChecker<'a> {
         };
         if self.types_match(expected, actual)
             || expected_const != actual_const
-            || !self.trait_object_upcast_bindings_match(
-                expected_trait,
-                &expected_args,
-                &expected_const_args,
-                &expected_bindings,
-                &actual_bindings,
-            )
+            || !self.trait_object_upcast_bindings_match(TraitObjectUpcastBindings {
+                source: TraitObjectTraitRef {
+                    trait_id: actual_trait,
+                    args: actual_args.clone(),
+                    const_args: actual_const_args.clone(),
+                },
+                target: TraitObjectTraitRef {
+                    trait_id: expected_trait,
+                    args: expected_args.clone(),
+                    const_args: expected_const_args.clone(),
+                },
+                target_bindings: &expected_bindings,
+                source_bindings: &actual_bindings,
+            })
             || !self.trait_object_has_supertrait(
                 actual_trait,
                 &actual_args,
@@ -97,48 +111,165 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
-    fn trait_object_upcast_bindings_match(
-        &mut self,
-        target_trait: TraitId,
-        target_args: &[InternedTyId],
-        target_const_args: &[nia_ty::ConstGenericArg],
-        target_bindings: &[AssociatedTypeBindingTy],
-        source_bindings: &[AssociatedTypeBindingTy],
-    ) -> bool {
-        target_bindings.iter().all(|target_binding| {
-            let effective_target_trait = target_binding.trait_id.unwrap_or(target_trait);
+    fn trait_object_upcast_bindings_match(&mut self, input: TraitObjectUpcastBindings<'_>) -> bool {
+        let source_bindings = self.trait_object_bindings_with_supertraits(
+            input.source.trait_id,
+            &input.source.args,
+            &input.source.const_args,
+            input.source_bindings,
+        );
+        let mut used = vec![false; source_bindings.len()];
+        input.target_bindings.iter().all(|target_binding| {
+            let effective_target_trait = target_binding.trait_id.unwrap_or(input.target.trait_id);
             let effective_target_args = if target_binding.trait_id.is_some() {
                 &target_binding.trait_args
             } else {
-                target_args
+                &input.target.args
             };
             let effective_target_const_args = if target_binding.trait_id.is_some() {
                 &target_binding.trait_const_args
             } else {
-                target_const_args
+                &input.target.const_args
             };
-            source_bindings.iter().any(|source_binding| {
-                source_binding.name == target_binding.name
-                    && source_binding.trait_id.unwrap_or(target_trait) == effective_target_trait
-                    && self.trait_args_match(
-                        if source_binding.trait_id.is_some() {
-                            &source_binding.trait_args
-                        } else {
-                            target_args
-                        },
-                        effective_target_args,
-                    )
-                    && self.const_generic_arg_slices_match(
-                        if source_binding.trait_id.is_some() {
-                            &source_binding.trait_const_args
-                        } else {
-                            target_const_args
-                        },
-                        effective_target_const_args,
-                    )
-                    && self.types_match(source_binding.ty, target_binding.ty)
-            })
+            let matched = source_bindings
+                .iter()
+                .enumerate()
+                .find_map(|(index, source_binding)| {
+                    (!used[index]
+                        && source_binding.name == target_binding.name
+                        && source_binding.trait_id.unwrap_or(input.source.trait_id)
+                            == effective_target_trait
+                        && self.trait_args_match(
+                            if source_binding.trait_id.is_some() {
+                                &source_binding.trait_args
+                            } else {
+                                &input.source.args
+                            },
+                            effective_target_args,
+                        )
+                        && self.const_generic_arg_slices_match(
+                            if source_binding.trait_id.is_some() {
+                                &source_binding.trait_const_args
+                            } else {
+                                &input.source.const_args
+                            },
+                            effective_target_const_args,
+                        )
+                        && self.types_match(source_binding.ty, target_binding.ty))
+                    .then_some(index)
+                });
+            let Some(index) = matched else {
+                return false;
+            };
+            used[index] = true;
+            true
         })
+    }
+
+    pub(crate) fn trait_object_bindings_with_supertraits(
+        &mut self,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
+        explicit_bindings: &[AssociatedTypeBindingTy],
+    ) -> Vec<AssociatedTypeBindingTy> {
+        let mut bindings = explicit_bindings.to_vec();
+        self.collect_trait_object_supertrait_bindings(
+            TraitObjectTraitRef {
+                trait_id,
+                args: trait_args.to_vec(),
+                const_args: trait_const_args.to_vec(),
+            },
+            &mut bindings,
+            &mut Vec::new(),
+        );
+        bindings
+    }
+
+    fn collect_trait_object_supertrait_bindings(
+        &mut self,
+        source: TraitObjectTraitRef,
+        bindings: &mut Vec<AssociatedTypeBindingTy>,
+        visited: &mut Vec<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
+    ) {
+        if visited.iter().any(|(trait_id, args, const_args)| {
+            *trait_id == source.trait_id && args == &source.args && const_args == &source.const_args
+        }) {
+            return;
+        }
+        visited.push((
+            source.trait_id,
+            source.args.clone(),
+            source.const_args.clone(),
+        ));
+        match source.trait_id {
+            TraitId::Builtin(trait_id) => {
+                for supertrait in trait_id.supertraits() {
+                    let args = if supertrait.preserves_trait_args {
+                        source.args.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    self.collect_trait_object_supertrait_bindings(
+                        TraitObjectTraitRef {
+                            trait_id: TraitId::Builtin(supertrait.trait_id),
+                            args,
+                            const_args: Vec::new(),
+                        },
+                        bindings,
+                        visited,
+                    );
+                }
+            }
+            TraitId::Source(source_trait_id) => {
+                let Some(signature) = self.resolved_trait_signature(source_trait_id) else {
+                    visited.pop();
+                    return;
+                };
+                let (substitutions, const_substitutions) = self
+                    .generic_substitutions_and_consts_for_def(
+                        source_trait_id,
+                        &source.args,
+                        &source.const_args,
+                    );
+                for supertrait in &signature.supertraits {
+                    let supertrait_ty = self.substitute_generics_and_consts(
+                        supertrait.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    );
+                    let supertrait_ty = self.normalization.normalize(supertrait_ty);
+                    let Some((trait_id, args, const_args)) = self.trait_id_and_args(supertrait_ty)
+                    else {
+                        continue;
+                    };
+                    for binding in &supertrait.associated_type_bindings {
+                        let ty = self.substitute_generics_and_consts(
+                            binding.ty,
+                            &substitutions,
+                            &const_substitutions,
+                        );
+                        bindings.push(AssociatedTypeBindingTy {
+                            trait_id: Some(trait_id),
+                            trait_args: args.clone(),
+                            trait_const_args: const_args.clone(),
+                            name: binding.name,
+                            ty: self.normalization.normalize(ty),
+                        });
+                    }
+                    self.collect_trait_object_supertrait_bindings(
+                        TraitObjectTraitRef {
+                            trait_id,
+                            args,
+                            const_args,
+                        },
+                        bindings,
+                        visited,
+                    );
+                }
+            }
+        }
+        visited.pop();
     }
 
     pub(crate) fn coerce_pointer_to_trait_object(
@@ -569,7 +700,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
-        _trait_const_args: &[nia_ty::ConstGenericArg],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
@@ -588,6 +719,12 @@ impl<'a> BodyChecker<'a> {
             ));
             return false;
         };
+        let associated_type_bindings = self.trait_object_bindings_with_supertraits(
+            trait_id,
+            trait_args,
+            trait_const_args,
+            associated_type_bindings,
+        );
         let mut ok = true;
         let self_ty = self.interner.intern(TyKind::SelfParam);
         let mut visiting = Vec::new();
@@ -597,7 +734,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 object_trait_id: trait_id,
                 object_trait_args: trait_args.to_vec(),
-                associated_type_bindings: associated_type_bindings.to_vec(),
+                associated_type_bindings,
                 visiting: &mut visiting,
                 ok: &mut ok,
             },

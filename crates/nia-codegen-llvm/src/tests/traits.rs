@@ -718,6 +718,57 @@ fn main() usize {
 }
 
 #[test]
+fn emits_trait_object_upcast_with_declared_supertrait_binding() {
+    let root = temp_dir("emits_trait_object_upcast_with_declared_supertrait_binding");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Parent {
+    type Item;
+
+    fn parent(& self) [Self as Parent]::Item;
+}
+
+trait Child : Parent[Item = i32] {}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Parent {
+    type Item = i32;
+
+    fn parent(& self) i32 {
+        self.value
+    }
+}
+
+extend Counter : Child {}
+
+fn as_parent(child: & Child) & Parent[Item = i32] {
+    child
+}
+
+fn main() i32 {
+    let mut counter = Counter { value: 8 };
+    let mut child: & Child = & counter;
+    as_parent(child).parent()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("%traitobj.upcast.metadata ="), "{ir}");
+    assert!(ir.contains("vtable.fn"), "{ir}");
+}
+
+#[test]
 fn emits_trait_bound_generic_method_calls() {
     let root = temp_dir("emits_trait_bound_generic_method_calls");
     let main = root.join("main.nia");

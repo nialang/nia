@@ -114,7 +114,10 @@ it does not make a reset implicit.
   rule so code generation cannot select a weaker instance than body checking.
 - Supertrait declarations are persisted as complete trait obligations too. Any
   associated-type binding attached to a supertrait travels through collection,
-  type-root discovery, cache encoding, body assumptions, and impl validation.
+  type-root discovery, cache encoding, body assumptions, impl validation, and
+  trait-object object-safety/method/upcast consumers. A child object inherits
+  declared supertrait equalities; callers need not repeat them in its object
+  spelling, while unrelated or incompatible parent bindings remain rejected.
   Adding such a field requires a persisted-format version change so old entries
   fail closed instead of being read with a shifted positional layout.
 - Aggregate whole-program products require evidence that a real consumer needs
