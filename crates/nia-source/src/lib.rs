@@ -166,7 +166,11 @@ pub fn normalize_path(path: &str) -> String {
         match part {
             "" | "." => {}
             ".." => {
-                parts.pop();
+                if parts.last().is_some_and(|part| *part != "..") {
+                    parts.pop();
+                } else if !absolute {
+                    parts.push(part);
+                }
             }
             _ => parts.push(part),
         }
@@ -399,6 +403,37 @@ mod tests {
 
         assert_eq!(identity.normalized_path(), "src/root.nia");
         assert_eq!(identity, SourceIdentity::from_path(&path));
+    }
+
+    #[test]
+    fn source_path_normalization_preserves_unresolved_relative_parents() {
+        assert_eq!(normalize_path("../dep.nia"), "../dep.nia");
+        assert_eq!(normalize_path("a/../../dep.nia"), "../dep.nia");
+        assert_eq!(normalize_path("../../dep.nia"), "../../dep.nia");
+        assert_eq!(normalize_path("/a/../../dep.nia"), "/dep.nia");
+        assert_ne!(SourcePath::new("../dep.nia"), SourcePath::new("dep.nia"));
+    }
+
+    #[test]
+    fn source_database_reads_parent_relative_physical_path() {
+        let root =
+            std::env::temp_dir().join(format!("nia-source-parent-relative-{}", std::process::id()));
+        let child = root.join("child");
+        fs::create_dir_all(&child).expect("create child directory");
+        fs::write(root.join("dep.nia"), "parent").expect("write parent source");
+        fs::write(child.join("dep.nia"), "child").expect("write child source");
+        let parent_path = SourcePath::new(format!("{}/../dep.nia", child.display()));
+        let child_path = SourcePath::new(child.join("dep.nia").to_string_lossy());
+        let sources = SourceDatabase::new();
+
+        let parent = sources
+            .read_source(&parent_path)
+            .expect("read parent source");
+        let child = sources.read_source(&child_path).expect("read child source");
+
+        assert_eq!(parent.text.as_ref(), "parent");
+        assert_eq!(child.text.as_ref(), "child");
+        assert_ne!(parent.id, child.id);
     }
 
     #[test]

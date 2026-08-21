@@ -321,7 +321,9 @@ Owns source identity for compiler sessions:
   logical identity used by module graphs and persistent fingerprints. Ordinary
   CLI sources use their normalized path for both roles; build requests retain
   the frozen plan's package/build/toolchain/artifact identity while resolving a
-  physical path for the current invocation;
+  physical path for the current invocation. Lexical normalization removes
+  resolvable `.`/`..` pairs but preserves leading relative `..` components, so
+  parent-relative inputs neither change location nor collide with child paths;
 - `SourceId` identifies a source file inside one session;
 - `SourceRevision` identifies a concrete version of that source;
 - `SourceFile` carries id, path, revision, and text.
