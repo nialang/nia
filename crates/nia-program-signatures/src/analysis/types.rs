@@ -79,6 +79,24 @@ impl TypeEquivalence for SignatureTypeEquivalence<'_> {
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         types_equivalent_with_const_exprs(self.type_store, self.const_exprs, left, right)
     }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[nia_ty::ConstGenericArg],
+        right: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type_for_equiv(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (
+                            nia_ty::ConstGenericValue::Int(left),
+                            nia_ty::ConstGenericValue::Int(right),
+                        ) => left.bits() == right.bits(),
+                        (left, right) => left == right,
+                    }
+            })
+    }
 }
 
 impl SignatureTypeEquivalence<'_> {
