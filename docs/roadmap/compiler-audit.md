@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 319 completed entries in this ledger.
+- Implementation batches: 320 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1856,6 +1856,11 @@ acceptance item only when its phase-wide evidence is complete.
       const-argument type roots during pre-instantiation discovery; concrete
       instance identities remain deferred until backend trait resolution can
       supply the implementation module and complete `FunctionInstanceKey`.
+- [x] Batch 320 preserves receiver identity in executable generic trait
+      closure deduplication. Reachability now keeps `self_arg` in its visited
+      generic-instantiation key, so otherwise equal method type/const arguments
+      with different receivers each expand their own trait predicates and
+      default-method witnesses.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

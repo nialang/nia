@@ -1931,6 +1931,13 @@ and method-level type/const argument types; once resolution produces a concrete
 `Method` or `FunctionInstance` callee, the normal complete instance key is
 collected.
 
+Executable trait closure deduplication uses the complete generic-instance
+identity, including an optional method receiver (`self_arg`) in addition to the
+definition, type arguments, and const arguments. Two calls to the same generic
+method with equal explicit arguments but different receiver types can select
+different where-predicate witnesses or default implementations and must remain
+independent closure nodes.
+
 Each lowered body is owned directly by
 `LoweredFunctionBodyQuery(GlobalDefId)`. There is no module-level body store,
 storage id, session arena, or second semantic identity. Dropping a retired
