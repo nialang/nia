@@ -1573,6 +1573,12 @@ modules contribute no runtime function or global. This keeps type/layout
 products available for reachable signatures without promoting compile-time
 owners into the runtime body set.
 
+Before semantic queries run, const-expression input pruning discovers every
+`GlobalConstExprId` reachable from active item-tree types. The traversal covers
+nominal const args, trait-object/pointee const args, associated-binding
+type/const args, and projection const args, including const-argument types that
+may themselves contain array-length expressions.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait

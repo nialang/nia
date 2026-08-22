@@ -721,11 +721,13 @@ fn collect_array_len_const_exprs_in_ty(
         Some(
             TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }
             | TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             },
@@ -733,7 +735,24 @@ fn collect_array_len_const_exprs_in_ty(
             for arg in trait_args {
                 collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
+            for arg in trait_const_args {
+                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+            }
             for binding in associated_type_bindings {
+                for arg in &binding.trait_args {
+                    collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
+                }
+                for arg in &binding.trait_const_args {
+                    collect_array_len_const_exprs_in_ty(
+                        type_store,
+                        arg.ty,
+                        candidate_ids,
+                        out,
+                        seen,
+                    );
+                    collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+                }
                 collect_array_len_const_exprs_in_ty(
                     type_store,
                     binding.ty,
@@ -746,11 +765,16 @@ fn collect_array_len_const_exprs_in_ty(
         Some(TyKind::Projection {
             self_ty,
             trait_args,
+            trait_const_args,
             ..
         }) => {
             collect_array_len_const_exprs_in_ty(type_store, *self_ty, candidate_ids, out, seen);
             for arg in trait_args {
                 collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
+            }
+            for arg in trait_const_args {
+                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
             }
         }
         Some(
@@ -797,5 +821,61 @@ fn collect_array_len_const_exprs_in_const_arg(
         && candidate_ids.contains(&id)
     {
         out.insert(id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
+    use nia_symbol::SymbolId;
+    use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TypeStore};
+
+    #[test]
+    fn const_expression_collector_descends_trait_metadata() {
+        let mut modules = ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let trait_id = nia_ids::TraitId::Source(GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        });
+        let expr = GlobalConstExprId {
+            module_id,
+            const_expr_id: ConstExprId(7),
+        };
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let const_arg = ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::ConstExpr(expr),
+        };
+        let binding_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
+        let binding = nia_ty::AssociatedTypeBindingTy {
+            name: SymbolId::EMPTY,
+            trait_id: Some(trait_id),
+            trait_args: vec![binding_ty],
+            trait_const_args: vec![const_arg.clone()],
+            ty: binding_ty,
+        };
+        let object = append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: vec![binding_ty],
+            trait_const_args: vec![const_arg.clone()],
+            associated_type_bindings: vec![binding],
+        });
+        let projection = append.intern(TyKind::Projection {
+            self_ty: object,
+            trait_id,
+            trait_args: vec![binding_ty],
+            trait_const_args: vec![const_arg],
+            name: SymbolId::EMPTY,
+        });
+        let candidates = HashSet::from([expr]);
+        let mut out = HashSet::new();
+        let mut seen = HashSet::new();
+        collect_array_len_const_exprs_in_ty(&types, projection, &candidates, &mut out, &mut seen);
+        assert_eq!(out, candidates);
     }
 }
