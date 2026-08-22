@@ -210,6 +210,65 @@ fn codegen_tracks_and_reuses_backend_stage_products() {
 }
 
 #[test]
+fn generic_function_pointer_values_materialize_concrete_instances() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn identity[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    let pointer: &fn(i32) i32 = &identity[i32];
+    pointer(7)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let codegen = db.expect_get(CodegenProgramQuery);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    let identity = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Function && def.name == sym("identity"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("identity definition");
+    let plan = db.expect_get(BackendModuleFunctionInstancePlanQuery(module_id));
+
+    assert_eq!(
+        plan.instances
+            .iter()
+            .filter(|instance| instance.def_id == identity)
+            .count(),
+        1,
+        "generic function pointer value must retain its concrete instance: {:?}",
+        plan.instances
+    );
+    assert!(
+        codegen
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.function_instances)
+            .any(|instance| instance.def_id == identity),
+        "backend must materialize the function pointer target instance"
+    );
+}
+
+#[test]
 fn const_only_generic_iteration_instances_do_not_enter_backend_plan() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
