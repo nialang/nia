@@ -2,14 +2,17 @@
 use crate::{LexError, LosslessToken, LosslessTokenKind, Token, TokenKind};
 use nia_span::Span;
 
+/// Tokenizes significant source tokens and appends terminal EOF.
 pub fn tokenize(source: &str) -> Vec<Token> {
     Tokenizer::new(source).tokenize()
 }
 
+/// Tokenizes significant tokens and trivia and appends terminal EOF.
 pub fn tokenize_lossless(source: &str) -> Vec<LosslessToken> {
     Tokenizer::new(source).tokenize_lossless()
 }
 
+/// Stateful byte-offset tokenizer for one UTF-8 source string.
 pub struct Tokenizer<'a> {
     source: &'a [u8],
     pos: usize,
@@ -17,6 +20,7 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
+    /// Creates a tokenizer positioned at the start of `source`.
     pub fn new(source: &'a str) -> Self {
         Self {
             source: source.as_bytes(),
@@ -25,6 +29,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// Consumes the tokenizer into significant tokens ending in EOF.
     pub fn tokenize(mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
@@ -39,6 +44,7 @@ impl<'a> Tokenizer<'a> {
         tokens
     }
 
+    /// Consumes the tokenizer into a trivia-preserving stream ending in EOF.
     pub fn tokenize_lossless(mut self) -> Vec<LosslessToken> {
         let mut tokens = Vec::new();
         loop {

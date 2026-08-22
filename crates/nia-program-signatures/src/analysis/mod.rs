@@ -37,51 +37,84 @@ pub use facts::*;
 use types::*;
 pub use visible::*;
 
+/// A module that can provide inherent extensions for a nominal target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NominalExtensionProviderEntry {
+    /// Nominal type definition receiving the extension.
     pub target: GlobalDefId,
+    /// Module containing the extension declaration.
     pub module_id: nia_ids::ModuleId,
+    /// Visibility of the extension member.
     pub visibility: Visibility,
 }
 
+/// Minimal module inputs used to qualify item signatures with global ids.
 pub struct ModuleSignatureInput<'a> {
+    /// Module being qualified.
     pub module_id: nia_ids::ModuleId,
+    /// Type store owning the signature type ids.
     pub type_store: &'a TypeStore,
+    /// Module-local declaration signatures.
     pub signatures: &'a ItemSignatures,
 }
 
+/// All semantic inputs required to validate and collect extensions.
 pub struct ExtensionModuleInput<'a> {
+    /// Module containing the extension declarations.
     pub module_id: nia_ids::ModuleId,
+    /// Type store used to inspect and normalize targets.
     pub type_store: &'a TypeStore,
+    /// Definition table for method generic metadata.
     pub defs: &'a DefCollection,
+    /// Lowering context for extension type arguments.
     pub lowering: &'a TypeLowering,
+    /// Complete module-local signatures.
     pub signatures: &'a ItemSignatures,
+    /// Function signatures used by extension validation.
     pub function_signatures: &'a ItemSignatures,
+    /// Type signatures used by extension validation.
     pub type_signatures: &'a ItemSignatures,
+    /// Canonical normalization for module-owned types.
     pub normalization: &'a TypeNormalization,
 }
 
+/// Inputs needed to build a module's extension-method index.
 pub struct ExtensionMethodIndexModuleInput<'a> {
+    /// Module containing the extension declarations.
     pub module_id: nia_ids::ModuleId,
+    /// Type store used to inspect targets.
     pub type_store: &'a TypeStore,
+    /// Definition table for method metadata.
     pub defs: &'a DefCollection,
+    /// Type-lowering context.
     pub lowering: &'a TypeLowering,
+    /// Module-local signatures.
     pub signatures: &'a ItemSignatures,
+    /// Canonical normalization for module-owned types.
     pub normalization: &'a TypeNormalization,
 }
 
+/// Trait declarations available while validating extension implementations.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionTraitSignatureIndex {
+    /// Global ids of known traits.
     pub trait_defs: HashSet<GlobalDefId>,
+    /// Program signatures keyed by global trait id.
     pub trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
 }
 
+/// Context shared by extension-method validation routines.
 #[derive(Clone, Copy)]
 pub struct ExtensionMethodValidationInput<'a> {
+    /// Type store containing implementation types.
     pub type_store: &'a TypeStore,
+    /// Known source-trait definition ids.
     pub trait_defs: &'a HashSet<GlobalDefId>,
+    /// Known trait signatures keyed by global id.
     pub trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    /// Resolver for existing implementations of a trait.
     pub trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
+    /// Symbol table used to render diagnostics.
     pub symbols: &'a SymbolTable,
 }
 
@@ -89,6 +122,7 @@ fn symbol_name(symbols: &SymbolTable, symbol: SymbolId) -> String {
     symbol_text_or_unresolved(symbols, symbol)
 }
 
+/// Collects program trait implementations after filtering intrinsic overlaps.
 pub fn collect_valid_program_trait_impls(
     modules: &[ExtensionModuleInput<'_>],
 ) -> Vec<ProgramTraitImplSignature> {
@@ -126,6 +160,7 @@ pub fn collect_valid_program_trait_impls(
     .collect()
 }
 
+/// Returns method ids belonging to invalid intrinsic-overlap implementations.
 pub fn collect_invalid_trait_impl_method_ids(
     modules: &[ExtensionModuleInput<'_>],
 ) -> HashSet<GlobalDefId> {
@@ -193,6 +228,7 @@ fn trait_impl_signature_by_id(
         .find(|signature| signature.impl_id == impl_id)
 }
 
+/// Validates one module's extension declarations and returns diagnostics.
 pub fn collect_extension_method_diagnostics_for_module(
     module: &ExtensionModuleInput<'_>,
     input: ExtensionMethodValidationInput<'_>,
@@ -250,6 +286,7 @@ pub fn collect_extension_method_diagnostics_for_module(
     diagnostics
 }
 
+/// Builds the extension-method index for one module.
 pub fn collect_extension_method_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
     trait_defs: &HashSet<GlobalDefId>,
@@ -309,6 +346,7 @@ pub fn collect_extension_method_index_for_module(
     extensions
 }
 
+/// Collects nominal targets that can provide visible extensions.
 pub fn collect_nominal_extension_providers_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
     trait_defs: &HashSet<GlobalDefId>,
@@ -419,6 +457,7 @@ fn normalize_where_predicates(
         .collect()
 }
 
+/// Builds the associated-value index for one module.
 pub fn collect_extension_associated_value_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
     trait_defs: &HashSet<GlobalDefId>,

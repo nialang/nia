@@ -87,6 +87,11 @@ Nia optimization levels are user-facing presets. Internally, each level expands
 to a policy matrix with separate decisions for CFG simplification, constant
 folding, dead-code elimination, local copy propagation, inlining,
 specialization, monomorphized instance deduplication, and size preference.
+`nia-opt` owns this declarative matrix, not any optimization implementation.
+`O0` still enables transformations required to establish compiler invariants;
+performance and size work is selected independently through pass depth,
+inlining, specialization, and `prefer_size` fields. Consumers must inspect the
+policy rather than infer behavior from the user-facing level name.
 
 The levels have these architectural meanings:
 
@@ -399,8 +404,25 @@ It stores no semantic tables and has no filesystem, parser, or diagnostic
 responsibility. In particular, `InternedTyId` does not expose a semantic owner
 operation. A type's kind is a `TypeStore` fact and is never interpreted from
 the handle alone.
+The public identity handles document their session owner, module/definition
+qualification, slot provenance, and visibility or trait identity variants;
+builtin primitive anchors likewise expose canonical names without becoming
+persistence keys.
+Operator, iteration, value-builtin, and target-configuration enums use the
+same documented registry identity boundary; their canonical names are lookup
+inputs, not alternate semantic identities.
+Layout queries, trait methods, receiver modes, associated members, and
+supertrait descriptors are likewise schema metadata: they describe semantic
+obligations without introducing a second identity domain.
 
-### 3.5 Semantic Identity Lifecycle
+### 3.5 `nia-symbol`
+
+Owns the stable symbol boundary used by parser and semantic products.
+`SymbolId` is an append-only hash identity; the `known` registry is the
+canonical mapping for language and builtin names, while unresolved display text
+remains deterministic and never interns arbitrary strings into persisted facts.
+
+### 3.6 Semantic Identity Lifecycle
 
 Nia's target type identity is one `TyId` index space owned by a compilation
 session. It follows these rules:
@@ -566,11 +588,27 @@ that lowering handles belong to the same store, and uses a short-lived append
 capability for synthesized builtin/error types. No production append contract
 requires a module visibility view.
 
-### 3.6 `nia-diagnostic`
+### 3.7 `nia-diagnostic`
 
 Defines diagnostics and source rendering. It owns user-facing diagnostic display
 but not semantic policy. Semantic crates create diagnostics; this crate renders
 them consistently.
+Diagnostic codes are registry-backed schema values: severity, category, and
+stage are reconstructed from the registered definition during stable-bundle
+decode, while labels retain explicit source/fallback/generated provenance.
+Store-qualified bundle ids keep immutable diagnostic payloads isolated across
+compiler sessions.
+
+### 3.8 `nia-timing`
+
+Owns process-wide timing collection and optional Rust heap instrumentation.
+Allocation metrics exist only when the binary installs and registers the
+`CountingAllocator`; one exclusive live-byte window may measure worker-thread
+allocations at a time. Timing collectors serialize report ownership across
+threads, while same-owner re-entry executes without creating a nested report.
+Summary/detail modes, trace retention, and text/JSON encoding are independent
+options. Query accumulators aggregate by stable names before emitting bounded
+reports; the crate observes compiler work but owns no query or phase semantics.
 
 ## 4. Syntax Crates
 
@@ -582,6 +620,12 @@ errors.
 
 The lexer does not know semantic meaning. It should not resolve types, evaluate
 constants, or classify identifiers beyond keyword recognition.
+
+`tokenize` emits significant tokens plus one terminal EOF; `tokenize_lossless`
+also retains contiguous whitespace and line-comment trivia. Both use half-open
+UTF-8 byte spans. Lexical failures remain in-band `Error` tokens so parsing can
+recover without a parallel stream; an unsupported Unicode scalar occupies one
+sliceable error span even though identifiers are intentionally ASCII.
 
 The lexer also remains available for CLI/debug tooling through
 `nia emit --tokens`.
@@ -597,10 +641,35 @@ Red syntax tokens carry source-versioned child paths. Parser diagnostics and AST
 lowering use those identities to populate `NodeOriginTable` entries for later
 semantic facts.
 
+Every tree normalizes its input stream to one terminal EOF token at the actual
+source boundary; caller-provided post-EOF tokens are unreachable. Token cursors
+therefore remain total at end of input and use overflow-safe lookahead. Edits
+must preserve UTF-8 boundaries. A partial reparse is accepted only when one
+existing token can be rewritten without changing lexical token boundaries;
+invalid spans or boundary-changing edits fall back to a full rebuild. Green
+nodes remain lossless, including whitespace, comments, unsupported Unicode, and
+unmatched delimiters, so parser recovery can inspect the original source.
+
 ### 4.3 `nia-ast`
 
 Defines the parsed syntax tree. AST nodes represent source structure and spans.
 They do not store type ids, def ids, layout information, or backend values.
+
+AST expressions, statements, patterns, items, and type references retain only
+syntax payloads plus `Span`/`VersionedNodeKey` identity. Generic arguments keep
+ambiguous type-or-const forms until semantic consumers decide their meaning;
+declaration-equality and stable-identity helpers intentionally ignore source
+locations. Pattern helpers report structural binding presence only. This keeps
+AST traversal reusable while type checking, name resolution, and const
+evaluation remain owners of semantic interpretation.
+
+`nia-pattern-analysis` is the shared, semantic-input coverage owner. Adapters
+must provide canonical constructor identities and declaration-order fields;
+the analyzer validates matrix/query widths, constructor arity, and scalar-domain
+boundaries before producing usefulness witnesses. `Finite`, `Open`, incomplete
+`Scalar`, and `Opaque` domains deliberately differ in whether a wildcard is
+required. The crate returns witnesses only; runtime and const lowering retain
+ownership of evaluation and control-flow behavior.
 
 ### 4.4 `nia-parser`
 
@@ -608,6 +677,11 @@ Builds AST from `nia-syntax` red tokens and reports parse errors. It owns
 grammar decisions, local parse recovery, and syntax-to-AST lowering. While
 lowering AST nodes, it records `NodeOriginTable` mappings from AST spans to
 red/green child-path ranges.
+
+Parser checkpoints roll back token position and origin-table mutations together
+so speculative grammar branches cannot publish discarded identities. Item
+recovery must consume input or reach EOF on every failed branch, and lexical
+errors retain their originating syntax token key in the structured parse error.
 
 Important parser boundary:
 
@@ -618,6 +692,9 @@ Important parser boundary:
 
 Provides AST traversal helpers for phases that need tree walking. It should stay
 small and generic. It must not embed semantic policy.
+Its documented `Visitor` callbacks and `walk_*` entry points define structural
+preorder ownership only; semantic passes may override a callback, but must
+delegate when child traversal remains part of their input contract.
 
 ### 4.6 `nia-item-tree`
 
@@ -782,6 +859,27 @@ It detects duplicate names in the same namespace and duplicate generic
 parameters. It does not evaluate const conditions, type-check bodies, or load
 other files.
 
+`DefId` is derived from canonical structural declaration identity rather than
+collection order or source formatting. Top-level namespace, member ancestry,
+extension target/trait/generic/where syntax, and duplicate ordinal participate
+in that identity; unrelated insertions and module-session handles do not.
+`DefMap` collision-checks the complete structural identity before publishing a
+definition. `DefNodeMap` separately connects stable syntax locators to these
+definition ids and retains one explicit node-store owner.
+
+Public-surface persistence uses `PublicSurfaceModuleFacts`, a deterministic
+reduced projection containing only declaration, namespace, enum-variant, and
+module-using facts. Materializing that projection for another session rebases
+the module handle without pretending cached facts own AST nodes, generic syntax,
+or diagnostics.
+
+Extension indexes distinguish declaration availability, ordinary callability,
+and trait-witness capability. Visibility filtering visits the current module
+once and deduplicates imported module ids at the owner boundary, so repeated or
+overlapping visibility closures cannot duplicate method or associated-value
+candidates. Associated-value lookup returns no result when multiple visible
+implementations make an exact target/name pair ambiguous.
+
 ### 5.2 `nia-imports`
 
 Builds the explicit module graph and normalizes using paths. It handles:
@@ -806,6 +904,18 @@ crate that owns the affected construct.
 
 The driver should remain an orchestrator. It should not become a semantic
 analysis crate.
+
+`CheckedProgramWithSourceManifest` and
+`LinkedExecutableWithSourceManifest` carry the exact final source closure used
+by their corresponding products; callers must not reconstruct that closure from
+the module graph after checking. Cache references encode complete component
+identities and exact wire lengths, and decode rejects truncated, overlong, or
+otherwise mismatched records. Cache publication and retirement remain owned by
+the cache owners rather than by artifact consumers. Artifact structs keep
+diagnostics, optimization reports, output paths, link inputs, and cache
+references as distinct products. `DriverOutput` preserves structured errors and
+converts internal panics at the driver boundary. Inspection and report helpers
+are presentation adapters only; they do not own semantic facts or policy.
 
 ## 6. Type Frontend
 
@@ -847,7 +957,35 @@ function is `extern`, variadic, generic, and whether it has a body.
 
 This phase intentionally ignores function body semantics.
 
-### 6.5 `nia-type-normalize`
+`ItemSignatures` is the declaration surface consumed by type resolution,
+trait solving, layout, const checking, and backend planning. Its type roots are
+explicitly collected and deduplicated from signatures, including generic const
+types, where predicates, supertrait associated bindings, and enum payloads;
+consumers must not scan the type store to rediscover them. Generic parameter
+metadata preserves declaration order and kind, while
+`generic_argument_substitutions` independently consumes type and const vectors
+and rejects missing or surplus arguments. Trait implementation identities are
+stable over normalized syntax and the program index stores candidate indexes,
+not copied signatures. Body meaning remains owned by body checking.
+
+### 6.5 `nia-program-signatures`
+
+Qualifies the declaration-only products from `nia-item-signatures` with
+`GlobalDefId` identities and indexes program-level trait implementations. Its
+lookup/context APIs borrow or resolve existing signatures; they do not reparse
+source or reconstruct body semantics. Collection functions explicitly qualify
+module-local ids, preserve declaration and implementation ordering, and keep
+trait-implementation indexes as candidate ids rather than copied signatures.
+
+Visibility-aware extension discovery computes a deterministic closure from
+using scopes, public surfaces, canonical type normalization, and nominal
+extension providers. Every visible target is normalized in the module that
+owns its signature, and missing definition or normalization facts are rejected
+instead of guessed. Callable extension visibility and trait-witness visibility
+are tracked separately so a public trait obligation cannot accidentally make a
+private method callable.
+
+### 6.6 `nia-type-normalize`
 
 Expands type aliases and canonicalizes type forms where required. It detects
 recursive aliases and keeps normalized type information separate from raw lowered
@@ -856,7 +994,7 @@ it never owns a type view. The normalizer reads every input and referenced type
 through the session `TypeStore` and uses its explicit append target only to
 intern synthesized normalized forms.
 
-### 6.6 `nia-trait-solve`
+### 6.7 `nia-trait-solve`
 
 Resolves builtin and user trait goals, associated types, and associated consts
 from canonical type handles and explicit program-signature facts. Solver
@@ -882,6 +1020,23 @@ bindings, block-local `using`, deferred expressions, and local identifiers.
 
 It also marks expressions that syntactically act as type prefixes for associated
 function calls or enum variant paths.
+
+### 7.3 `nia-sema-ir`
+
+Owns the persistent semantic fact schema shared by name resolution, body
+checking, const lowering, reachability, and backend planning. Facts are keyed by
+global definitions, locals, or `VersionedNodeKey`; the crate carries no AST and
+does not infer or reinterpret semantics. Call dispatch identities retain every
+type and const argument required to distinguish trait, dynamic-object, builtin,
+method, closure, callable, and function-pointer calls.
+
+Module-level expressions and function bodies are separate ownership domains.
+Combined iterators deliberately traverse both, while
+`retain_module_level_facts` removes function-owned duplicates only from mutable
+module staging maps. Frozen `NodeMap` products retain one explicit `NodeStore`;
+merging rehomes incoming maps into the receiver's store, and thaw/freeze is the
+only boundary for moving a product to another store. Stable locators, rather
+than compact node handles, therefore define equality across node-store owners.
 
 ## 8. Const Values, Static Data, Layout, And ABI
 
@@ -953,6 +1108,19 @@ method calls use the same check. Const execution then consumes the visible
 extension and trait facts for the concrete generic instance; it does not treat
 an inherent method with the same name as iteration protocol evidence.
 
+The early const IR deliberately stops at this semantic boundary. It evaluates
+the iterable expression so ordinary control-flow and error propagation remain
+observable, then reports that `Iterator` execution is unavailable instead of
+guessing a witness or silently running the loop body. Only resolved const IR,
+after semantic iterator facts have been attached, may create iterator state and
+drive repeated `next` calls. The evaluator regression
+`early_const_for_in_reports_witness_dispatch_boundary` pins this distinction.
+Resolved iteration threads the updated iterator value returned by every
+`next` call into the following call and creates a fresh lexical scope for each
+yielded pattern. Direct evaluator regressions cover normal exhaustion and prove
+that a pattern-binding error restores both the item scope and enclosing block
+scope before it escapes.
+
 Production const environments carry a per-outer-evaluation budget shared by
 nested calls and loops. The evaluator consumes steps at expression, statement,
 and loop boundaries and enters a bounded function frame before binding call
@@ -967,6 +1135,11 @@ uses `nia-const-eval` to check and collect current compile-time values. It
 owns `const` binding dependency resolution, cycle diagnostics, enum
 discriminant values, and array length values that depend on local or imported
 const bindings or imported `const fn` calls.
+Dependency-cycle detection is path-local to one active evaluation chain. Every
+attempt removes its active key on success or failure, so a cyclic component
+cannot poison later independent initializers in the same module. Const-check
+owner and compiler-query regressions require the cycle diagnostic to coexist
+with the independent value and its typed fact.
 Layout builtins such as `std::builtin::size[T]()` and
 `std::builtin::align[T]()` consume those evaluated array lengths through narrow
 lookup closures while computing layouts; they do
@@ -1469,6 +1642,23 @@ Checks flow-sensitive structural rules:
 
 It should not perform full type checking.
 
+`nia-sema` provides shared, diagnostic-neutral checks used across semantic
+owners. Array literal length reconciliation distinguishes inferred/unknown
+lengths from concrete mismatches; arity checks encode exact versus variadic
+minimum requirements; field-set checks preserve duplicate and unknown source
+occurrences while reporting missing identities in expected order. Callers own
+diagnostic wording, recovery, and any type-specific policy.
+
+Flow filtering is applied only after a function is matched to its stable local
+definition identity and the module id is paired with the reachable set. An
+excluded function is skipped as a whole, so syntax-level diagnostics from its
+body cannot leak into a reachability-pruned executable; the unfiltered entry
+point remains the owner for complete module diagnostics. Flow itself stays
+conservative: eager operands propagate termination, logical RHS termination is
+conditional, loops retain a possible fallthrough, and closure bodies reset the
+enclosing loop depth while deferred expressions are still traversed for their
+own control-flow diagnostics.
+
 ### 9.2 `nia-body-check`
 
 Type-checks function bodies and expression semantics. It owns:
@@ -1812,6 +2002,9 @@ guessing from a potentially reused span. Unknown calls and dynamic dispatch are
 conservative by design. This is a bounded callable-view escape check, not a
 general borrow checker. Captured local addresses use a separate provenance
 category and are rejected only when the containing closure state can escape.
+The summary fixed point is exercised by a compiler-query regression with two
+mutually recursive functions returning the same callable parameter; the
+returned stack-backed view must still be rejected after both summaries grow.
 Explicit allocator-backed ownership remains outside this crate: the standard
 library's `Allocated[T]` and `CallableAllocation[V]` APIs use ordinary typed
 pointers, layout values, integer/raw-address boundaries, and explicit `deinit`;
@@ -2535,6 +2728,9 @@ remain reachable for a later cleanup retry.
 On the receiving side, list counts are validated but never used to reserve
 typed Rust capacity before item bytes are parsed. This prevents malformed
 truncated drafts from turning a small count prefix into a large host allocation.
+The standard filesystem close API consumes its descriptor before issuing the OS
+close. Build-plan publication clears its fallback flag before the explicit
+close, preserving the first close error without a second `BadFd` attempt.
 
 Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries
@@ -2574,6 +2770,12 @@ letting backend-specific lowering fail later.
 
 Diagnostics describe current language rules. Unsupported syntax receives
 ordinary current-rule diagnostics rather than a reserved compatibility path.
+
+`nia-ice` is the explicit invariant-failure boundary. `catch_ice` converts
+panic payloads into a structured internal diagnostic, while its thread-local
+panic hook records file/line/column context without leaking panic state across
+calls. User-source errors must continue through ordinary diagnostics; ICE
+rendering is reserved for compiler bugs and remains actionable for reporting.
 
 ## 15. File And Module Granularity
 

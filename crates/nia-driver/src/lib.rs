@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Compiler orchestration, artifact production, and diagnostic rendering.
+//!
+//! `nia-driver` owns request sequencing and cache/artifact boundaries. Semantic
+//! meaning remains in query and analysis crates; the driver carries source
+//! manifests through checking, code generation, linking, and publication so a
+//! result cannot be associated with a different source closure.
 mod archive_cache;
 mod executable_cache;
 mod inspect;

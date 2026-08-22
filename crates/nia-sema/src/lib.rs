@@ -1,17 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Shared semantic validation primitives for array lengths, arity, and fields.
+//!
+//! These helpers return structured results and leave diagnostic wording and
+//! phase-specific recovery to their callers.
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use nia_span::Span;
 use nia_ty::ArrayLenTy;
 
+/// Result of reconciling an array literal length with an expected type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArrayLiteralLenCheck {
+    /// Length is valid and resolves to the returned type-level length.
     Accepted(ArrayLenTy),
-    Mismatch { expected: u64, actual: u64 },
+    /// Known expected and actual lengths differ.
+    Mismatch {
+        /// Required element count.
+        expected: u64,
+        /// Literal element count.
+        actual: u64,
+    },
+    /// Neither context nor literal provides a concrete length yet.
     Unknown,
 }
 
+/// Checks or infers an array literal's type-level length.
 pub fn check_array_literal_len(
     expected: Option<ArrayLenTy>,
     expected_value: Option<u64>,
@@ -41,27 +55,37 @@ pub fn check_array_literal_len(
     }
 }
 
+/// Required relationship between expected and actual argument counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArityRequirement {
+    /// Actual count must equal the value.
     Exact(usize),
+    /// Actual count must be at least the value.
     AtLeast(usize),
 }
 
+/// Result of checking an argument or element count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArityCheck {
+    /// Count satisfies the requirement.
     Accepted,
+    /// Count does not satisfy the requirement.
     Mismatch {
+        /// Requirement that was checked.
         requirement: ArityRequirement,
+        /// Actual count observed.
         actual: usize,
     },
 }
 
 impl ArityCheck {
+    /// Reports whether the checked count was accepted.
     pub fn is_accepted(self) -> bool {
         matches!(self, Self::Accepted)
     }
 }
 
+/// Checks an actual count against an arity requirement.
 pub fn check_arity(requirement: ArityRequirement, actual: usize) -> ArityCheck {
     let accepted = match requirement {
         ArityRequirement::Exact(expected) => actual == expected,
@@ -77,10 +101,12 @@ pub fn check_arity(requirement: ArityRequirement, actual: usize) -> ArityCheck {
     }
 }
 
+/// Checks that `actual` equals `expected`.
 pub fn check_exact_arity(expected: usize, actual: usize) -> ArityCheck {
     check_arity(ArityRequirement::Exact(expected), actual)
 }
 
+/// Checks call arguments using exact or variadic minimum arity.
 pub fn check_call_arity(
     required_params: usize,
     actual_args: usize,
@@ -94,26 +120,35 @@ pub fn check_call_arity(
     check_arity(requirement, actual_args)
 }
 
+/// Field name paired with the source span used for diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedField<Key> {
+    /// Source span of the field occurrence.
     pub span: Span,
+    /// Comparable field identity.
     pub name: Key,
 }
 
 impl<Key> NamedField<Key> {
+    /// Creates a spanned field identity.
     pub const fn new(span: Span, name: Key) -> Self {
         Self { span, name }
     }
 }
 
+/// Duplicate, unknown, and missing results from a field-set check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSetCheck<Key> {
+    /// Repeated occurrences after the first field of each name.
     pub duplicate_fields: Vec<NamedField<Key>>,
+    /// Supplied fields absent from the expected set.
     pub unknown_fields: Vec<NamedField<Key>>,
+    /// Expected fields absent from the supplied set.
     pub missing_fields: Vec<Key>,
 }
 
 impl<Key> FieldSetCheck<Key> {
+    /// Reports whether all three error collections are empty.
     pub fn is_valid(&self) -> bool {
         self.duplicate_fields.is_empty()
             && self.unknown_fields.is_empty()
@@ -121,6 +156,7 @@ impl<Key> FieldSetCheck<Key> {
     }
 }
 
+/// Checks supplied fields for duplicates, unknown names, and missing requirements.
 pub fn check_required_field_set<Key, FieldName, ExpectedName>(
     fields: impl IntoIterator<Item = FieldName>,
     expected: impl IntoIterator<Item = ExpectedName>,
@@ -167,6 +203,7 @@ where
     }
 }
 
+/// Returns repeated field occurrences after each name's first occurrence.
 pub fn check_unique_field_set<Key, FieldName>(
     fields: impl IntoIterator<Item = FieldName>,
 ) -> Vec<NamedField<Key>>
@@ -185,6 +222,7 @@ where
     duplicate_fields
 }
 
+/// Checks unspanned field identities against a required field set.
 pub fn check_value_field_set<Key, ActualName, ExpectedName>(
     actual: impl IntoIterator<Item = ActualName>,
     expected: impl IntoIterator<Item = ExpectedName>,
@@ -200,6 +238,7 @@ where
     check_required_field_set(actual, expected)
 }
 
+/// Checks the keys of a map against a required field set.
 pub fn check_map_field_set<Key, Value>(
     actual: &HashMap<Key, Value>,
     expected: impl IntoIterator<Item = Key>,
@@ -210,8 +249,11 @@ where
     check_value_field_set(actual.keys().cloned(), expected)
 }
 
+/// Borrowed access to a field identity and its diagnostic span.
 pub trait BorrowedNamedField<Key> {
+    /// Returns the source span of this field occurrence.
     fn span(&self) -> Span;
+    /// Returns the comparable field identity.
     fn name(&self) -> &Key;
 }
 

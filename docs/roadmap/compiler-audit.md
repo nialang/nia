@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 285 completed entries in this ledger.
+- Implementation batches: 312 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -515,6 +515,10 @@ acceptance item only when its phase-wide evidence is complete.
       large-element regression proves a maximum accepted count followed by
       truncation returns `Truncated` instead of overflowing or allocating
       `count * size_of(T)` capacity.
+- [x] Phase F build-plan draft publication now marks its descriptor cleanup
+      complete before the consuming `File::close` call. A close syscall failure
+      cannot trigger a second `BadFd` defer attempt that masks the original
+      error; the consuming-close invariant is documented at the std boundary.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The
@@ -1698,6 +1702,123 @@ acceptance item only when its phase-wide evidence is complete.
       trait referenced only by an associated-type binding identity. Binding
       type traversal cannot expose that non-type owner, so the focused owner
       regression uses a distinct module to keep this dependency explicit.
+- [x] Phase C closure escape analysis now has a compiler-query regression for
+      mutually recursive functions. The fixed-point summaries converge across
+      both call edges and preserve a returned stack-backed callable diagnostic;
+      the focused `nia-compiler-query` test passes.
+- [x] Phase C early const iteration now has an owner-level regression proving
+      that early IR evaluates the iterable expression but stops with the
+      witness-dispatch boundary diagnostic instead of silently executing a
+      `for-in` body. Architecture documentation records that only resolved
+      const IR may drive semantic `Iterable`/`Iterator` witnesses.
+- [x] Phase C resolved const iteration now has direct evaluator regressions for
+      iterator-state writeback, terminal `null` observation, per-item lexical
+      scopes, and binding-error rollback. Both normal exhaustion and a failed
+      item binding restore the enclosing evaluation environment.
+- [x] Phase C const dependency-cycle recovery now has owner and compiler-query
+      regressions proving that cyclic members produce no values while a later
+      independent initializer still publishes its value and typed fact. Query
+      diagnostics remain separate from that usable semantic product.
+- [x] Cross-cutting `nia-ids` Rustdoc now documents session-owned module and
+      definition identities, qualified type-store handles, visibility/trait
+      identity forms, and builtin type anchors. Strict rustdoc now reaches the
+      next undocumented registry section (`BuiltinTrait`) without suppressing
+      the remaining backlog.
+- [x] Cross-cutting `nia-ids` Rustdoc now documents builtin operator/iteration
+      trait identities, value-builtin identity, and target-configuration
+      const-value identity. Strict rustdoc advances to `BuiltinFunction`, with
+      the remaining registry backlog still explicit.
+- [x] Cross-cutting `nia-ids` Rustdoc now documents builtin functions, layout
+      queries, trait method signatures, receiver modes, associated members, and
+      supertrait descriptors. `cargo rustdoc -p nia-ids --lib -- -D
+      missing-docs` now passes for the complete crate.
+- [x] Cross-cutting `nia-diagnostic` Rustdoc now documents the registered code
+      catalog, diagnostic schema/builder/report APIs, stable bundle codec, and
+      store-qualified bundle lifecycle. `cargo rustdoc -p nia-diagnostic --lib
+      -- -D missing-docs` passes for the complete crate.
+- [x] Cross-cutting `nia-ast-walk` Rustdoc now documents the structural Visitor
+      callback contract and every public `walk_*` entry point. Strict rustdoc
+      passes for the complete traversal crate without embedding semantic policy.
+- [x] Cross-cutting `nia-syntax` Rustdoc now documents the lossless green/red
+      tree, token cursor, source-versioned identities, text edits, and partial
+      reparse boundary. `cargo rustdoc -p nia-syntax --lib -- -D missing-docs`,
+      the 11-case owner suite, and strict Clippy pass for the complete crate.
+- [x] Cross-cutting `nia-parser` Rustdoc now documents the parser crate contract
+      and structured parse-error fields. `cargo rustdoc -p nia-parser --lib --
+      -D missing-docs`, all 118 parser tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-symbol` Rustdoc now documents stable symbol identities,
+      resolver helpers, builtin conversion, and the generated well-known symbol
+      registry. Parameterized macro docs cover every exported constant;
+      `cargo rustdoc -p nia-symbol --lib -- -D missing-docs`, both owner tests,
+      and strict Clippy pass.
+- [x] Cross-cutting `nia-ice` Rustdoc now documents structured ICE capture,
+      panic-location handling, diagnostic conversion, and actionable rendering.
+      `cargo rustdoc -p nia-ice --lib -- -D missing-docs`, all four owner tests,
+      and strict Clippy pass.
+- [x] Cross-cutting `nia-ast` Rustdoc now documents the complete expression,
+      statement, pattern, item, and type syntax model, including generic
+      type-or-const ambiguity and declaration-identity helpers. Strict rustdoc,
+      the (currently empty) owner libtest suite, and strict Clippy pass.
+- [x] Cross-cutting `nia-pattern-analysis` Rustdoc now documents canonical
+      pattern/domain models and all validation errors. Strict rustdoc, all 13
+      usefulness/exhaustiveness tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-opt` Rustdoc now documents the complete user-level to
+      pass-policy matrix, including required work, pass depth, inlining,
+      specialization, deduplication, and size preference. Strict rustdoc, all
+      three policy tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-sema` Rustdoc now documents diagnostic-neutral array
+      length, arity, and field-set checks and their structured result schemas.
+      Strict rustdoc, all three owner tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-test-support` Rustdoc now documents temporary directory
+      ownership, weighted compiler/build and runtime resource sessions, command
+      timeout helpers, and consuming case-manifest/path validation. Strict
+      rustdoc, all 20 resource/fixture tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-timing` Rustdoc now documents allocator registration,
+      live-byte snapshots/windows, timing modes/options, event emission,
+      aggregation, collector serialization, and stderr reports. Strict rustdoc,
+      all 13 collector/accounting tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-lexer` Rustdoc now documents significant/lossless token
+      schemas, every literal/keyword/punctuation/operator kind, recoverable
+      lexical errors, tokenizer construction, and terminal EOF streams. Strict
+      rustdoc, all 10 lexer tests, and strict Clippy pass.
+- [x] Cross-cutting `nia-item-signatures` Rustdoc now documents module
+      declaration signatures, program wrappers, generic type/const substitution,
+      trait implementation schemas/indexing, and collector inputs. Strict
+      rustdoc, all 12 signature/builtin/type-store contract tests, and strict
+      Clippy pass.
+- [x] Cross-cutting `nia-program-signatures` Rustdoc now documents global
+      signature lookup/context products, module-qualified fact collection,
+      extension validation/indexing, and visibility-aware trait-witness closure.
+      Strict rustdoc, both owner tests, and strict Clippy pass; architecture
+      records that this layer indexes existing declaration facts without
+      reparsing source or owning body semantics.
+- [x] Cross-cutting `nia-sema-ir` Rustdoc now documents semantic-use tables,
+      module versus function fact ownership, node-store freeze/merge/rehoming,
+      builtin values and coercions, generic instantiations, and every resolved
+      call dispatch identity. Strict rustdoc, all six owner tests, and strict
+      Clippy pass; a focused regression proves module-fact retention removes
+      only function-owned staging entries while preserving both owner products.
+- [x] Cross-cutting `nia-defs` Rustdoc now documents stable structural
+      definition identities, namespace/member products, reduced public-surface
+      facts, source-preserving using schemas, and extension declaration,
+      callability, and trait-witness indexes. Extension visibility iteration now
+      deduplicates repeated imported/current module inputs at the owner boundary;
+      all eight owner tests, both `nia-program-signatures` consumer tests,
+      strict rustdoc, and strict Clippy pass.
+- [x] Cross-cutting `nia-driver` Rustdoc now documents inspection outputs,
+      diagnostic and optimization report adapters, request builders, source
+      manifest pairing, cache environment/reference wire schemas, artifact
+      ownership, `DriverOutput`, and structured `DriverError` categories. Strict
+      rustdoc, all 645 driver owner tests, strict Clippy, and formatting pass;
+      architecture records that orchestration owns request/cache/artifact
+      boundaries while semantic meaning remains in query and analysis crates.
+- [x] Phase C `nia-flow-check` reachable filtering now has an owner regression
+      keyed by the complete `(ModuleId, DefId)` identity. A reachability-pruned
+      function is skipped as a whole, so its missing-return and duplicate-pattern
+      diagnostics cannot enter the executable product while the selected
+      function remains checked. The owner suite (20 tests), strict Rustdoc, and
+      strict Clippy pass; architecture records eager/short-circuit, loop, defer,
+      and closure control-flow conservatism.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

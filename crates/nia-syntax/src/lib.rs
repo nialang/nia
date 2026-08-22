@@ -10,78 +10,116 @@ use nia_node_id::{NodeChildPath, SyntaxKind as NodeSyntaxKind, VersionedNodeKey}
 use nia_source::SourceVersion;
 use nia_span::Span;
 
+/// Lossless syntax tree for one source revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxTree {
+    /// Original UTF-8 source text.
     source: String,
+    /// Optional source identity attached to nodes and tokens.
     version: Option<SourceVersion>,
+    /// Immutable green root containing trivia and malformed input.
     root: GreenNode,
 }
 
+/// Immutable syntax node in the lossless green tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GreenNode {
+    /// Structural kind of this node.
     kind: SyntaxKind,
+    /// Byte span covered by the node.
     span: Span,
+    /// Ordered child nodes and tokens.
     children: Vec<GreenElement>,
 }
 
+/// Either a nested green node or a terminal green token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GreenElement {
+    /// Nested structural node.
     Node(GreenNode),
+    /// Terminal token, including trivia and EOF.
     Token(GreenToken),
 }
 
+/// Immutable terminal element in a green tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GreenToken {
+    /// Token or trivia kind.
     kind: SyntaxKind,
+    /// Byte span occupied by the token.
     span: Span,
+    /// Exact source text for the token.
     text: String,
 }
 
+/// Token view carrying source text, location, and optional node identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxToken {
+    /// Lexical token kind (trivia is omitted from this view).
     pub kind: TokenKind,
+    /// Byte span in the owning source text.
     pub span: Span,
+    /// Exact token text.
     pub text: String,
     path: NodeChildPath,
     version: Option<SourceVersion>,
 }
 
+/// Cursor over the significant token view of a [`SyntaxTree`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxTokenCursor {
     tokens: Vec<SyntaxToken>,
     pos: usize,
 }
 
+/// Replacement applied to a source byte span during reparsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
+    /// UTF-8 byte span to replace.
     pub span: Span,
+    /// Replacement text.
     pub replacement: String,
 }
 
+/// Result of applying an edit to a syntax tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reparse {
+    /// Tree built from the edited source.
     pub tree: SyntaxTree,
+    /// Whether the existing tree was rewritten partially or rebuilt fully.
     pub kind: ReparseKind,
 }
 
+/// Strategy used to construct a reparsed tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReparseKind {
+    /// A single token was rewritten while preserving the surrounding tree.
     Partial,
+    /// The edited source required a complete lex and tree rebuild.
     Full,
 }
 
+/// Structural or lexical kind represented by a green tree element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyntaxKind {
+    /// Root node covering the complete source.
     SourceFile,
+    /// Node grouped by an opening delimiter and optional matching close.
     Delimited {
+        /// Opening delimiter token.
         open: TokenKind,
+        /// Matching close token, or `None` for an unmatched opener.
         close: Option<TokenKind>,
     },
+    /// Significant lexical token.
     Token(TokenKind),
+    /// Whitespace trivia.
     Whitespace,
+    /// Line-comment trivia.
     LineComment,
 }
 
+/// Borrowed red-tree view of a [`GreenNode`] with source identity context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxNode<'a> {
     tree: &'a SyntaxTree,
@@ -89,11 +127,13 @@ pub struct SyntaxNode<'a> {
     node: &'a GreenNode,
 }
 
+/// Parses source text into a lossless syntax tree.
 pub fn parse_source(source: &str, version: Option<SourceVersion>) -> SyntaxTree {
     SyntaxTree::parse(source, version)
 }
 
 impl TextEdit {
+    /// Creates an edit replacing `span` with `replacement` text.
     pub fn replace(span: Span, replacement: impl Into<String>) -> Self {
         Self {
             span,
@@ -101,16 +141,19 @@ impl TextEdit {
         }
     }
 
+    /// Creates an insertion edit at a UTF-8 byte offset.
     pub fn insert(offset: usize, replacement: impl Into<String>) -> Self {
         Self::replace(Span::new(offset, offset), replacement)
     }
 
+    /// Creates an edit deleting `span`.
     pub fn delete(span: Span) -> Self {
         Self::replace(span, "")
     }
 }
 
 impl SyntaxTokenCursor {
+    /// Creates a cursor positioned at the first token.
     pub fn new(tree: &SyntaxTree) -> Self {
         Self {
             tokens: tree.root().tokens(),
@@ -118,22 +161,27 @@ impl SyntaxTokenCursor {
         }
     }
 
+    /// Returns all significant tokens, including the terminal EOF token.
     pub fn tokens(&self) -> &[SyntaxToken] {
         &self.tokens
     }
 
+    /// Returns the current cursor position for later [`Self::rewind`].
     pub fn checkpoint(&self) -> usize {
         self.pos
     }
 
+    /// Restores a checkpoint, clamping it to the terminal EOF position.
     pub fn rewind(&mut self, checkpoint: usize) {
         self.pos = checkpoint.min(self.tokens.len().saturating_sub(1));
     }
 
+    /// Returns the current token; the cursor is always non-empty due to EOF.
     pub fn peek(&self) -> &SyntaxToken {
         &self.tokens[self.pos]
     }
 
+    /// Returns and advances one token, stopping at EOF.
     pub fn bump(&mut self) -> SyntaxToken {
         let token = self.peek().clone();
         if token.kind != TokenKind::Eof {
@@ -142,20 +190,24 @@ impl SyntaxTokenCursor {
         token
     }
 
+    /// Tests whether the current token has `kind`.
     pub fn at(&self, kind: TokenKind) -> bool {
         self.peek().kind == kind
     }
 
+    /// Returns the token `offset` positions after the current token.
     pub fn nth(&self, offset: usize) -> Option<&SyntaxToken> {
         self.pos
             .checked_add(offset)
             .and_then(|index| self.tokens.get(index))
     }
 
+    /// Returns the kind `offset` positions after the current token.
     pub fn nth_kind(&self, offset: usize) -> Option<&TokenKind> {
         self.nth(offset).map(|token| &token.kind)
     }
 
+    /// Finds the first significant token whose end is at or after `offset`.
     pub fn token_at_or_after(&self, offset: usize) -> Option<&SyntaxToken> {
         let index = self
             .tokens
@@ -165,6 +217,7 @@ impl SyntaxTokenCursor {
             .find(|token| token.kind != TokenKind::Eof)
     }
 
+    /// Finds the last significant token whose start is before `offset`.
     pub fn token_before_or_at(&self, offset: usize) -> Option<&SyntaxToken> {
         let index = self
             .tokens
@@ -175,6 +228,7 @@ impl SyntaxTokenCursor {
             .find(|token| token.kind != TokenKind::Eof)
     }
 
+    /// Returns the end offset of the token immediately before the cursor.
     pub fn previous_end(&self) -> usize {
         if self.pos == 0 {
             0
@@ -185,14 +239,17 @@ impl SyntaxTokenCursor {
 }
 
 impl SyntaxToken {
+    /// Returns the token's structural child path within the tree.
     pub fn child_path(&self) -> &NodeChildPath {
         &self.path
     }
 
+    /// Returns the optional source version attached to this token.
     pub fn source_version(&self) -> Option<SourceVersion> {
         self.version
     }
 
+    /// Builds a versioned node key for this token when a source version exists.
     pub fn node_key(&self) -> Option<VersionedNodeKey> {
         let version = self.version?;
         Some(VersionedNodeKey::child_path(
@@ -204,11 +261,13 @@ impl SyntaxToken {
 }
 
 impl SyntaxTree {
+    /// Lexes and parses source text into a lossless syntax tree.
     pub fn parse(source: &str, version: Option<SourceVersion>) -> Self {
         let tokens = tokenize_lossless(source);
         Self::from_lossless_tokens(source, version, tokens)
     }
 
+    /// Builds a tree from an already lossless token stream.
     pub fn from_lossless_tokens(
         source: &str,
         version: Option<SourceVersion>,
@@ -243,14 +302,17 @@ impl SyntaxTree {
         }
     }
 
+    /// Returns the original source text.
     pub fn source(&self) -> &str {
         &self.source
     }
 
+    /// Returns the optional source version attached to this tree.
     pub fn version(&self) -> Option<SourceVersion> {
         self.version
     }
 
+    /// Returns the borrowed red root node.
     pub fn root(&self) -> SyntaxNode<'_> {
         SyntaxNode {
             tree: self,
@@ -259,20 +321,24 @@ impl SyntaxTree {
         }
     }
 
+    /// Returns the immutable green root node.
     pub fn green_root(&self) -> &GreenNode {
         &self.root
     }
 
+    /// Returns significant tokens in source order, including EOF.
     pub fn tokens(&self) -> Vec<SyntaxToken> {
         self.root().tokens()
     }
 
+    /// Reconstructs the exact source text represented by the tree.
     pub fn full_text(&self) -> String {
         let mut text = String::new();
         self.root.push_text(&mut text);
         text
     }
 
+    /// Applies an edit and chooses partial rewriting when token boundaries remain valid.
     pub fn reparse(&self, edit: TextEdit, version: Option<SourceVersion>) -> Reparse {
         let Some(source) = apply_edit(&self.source, &edit) else {
             return Reparse {
@@ -298,14 +364,17 @@ impl SyntaxTree {
 }
 
 impl GreenNode {
+    /// Returns this node's structural kind.
     pub fn kind(&self) -> &SyntaxKind {
         &self.kind
     }
 
+    /// Returns the byte span covered by this node.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns ordered child elements.
     pub fn children(&self) -> &[GreenElement] {
         &self.children
     }
@@ -321,28 +390,34 @@ impl GreenNode {
 }
 
 impl GreenToken {
+    /// Returns this token's syntax kind.
     pub fn kind(&self) -> &SyntaxKind {
         &self.kind
     }
 
+    /// Returns the byte span covered by this token.
     pub fn span(&self) -> Span {
         self.span
     }
 
+    /// Returns the exact token text.
     pub fn text(&self) -> &str {
         &self.text
     }
 }
 
 impl<'a> SyntaxNode<'a> {
+    /// Returns this node's structural kind.
     pub fn kind(&self) -> &SyntaxKind {
         &self.node.kind
     }
 
+    /// Returns the byte span covered by this node.
     pub fn span(&self) -> Span {
         self.node.span
     }
 
+    /// Builds a versioned node key when the tree has a source version.
     pub fn node_key(&self) -> Option<VersionedNodeKey> {
         let version = self.tree.version?;
         Some(VersionedNodeKey::child_path(
@@ -362,6 +437,7 @@ impl<'a> SyntaxNode<'a> {
         }
     }
 
+    /// Returns direct nested child nodes in source order.
     pub fn child_nodes(&self) -> Vec<SyntaxNode<'a>> {
         self.node
             .children
@@ -382,6 +458,7 @@ impl<'a> SyntaxNode<'a> {
             .collect()
     }
 
+    /// Returns significant descendant tokens in source order, including EOF.
     pub fn tokens(&self) -> Vec<SyntaxToken> {
         let mut tokens = Vec::new();
         self.push_tokens(&mut tokens);

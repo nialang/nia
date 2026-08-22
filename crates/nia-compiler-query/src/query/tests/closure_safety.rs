@@ -214,6 +214,45 @@ fn stored_indirectly(base: i32) () {
 }
 
 #[test]
+fn mutually_recursive_call_summaries_converge_and_preserve_returned_callable() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn first(callback: &Fn(i32) i32, depth: i32) &Fn(i32) i32 {
+    if depth == 0 {
+        callback
+    } else {
+        second(callback, depth - 1)
+    }
+}
+
+fn second(callback: &Fn(i32) i32, depth: i32) &Fn(i32) i32 {
+    if depth == 0 {
+        callback
+    } else {
+        first(callback, depth - 1)
+    }
+}
+
+fn main(base: i32) &Fn(i32) i32 {
+    let callback = \[base] value: i32 -> { base + value };
+    first(&callback, 2)
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("cannot be returned")
+    );
+}
+
+#[test]
 fn inner_block_view_cannot_flow_into_an_outer_local() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

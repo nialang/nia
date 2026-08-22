@@ -62,6 +62,7 @@ thread_local! {
     static ACTIVE_COMPILER_SLOTS: Cell<usize> = const { Cell::new(0) };
 }
 
+/// Temporary test directory removed recursively when its guard is dropped.
 pub struct TestDir {
     path: PathBuf,
 }
@@ -92,6 +93,7 @@ impl Drop for TestDir {
     }
 }
 
+/// Creates a process/thread-unique temporary directory for one test.
 pub fn test_dir(name: &str) -> TestDir {
     let id = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
@@ -113,11 +115,14 @@ pub fn test_dir(name: &str) -> TestDir {
 /// dimensions, so a build does not incorrectly double-charge its estimate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TestWorkload {
+    /// One compiler invocation.
     Compiler,
+    /// Build orchestration with additional scheduling weight.
     Build,
 }
 
 impl TestWorkload {
+    /// Returns the stable workload label used by resource tracing.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Compiler => "compiler",
@@ -154,14 +159,21 @@ pub fn acquire_test_resources_if_needed(
     (ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) == 0).then(|| acquire_test_resources(workload))
 }
 
+/// Timeout and resource-accounted output helpers for child commands.
 pub trait CommandExt {
+    /// Runs a compiler command under compiler resource accounting.
     fn output_timeout_for_compiler(&mut self, context: &str) -> Output;
+    /// Runs a build command under weighted compiler resource accounting.
     fn output_timeout_for_build(&mut self, context: &str) -> Output;
+    /// Runs an executable under runtime resource accounting.
     fn output_timeout_for_runtime(&mut self, context: &str) -> Output;
+    /// Runs a command within an already active compiler/build session.
     fn output_timeout_in_session(&mut self, context: &str) -> Output;
 }
 
+/// Timeout helper for commands whose output is inherited rather than captured.
 pub trait CommandStatusExt {
+    /// Runs a command to completion or panics with `context` after the timeout.
     fn status_timeout(&mut self, context: &str) -> ExitStatus;
 }
 
@@ -706,6 +718,9 @@ impl Drop for ResourceReservation<'_> {
     }
 }
 
+/// Thread-affine reservation of compiler/build and memory resources.
+///
+/// Dropping the session releases its in-process and cross-process permits.
 pub struct TestResourceSession<'a> {
     reservations: Vec<ResourceReservation<'a>>,
     registered_with_thread: bool,

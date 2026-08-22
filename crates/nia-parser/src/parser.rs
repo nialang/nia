@@ -89,8 +89,11 @@ pub fn parse_module_syntax_with_node_store_and_symbols(
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A lexical or grammatical error associated with its lossless syntax origin.
 pub struct ParseError {
+    /// Source span associated with the lexical or grammar error.
     pub span: Span,
+    /// Human-readable diagnostic message.
     pub message: String,
+    /// Optional stable syntax identity for the originating node.
     pub node_key: Option<VersionedNodeKey>,
 }
 

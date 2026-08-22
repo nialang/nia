@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Compiler timing, trace-event collection, and optional heap accounting.
+//!
+//! Measurements are process-wide while collection sessions serialize report
+//! ownership. Allocation metrics are available only when a binary installs and
+//! registers [`CountingAllocator`] as its global allocator.
 use std::{
     alloc::{GlobalAlloc, Layout},
     cell::{Cell, RefCell},
@@ -34,11 +39,13 @@ thread_local! {
     static THREAD_ALLOCATED_BYTES: Cell<u64> = const { Cell::new(0) };
 }
 
+/// Global allocator wrapper that records allocation and live-byte counters.
 pub struct CountingAllocator<A> {
     inner: A,
 }
 
 impl<A> CountingAllocator<A> {
+    /// Wraps an allocator without enabling measurement by itself.
     pub const fn new(inner: A) -> Self {
         Self { inner }
     }
@@ -98,16 +105,23 @@ struct AllocationMeasurement {
     query_value_clone_bytes: u64,
 }
 
+/// Instantaneous process-wide live heap counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AllocationLiveSnapshot {
+    /// Bytes currently live.
     pub live_bytes: u64,
+    /// Highest live-byte count since tracking began.
     pub peak_live_bytes: u64,
 }
 
+/// Live heap counters across one exclusive measurement window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AllocationLiveWindowMeasurement {
+    /// Live bytes at window start.
     pub start_live_bytes: u64,
+    /// Live bytes at window end.
     pub end_live_bytes: u64,
+    /// Highest live-byte count observed within the window.
     pub peak_live_bytes: u64,
 }
 
@@ -207,6 +221,7 @@ fn finish_allocation_tracking() -> AllocationMeasurement {
     }
 }
 
+/// Returns live heap counters when registered allocation tracking is active.
 pub fn allocation_live_snapshot() -> Option<AllocationLiveSnapshot> {
     (ALLOCATION_INSTRUMENTATION_AVAILABLE.load(Ordering::Acquire)
         && ALLOCATION_TRACKING_ENABLED.load(Ordering::Acquire))
@@ -297,6 +312,7 @@ fn thread_allocated_bytes() -> u64 {
         .unwrap_or_default()
 }
 
+/// Runs a query-value clone and attributes its thread-local allocations.
 pub fn track_query_value_clone<T>(enabled: bool, clone: impl FnOnce() -> T) -> T {
     if !enabled || !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
         return clone();
@@ -308,22 +324,31 @@ pub fn track_query_value_clone<T>(enabled: bool, clone: impl FnOnce() -> T) -> T
     value
 }
 
+/// Amount of compiler timing detail to collect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingMode {
     #[default]
+    /// Disable timing collection.
     Off,
+    /// Collect top-level stage summaries.
     Summary,
+    /// Collect stage, query, and allocation details.
     Detail,
 }
 
+/// Timing collection, tracing, and output-format options.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TimingOptions {
+    /// Measurement detail level.
     pub mode: TimingMode,
+    /// Trace-event collection mode.
     pub trace: TimingTrace,
+    /// Report encoding.
     pub format: TimingFormat,
 }
 
 impl TimingOptions {
+    /// Creates text timing options with trace events disabled.
     pub fn new(mode: TimingMode) -> Self {
         Self {
             mode,
@@ -332,28 +357,36 @@ impl TimingOptions {
         }
     }
 
+    /// Sets trace-event collection.
     pub fn with_trace(mut self, trace: TimingTrace) -> Self {
         self.trace = trace;
         self
     }
 
+    /// Sets report encoding.
     pub fn with_format(mut self, format: TimingFormat) -> Self {
         self.format = format;
         self
     }
 }
 
+/// Whether individual timing events are retained for tracing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingTrace {
     #[default]
+    /// Do not retain trace events.
     Off,
+    /// Retain ordered timing events.
     Events,
 }
 
+/// Encoding used for emitted timing reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingFormat {
     #[default]
+    /// Human-readable text report.
     Text,
+    /// Machine-readable JSON report.
     Json,
 }
 
@@ -437,22 +470,28 @@ fn process_usage() -> Option<ProcessUsage> {
 }
 
 impl TimingMode {
+    /// Reports whether any timing is enabled.
     pub fn enabled(self) -> bool {
         !matches!(self, Self::Off)
     }
 
+    /// Reports whether query/allocation detail is enabled.
     pub fn detail(self) -> bool {
         matches!(self, Self::Detail)
     }
 }
 
+/// Required detail level for one timed stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimingLevel {
+    /// Available in summary and detail modes.
     Summary,
+    /// Available only in detail mode.
     Detail,
 }
 
 impl TimingMode {
+    /// Reports whether this mode includes `level`.
     pub fn includes(self, level: TimingLevel) -> bool {
         match level {
             TimingLevel::Summary => self.enabled(),
@@ -461,6 +500,7 @@ impl TimingMode {
     }
 }
 
+/// Times and emits a compiler stage when `mode` includes `level`.
 pub fn time_stage<T>(mode: TimingMode, level: TimingLevel, name: &str, f: impl FnOnce() -> T) -> T {
     if !mode.includes(level) {
         return f();
@@ -471,6 +511,7 @@ pub fn time_stage<T>(mode: TimingMode, level: TimingLevel, name: &str, f: impl F
     result
 }
 
+/// Times and emits one query in detail mode.
 pub fn time_query<T>(mode: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
     if !mode.detail() {
         return f();
@@ -481,6 +522,7 @@ pub fn time_query<T>(mode: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
     result
 }
 
+/// Times and emits one query when an explicit detail flag is enabled.
 pub fn time_detail<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
     if !enabled {
         return f();
@@ -491,6 +533,7 @@ pub fn time_detail<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
     result
 }
 
+/// Times a query in detail mode and emits it only at or above `threshold`.
 pub fn time_query_if_slow<T>(
     mode: TimingMode,
     name: &str,
@@ -509,6 +552,7 @@ pub fn time_query_if_slow<T>(
     result
 }
 
+/// Emits a single stage timing event or prints it without an active collector.
 pub fn emit_timing(name: impl Into<String>, elapsed: Duration) {
     emit(
         TimingEventKind::Stage,
@@ -517,6 +561,7 @@ pub fn emit_timing(name: impl Into<String>, elapsed: Duration) {
     );
 }
 
+/// Emits a single query timing event.
 pub fn emit_query_timing(name: impl Into<String>, elapsed: Duration) {
     emit(
         TimingEventKind::Query,
@@ -525,14 +570,17 @@ pub fn emit_query_timing(name: impl Into<String>, elapsed: Duration) {
     );
 }
 
+/// Emits an aggregated query measurement.
 pub fn emit_query_measurement(name: impl Into<String>, measurement: TimingMeasurement) {
     emit(TimingEventKind::Query, name.into(), measurement);
 }
 
+/// Emits a textual note associated with query timing.
 pub fn emit_query_note(name: impl Into<String>, detail: impl Into<String>) {
     emit_note(TimingEventKind::Query, name.into(), detail.into());
 }
 
+/// Emits a named integer counter.
 pub fn emit_counter(name: impl Into<String>, value: u64) {
     let event = TimingEvent {
         kind: TimingEventKind::Counter,
@@ -545,14 +593,19 @@ pub fn emit_counter(name: impl Into<String>, value: u64) {
     }
 }
 
+/// Aggregated duration statistics for repeated work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimingMeasurement {
+    /// Sum of all observed durations.
     pub total: Duration,
+    /// Longest observed duration.
     pub max: Duration,
+    /// Number of observations.
     pub count: usize,
 }
 
 impl TimingMeasurement {
+    /// Creates a one-observation measurement.
     pub fn single(elapsed: Duration) -> Self {
         Self {
             total: elapsed,
@@ -562,6 +615,7 @@ impl TimingMeasurement {
     }
 }
 
+/// Per-name accumulator for repeated query substeps.
 #[derive(Debug, Default)]
 pub struct TimingAccumulator {
     entries: HashMap<&'static str, TimingAccumulatorEntry>,
@@ -575,6 +629,7 @@ struct TimingAccumulatorEntry {
 }
 
 impl TimingAccumulator {
+    /// Times `f` and adds the observation under a static name.
     pub fn time<T>(&mut self, name: &'static str, f: impl FnOnce() -> T) -> T {
         let start = Instant::now();
         let result = f();
@@ -586,10 +641,12 @@ impl TimingAccumulator {
         result
     }
 
+    /// Reports whether no observations have been accumulated.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// Emits accumulated entries as query measurements in descending total time.
     pub fn emit_query_timings(&self, name_suffix: impl Fn(&'static str) -> String) {
         let mut entries = self.entries.iter().collect::<Vec<_>>();
         entries.sort_by_key(|(name, entry)| (Reverse(entry.total), **name));
@@ -606,6 +663,10 @@ impl TimingAccumulator {
     }
 }
 
+/// Collects timing events while `f` runs and writes the final report to stderr.
+///
+/// Process-wide collectors serialize across threads; re-entry on the owning
+/// thread executes without starting a nested report.
 pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T {
     let session = {
         let current_thread = std::thread::current().id();

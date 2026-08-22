@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Module-local semantic signatures derived from active items and lowered types.
+//!
+//! Signatures contain declaration facts needed by later semantic and backend
+//! phases, but not function-body analysis. Program wrappers qualify these facts
+//! with their owning module outside this crate.
 use std::collections::HashMap;
 
 use nia_ast::{
@@ -30,21 +35,33 @@ pub use collector::{ItemSignatureInput, ItemSignatureSource, collect_item_signat
 pub use trait_impls::ProgramTraitImplIndex;
 use trait_impls::{TraitImplIdentity, stable_trait_impl_id};
 
+/// Complete signature product for one module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemSignatures {
+    /// Function signatures keyed by module-local definition id.
     pub functions: HashMap<DefId, FunctionSignature>,
+    /// Struct signatures keyed by definition id.
     pub structs: HashMap<DefId, StructSignature>,
+    /// Union signatures keyed by definition id.
     pub unions: HashMap<DefId, UnionSignature>,
+    /// Trait signatures keyed by definition id.
     pub traits: HashMap<DefId, TraitSignature>,
+    /// Trait and inherent extensions in declaration order.
     pub trait_impls: Vec<TraitImplSignature>,
+    /// Enum signatures keyed by definition id.
     pub enums: HashMap<DefId, EnumSignature>,
+    /// Type-alias signatures keyed by definition id.
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
+    /// Static/global signatures keyed by definition id.
     pub globals: HashMap<DefId, GlobalSignature>,
+    /// Const signatures keyed by definition id.
     pub consts: HashMap<DefId, ConstSignature>,
+    /// Diagnostics produced while collecting signatures.
     pub diagnostics: Vec<Diagnostic>,
 }
 
 impl ItemSignatures {
+    /// Returns deduplicated type-store roots referenced by this product.
     pub fn type_roots(&self) -> Vec<InternedTyId> {
         let mut roots = Vec::new();
         for signature in self.functions.values() {
@@ -138,89 +155,141 @@ fn collect_where_type_roots(predicates: &[WherePredicateSignature], roots: &mut 
     }
 }
 
+/// Program-qualified function signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramFunctionSignature {
+    /// Function name.
     pub name: SymbolId,
+    /// Module-local signature payload.
     pub signature: FunctionSignature,
 }
 
+/// Program-qualified global signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramGlobalSignature {
+    /// Module-local signature payload.
     pub signature: GlobalSignature,
 }
 
+/// Program-qualified const signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramConstSignature {
+    /// Module-local signature payload.
     pub signature: ConstSignature,
 }
 
+/// Program-qualified struct signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramStructSignature {
+    /// Module-local signature payload.
     pub signature: StructSignature,
 }
 
+/// Program-qualified union signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramUnionSignature {
+    /// Module-local signature payload.
     pub signature: UnionSignature,
 }
 
+/// Program-qualified enum signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramEnumSignature {
+    /// Module-local signature payload.
     pub signature: EnumSignature,
 }
 
+/// Program-qualified trait signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitSignature {
+    /// Module-local signature payload.
     pub signature: TraitSignature,
 }
 
+/// Program-qualified type-alias signature payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTypeAliasSignature {
+    /// Module-local signature payload.
     pub signature: TypeAliasSignature,
 }
 
+/// Program-wide trait implementation signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitImplSignature {
+    /// Module containing the implementation.
     pub module_id: nia_ids::ModuleId,
+    /// Stable implementation identity.
     pub impl_id: TraitImplId,
+    /// Optional builtin implementation tag.
     pub builtin: Option<String>,
+    /// Compact generic parameter name list.
     pub generics: Vec<SymbolId>,
+    /// Declaration-order kind-aware generic parameters.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Implemented self/target type.
     pub target_ty: InternedTyId,
+    /// Implemented trait identity.
     pub trait_id: nia_ty::TraitId,
+    /// Trait type arguments.
     pub trait_args: Vec<InternedTyId>,
+    /// Trait const arguments.
     pub trait_const_args: Vec<nia_ty::ConstGenericArg>,
+    /// Implementation where predicates.
     pub where_predicates: Vec<WherePredicateSignature>,
+    /// Associated type definitions.
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    /// Associated value definitions.
     pub associated_values: Vec<TraitImplAssociatedValueSignature>,
 }
 
+/// Function declaration signature without body facts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
+    /// Function name.
     pub name: SymbolId,
+    /// Compact generic parameter name list.
     pub generics: Vec<SymbolId>,
+    /// Declaration-order kind-aware generic parameters.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Where-clause predicates.
     pub where_predicates: Vec<WherePredicateSignature>,
+    /// Parameter signatures.
     pub params: Vec<ParamSignature>,
+    /// Normalized return type.
     pub return_type: InternedTyId,
+    /// Whether external linkage is requested.
     pub is_extern: bool,
+    /// Whether const evaluation is permitted.
     pub is_const: bool,
+    /// Whether variadic arguments are accepted.
     pub is_variadic: bool,
+    /// Validated function attributes.
     pub attributes: Vec<FunctionAttribute>,
+    /// Whether the declaration contains a body.
     pub has_body: bool,
+    /// Declaration source span.
     pub span: Span,
 }
 
+/// Declaration-order generic parameter metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParamSignature {
+    /// Parameter name.
     pub name: SymbolId,
+    /// Type or const parameter kind.
     pub kind: GenericParamSignatureKind,
 }
 
+/// Kind-specific generic parameter metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GenericParamSignatureKind {
+    /// Type parameter.
     Type,
-    Const { ty: InternedTyId },
+    /// Const parameter with its declared type.
+    Const {
+        /// Declared const parameter type.
+        ty: InternedTyId,
+    },
 }
 
 /// Rebuilds type and const substitutions from declaration-order parameter metadata.
@@ -256,103 +325,167 @@ pub fn generic_argument_substitutions(
         .then_some((substitutions, const_substitutions))
 }
 
+/// Function attributes retained after declaration validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionAttribute {
+    /// Request naked calling convention.
     Naked,
+    /// Mark a compiler-provided builtin.
     Builtin(BuiltinFunction),
 }
 
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};
 
+/// One lowered function parameter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSignature {
+    /// Optional source name.
     pub name: Option<SymbolId>,
+    /// Optional receiver mode.
     pub receiver: Option<ReceiverKind>,
+    /// Lowered parameter type.
     pub ty: InternedTyId,
+    /// Source span.
     pub span: Span,
 }
 
+/// Lowered struct declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructSignature {
+    /// Compact generic names.
     pub generics: Vec<SymbolId>,
+    /// Kind-aware generic metadata.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Where predicates.
     pub where_predicates: Vec<WherePredicateSignature>,
+    /// Field signatures.
     pub fields: Vec<FieldSignature>,
+    /// Tuple construction marker.
     pub is_tuple: bool,
+    /// External ABI marker.
     pub is_extern: bool,
+    /// Source span.
     pub span: Span,
 }
 
+/// Lowered union declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionSignature {
+    /// Compact generic names.
     pub generics: Vec<SymbolId>,
+    /// Kind-aware generic metadata.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Where predicates.
     pub where_predicates: Vec<WherePredicateSignature>,
+    /// Field signatures.
     pub fields: Vec<FieldSignature>,
+    /// External ABI marker.
     pub is_extern: bool,
+    /// Source span.
     pub span: Span,
 }
 
+/// Lowered trait declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSignature {
+    /// Compact generic names.
     pub generics: Vec<SymbolId>,
     /// Declaration-order generic parameters, including whether each parameter
     /// is a type or const. `generics` remains the compact name list used by
     /// older consumers; instantiation must use this kind-aware representation.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Where predicates.
     pub where_predicates: Vec<WherePredicateSignature>,
+    /// Supertrait signatures.
     pub supertraits: Vec<TraitSupertraitSignature>,
+    /// Associated type declarations.
     pub associated_types: Vec<TraitAssociatedTypeSignature>,
+    /// Associated value declarations.
     pub associated_values: Vec<TraitAssociatedValueSignature>,
+    /// Method declarations.
     pub methods: Vec<TraitMethodSignature>,
+    /// Optional builtin marker.
     pub builtin: Option<BuiltinTrait>,
+    /// Source span.
     pub span: Span,
 }
 
+/// One lowered supertrait bound.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSupertraitSignature {
+    /// Lowered trait type.
     pub ty: InternedTyId,
+    /// Associated type bindings.
     pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
+    /// Source span.
     pub span: Span,
 }
 
+/// Trait associated type declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedTypeSignature {
+    /// Definition identity.
     pub def_id: DefId,
+    /// Associated type name.
     pub name: SymbolId,
+    /// Source span.
     pub span: Span,
 }
 
+/// Trait associated value declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedValueSignature {
+    /// Definition identity.
     pub def_id: DefId,
+    /// Associated value name.
     pub name: SymbolId,
+    /// Lowered value type.
     pub ty: InternedTyId,
+    /// Source span.
     pub span: Span,
 }
 
+/// Trait method declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitMethodSignature {
+    /// Definition identity.
     pub def_id: DefId,
+    /// Method name.
     pub name: SymbolId,
+    /// Function signature.
     pub signature: FunctionSignature,
+    /// Whether a default body is present.
     pub has_default: bool,
+    /// Source span.
     pub span: Span,
 }
 
+/// Lowered trait or inherent implementation signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplSignature {
+    /// Stable implementation identity.
     pub impl_id: TraitImplId,
+    /// Optional builtin implementation marker.
     pub builtin: Option<String>,
+    /// Compact generic names.
     pub generics: Vec<SymbolId>,
+    /// Kind-aware generic metadata.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Target type.
     pub target_ty: InternedTyId,
+    /// Optional implemented trait type.
     pub trait_ty: Option<InternedTyId>,
+    /// Optional trait source span.
     pub trait_span: Option<Span>,
+    /// Where predicates.
     pub where_predicates: Vec<WherePredicateSignature>,
+    /// Associated type definitions.
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    /// Associated value definitions.
     pub associated_values: Vec<TraitImplAssociatedValueSignature>,
+    /// Method definitions.
     pub methods: Vec<TraitImplMethodSignature>,
+    /// Source span.
     pub span: Span,
 }
 
@@ -396,30 +529,45 @@ fn builtin_const_item_symbol(builtin: BuiltinConstValue) -> SymbolId {
     }
 }
 
+/// Associated type definition in an implementation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplAssociatedTypeSignature {
+    /// Associated type name.
     pub name: SymbolId,
+    /// Defined lowered type.
     pub ty: InternedTyId,
+    /// Source span.
     pub span: Span,
 }
 
+/// Associated value definition in an implementation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplAssociatedValueSignature {
+    /// Definition identity.
     pub def_id: DefId,
+    /// Associated value name.
     pub name: SymbolId,
+    /// Visibility of the definition.
     pub visibility: Visibility,
+    /// Source span.
     pub span: Span,
 }
 
+/// Method definition in an implementation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplMethodSignature {
+    /// Definition identity.
     pub def_id: DefId,
+    /// Method name.
     pub name: SymbolId,
+    /// Visibility of the method.
     pub visibility: Visibility,
+    /// Source span.
     pub span: Span,
 }
 
 impl UnionSignature {
+    /// Views this union's fields as a struct-like signature for shared layout checks.
     pub fn as_struct_like(&self) -> StructSignature {
         StructSignature {
             generics: self.generics.clone(),
@@ -433,59 +581,91 @@ impl UnionSignature {
     }
 }
 
+/// Lowered field signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSignature {
+    /// Field definition identity.
     pub def_id: DefId,
+    /// Field name.
     pub name: SymbolId,
+    /// Lowered field type.
     pub ty: InternedTyId,
+    /// Source span.
     pub span: Span,
 }
 
+/// Lowered enum declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumSignature {
+    /// Lowered backing type.
     pub backing_type: InternedTyId,
+    /// Whether external variants may exist.
     pub is_open: bool,
+    /// Variant signatures in declaration order.
     pub variants: Vec<EnumVariantSignature>,
+    /// Source span.
     pub span: Span,
 }
 
+/// One lowered enum variant signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariantSignature {
+    /// Variant definition identity.
     pub def_id: DefId,
+    /// Variant name.
     pub name: SymbolId,
+    /// Variant payload signature.
     pub payload: EnumVariantPayloadSignature,
+    /// Source span.
     pub span: Span,
 }
 
+/// Lowered enum payload shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnumVariantPayloadSignature {
+    /// No payload.
     Unit,
+    /// Positional payload types.
     Tuple(Vec<InternedTyId>),
+    /// Named payload fields.
     Named(Vec<FieldSignature>),
 }
 
+/// Lowered type-alias signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasSignature {
+    /// Compact generic names.
     pub generics: Vec<SymbolId>,
     /// Declaration-order parameter kinds used to rebuild the separate type and
     /// const argument vectors stored in nominal type identities.
     pub generic_params: Vec<GenericParamSignature>,
+    /// Lowered alias target.
     pub target: InternedTyId,
+    /// Source span.
     pub span: Span,
 }
 
+/// Global/static declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalSignature {
+    /// Optional explicit declared type.
     pub explicit_type: Option<InternedTyId>,
+    /// Whether mutation is permitted.
     pub is_mutable: bool,
+    /// Whether storage is externally defined.
     pub is_extern: bool,
+    /// Source span.
     pub span: Span,
 }
 
+/// Const declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstSignature {
+    /// Optional explicit declared type.
     pub explicit_type: Option<InternedTyId>,
+    /// Optional builtin const marker.
     pub builtin: Option<BuiltinConstValue>,
+    /// Source span.
     pub span: Span,
 }
 

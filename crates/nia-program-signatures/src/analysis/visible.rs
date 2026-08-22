@@ -14,27 +14,38 @@ use nia_item_signatures::{ProgramTraitImplSignature, ProgramTypeAliasSignature};
 use nia_ty::{TyKind, TypeStore};
 use nia_type_normalize::TypeNormalization;
 
+/// Resolves a module id to its canonical type normalization context.
 pub type TypeNormalizationResolver<'a> =
     &'a dyn Fn(nia_ids::ModuleId) -> Option<Arc<TypeNormalization>>;
+/// Resolves nominal targets to modules that provide visible extensions.
 pub type NominalExtensionProviderResolver<'a> =
     &'a dyn Fn(&[GlobalDefId]) -> Vec<nia_ids::ModuleId>;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Extensions visible from one module after using-scope and visibility closure.
 pub struct VisibleExtensionsForModule {
+    /// Visible methods and associated values grouped by target.
     pub methods: VisibleExtensionMethods,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Trait implementations visible from one module, with a candidate index.
 pub struct VisibleTraitImplsForModule {
+    /// Visible program trait implementations.
     pub trait_impls: Vec<ProgramTraitImplSignature>,
+    /// Index over the visible implementations.
     pub trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
 }
 
+/// Resolves module-local definition collections.
 pub trait ProgramDefsResolver {
+    /// Returns definitions for a module, if its semantic facts are available.
     fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>>;
 }
 
+/// Resolves a module's imported using scope.
 pub trait ProgramUsingScopeResolver {
+    /// Returns the using scope for a module, if available.
     fn using_scope(&self, module_id: nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>>;
 }
 
@@ -47,26 +58,45 @@ where
     }
 }
 
+/// Inputs for visibility-aware extension and trait-implementation collection.
 pub struct VisibleExtensionsInput<'a> {
+    /// Module from which visibility is queried.
     pub module_id: nia_ids::ModuleId,
+    /// Type store used to normalize extension targets.
     pub type_store: &'a TypeStore,
+    /// Module graph used for visibility checks.
     pub graph: &'a dyn nia_imports::ModuleGraphLookup,
+    /// Current module's using scope.
     pub using_scope: &'a nia_defs::ModuleUsingScope,
+    /// Resolver for imported modules' using scopes.
     pub using_scopes: &'a dyn ProgramUsingScopeResolver,
+    /// Public re-export surface lookup.
     pub public_surfaces: &'a dyn PublicSurfaceLookup,
+    /// Definition resolver for extension members and traits.
     pub defs: &'a dyn ProgramDefsResolver,
+    /// Per-module canonical type-normalization resolver.
     pub normalizations: TypeNormalizationResolver<'a>,
+    /// Resolver for visible type aliases.
+    /// Resolver for visible type aliases.
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
+    /// Collected extension methods.
     pub extensions: &'a ExtensionMethods,
+    /// Collected extension associated values.
     pub associated_values: &'a ExtensionAssociatedValues,
+    /// Program trait implementations available to the collector.
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    /// Resolver for nominal extension provider modules.
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
+    /// Optional precomputed visible module closure.
     pub visible_modules: Option<&'a [nia_ids::ModuleId]>,
+    /// Optional narrower closure used for trait witnesses.
     pub trait_witness_modules: Option<&'a [nia_ids::ModuleId]>,
 }
 
+/// Type-signature callbacks needed while resolving visible aliases.
 #[derive(Clone, Copy)]
 pub struct VisibleTypeSignatures<'a> {
+    /// Resolves a type alias by global definition id.
     pub type_alias: &'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>,
 }
 
@@ -103,6 +133,7 @@ impl<'a> VisibleExtensionResolverCache<'a> {
     }
 }
 
+/// Computes callable and witness extensions visible from one module.
 pub fn visible_extensions_for_module(
     input: VisibleExtensionsInput<'_>,
 ) -> VisibleExtensionsForModule {
@@ -252,6 +283,7 @@ pub fn visible_extensions_for_module(
     VisibleExtensionsForModule { methods: visible }
 }
 
+/// Computes visible trait implementations and their candidate index.
 pub fn visible_trait_impls_for_module(
     input: VisibleExtensionsInput<'_>,
 ) -> VisibleTraitImplsForModule {
@@ -312,18 +344,29 @@ pub fn visible_trait_impls_for_module(
     }
 }
 
+/// Inputs for computing extension-provider and trait-witness module closures.
 pub struct VisibleExtensionProviderModulesInput<'a> {
+    /// Module from which visibility is queried.
     pub module_id: nia_ids::ModuleId,
+    /// Type store used to normalize public type targets.
     pub type_store: &'a TypeStore,
+    /// Module graph used for visibility checks.
     pub graph: &'a dyn nia_imports::ModuleGraphLookup,
+    /// Current module's using scope.
     pub using_scope: &'a nia_defs::ModuleUsingScope,
+    /// Resolver for imported using scopes.
     pub using_scopes: &'a dyn ProgramUsingScopeResolver,
+    /// Definition resolver.
     pub defs: &'a dyn ProgramDefsResolver,
+    /// Per-module normalization resolver.
     pub normalizations: TypeNormalizationResolver<'a>,
+    /// Resolver for visible type aliases.
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
+    /// Resolver for nominal extension provider modules.
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
 }
 
+/// Returns modules contributing visible inherent extensions.
 pub fn visible_extension_provider_modules(
     input: VisibleExtensionProviderModulesInput<'_>,
 ) -> Vec<nia_ids::ModuleId> {
@@ -331,6 +374,7 @@ pub fn visible_extension_provider_modules(
     declared_module_closure(&context)
 }
 
+/// Returns modules contributing visible trait implementations.
 pub fn visible_trait_impl_modules(
     input: VisibleExtensionProviderModulesInput<'_>,
 ) -> Vec<nia_ids::ModuleId> {

@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Stable definition identities, lexical scopes, and extension indexes.
+//!
+//! This crate collects declaration structure from item trees. It owns stable
+//! definition identity and namespace membership, but performs neither name
+//! resolution across modules nor type checking. Public-surface facts are a
+//! deliberately reduced projection of this declaration product.
 use std::collections::{HashMap, HashSet};
 
 mod extensions;
@@ -30,49 +36,77 @@ pub use public_surface::{
     PublicSurfaceLookup, PublicSurfaces, UsingEntry, UsingScopeLookup,
 };
 
+/// Complete declaration and scope product for one module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefCollection {
+    /// Module whose declarations were collected.
     pub module_id: ModuleId,
+    /// Stable definitions keyed by [`DefId`].
     pub defs: DefMap,
+    /// Top-level namespace scopes.
     pub module_scope: ModuleScope,
+    /// Member scopes owned by aggregate definitions.
     pub scopes: DefScopes,
+    /// Source node to definition mapping.
     pub def_nodes: DefNodeMap,
+    /// Module-level `using` declarations in source order.
     pub module_usings: Vec<ModuleUsing>,
+    /// Duplicate-name and declaration diagnostics.
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Minimal definition fact retained for public-surface construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicSurfaceDefFact {
+    /// Stable module-local definition id.
     pub id: DefId,
+    /// Declared name.
     pub name: SymbolId,
+    /// Definition category.
     pub kind: DefKind,
+    /// Owning definition for members.
     pub parent: Option<DefId>,
+    /// Declared visibility.
     pub visibility: Visibility,
+    /// Declaration source span.
     pub span: Span,
 }
 
+/// Deterministically ordered top-level namespace facts.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PublicSurfaceModuleScopeFacts {
+    /// Module namespace entries.
     pub modules: Vec<(SymbolId, DefId)>,
+    /// Type namespace entries.
     pub types: Vec<(SymbolId, DefId)>,
+    /// Value namespace entries.
     pub values: Vec<(SymbolId, DefId)>,
 }
 
+/// Public-surface facts for one enum's variant namespace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicSurfaceEnumScopeFact {
+    /// Enum definition owning the scope.
     pub owner: DefId,
+    /// Variant entries ordered by symbol and definition id.
     pub variants: Vec<(SymbolId, DefId)>,
 }
 
+/// Reduced module declaration product sufficient for public-surface analysis.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicSurfaceModuleFacts {
+    /// Minimal definition records ordered by definition id.
     pub defs: Vec<PublicSurfaceDefFact>,
+    /// Top-level namespace entries.
     pub module_scope: PublicSurfaceModuleScopeFacts,
+    /// Enum variant scopes.
     pub enum_scopes: Vec<PublicSurfaceEnumScopeFact>,
+    /// Module-level `using` declarations.
     pub module_usings: Vec<ModuleUsing>,
 }
 
 impl PublicSurfaceModuleFacts {
+    /// Projects a complete definition collection into stable public facts.
     pub fn from_defs(defs: &DefCollection) -> Self {
         let mut def_facts = defs
             .defs
@@ -109,6 +143,7 @@ impl PublicSurfaceModuleFacts {
         }
     }
 
+    /// Reconstructs the reduced definition view consumed by public-surface analysis.
     pub fn materialize_for_public_surface(&self, module_id: ModuleId) -> DefCollection {
         let mut defs = DefMap::default();
         for fact in &self.defs {
@@ -187,42 +222,68 @@ fn name_table_from_fact_entries(entries: &[(SymbolId, DefId)]) -> NameTable {
     }
 }
 
+/// Source-preserving module-level `using` declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleUsing {
+    /// Visibility applied to names re-exported by this directive.
     pub visibility: Visibility,
+    /// Complete directive span.
     pub span: Span,
+    /// Path leading to the selected namespace.
     pub host: Vec<UsingPathSegment>,
+    /// Names selected from the host path.
     pub selector: UsingSelector,
 }
 
+/// One source path segment in a `using` host.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingPathSegment {
+    /// Segment category and symbol.
     pub kind: PathSegmentKind,
+    /// Segment source span.
     pub span: Span,
 }
 
+/// Selector attached to a `using` host path.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UsingSelector {
+    /// Imports one name, optionally under an alias.
     Single(UsingName),
+    /// Imports a grouped set of names and nested selectors.
     Group(Vec<UsingGroupItem>),
-    Wildcard { span: Span },
+    /// Imports every eligible name from the host.
+    Wildcard {
+        /// Wildcard token span.
+        span: Span,
+    },
+    /// Imports the host itself.
     SelfName,
 }
 
+/// Entry inside a grouped `using` selector.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UsingGroupItem {
+    /// Direct selected name.
     Name(UsingName),
+    /// Nested host and selector.
     Nested {
+        /// Additional path below the outer host.
         host: Vec<UsingPathSegment>,
+        /// Selector applied to the nested host.
         selector: Box<UsingSelector>,
     },
 }
 
+/// Name selected by a `using` directive.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingName {
+    /// Original selected name.
     pub name: SymbolId,
+    /// Source span of the original name.
     pub name_span: Span,
+    /// Optional local or exported alias.
     pub alias: Option<SymbolId>,
+    /// Source span of the alias when present.
     pub alias_span: Option<Span>,
 }
 
@@ -271,11 +332,13 @@ impl UsingName {
     }
 }
 
+/// Collects declarations from an AST module using a fresh node store.
 pub fn collect_module_defs(module_id: ModuleId, module: &Module) -> DefCollection {
     let item_tree = ModuleItemTree::from_module(module);
     collect_module_defs_from_item_tree(module_id, &item_tree)
 }
 
+/// Collects declarations from an unfiltered item tree using fallback symbols.
 pub fn collect_module_defs_from_item_tree(
     module_id: ModuleId,
     item_tree: &ModuleItemTree,
@@ -283,6 +346,7 @@ pub fn collect_module_defs_from_item_tree(
     Collector::new(module_id).collect(&item_tree.items)
 }
 
+/// Collects declarations from an item tree with diagnostic symbol text.
 pub fn collect_module_defs_from_item_tree_with_symbols(
     module_id: ModuleId,
     item_tree: &ModuleItemTree,
@@ -291,6 +355,7 @@ pub fn collect_module_defs_from_item_tree_with_symbols(
     Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
 }
 
+/// Collects declarations with explicit node and symbol owners.
 pub fn collect_module_defs_from_item_tree_with_node_store_and_symbols(
     module_id: ModuleId,
     item_tree: &ModuleItemTree,
@@ -301,6 +366,7 @@ pub fn collect_module_defs_from_item_tree_with_node_store_and_symbols(
         .collect(&item_tree.items)
 }
 
+/// Collects declarations from a target-filtered item tree.
 pub fn collect_module_defs_from_active_item_tree(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -308,6 +374,7 @@ pub fn collect_module_defs_from_active_item_tree(
     Collector::new(module_id).collect(&item_tree.items)
 }
 
+/// Collects active declarations with diagnostic symbol text.
 pub fn collect_module_defs_from_active_item_tree_with_symbols(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -316,6 +383,7 @@ pub fn collect_module_defs_from_active_item_tree_with_symbols(
     Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
 }
 
+/// Collects active declarations with explicit node and symbol owners.
 pub fn collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -326,6 +394,7 @@ pub fn collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
         .collect(&item_tree.items)
 }
 
+/// Stable, insertion-ordered definitions with collision-checked identity indexes.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DefMap {
     defs: Vec<DefEntry>,
@@ -334,6 +403,7 @@ pub struct DefMap {
 }
 
 impl DefMap {
+    /// Returns the definition for `id`.
     pub fn get(&self, id: DefId) -> Option<&Def> {
         self.by_id
             .get(&id)
@@ -341,14 +411,17 @@ impl DefMap {
             .map(|entry| &entry.def)
     }
 
+    /// Iterates definitions in deterministic collection order.
     pub fn iter(&self) -> impl Iterator<Item = (DefId, &Def)> {
         self.defs.iter().map(|entry| (entry.id, &entry.def))
     }
 
+    /// Returns the number of definitions.
     pub fn len(&self) -> usize {
         self.defs.len()
     }
 
+    /// Returns whether the map contains no definitions.
     pub fn is_empty(&self) -> bool {
         self.defs.is_empty()
     }
@@ -526,6 +599,7 @@ struct DefEntry {
     def: Def,
 }
 
+/// Canonical structural identity hashed into a stable [`DefId`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefIdentity {
     segments: Vec<DefIdentitySegment>,
@@ -634,19 +708,29 @@ impl DefIdentity {
     }
 }
 
+/// Collected declaration metadata for one definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Def {
+    /// Declared name.
     pub name: SymbolId,
+    /// Definition category.
     pub kind: DefKind,
+    /// Owning module.
     pub module_id: ModuleId,
+    /// Owning aggregate or trait for member definitions.
     pub parent: Option<DefId>,
+    /// Generic parameter names in declaration order.
     pub generics: Vec<SymbolId>,
+    /// Full generic parameter syntax in declaration order.
     pub generic_params: Vec<GenericParam>,
+    /// Declared visibility.
     pub visibility: Visibility,
+    /// Declaration source span.
     pub span: Span,
 }
 
 impl Def {
+    /// Iterates const-generic names in declaration order.
     pub fn const_generic_names(&self) -> impl Iterator<Item = SymbolId> + '_ {
         self.generic_params.iter().filter_map(|generic| {
             matches!(generic.kind, GenericParamKind::Const { .. }).then_some(generic.name)
@@ -654,55 +738,85 @@ impl Def {
     }
 }
 
+/// Semantic category of a collected definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DefKind {
+    /// Imported or declared module.
     Module,
+    /// Free function.
     Function,
+    /// Mutable or immutable global binding.
     Global,
+    /// Compile-time constant binding.
     Const,
+    /// Struct type.
     Struct,
+    /// Struct field.
     StructField,
+    /// Union type.
     Union,
+    /// Union field.
     UnionField,
+    /// Trait declaration.
     Trait,
+    /// Trait associated type.
     TraitAssociatedType,
+    /// Trait method declaration.
     TraitMethod,
+    /// Inherent or trait implementation method.
     Method,
+    /// Enum type.
     Enum,
+    /// Enum variant.
     EnumVariant,
+    /// Named or positional enum variant field.
     EnumVariantField,
+    /// Type alias.
     TypeAlias,
 }
 
+/// Top-level names partitioned by language namespace.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ModuleScope {
+    /// Module namespace.
     pub modules: NameTable,
+    /// Type namespace.
     pub types: NameTable,
+    /// Value namespace.
     pub values: NameTable,
 }
 
+/// Names declared inside a struct or union.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MemberScope {
+    /// Addressable field names.
     pub fields: NameTable,
+    /// Associated value names.
     pub values: NameTable,
+    /// Method names.
     pub methods: NameTable,
 }
 
+/// Variant namespace owned by an enum.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnumScope {
+    /// Enum variant names.
     pub variants: NameTable,
 }
 
+/// Collision-checked mapping from symbols to definition ids.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NameTable {
     entries: SymbolMap<NameEntry>,
 }
 
 impl NameTable {
+    /// Returns the definition bound to `name`.
     pub fn get(&self, name: &SymbolId) -> Option<DefId> {
         self.entries.get(name).map(|entry| entry.def_id)
     }
 
+    /// Iterates namespace entries in map order.
     pub fn entries(&self) -> impl Iterator<Item = (&SymbolId, DefId)> {
         self.entries
             .iter()
@@ -722,20 +836,29 @@ impl NameTable {
     }
 }
 
+/// Details of two declarations colliding in one namespace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateName {
+    /// Duplicated symbol.
     pub name: SymbolId,
+    /// Span of the declaration already in the namespace.
     pub first_span: Span,
+    /// Span of the rejected declaration.
     pub second_span: Span,
 }
 
+/// Aggregate member scopes keyed by their owning definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefScopes {
+    /// Struct field, value, and method scopes.
     pub struct_members: HashMap<DefId, MemberScope>,
+    /// Union field, value, and method scopes.
     pub union_members: HashMap<DefId, MemberScope>,
+    /// Enum variant scopes.
     pub enum_members: HashMap<DefId, EnumScope>,
 }
 
+/// Revision-stable syntax node to definition mapping.
 #[derive(Debug, Clone, Default)]
 pub struct DefNodeMap {
     nodes: NodeMap<DefId>,
@@ -755,18 +878,22 @@ impl PartialEq for DefNodeMap {
 impl Eq for DefNodeMap {}
 
 impl DefNodeMap {
+    /// Returns the definition associated with a stable node locator.
     pub fn get(&self, node_key: &VersionedNodeKey) -> Option<DefId> {
         self.nodes.get(node_key).copied()
     }
 
+    /// Returns this map's compact node handle for a stable locator.
     pub fn node_id(&self, node_key: &VersionedNodeKey) -> Option<NodeId> {
         self.nodes.node_id(node_key)
     }
 
+    /// Returns the node-store identity retained by this map.
     pub fn store_id(&self) -> NodeStoreId {
         self.nodes.store_id()
     }
 
+    /// Iterates stable locator and definition pairs.
     pub fn entries(&self) -> impl Iterator<Item = (VersionedNodeKey, DefId)> + '_ {
         self.nodes
             .iter()

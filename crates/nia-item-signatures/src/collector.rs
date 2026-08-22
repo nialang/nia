@@ -38,18 +38,27 @@ fn builtin_type_anchor_primitive(anchor: BuiltinTypeAnchor) -> PrimitiveTy {
     }
 }
 
+/// Source representation from which signatures are collected.
 #[derive(Debug, Clone, Copy)]
 pub enum ItemSignatureSource<'a> {
+    /// Parsed AST module.
     Module(&'a Module),
+    /// Active item tree after conditional selection.
     ActiveItemTree(&'a ActiveModuleItemTree),
 }
 
+/// Inputs required to lower one module's declaration signatures.
 #[derive(Clone, Copy)]
 pub struct ItemSignatureInput<'a> {
+    /// Source syntax or active item tree.
     pub source: ItemSignatureSource<'a>,
+    /// Definition collection for the source module.
     pub defs: &'a DefCollection,
+    /// Lowered source types.
     pub lowered: &'a TypeLowering,
+    /// Session type store receiving signature types.
     pub type_store: &'a TypeStore,
+    /// Optional symbol resolver used for diagnostic text.
     pub symbols: Option<&'a dyn SymbolText>,
 }
 
@@ -64,6 +73,7 @@ impl std::fmt::Debug for ItemSignatureInput<'_> {
     }
 }
 
+/// Collects declaration signatures from the selected source representation.
 pub fn collect_item_signatures(input: ItemSignatureInput<'_>) -> ItemSignatures {
     let append = input.type_store.append_for_module(input.defs.module_id);
     let collect = |items| {

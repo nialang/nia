@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Internal compiler-error capture, rendering, and panic recovery.
 use std::any::Any;
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -6,14 +7,19 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use nia_diagnostic::Diagnostic;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Structured internal compiler error with an optional panic location.
 pub struct Ice {
+    /// Human-readable invariant or panic message.
     pub message: String,
+    /// Source location recorded by the installed panic hook.
     pub location: Option<String>,
 }
 
+/// Result alias for operations that may surface an [`Ice`].
 pub type IceResult<T> = Result<T, Ice>;
 
 impl Ice {
+    /// Creates an ICE with no recorded panic location.
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -21,11 +27,13 @@ impl Ice {
         }
     }
 
+    /// Attaches or replaces the panic location and returns the error.
     pub fn with_location(mut self, location: Option<String>) -> Self {
         self.location = location;
         self
     }
 
+    /// Converts this ICE into an internal diagnostic report.
     pub fn diagnostic(&self) -> Diagnostic {
         let mut diagnostic =
             Diagnostic::internal_error(nia_diagnostic::codes::ICE, self.render_summary())
@@ -36,10 +44,12 @@ impl Ice {
         diagnostic.finish()
     }
 
+    /// Renders the short summary used by diagnostics and logs.
     pub fn render_summary(&self) -> String {
         format!("internal compiler error: {}", self.message)
     }
 
+    /// Renders an actionable multi-line message for users and bug reports.
     pub fn render_message(&self) -> String {
         let mut rendered = self.render_summary();
         if let Some(location) = &self.location {
@@ -58,6 +68,7 @@ impl From<Ice> for Diagnostic {
     }
 }
 
+/// Runs `f`, converting a panic payload and hook location into an [`Ice`].
 pub fn catch_ice<T>(f: impl FnOnce() -> T) -> Result<T, Ice> {
     take_panic_location();
     catch_unwind(AssertUnwindSafe(f)).map_err(|payload| {
@@ -66,6 +77,7 @@ pub fn catch_ice<T>(f: impl FnOnce() -> T) -> Result<T, Ice> {
     })
 }
 
+/// Installs the thread-local panic hook used by [`catch_ice`].
 pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         if let Some(location) = info.location() {

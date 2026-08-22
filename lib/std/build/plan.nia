@@ -601,8 +601,11 @@ extend Build {
         writer.writeAll(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
         writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan).?;
         file.sync().asBuildError(Operation::Publish, Subject::BuildPlan).?;
-        file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
+        // File::close consumes its handle before the syscall, even when the
+        // syscall reports an error. Disable the fallback before calling it so
+        // defer cannot turn the original close failure into a second BadFd.
         fileOpen = false;
+        file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
         !()
     }
 }

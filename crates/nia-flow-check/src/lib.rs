@@ -895,6 +895,52 @@ mod tests {
         check_module_flow(&module, &type_store, &signatures)
     }
 
+    fn pipeline_with_reachable_filter(source: &str) -> FlowCheck {
+        let (module, parse_errors) = parse_module(source);
+        assert!(parse_errors.is_empty(), "{parse_errors:?}");
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
+        let main = defs
+            .module_scope
+            .values
+            .get(&nia_symbol::known::MAIN)
+            .expect("test source must define main");
+        let item_tree = ModuleItemTree::from_module(&module);
+        let active_item_tree =
+            ActiveModuleItemTree::new(item_tree.active_items_without_const(), HashSet::new());
+        let reachable = HashSet::from([GlobalDefId {
+            module_id,
+            def_id: main,
+        }]);
+        check_active_module_flow_with_signatures_and_filter(
+            &active_item_tree,
+            &type_store,
+            FlowCheckSignatures {
+                functions: &signatures.functions,
+            },
+            FlowCheckFilter::ReachableFunctions {
+                module_id,
+                functions: &reachable,
+            },
+        )
+    }
+
     #[test]
     fn rejects_break_and_continue_outside_loops() {
         let checked = pipeline(
@@ -1357,6 +1403,49 @@ fn short_circuit(flag: bool) i32 {
                 .summary
                 .contains("does not return on all reachable paths")),
             "a skipped logical RHS leaves a fallthrough path: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn reachable_filter_uses_stable_function_identity() {
+        let checked = pipeline_with_reachable_filter(
+            r#"
+fn main(flag: bool) i32 {
+    if flag {
+        return 1;
+    }
+}
+
+fn helper(flag: bool) i32 {
+    if flag {
+        return 2;
+    }
+    match 1 {
+        1 => return 3,
+        1 => return 4,
+    }
+}
+"#,
+        );
+        assert_eq!(
+            checked
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic
+                    .summary
+                    .contains("does not return on all reachable paths"))
+                .count(),
+            1,
+            "only reachable main should receive missing-return analysis: {:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.summary.contains("duplicate match pattern")),
+            "filtered helper syntax must not leak diagnostics: {:?}",
             checked.diagnostics
         );
     }

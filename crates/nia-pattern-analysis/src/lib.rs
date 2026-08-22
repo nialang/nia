@@ -161,13 +161,20 @@ use std::fmt;
 /// algorithm from accidentally making a semantic decision about name lookup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pattern<C> {
+    /// Pattern matching any value in the column.
     Wildcard,
+    /// Constructor pattern with recursively matched fields.
     Constructor {
+        /// Constructor identity.
         id: C,
+        /// Field patterns in canonical declaration order.
         fields: Vec<Self>,
     },
+    /// Scalar interval pattern.
     ScalarRange {
+        /// Inclusive lower endpoint.
         start: i128,
+        /// Inclusive upper endpoint.
         end: i128,
     },
     /// A valid pattern whose matched values cannot be characterized statically.
@@ -185,7 +192,9 @@ pub enum Pattern<C> {
 /// from the same canonical declaration metadata as destructuring code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Constructor<T, C> {
+    /// Canonical constructor identity.
     pub id: C,
+    /// Constructor fields in declaration/lowering order.
     pub fields: Vec<T>,
 }
 
@@ -202,7 +211,9 @@ pub enum Domain<T, C> {
     Open(Vec<Constructor<T, C>>),
     /// A finite scalar domain. Pattern endpoints partition it without enumerating values.
     Scalar {
+        /// Minimum representable scalar value.
         min: i128,
+        /// Maximum representable scalar value.
         max: i128,
         /// Whether `[min, max]` is the type's entire scalar domain.
         complete: bool,
@@ -211,12 +222,33 @@ pub enum Domain<T, C> {
     Opaque,
 }
 
+/// Validation failures from matrix, query, or domain normalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnalysisError {
-    MatrixWidth { expected: usize, found: usize },
-    QueryWidth { expected: usize, found: usize },
+    /// A matrix row has a different number of columns than the domain.
+    MatrixWidth {
+        /// Expected column count.
+        expected: usize,
+        /// Actual row column count.
+        found: usize,
+    },
+    /// A query has a different number of columns than the domain.
+    QueryWidth {
+        /// Expected column count.
+        expected: usize,
+        /// Actual query column count.
+        found: usize,
+    },
+    /// A pattern refers to a constructor absent from its domain.
     UnknownConstructor,
-    ConstructorArity { expected: usize, found: usize },
+    /// A constructor pattern has the wrong number of fields.
+    ConstructorArity {
+        /// Expected field count.
+        expected: usize,
+        /// Actual pattern field count.
+        found: usize,
+    },
+    /// A scalar range was supplied for a non-scalar domain.
     ScalarPatternOutsideScalarDomain,
 }
 

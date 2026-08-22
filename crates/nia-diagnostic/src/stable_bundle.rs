@@ -22,10 +22,15 @@ const MAX_SEQUENCE_LEN: usize = 1_000_000;
 const MAX_INITIAL_SEQUENCE_CAPACITY: usize = 4_096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Errors raised while encoding a stable diagnostic bundle.
 pub enum StableDiagnosticBundleError {
+    /// The diagnostic code is not registered.
     UnregisteredCode,
+    /// Severity or category disagrees with the registry.
     InconsistentCode,
+    /// A span lies outside the supplied source length.
     InvalidSpan,
+    /// The encoded bundle exceeds the bounded format limit.
     TooLarge,
 }
 
@@ -42,6 +47,7 @@ impl fmt::Display for StableDiagnosticBundleError {
 
 impl std::error::Error for StableDiagnosticBundleError {}
 
+/// Encodes diagnostics into the bounded stable persistence format.
 pub fn encode_stable_diagnostic_bundle(
     diagnostics: &[Diagnostic],
     source_len: usize,
@@ -101,6 +107,7 @@ pub fn encode_stable_diagnostic_bundle(
     Ok(encoded)
 }
 
+/// Decodes a stable diagnostic bundle, rejecting malformed or stale bytes.
 pub fn decode_stable_diagnostic_bundle(
     encoded: &[u8],
     source_len: usize,

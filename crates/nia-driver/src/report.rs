@@ -9,6 +9,7 @@ use nia_diagnostic::{
 };
 use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 
+/// Renders the backend optimization report with a trailing newline.
 pub fn optimization_report(program: &CodegenProgram) -> String {
     let mut out = optimization_report_lines_from_parts(
         program.optimization,
@@ -19,6 +20,7 @@ pub fn optimization_report(program: &CodegenProgram) -> String {
     out
 }
 
+/// Returns optimization report lines without terminal newline formatting.
 pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
     optimization_report_lines_from_parts(
         program.optimization,
@@ -26,6 +28,7 @@ pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
     )
 }
 
+/// Renders optimization changes recorded for LLVM IR emission.
 pub fn llvm_ir_optimization_report(artifact: &LlvmIrArtifact) -> String {
     let mut out =
         optimization_report_lines_from_parts(artifact.optimization, &artifact.optimization_report)
@@ -34,6 +37,7 @@ pub fn llvm_ir_optimization_report(artifact: &LlvmIrArtifact) -> String {
     out
 }
 
+/// Renders optimization changes recorded for native object emission.
 pub fn object_optimization_report(artifact: &ObjectArtifact) -> String {
     let mut out =
         optimization_report_lines_from_parts(artifact.optimization, &artifact.optimization_report)
@@ -42,6 +46,7 @@ pub fn object_optimization_report(artifact: &ObjectArtifact) -> String {
     out
 }
 
+/// Renders a report from an explicit policy and backend change product.
 pub fn optimization_report_from_parts(
     optimization: crate::OptimizationPolicy,
     report: &crate::BackendOptimizationReport,
@@ -122,6 +127,7 @@ fn optimization_report_lines_from_parts(
     lines
 }
 
+/// Renders all diagnostics attached to a checked program.
 pub fn render_program_diagnostics(
     program: &CheckedProgram,
     primary_path: Option<&str>,
@@ -130,6 +136,7 @@ pub fn render_program_diagnostics(
     render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
 }
 
+/// Renders only warnings attached to a checked program.
 pub fn render_program_warnings(
     program: &CheckedProgram,
     primary_path: Option<&str>,
@@ -144,6 +151,7 @@ pub fn render_program_warnings(
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
+/// Renders only warnings attached to an LLVM artifact.
 pub fn render_llvm_ir_warnings(
     artifact: &LlvmIrArtifact,
     primary_path: Option<&str>,
@@ -158,6 +166,7 @@ pub fn render_llvm_ir_warnings(
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
+/// Renders only warnings attached to an object artifact.
 pub fn render_object_warnings(
     artifact: &ObjectArtifact,
     primary_path: Option<&str>,
@@ -172,6 +181,7 @@ pub fn render_object_warnings(
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
+/// Renders only warnings attached to a linked executable artifact.
 pub fn render_executable_warnings(
     artifact: &crate::ExecutableArtifact,
     primary_path: Option<&str>,
@@ -214,6 +224,7 @@ fn render_program_diagnostic_items(
     out
 }
 
+/// Renders diagnostics attached to a codegen program.
 pub fn render_codegen_program_diagnostics(
     program: &CodegenProgram,
     primary_path: Option<&str>,
@@ -222,6 +233,7 @@ pub fn render_codegen_program_diagnostics(
     render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
 }
 
+/// Renders warnings attached to a codegen program.
 pub fn render_codegen_program_warnings(
     program: &CodegenProgram,
     primary_path: Option<&str>,
@@ -236,6 +248,7 @@ pub fn render_codegen_program_warnings(
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
+/// Renders a driver failure, preserving structured diagnostic details.
 pub fn render_driver_error(
     error: &DriverError,
     primary_path: Option<&str>,
@@ -292,6 +305,7 @@ pub fn render_driver_error(
     }
 }
 
+/// Renders backend/codegen diagnostics with a stable title.
 pub fn render_codegen_diagnostics(
     diagnostics: &[Diagnostic],
     primary_path: Option<&str>,
@@ -329,6 +343,7 @@ fn render_diagnostics_with_title(
     out
 }
 
+/// Renders parser errors using the same diagnostic report suppression policy.
 pub fn render_parse_errors(path: &str, source: &str, errors: &[crate::ParseError]) -> String {
     let diagnostics = errors
         .iter()

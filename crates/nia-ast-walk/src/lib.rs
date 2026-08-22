@@ -19,34 +19,42 @@ use nia_ast::{
 /// `walk_*` function from the override unless omitting its children is an
 /// intentional semantic boundary.
 pub trait Visitor<'ast> {
+    /// Visits one item and its structurally owned children.
     fn visit_item(&mut self, item: &'ast Item) {
         walk_item(self, item);
     }
 
+    /// Visits one function declaration and its children.
     fn visit_function(&mut self, function: &'ast FunctionItem) {
         walk_function(self, function);
     }
 
+    /// Visits one type reference and its nested arguments.
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         walk_type(self, ty);
     }
 
+    /// Visits one lexical block and its statements/tail.
     fn visit_block(&mut self, block: &'ast Block) {
         walk_block(self, block);
     }
 
+    /// Visits one statement and its nested expressions.
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         walk_stmt(self, stmt);
     }
 
+    /// Visits one expression and its nested operands.
     fn visit_expr(&mut self, expr: &'ast Expr) {
         walk_expr(self, expr);
     }
 
+    /// Visits one pattern and its nested expressions/types.
     fn visit_pattern(&mut self, pattern: &'ast Pattern) {
         walk_pattern(self, pattern);
     }
 
+    /// Visits one generic parameter and its optional type bound.
     fn visit_generic_param(&mut self, generic: &'ast GenericParam) {
         walk_generic_param(self, generic);
     }
@@ -77,12 +85,14 @@ pub fn walk_static_bindings<'ast>(block: &'ast Block, callback: &mut impl FnMut(
     visitor.visit_block(block);
 }
 
+/// Walks every item in a module in source order.
 pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, module: &'ast Module) {
     for item in &module.items {
         visitor.visit_item(item);
     }
 }
 
+/// Walks one item and all structurally owned children.
 pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast Item) {
     for attribute in &item.attributes {
         walk_attribute(visitor, attribute);
@@ -216,6 +226,7 @@ fn walk_attribute<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, attribute: &
     }
 }
 
+/// Walks all types in a where-clause predicate list.
 pub fn walk_where_clause<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     clause: &'ast WhereClause,
@@ -228,6 +239,7 @@ pub fn walk_where_clause<'ast, V: Visitor<'ast> + ?Sized>(
     }
 }
 
+/// Walks generic parameters, signature types, and the optional body.
 pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     function: &'ast FunctionItem,
@@ -247,6 +259,7 @@ pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
     }
 }
 
+/// Walks one type reference and every nested type argument.
 pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast TypeRef) {
     match &ty.kind {
         TypeKind::Error
@@ -317,6 +330,7 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
     }
 }
 
+/// Walks statements and the optional tail expression of a block.
 pub fn walk_block<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, block: &'ast Block) {
     for stmt in &block.stmts {
         visitor.visit_stmt(stmt);
@@ -326,6 +340,7 @@ pub fn walk_block<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, block: &'ast
     }
 }
 
+/// Walks one statement and all nested child nodes.
 pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast Stmt) {
     for attribute in &stmt.attributes {
         walk_attribute(visitor, attribute);
@@ -369,6 +384,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
     }
 }
 
+/// Walks one expression and all nested operands, blocks, and patterns.
 pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast Expr) {
     match &expr.kind {
         ExprKind::Error
