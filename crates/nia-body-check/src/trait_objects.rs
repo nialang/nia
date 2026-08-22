@@ -221,7 +221,13 @@ impl<'a> BodyChecker<'a> {
         visited: &mut Vec<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
     ) {
         if visited.iter().any(|(trait_id, args, const_args)| {
-            *trait_id == source.trait_id && args == &source.args && const_args == &source.const_args
+            *trait_id == source.trait_id
+                && args.len() == source.args.len()
+                && args
+                    .iter()
+                    .zip(&source.args)
+                    .all(|(left, right)| self.types_match(*left, *right))
+                && self.const_generic_arg_slices_match(const_args, &source.const_args)
         }) {
             return;
         }
@@ -1562,7 +1568,13 @@ impl<'a> BodyChecker<'a> {
             return true;
         }
         if visited.iter().any(|(trait_id, args, const_args)| {
-            *trait_id == source.trait_id && args == &source.args && const_args == &source.const_args
+            *trait_id == source.trait_id
+                && args.len() == source.args.len()
+                && args
+                    .iter()
+                    .zip(&source.args)
+                    .all(|(left, right)| self.types_match(*left, *right))
+                && self.const_generic_arg_slices_match(const_args, &source.const_args)
         }) {
             return false;
         }

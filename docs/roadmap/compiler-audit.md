@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 324 completed entries in this ledger.
+- Implementation batches: 325 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1879,6 +1879,10 @@ acceptance item only when its phase-wide evidence is complete.
       obligation equivalence rather than raw interned type handles; the diamond
       regression routes one branch through a generic type alias and still emits
       one coherent concrete obligation set.
+- [x] Batch 325 aligns trait-object supertrait traversal with semantic cycle
+      guards. Binding collection and target-supertrait checks now compare
+      normalized type arguments and const arguments semantically, so aliases do
+      not reopen a visited path or produce order-dependent upcast metadata.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
