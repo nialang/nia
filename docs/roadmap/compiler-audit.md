@@ -1539,7 +1539,7 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Phase A trait-witness visibility now uses the canonical module-graph
       visibility predicate for direct imported traits, including `pub(pkg)`.
       Same-package trait impl witnesses remain usable while package-external
-      callers are rejected; the regression matrix passes with 640 driver tests,
+      callers are rejected; the regression matrix passes with 641 driver tests,
       246 compiler-query tests, and strict affected Clippy.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
