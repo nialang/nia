@@ -196,6 +196,11 @@ it does not make a reset implicit.
   Allocators with separately fallible backing ownership must return `false` so
   default `realloc` creates an empty block and frees the old owner; otherwise
   empty-block `free` semantics strand metadata and report a false leak.
+- A close-on-exec spawn error pipe is a protocol, not an ordinary best-effort
+  write. Retry interrupted fixed-record reads/writes, distinguish EOF only
+  after zero record bytes, and reap every failed child with an EINTR-safe wait.
+  Public child cleanup must attempt all owned pipe closes before returning the
+  first error, especially after exited status has been cached.
 - LLVM declaration readiness must retain const-expression ownership as well as
   const-argument type ownership. A `ConstGenericValue::ConstExpr` embedded in a
   nominal, trait-object, associated binding, or projection contributes its

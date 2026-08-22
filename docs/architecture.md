@@ -2509,6 +2509,15 @@ API is documented beside [`lib/std/build.nia`](../lib/std/build.nia), and
 standard-library filesystem and process behavior belongs to the corresponding
 `lib/std` facades and providers.
 
+Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
+error handshake. The child writes the complete stage/errno record and retries
+interrupted writes; the parent retries interrupted reads and reaps a failed
+child with an EINTR-safe wait loop. EOF before any record remains the sole
+successful-exec signal. Once a public `Child` records an exited status, pipe
+cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
+the first close error, so one failing close cannot strand later handles behind
+the cached status fast path.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
