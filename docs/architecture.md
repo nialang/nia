@@ -1922,6 +1922,15 @@ Function IR is deliberately separate from static/global initialization. Static
 initializers describe compile-time data for storage; function IR describes
 runtime executable control and value flow.
 
+`FunctionBody::value_refs` records method and trait substitutions as type roots.
+For `TraitMethod` and `TraitAssociatedFunction` callees, the selected trait and
+method are resolved only after concrete backend instantiation supplies the
+implementation and argument module, so the pre-instantiation reference walk
+does not manufacture a `FunctionInstanceRef`. It still retains both trait-level
+and method-level type/const argument types; once resolution produces a concrete
+`Method` or `FunctionInstance` callee, the normal complete instance key is
+collected.
+
 Each lowered body is owned directly by
 `LoweredFunctionBodyQuery(GlobalDefId)`. There is no module-level body store,
 storage id, session arena, or second semantic identity. Dropping a retired

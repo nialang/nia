@@ -563,13 +563,14 @@ fn collect_function_refs_from_callee(
             trait_args,
             trait_const_args,
             args,
+            const_args,
             receiver,
             ..
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
             refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
-            refs.types.extend(args.iter().copied());
+            collect_instance_types(args, const_args, refs);
             collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::TraitAssociatedFunction {
@@ -577,12 +578,13 @@ fn collect_function_refs_from_callee(
             trait_args,
             trait_const_args,
             args,
+            const_args,
             ..
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
             refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
-            refs.types.extend(args.iter().copied());
+            collect_instance_types(args, const_args, refs);
         }
         FunctionCallee::DynamicTraitMethod {
             object_ty,
@@ -722,7 +724,7 @@ mod tests {
         FunctionScopeId,
     };
     use nia_ids::{DefId, ModuleIdAllocator};
-    use nia_ty::{PrimitiveTy, TypeStore};
+    use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TypeStore};
 
     fn expr(ty: InternedTyId, kind: FunctionExprKind) -> FunctionExpr {
         FunctionExpr {
@@ -971,6 +973,86 @@ mod tests {
                 const_args: Vec::new(),
             }])
         );
+    }
+
+    #[test]
+    fn trait_callees_retain_method_const_argument_types() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let receiver_ty = append.primitive(PrimitiveTy::U8);
+        let method_const_ty = append.primitive(PrimitiveTy::Usize);
+        let associated_const_ty = append.primitive(PrimitiveTy::Bool);
+        let trait_id = global(module_id, 1);
+        let method_id = global(module_id, 2);
+        let associated_id = global(module_id, 3);
+        let const_arg = |ty, value| ConstGenericArg {
+            ty,
+            value: ConstGenericValue::Int(IntConst::unsigned(value)),
+        };
+        let receiver = || expr(receiver_ty, FunctionExprKind::Global(global(module_id, 4)));
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![
+                    FunctionOp::Expr(expr(
+                        receiver_ty,
+                        FunctionExprKind::Call {
+                            callee: FunctionCallee::TraitMethod {
+                                trait_id,
+                                method_id,
+                                method_name: nia_symbol::SymbolId::EMPTY,
+                                self_ty: receiver_ty,
+                                trait_args: Vec::new(),
+                                trait_const_args: Vec::new(),
+                                args: vec![receiver_ty],
+                                const_args: vec![const_arg(method_const_ty, 4)],
+                                receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
+                                receiver: Box::new(receiver()),
+                            },
+                            args: Vec::new(),
+                        },
+                    )),
+                    FunctionOp::Expr(expr(
+                        receiver_ty,
+                        FunctionExprKind::Call {
+                            callee: FunctionCallee::TraitAssociatedFunction {
+                                trait_id,
+                                method_id: associated_id,
+                                method_name: nia_symbol::SymbolId::EMPTY,
+                                self_ty: receiver_ty,
+                                trait_args: Vec::new(),
+                                trait_const_args: Vec::new(),
+                                args: vec![receiver_ty],
+                                const_args: vec![const_arg(associated_const_ty, 8)],
+                            },
+                            args: Vec::new(),
+                        },
+                    )),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: None,
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: receiver_ty,
+        };
+
+        let refs = body.value_refs(&types);
+
+        assert!(refs.types.contains(&method_const_ty));
+        assert!(refs.types.contains(&associated_const_ty));
     }
 
     #[test]
