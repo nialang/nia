@@ -110,7 +110,7 @@ impl TraitSolver<'_> {
             trait_args,
             trait_const_args,
             name,
-            &mut HashSet::new(),
+            &mut Vec::new(),
         )
     }
 
@@ -175,7 +175,7 @@ impl TraitSolver<'_> {
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
         name: &SymbolId,
-        active: &mut HashSet<AssociatedTypeProjectionKey>,
+        active: &mut Vec<AssociatedTypeProjectionKey>,
     ) -> Option<InternedTyId> {
         let goal = self.normalize_goal(TraitGoal {
             self_ty,
@@ -189,9 +189,13 @@ impl TraitSolver<'_> {
         };
         // Recursive projections have no finite normal form. Keep them unresolved instead of
         // overflowing or manufacturing an equality from a cycle.
-        if !active.insert(key.clone()) {
+        if (0..active.len()).any(|index| {
+            let active_key = active[index].clone();
+            active_key.name == key.name && self.goals_equivalent(&active_key.goal, &key.goal)
+        }) {
             return None;
         }
+        active.push(key.clone());
         let assumed = self
             .associated_type_assumptions
             .iter()
@@ -203,7 +207,7 @@ impl TraitSolver<'_> {
                 }
             });
         if let Some(assumed) = assumed {
-            active.remove(&key);
+            active.pop();
             return (!self.projection_matches_key(assumed, &key)).then_some(assumed);
         }
         let resolution = match self.select_user_impl_for_normalized_goal(&goal) {
@@ -221,7 +225,7 @@ impl TraitSolver<'_> {
                 else {
                     // Keep the projection guard balanced even when a source
                     // impl matches the trait but omits the requested item.
-                    active.remove(&key);
+                    active.pop();
                     return None;
                 };
                 Some(self.substitute_ty_with_consts(
@@ -240,7 +244,7 @@ impl TraitSolver<'_> {
             | TraitResolution::Unsatisfied
             | TraitResolution::Ambiguous => None,
         };
-        active.remove(&key);
+        active.pop();
         resolved
     }
 

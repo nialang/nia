@@ -507,7 +507,7 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
     let mut solver = context.solver(&[]);
 
     let missing_item = SymbolId::from_stable_hash(12);
-    let mut active = HashSet::new();
+    let mut active = Vec::new();
     assert_eq!(
         solver.resolve_associated_type_inner(
             actual_ty,
@@ -1078,5 +1078,76 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
             trait_const_args: Vec::new(),
         }),
         TraitResolution::Unsatisfied
+    );
+}
+
+#[test]
+fn associated_projection_guard_uses_semantic_goal_identity() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let target_def = GlobalDefId {
+        module_id,
+        def_id: DefId(60),
+    };
+    let trait_def = GlobalDefId {
+        module_id,
+        def_id: DefId(61),
+    };
+    let trait_id = TraitId::Source(trait_def);
+    let target_signed = append.intern(TyKind::Nominal {
+        def_id: target_def,
+        args: Vec::new(),
+        const_args: vec![ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::signed(5)),
+        }],
+    });
+    let target_unsigned = append.intern(TyKind::Nominal {
+        def_id: target_def,
+        args: Vec::new(),
+        const_args: vec![const_arg(usize_ty, 5)],
+    });
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let trait_impls = Vec::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    let name = SymbolId::from_stable_hash(62);
+    let mut active = vec![AssociatedTypeProjectionKey {
+        goal: TraitGoal {
+            self_ty: target_unsigned,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+        },
+        name,
+    }];
+
+    assert_eq!(
+        solver
+            .resolve_associated_type_inner(target_signed, trait_id, &[], &[], &name, &mut active,),
+        None
+    );
+    assert_eq!(
+        active.len(),
+        1,
+        "a recursive projection must not disturb its caller's guard"
     );
 }

@@ -1031,6 +1031,12 @@ construction does not borrow a mutable module interner: all reads use the
 session `TypeStore`, and synthesized goal or projection types are published
 through a module-scoped `TypeStoreAppend`.
 
+Trait and associated-type recursion use path-local semantic guards. Active
+trait goals and projection keys compare normalized type and const arguments
+through the solver's equivalence rules, so equivalent handles from different
+module appenders or signed/unsigned integer spellings cannot reopen a cycle.
+Each key is removed on every return path, including missing associated items.
+
 ## 7. Name Resolution
 
 ### 7.1 `nia-value-resolve`
