@@ -614,13 +614,14 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         method_args: &[InternedTyId],
     ) -> bool {
         if self.instantiation.defer_concrete_trait_diagnostics {
             return false;
         }
-        self.trait_method_call_is_concrete(self_ty, trait_args, &[], method_args)
-            && !self.source_trait_goal_is_satisfied(trait_id, trait_args, self_ty)
+        self.trait_method_call_is_concrete(self_ty, trait_args, trait_const_args, method_args)
+            && !self.source_trait_goal_is_satisfied(trait_id, trait_args, trait_const_args, self_ty)
     }
 
     pub(crate) fn builtin_trait_method_call_requires_concrete_impl(
@@ -641,13 +642,14 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> InternedTyId {
-        if self.source_trait_goal_is_satisfied(trait_id, trait_args, self_ty) {
+        if self.source_trait_goal_is_satisfied(trait_id, trait_args, trait_const_args, self_ty) {
             return self_ty;
         }
         if let Some(pointee) = self.pointer_elem_ty(self_ty)
-            && self.source_trait_goal_is_satisfied(trait_id, trait_args, pointee)
+            && self.source_trait_goal_is_satisfied(trait_id, trait_args, trait_const_args, pointee)
         {
             return pointee;
         }
@@ -658,6 +660,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
@@ -679,7 +682,7 @@ impl<'a> ModuleLowerer<'a> {
             self_ty,
             trait_id: TraitId::Source(trait_id),
             trait_args: trait_args.to_vec(),
-            trait_const_args: Vec::new(),
+            trait_const_args: trait_const_args.to_vec(),
         };
         solver.proves(goal)
     }

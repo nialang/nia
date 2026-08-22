@@ -164,6 +164,11 @@ it does not make a reset implicit.
   arguments must retain both type and const vectors, with const argument types
   recursively substituted. A type-only reconstruction can accept or reject a
   bound against the wrong const instance.
+- Backend static trait-method fallback must carry trait const arguments into
+  default-method self selection, concrete-implementation diagnostics, and the
+  solver `TraitGoal`, then retain them in the fallback `FunctionCallee` payload.
+  Clearing them at either boundary can select or materialize the wrong
+  implementation context even when dynamic vtable dispatch is correct.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

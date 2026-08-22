@@ -896,8 +896,12 @@ impl<'a> ModuleLowerer<'a> {
                         &args,
                     )
                 {
-                    let default_self_ty =
-                        self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
+                    let default_self_ty = self.default_trait_method_self_arg(
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        self_ty,
+                    );
                     let mut instance_args = trait_args.clone();
                     instance_args.extend(args);
                     FunctionCallee::Method {
@@ -905,7 +909,7 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id: self.current_arg_module_id(),
                         self_arg: Some(default_self_ty),
                         args: instance_args,
-                        const_args: Vec::new(),
+                        const_args: trait_const_args.clone(),
                         receiver_kind,
                         receiver,
                     }
@@ -914,6 +918,7 @@ impl<'a> ModuleLowerer<'a> {
                         self_ty,
                         trait_id,
                         &trait_args,
+                        &trait_const_args,
                         &args,
                     ) {
                         let method_name = self.symbol_name(method_name);
@@ -999,8 +1004,12 @@ impl<'a> ModuleLowerer<'a> {
                         &args,
                     )
                 {
-                    let default_self_ty =
-                        self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
+                    let default_self_ty = self.default_trait_method_self_arg(
+                        trait_id,
+                        &trait_args,
+                        &trait_const_args,
+                        self_ty,
+                    );
                     let mut instance_args = trait_args.clone();
                     instance_args.extend(args);
                     FunctionCallee::FunctionInstance {
@@ -1008,13 +1017,14 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id: self.current_arg_module_id(),
                         self_arg: Some(default_self_ty),
                         args: instance_args,
-                        const_args: Vec::new(),
+                        const_args: trait_const_args.clone(),
                     }
                 } else {
                     if self.trait_method_call_requires_concrete_impl(
                         self_ty,
                         trait_id,
                         &trait_args,
+                        &trait_const_args,
                         &args,
                     ) {
                         let method_name = self.symbol_name(method_name);
