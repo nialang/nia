@@ -1970,6 +1970,13 @@ acceptance item only when its phase-wide evidence is complete.
       rebuilt handles and integer const spellings cannot reopen recursion while
       sibling projections remain independent. Exact type-instantiation cache
       keys are unchanged.
+- [x] Batch 342 closes the monomorphization projection active-guard identity
+      bypass. Monomorphization now uses a path-local semantic projection stack
+      with structural type comparison and integer-bit const matching, while
+      unresolved const-expression ids remain exact. Exact `MonoInstanceKey`
+      deduplication, symbols, and type-instantiation cache keys remain unchanged;
+      an owner regression covers rebuilt cross-module handles and signed/unsigned
+      equivalent const spellings.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

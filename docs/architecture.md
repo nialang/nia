@@ -2237,6 +2237,12 @@ interner snapshots or prefix contracts. Existing handles are read from the
 canonical store and generated handles are published through module-scoped
 append capabilities.
 
+Associated-type instantiation uses a path-local semantic projection guard. The
+guard compares projection self/type arguments structurally and integer const
+arguments by bits, while unresolved const-expression identities remain exact;
+it does not replace the exact instance-key deduplication or type-instantiation
+cache contracts used for symbols and incremental products.
+
 ### 10.2 `nia-mangle`
 
 Builds deterministic internal symbol names from module ids, definition ids, and
