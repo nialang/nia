@@ -12,6 +12,12 @@ pub trait Writer {
 
     fn shortWrite(&self) Error;
 
+    // Implementations must never report more bytes than the supplied slice.
+    // Consumers use this fallback when an implementation violates that contract.
+    fn invalidWrite(&self) Error {
+        self.shortWrite()
+    }
+
     fn write(&mut self, bytes: &[u8]) Error!usize;
 
     fn flush(&mut self) Error!() {
@@ -31,6 +37,9 @@ pub trait Writer {
             if n == 0 {
                 return self.shortWrite()!;
             }
+            if n > chunk.len() {
+                return self.invalidWrite()!;
+            }
             written += n;
         }
         !()
@@ -49,6 +58,12 @@ pub trait Reader {
 
     fn endOfStream(&self) Error;
 
+    // Implementations must never report more bytes than the supplied slice.
+    // Consumers use this fallback when an implementation violates that contract.
+    fn invalidRead(&self) Error {
+        self.endOfStream()
+    }
+
     fn read(&mut self, bytes: &mut [u8]) Error!usize;
 
     fn readExact(&mut self, bytes: &mut [u8]) Error!() {
@@ -58,6 +73,9 @@ pub trait Reader {
             let n = self.read(chunk).?;
             if n == 0 {
                 return self.endOfStream()!;
+            }
+            if n > chunk.len() {
+                return self.invalidRead()!;
             }
             read += n;
         }

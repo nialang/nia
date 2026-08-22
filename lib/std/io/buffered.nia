@@ -70,10 +70,19 @@ where R: Reader
         } else if self.len() != 0 {
             !self.read_buffered(bytes)
         } else if bytes.len() >= self.buffer.len() {
-            self.reader.read(bytes)
+            let n = self.reader.read(bytes).?;
+            if n > bytes.len() {
+                return self.invalidRead()!;
+            }
+            !n
         } else {
             self.start = 0;
-            self.end = self.reader.read(self.buffer).?;
+            let n = self.reader.read(self.buffer).?;
+            if n > self.buffer.len() {
+                self.end = 0;
+                return self.invalidRead()!;
+            }
+            self.end = n;
             if self.end == 0 {
                 !0
             } else {
@@ -122,7 +131,11 @@ where W: Writer
             !0
         } else if bytes.len() > self.buffer.len() {
             self.flush().?;
-            self.writer.write(bytes)
+            let n = self.writer.write(bytes).?;
+            if n > bytes.len() {
+                return self.invalidWrite()!;
+            }
+            !n
         } else {
             let available = self.buffer.len() - self.len;
             if bytes.len() > available {
@@ -155,6 +168,9 @@ where W: Writer
             let n = self.writer.write(& self.buffer[0..self.len]).?;
             if n == 0 {
                 return self.shortWrite()!;
+            }
+            if n > self.len {
+                return self.invalidWrite()!;
             }
             if n == self.len {
                 self.len = 0;

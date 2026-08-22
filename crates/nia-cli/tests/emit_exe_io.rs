@@ -1567,3 +1567,157 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_io_rejects_invalid_transfer_counts() {
+    let root = temp_dir("emit_exe_std_io_rejects_invalid_transfer_counts");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::io;
+using std::process;
+
+enum TransferError {
+    End,
+    Short,
+}
+
+struct BadReader {
+    marker: bool,
+}
+
+extend BadReader : io::Reader {
+    type Error = TransferError;
+
+    fn endOfStream(&self) Error {
+        TransferError::End
+    }
+
+    fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        !(bytes.len() + 1usize)
+    }
+}
+
+struct BadWriter {
+    marker: bool,
+}
+
+extend BadWriter : io::Writer {
+    type Error = TransferError;
+
+    fn shortWrite(&self) Error {
+        TransferError::Short
+    }
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        !(bytes.len() + 1usize)
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut reader = BadReader { marker: false };
+    let mut destination: [u8; 2] = [0; 2];
+    match reader.readExact(&mut destination[..]) {
+        !ok => { _ = ok; return process::exit(1)!; },
+        TransferError::End! => {},
+        TransferError::Short! => { return process::exit(10)!; },
+    }
+
+    let mut bufferedStorage: [u8; 4] = [0; 4];
+    let mut bufferedReader = io::BufferedReader[BadReader]::init(
+        &mut reader,
+        &mut bufferedStorage[..],
+    );
+    match bufferedReader.read(&mut destination[..]) {
+        !ok => { _ = ok; return process::exit(2)!; },
+        TransferError::End! => {},
+        TransferError::Short! => { return process::exit(11)!; },
+    }
+    if bufferedReader.len() != 0 {
+        return process::exit(3)!;
+    }
+
+    let mut limitedReader = io::LimitedReader[BadReader]::init(
+        &mut reader,
+        io::Limit::limited(2usize),
+    );
+    match limitedReader.read(&mut destination[..]) {
+        !ok => { _ = ok; return process::exit(4)!; },
+        TransferError::End! => {},
+        TransferError::Short! => { return process::exit(12)!; },
+    }
+    match limitedReader.remaining() {
+        ?remaining => {
+            if remaining != 2usize {
+                return process::exit(5)!;
+            }
+        },
+        null => {
+            return process::exit(6)!;
+        },
+    }
+
+    let mut writer = BadWriter { marker: false };
+    match writer.writeAll(&b"ab") {
+        !ok => { _ = ok; return process::exit(7)!; },
+        TransferError::Short! => {},
+        TransferError::End! => { return process::exit(13)!; },
+    }
+
+    let mut directBacking = BadWriter { marker: false };
+    let mut directBuffer: [u8; 1] = [0];
+    let mut direct = io::BufferedWriter[BadWriter]::init(
+        &mut directBacking,
+        &mut directBuffer[..],
+    );
+    match direct.write(&b"ab") {
+        !ok => { _ = ok; return process::exit(18)!; },
+        TransferError::End! => { return process::exit(19)!; },
+        TransferError::Short! => {},
+    }
+
+    let mut bufferedWriterStorage: [u8; 4] = [0; 4];
+    let mut bufferedWriter = io::BufferedWriter[BadWriter]::init(
+        &mut writer,
+        &mut bufferedWriterStorage[..],
+    );
+    match bufferedWriter.writeAll(&b"ab") {
+        !ok => { _ = ok; },
+        TransferError::End! => { return process::exit(15)!; },
+        TransferError::Short! => { return process::exit(16)!; },
+    }
+    match bufferedWriter.flush() {
+        !ok => { _ = ok; return process::exit(8)!; },
+        TransferError::Short! => {},
+        TransferError::End! => { return process::exit(17)!; },
+    }
+    if bufferedWriter.len() != 2usize {
+        return process::exit(9)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe invalid transfer counts");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run invalid transfer count executable");
+    assert_eq!(status.code(), Some(0));
+}

@@ -6,14 +6,26 @@ using types::{ChildStderr, ChildStdin, ChildStdout};
 
 fn readHandle(handle: ?os::FileHandle, bytes: &mut [u8]) io::Error!usize {
     match handle {
-        ?value => value.readSome(bytes).asIoError(),
+        ?value => {
+            let n = value.readSome(bytes).asIoError().?;
+            if n > bytes.len() {
+                return io::Error::EndOfStream!;
+            }
+            !n
+        },
         null => io::Error::Closed!,
     }
 }
 
 fn writeHandle(handle: ?os::FileHandle, bytes: &[u8]) io::Error!usize {
     match handle {
-        ?value => value.writeSome(bytes).asIoError(),
+        ?value => {
+            let n = value.writeSome(bytes).asIoError().?;
+            if n > bytes.len() {
+                return io::Error::ShortWrite!;
+            }
+            !n
+        },
         null => io::Error::Closed!,
     }
 }

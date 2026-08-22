@@ -346,6 +346,9 @@ signals, not architecture goals.
 - Keep hand-written tests for dynamic repository/toolchain contracts and for
   process, filesystem, I/O, allocator, container, startup, runtime, and standard
   library semantics when those behaviors are the subject of the test.
+- Treat public reader/writer byte counts as untrusted implementation output:
+  validate `n <= requested.len()` before changing any cursor, buffered length, or
+  limit, and retain pending bytes when reporting an invalid transfer.
 - Tests and documentation describe the current contract. Historical behavior
   belongs in Git, not compatibility fixtures or stale debug switches.
 
