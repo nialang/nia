@@ -1580,10 +1580,11 @@ type/const args, and projection const args, including const-argument types that
 may themselves contain array-length expressions.
 
 Extension-trait signature indexing uses the same complete owner closure. Its
-type-module walk retains source trait and nominal owners, const-expression
-owners in all const metadata positions, and array-length expression owners;
-these modules remain available when provider discovery expands a signature
-through nested type references.
+type-module walk retains source trait and nominal owners, including the trait
+identity attached to an associated-type binding, const-expression owners in all
+const metadata positions, and array-length expression owners. These modules
+remain available when provider discovery expands a signature through nested
+type references.
 
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
