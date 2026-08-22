@@ -156,6 +156,10 @@ it does not make a reset implicit.
   `(trait, args, const_args)` identity and keep a separate expanded set so
   diamond siblings do not repeat diagnostics while a recursive path still
   terminates correctly.
+- When object-safety normalizes nested types, preserve nominal const arguments
+  and recursively normalize each argument's type. Dropping those fields makes
+  erased signatures disagree with trait-object identity and backend vtable
+  instantiation even when the source declaration is otherwise valid.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

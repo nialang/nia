@@ -1248,15 +1248,26 @@ impl<'a> BodyChecker<'a> {
                 let value = self.object_safe_ty(check, value);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.object_safe_ty(check, arg))
                     .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Nominal {
                     def_id,
                     args,
-                    const_args: Vec::new(),
+                    const_args,
                 })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
