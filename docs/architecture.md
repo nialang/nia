@@ -265,9 +265,10 @@ Nia-owned optimization consumers:
   Once a trait object is accepted, frontend semantic facts and backend vtable
   entry expansion must walk the same complete source-supertrait graph. The
   walk substitutes declaration-ordered type and const arguments at every edge
-  and uses a path-local trait-instance guard, so inherited default methods
-  retain their concrete identity without recursive graphs suppressing valid
-  siblings.
+  and uses both a path-local cycle guard and a per-coercion expanded-instance
+  set. Inherited default methods retain their concrete identity, recursive
+  graphs terminate, and diamond siblings do not duplicate frontend dependency
+  facts even though backend slot expansion preserves its path-shaped layout.
   Function-instance declarations derive
   their LLVM function type directly from the signature helper, so declarations
   do not need to construct temporary backend function bodies or clone instance

@@ -212,15 +212,13 @@ trait Base[N: usize] {
 }
 
 trait Child[N: usize] : Base[N] {
-    fn child(& self) usize;
+    fn child(& self) usize { 1usize }
 }
 
 struct Meter {}
 
 extend[N: usize] Meter : Base[N] {}
-extend[N: usize] Meter : Child[N] {
-    fn child(& self) usize { 1usize }
-}
+extend[N: usize] Meter : Child[N] {}
 
 fn read(value: & Child[8]) usize {
     value.value() + value.child()
@@ -238,7 +236,60 @@ fn main() usize {
         .iter_generic_instantiations()
         .filter(|instantiation| !instantiation.const_args.is_empty())
         .collect::<Vec<_>>();
-    assert_eq!(const_instances.len(), 1, "{const_instances:?}");
+    assert_eq!(const_instances.len(), 2, "{const_instances:?}");
+    assert!(const_instances.iter().all(|instantiation| matches!(
+        instantiation.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 8
+    )));
+}
+
+#[test]
+fn trait_object_vtable_instantiations_deduplicate_diamond_supertraits() {
+    let checked = pipeline(
+        r#"
+trait Base[N: usize] {
+    fn base(& self) usize { N }
+}
+
+trait Left[N: usize] : Base[N] {
+    fn left(& self) usize { 1usize }
+}
+
+trait Right[N: usize] : Base[N] {
+    fn right(& self) usize { 2usize }
+}
+
+trait Root[N: usize] : Left[N] + Right[N] {
+    fn root(& self) usize { 3usize }
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Base[N] {}
+extend[N: usize] Meter : Left[N] {}
+extend[N: usize] Meter : Right[N] {}
+extend[N: usize] Meter : Root[N] {}
+
+fn read(value: & Root[8]) usize {
+    value.left() + value.right() + value.root()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let const_instances = checked
+        .facts
+        .iter_generic_instantiations()
+        .filter(|instantiation| !instantiation.const_args.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(const_instances.len(), 4, "{const_instances:?}");
     assert!(const_instances.iter().all(|instantiation| matches!(
         instantiation.const_args.as_slice(),
         [nia_ty::ConstGenericArg {
