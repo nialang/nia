@@ -1536,7 +1536,10 @@ supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
 objects are erased and therefore cannot satisfy the statically-known-layout
 requirement; these checks belong at the body-check object boundary before
-vtable construction.
+vtable construction. Nested object-safe type reconstruction preserves nominal
+type and const arguments, including recursively normalized const argument
+types, so erased method signatures retain the same identity used by trait
+bindings and vtable lowering.
 
 Upcast validation matches target associated bindings against source bindings as
 an unordered one-to-one set with transactional backtracking. A compatible

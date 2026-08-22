@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 261 completed entries in this ledger.
+- Implementation batches: 262 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1574,6 +1574,12 @@ acceptance item only when its phase-wide evidence is complete.
       expanded set avoids duplicate diagnostics/work on diamond siblings. A
       const-generic inherited-supertrait regression covers the corrected owner;
       body-check and focused driver tests remain green.
+- [x] Phase A object-safety type reconstruction now preserves nominal const
+      arguments (including their argument types) while recursively normalizing
+      nested object-safe types. This keeps erased method signatures aligned with
+      the same const-bearing nominal identity used by trait-object bindings and
+      vtable lowering; body-check, driver, query, and workspace gates remain
+      green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
