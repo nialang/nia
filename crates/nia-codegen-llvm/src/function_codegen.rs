@@ -1382,7 +1382,7 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
                         *arg_module_id,
                         *self_arg,
                         args,
-                        &[],
+                        const_args,
                     )
                     .is_some_and(|function| function.is_extern)
             }

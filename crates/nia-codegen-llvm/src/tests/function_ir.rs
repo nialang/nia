@@ -8,6 +8,7 @@ use nia_function_ir::{
     FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionSliceRange,
     FunctionSwitchArm,
 };
+use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst};
 
 fn single_module_program(
     module_id: ModuleId,
@@ -4387,6 +4388,166 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+}
+
+#[test]
+fn emits_const_only_extern_method_instances_with_c_abi() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let receiver_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_ty,
+    });
+    let const_arg = ConstGenericArg {
+        ty: usize_ty,
+        value: ConstGenericValue::Int(IntConst::unsigned(4)),
+    };
+    let span = Span::default();
+    let main_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let method_id = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let param = BackendParam {
+        local_id: Some(LocalId(0)),
+        name: None,
+        receiver: Some(nia_ids::ReceiverKind::RefReadOnly),
+        passing_ty: receiver_ty,
+        local_ty: receiver_ty,
+        span,
+    };
+    let call = FunctionExpr {
+        span,
+        ty: i32_ty,
+        kind: FunctionExprKind::Call {
+            callee: FunctionCallee::Method {
+                def_id: method_id,
+                arg_module_id: module_id,
+                self_arg: None,
+                args: Vec::new(),
+                const_args: vec![const_arg.clone()],
+                receiver_kind: nia_ids::ReceiverKind::RefReadOnly,
+                receiver: Box::new(FunctionExpr {
+                    span,
+                    ty: receiver_ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+            },
+            args: Vec::new(),
+        },
+    };
+    let body = FunctionBody {
+        span,
+        locals: vec![FunctionLocal {
+            id: LocalId(0),
+            name: local_name("receiver"),
+            kind: FunctionLocalKind::Param,
+            ty: receiver_ty,
+            span,
+        }],
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(call),
+                span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty: i32_ty,
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (usize_ty, TypeLayout { size: 8, align: 8 }),
+                    (receiver_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: main_id,
+                name: sym("main"),
+                link_name: None,
+                generics: Vec::new(),
+                params: vec![BackendParam {
+                    local_id: Some(LocalId(0)),
+                    name: Some(sym("receiver")),
+                    receiver: None,
+                    passing_ty: receiver_ty,
+                    local_ty: receiver_ty,
+                    span,
+                }],
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: Some(body),
+                span,
+            }],
+            function_instances: vec![BackendFunctionInstance {
+                def_id: method_id,
+                name: sym("const_method"),
+                arg_module_id: module_id,
+                self_arg: None,
+                args: Vec::new(),
+                const_args: vec![const_arg],
+                symbol: "const_method_4".to_string(),
+                params: vec![param],
+                return_type: i32_ty,
+                is_extern: true,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: None,
+                span,
+            }],
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("declare i32 @const_method_4(ptr)"), "{ir}");
+    assert!(ir.contains("call i32 @const_method_4(ptr "), "{ir}");
 }
 
 #[test]
