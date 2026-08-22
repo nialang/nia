@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 325 completed entries in this ledger.
+- Implementation batches: 326 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1883,6 +1883,10 @@ acceptance item only when its phase-wide evidence is complete.
       guards. Binding collection and target-supertrait checks now compare
       normalized type arguments and const arguments semantically, so aliases do
       not reopen a visited path or produce order-dependent upcast metadata.
+- [x] Batch 326 closes the trait-solver layout fallback const-identity bypass.
+      Nominal layout keys now compare const argument types and values
+      semantically across module-owned interners and integer signedness, with an
+      owner regression proving `Sized` lookup finds the equivalent layout.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -287,7 +287,12 @@ impl TraitSolver<'_> {
                 }),
             ) => {
                 left_def == right_def
-                    && left_const_args == right_const_args
+                    && self.const_args_equivalent_in_layout_interner(
+                        left_const_args,
+                        right_const_args,
+                        layouts,
+                        seen,
+                    )
                     && self.type_slices_equivalent_in_layout_interner(
                         left_args, right_args, layouts, seen,
                     )
@@ -350,6 +355,42 @@ impl TraitSolver<'_> {
             }
             _ => false,
         }
+    }
+
+    fn const_args_equivalent_in_layout_interner(
+        &self,
+        left: &[nia_ty::ConstGenericArg],
+        right: &[nia_ty::ConstGenericArg],
+        layouts: &Layouts,
+        seen: &mut HashSet<(InternedTyId, InternedTyId)>,
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.types_equivalent_in_layout_interner(left.ty, right.ty, layouts, seen)
+                    && match (&left.value, &right.value) {
+                        (
+                            nia_ty::ConstGenericValue::GenericParam(left),
+                            nia_ty::ConstGenericValue::GenericParam(right),
+                        ) => left == right,
+                        (
+                            nia_ty::ConstGenericValue::ConstExpr(left),
+                            nia_ty::ConstGenericValue::ConstExpr(right),
+                        ) => left == right,
+                        (
+                            nia_ty::ConstGenericValue::Int(left),
+                            nia_ty::ConstGenericValue::Int(right),
+                        ) => left.bits() == right.bits(),
+                        (
+                            nia_ty::ConstGenericValue::Bool(left),
+                            nia_ty::ConstGenericValue::Bool(right),
+                        ) => left == right,
+                        (
+                            nia_ty::ConstGenericValue::Char(left),
+                            nia_ty::ConstGenericValue::Char(right),
+                        ) => left == right,
+                        _ => false,
+                    }
+            })
     }
 
     pub(crate) fn is_generic_param(&self, ty: InternedTyId) -> bool {

@@ -160,6 +160,69 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
 }
 
 #[test]
+fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let layout_module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let layout_append = type_store.append_for_module(layout_module_id);
+    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let layout_usize_ty = layout_append.primitive(PrimitiveTy::Usize);
+    let def_id = GlobalDefId {
+        module_id,
+        def_id: DefId(91),
+    };
+    let actual = append.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::signed(3)),
+        }],
+    });
+    let layout_key = layout_append.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![ConstGenericArg {
+            ty: layout_usize_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)),
+        }],
+    });
+    let layouts = nia_layout::Layouts {
+        target: nia_layout::TargetDataLayout::LP64,
+        types: HashMap::from([(layout_key, nia_layout::TypeLayout { size: 24, align: 8 })]),
+        structs: HashMap::new(),
+        unions: HashMap::new(),
+        enums: HashMap::new(),
+        struct_instances: HashMap::new(),
+        union_instances: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: Some(&layouts),
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let solver = context.solver(&[]);
+
+    assert!(solver.layout_of(actual));
+}
+
+#[test]
 fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
