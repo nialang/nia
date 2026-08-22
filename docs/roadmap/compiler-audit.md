@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 276 completed entries in this ledger.
+- Implementation batches: 278 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -470,6 +470,15 @@ acceptance item only when its phase-wide evidence is complete.
       creates the canonical empty block and frees the old large owner; the
       existing real executable allocator regression verifies empty state and
       clean deinitialization after the transition.
+- [x] Phase F Linux spawn error reporting now transfers its complete fixed-size
+      stage/errno record across the close-on-exec pipe, retries interrupted
+      reads and writes, and reaps every failed child through an EINTR-safe wait
+      loop. Existing exec/cwd failure and repeated pipe-cleanup executables cover
+      the parent/child protocol's observable paths.
+- [x] Phase F public child cleanup now attempts stdin, stdout, and stderr closes
+      even after one close fails, retaining only the first error. Exited-state
+      caching can no longer strand a later owned descriptor after cleanup
+      short-circuits; wait/EOF/pipe executable regressions cover the state path.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The

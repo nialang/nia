@@ -75,13 +75,13 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
                 fd
             },
             null => {
-                _ = wait(pid);
+                reap_spawn_failure(pid);
                 return SpawnError::Setup(Errno::Io)!;
             },
         };
         match read_spawn_error(error_read, pid).? {
             ?spawn_error => {
-                _ = wait(pid);
+                reap_spawn_failure(pid);
                 spawn_error!
             },
             null => {
@@ -110,7 +110,23 @@ fn report_spawn_error(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
 fn write_spawn_error(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
     let mut record = SpawnErrorRecord::init(stage, errno);
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
-    _ = fd.write_some(bytes);
+    let mut written = 0usize;
+    // The parent treats EOF before a record as successful close-on-exec.
+    while written < bytes.len() {
+        match fd.write_some(&bytes[written..]) {
+            !amount => {
+                if amount == 0usize {
+                    return;
+                }
+                written += amount;
+            },
+            Errno::Interrupted! => {},
+            error! => {
+                _ = error;
+                return;
+            },
+        }
+    }
 }
 
 fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?SpawnError {
@@ -119,17 +135,45 @@ fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?Spaw
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
     let mut read_len = 0usize;
     while read_len < bytes.len() {
-        let amount = fd.read_some(&mut bytes[read_len..]).as_spawn_setup_error().?;
+        let amount = match fd.read_some(&mut bytes[read_len..]) {
+            !amount => {
+                amount
+            },
+            Errno::Interrupted! => {
+                continue;
+            },
+            error! => {
+                reap_spawn_failure(pid);
+                return SpawnError::Setup(error)!;
+            },
+        };
         if amount == 0usize {
             if read_len == 0usize {
                 return !null;
             }
-            _ = wait(pid);
+            reap_spawn_failure(pid);
             return SpawnError::Setup(Errno::Io)!;
         }
         read_len += amount;
     }
     !(?SpawnError::from_stage(record.stage(), record.errno()))
+}
+
+fn reap_spawn_failure(pid: ProcessId) () {
+    // A failed handshake still owns the forked child until wait succeeds.
+    while true {
+        match wait(pid) {
+            !status => {
+                _ = status;
+                return;
+            },
+            Errno::Interrupted! => {},
+            error! => {
+                _ = error;
+                return;
+            },
+        }
+    }
 }
 
 fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &mut SpawnPipe, stderr_pipe: &mut SpawnPipe) Errno!() {
