@@ -6257,6 +6257,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
             init: Some(StaticInit::AddrOfFunction {
                 function: missing_function,
                 args: Vec::new(),
+                const_args: Vec::new(),
             }),
             span,
         }],
@@ -6319,6 +6320,7 @@ fn validates_static_function_address_signatures_before_llvm() {
             init: Some(StaticInit::AddrOfFunction {
                 function: function_id,
                 args: Vec::new(),
+                const_args: Vec::new(),
             }),
             span,
         })

@@ -2415,6 +2415,12 @@ materialization, not a general backend escape hatch for reinterpreting AST.
 `StaticInit` is the data-initialization boundary and remains separate from
 function IR.
 
+For `StaticInit::AddrOfFunction`, the concrete function identity is the pair
+of declaration-order type arguments and const arguments. Backend lowering,
+reachability, validation, LLVM lookup, and fingerprints must carry both
+vectors; reducing a const-generic address to its declaration alone can select
+the wrong monomorphized function.
+
 `GlobalDefId` is also the semantic identity of a static initializer; there is
 no separate `StaticInitId` or static-init store. `BodyIr.global_inits` shares
 immutable `Arc<StaticInit>` payloads with

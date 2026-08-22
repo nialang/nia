@@ -601,6 +601,7 @@ mod tests {
                     def_id: nia_ids::DefId(0),
                 },
                 args: Vec::new(),
+                const_args: Vec::new(),
             }),
             count: 0,
         };

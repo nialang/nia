@@ -1655,10 +1655,15 @@ impl<'a> Encoder<'a> {
                     }
                 }
             }
-            StaticInit::AddrOfFunction { function, args } => {
+            StaticInit::AddrOfFunction {
+                function,
+                args,
+                const_args,
+            } => {
                 self.tag(13);
                 self.global_def(*function);
                 self.types(args);
+                self.const_args(const_args);
             }
         }
     }
@@ -2190,6 +2195,7 @@ mod tests {
         main.globals[0].init = Some(StaticInit::AddrOfFunction {
             function: foreign_def,
             args: Vec::new(),
+            const_args: Vec::new(),
         });
         let fixture = fixture(
             BackendProgram {
@@ -2593,6 +2599,7 @@ mod tests {
             main.globals[0].init = Some(StaticInit::AddrOfFunction {
                 function: foreign_def,
                 args: Vec::new(),
+                const_args: Vec::new(),
             });
             fixture(
                 BackendProgram {
@@ -2654,6 +2661,7 @@ mod tests {
             main.globals[0].init = Some(StaticInit::AddrOfFunction {
                 function: foreign_def,
                 args: Vec::new(),
+                const_args: Vec::new(),
             });
             let mut foreign = declaration_module(
                 foreign_id,

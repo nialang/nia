@@ -433,15 +433,21 @@ impl ModuleLowerer<'_> {
                     })
                     .collect(),
             ),
-            nia_static_ir::StaticInit::AddrOfFunction { function, args } => {
-                nia_static_ir::StaticInit::AddrOfFunction {
-                    function,
-                    args: args
-                        .into_iter()
-                        .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
-                        .collect(),
-                }
-            }
+            nia_static_ir::StaticInit::AddrOfFunction {
+                function,
+                args,
+                const_args,
+            } => nia_static_ir::StaticInit::AddrOfFunction {
+                function,
+                args: args
+                    .into_iter()
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                    .collect(),
+                const_args: const_args
+                    .iter()
+                    .map(|arg| self.instantiate_const_generic_arg(arg, substitutions))
+                    .collect(),
+            },
             nia_static_ir::StaticInit::Zero
             | nia_static_ir::StaticInit::Int(_)
             | nia_static_ir::StaticInit::Float(_)

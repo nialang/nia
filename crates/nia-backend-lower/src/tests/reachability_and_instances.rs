@@ -144,6 +144,7 @@ fn main() i32 {
                     value: Box::new(StaticInit::AddrOfFunction {
                         function: unused,
                         args: Vec::new(),
+                        const_args: Vec::new(),
                     }),
                     count: 0,
                 }),
@@ -232,10 +233,12 @@ fn main() i32 {
                     StaticInit::AddrOfFunction {
                         function: kept,
                         args: Vec::new(),
+                        const_args: Vec::new(),
                     },
                     StaticInit::AddrOfFunction {
                         function: kept_id,
                         args: vec![i32_ty],
+                        const_args: Vec::new(),
                     },
                 ])),
             );
@@ -320,6 +323,7 @@ fn main() i32 {
                 Arc::new(StaticInit::AddrOfFunction {
                     function: kept,
                     args: Vec::new(),
+                    const_args: Vec::new(),
                 }),
             );
         },

@@ -1445,6 +1445,7 @@ mod tests {
                 std::sync::Arc::new(StaticInit::AddrOfFunction {
                     function,
                     args: vec![ty],
+                    const_args: Vec::new(),
                 }),
             )]),
         };

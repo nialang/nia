@@ -357,8 +357,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_static_address_init(&mut self, expr: &Expr) -> StaticInit {
-        if let Some((function, args)) = self.static_function_address(expr) {
-            return StaticInit::AddrOfFunction { function, args };
+        if let Some((function, args, const_args)) = self.static_function_address(expr) {
+            return StaticInit::AddrOfFunction {
+                function,
+                args,
+                const_args,
+            };
         }
         let place = self.lower_static_place(expr);
         match place.base {
@@ -377,9 +381,17 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn static_function_address(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        self.function_reference(expr)
-            .map(|reference| (reference.def_id, reference.args.clone()))
+    fn static_function_address(
+        &self,
+        expr: &Expr,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
+        self.function_reference(expr).map(|reference| {
+            (
+                reference.def_id,
+                reference.args.clone(),
+                reference.const_args.clone(),
+            )
+        })
     }
 
     fn lower_static_place(&mut self, expr: &Expr) -> StaticAddressPlace {

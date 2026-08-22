@@ -344,7 +344,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn instantiate_const_generic_arg(
+    pub(super) fn instantiate_const_generic_arg(
         &mut self,
         arg: &nia_ty::ConstGenericArg,
         substitutions: TypeSubstitutionId,
