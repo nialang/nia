@@ -2605,6 +2605,13 @@ layout. Its structural type equality fallback uses the same pair-cache shape as
 module codegen, keeping generic instance validation from repeatedly comparing
 type arguments whose const expressions normalize to the same value.
 
+Module-codegen aggregate and function-instance fallback scans use one shared
+semantic const-argument matcher: const types compare through structural type
+equivalence, integer values compare by bits, and unresolved non-integer values
+retain their exact identity. Exact map keys, declaration ownership, and output
+identity remain byte-for-byte exact; semantic matching is limited to fallback
+resolution and validation so caches and ABI owners do not acquire aliases.
+
 LLVM entry points receive the compiler-owned `Arc<BackendLowering>` and
 `Arc<TypeStore>` together with the producing compiler's `QuerySession`.
 The whole-program index owns those two shared roots, so validation and emission

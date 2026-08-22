@@ -427,7 +427,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         .struct_instance_layouts(*def_id)
                         .find_map(|item| {
                             (self.same_type_args(&item.key.args, args)
-                                && item.key.const_args.as_slice() == const_args.as_slice())
+                                && self.same_const_args(&item.key.const_args, const_args))
                             .then_some(item.layout.layout.clone())
                         })
                 })
@@ -441,7 +441,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         .union_instance_layouts(*def_id)
                         .find_map(|item| {
                             (self.same_type_args(&item.key.args, args)
-                                && item.key.const_args.as_slice() == const_args.as_slice())
+                                && self.same_const_args(&item.key.const_args, const_args))
                             .then_some(item.layout.layout.clone())
                         })
                 }),

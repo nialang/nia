@@ -171,7 +171,7 @@ impl BackendValidator<'_> {
                 .struct_instances_for(def_id)
                 .find(|item| {
                     self.same_type_args(&item.args, args)
-                        && item.const_args.as_slice() == const_args
+                        && self.same_const_args(&item.const_args, const_args)
                 })
                 .map(|item| item.args.clone());
             self.struct_fields_lookup_cache
@@ -213,7 +213,7 @@ impl BackendValidator<'_> {
                 .union_instances_for(def_id)
                 .find(|item| {
                     self.same_type_args(&item.args, args)
-                        && item.const_args.as_slice() == const_args
+                        && self.same_const_args(&item.const_args, const_args)
                 })
                 .map(|item| item.args.clone());
             self.union_fields_lookup_cache
