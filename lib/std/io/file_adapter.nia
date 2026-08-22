@@ -54,7 +54,11 @@ extend FileWriter {
     }
 
     fn write_direct(&mut self, bytes: &[u8]) fs::Error!usize {
-        self.file.writeSome(bytes).as_fs_error()
+        let n = self.file.writeSome(bytes).as_fs_error().?;
+        if n > bytes.len() {
+            return fs::Error::Io!;
+        }
+        !n
     }
 
     fn append_buffered(&mut self, bytes: &[u8]) () {
@@ -98,6 +102,9 @@ extend FileWriter : Writer {
             if n == 0 {
                 return self.shortWrite()!;
             }
+            if n > self.len {
+                return self.invalidWrite()!;
+            }
             if n == self.len {
                 self.len = 0;
             } else {
@@ -140,7 +147,11 @@ extend FileReader {
     }
 
     fn read_direct(&mut self, bytes: &mut [u8]) fs::Error!usize {
-        self.file.readSome(bytes).as_fs_error()
+        let n = self.file.readSome(bytes).as_fs_error().?;
+        if n > bytes.len() {
+            return fs::Error::Io!;
+        }
+        !n
     }
 
     fn read_buffered(&mut self, bytes: &mut [u8]) usize {

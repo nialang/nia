@@ -574,11 +574,19 @@ extend FileHandle {
     }
 
     pub(pkg) fn writeSome(&self, bytes: &[u8]) Error!usize {
-        self.platform().write_some(bytes).asOsError()
+        let n = self.platform().write_some(bytes).asOsError().?;
+        if n > bytes.len() {
+            return Error::Invalid!;
+        }
+        !n
     }
 
     pub(pkg) fn readSome(&self, bytes: &mut [u8]) Error!usize {
-        self.platform().read_some(bytes).asOsError()
+        let n = self.platform().read_some(bytes).asOsError().?;
+        if n > bytes.len() {
+            return Error::Invalid!;
+        }
+        !n
     }
 
     pub(pkg) fn close(&self) Error!() {
@@ -615,7 +623,11 @@ extend FileHandle {
     }
 
     fn readDirEntries(&self, buffer: &mut [u8]) Error!usize {
-        self.platform().read_dir_entries(buffer).asOsError()
+        let n = self.platform().read_dir_entries(buffer).asOsError().?;
+        if n > buffer.len() {
+            return Error::Invalid!;
+        }
+        !n
     }
 }
 

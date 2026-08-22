@@ -58,6 +58,9 @@ where R: Reader
                     }
                     let chunk = &mut bytes[0..count];
                     let n = self.reader.read(chunk).?;
+                    if n > count {
+                        return self.invalidRead()!;
+                    }
                     match self.limit.remaining {
                         ?current => {
                             self.limit = Limit::limited(current - n);
@@ -68,7 +71,11 @@ where R: Reader
                 }
             },
             null => {
-                self.reader.read(bytes)
+                let n = self.reader.read(bytes).?;
+                if n > bytes.len() {
+                    return self.invalidRead()!;
+                }
+                !n
             },
         }
     }

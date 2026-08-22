@@ -2518,6 +2518,14 @@ cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
 the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.
 
+The public `std::io::Reader` and `Writer` contracts require every implementation
+to report no more bytes than the slice supplied to that call. Trait defaults and
+all standard adapters validate this boundary before advancing a cursor,
+buffer, or `LimitedReader` budget; an invalid count is converted to the
+adapter's end-of-stream or short-write error while preserving buffered state.
+The OS file-handle and child-pipe facades enforce the same rule at their syscall
+boundary, so direct consumers cannot bypass the adapter invariant.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.

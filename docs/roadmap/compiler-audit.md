@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 278 completed entries in this ledger.
+- Implementation batches: 279 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -479,6 +479,12 @@ acceptance item only when its phase-wide evidence is complete.
       even after one close fails, retaining only the first error. Exited-state
       caching can no longer strand a later owned descriptor after cleanup
       short-circuits; wait/EOF/pipe executable regressions cover the state path.
+- [x] Phase F public reader/writer adapters now reject transfer counts larger
+      than their supplied slices before advancing cursors, buffers, or limits.
+      Trait defaults, buffered and limited adapters, file handles, and child
+      pipes share the same boundary contract; a malicious implementation
+      regression proves invalid counts return errors without corrupting pending
+      buffered state.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The
