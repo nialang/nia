@@ -1513,6 +1513,11 @@ these guarantees through the same cycle-guarded supertrait traversal. Bindings
 not present on that path are never synthesized, and incompatible target
 bindings remain rejected.
 
+Reachability checks use a path-local depth-first guard: each visited trait
+instance is removed before returning from its branch, including unavailable
+signature branches. This preserves termination for recursive declarations while
+still allowing independent sibling supertraits to be explored.
+
 Supertrait binding expansion also validates consistency of the inherited graph.
 The identity of a constraint includes the parent trait, its type and const
 arguments, and the associated type name. The same identity may be reached more
