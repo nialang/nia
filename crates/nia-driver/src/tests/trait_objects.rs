@@ -1168,3 +1168,30 @@ fn main() i32 { 0 }
         program.diagnostics
     );
 }
+
+#[test]
+fn trait_object_rejects_sized_supertrait() {
+    let root = temp_dir("trait_object_rejects_sized_supertrait");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Child : Sized {
+    fn value(&self) i32;
+}
+
+fn read(child: &Child) i32 {
+    child.value()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("not object safe")),
+        "{:?}",
+        program.diagnostics
+    );
+}
