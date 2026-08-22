@@ -1195,3 +1195,29 @@ fn read(child: &Child) i32 {
         program.diagnostics
     );
 }
+
+#[test]
+fn trait_object_builtin_iterator_supertrait_is_rejected() {
+    let root = temp_dir("trait_object_builtin_iterator_supertrait_is_rejected");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Child : Iterator {}
+
+fn read(child: &Child) i32 {
+    _ = child;
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("not object safe")),
+        "{:?}",
+        program.diagnostics
+    );
+}

@@ -974,17 +974,20 @@ impl<'a> BodyChecker<'a> {
                 ..
             } = supertrait_kind
             else {
-                // A `Sized` supertrait requires the erased object itself to
-                // have a statically known layout, which is impossible for a
-                // trait object. Other builtin supertraits do not contribute
-                // source-level object methods and remain handled elsewhere.
-                if matches!(
-                    supertrait_kind,
-                    TyKind::BuiltinTrait {
-                        trait_id: nia_ty::BuiltinTrait::Sized,
-                        ..
+                let Some(builtin_trait_id) = (match supertrait_kind {
+                    TyKind::BuiltinTrait { trait_id, .. }
+                        if trait_id == nia_ty::BuiltinTrait::Sized
+                            || !trait_id.required_methods().is_empty()
+                            || !trait_id.associated_types().is_empty()
+                            || !trait_id.associated_consts().is_empty() =>
+                    {
+                        Some(trait_id)
                     }
-                ) {
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                if builtin_trait_id == nia_ty::BuiltinTrait::Sized {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         check.span,
@@ -993,8 +996,18 @@ impl<'a> BodyChecker<'a> {
                             self.nominal_ty_name(trait_id, trait_args)
                         ),
                     ));
-                    *check.ok = false;
+                } else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        check.span,
+                        format!(
+                            "trait `{}` is not object safe because builtin supertrait `{}` is not supported by trait objects",
+                            self.nominal_ty_name(trait_id, trait_args),
+                            builtin_trait_id.name()
+                        ),
+                    ));
                 }
+                *check.ok = false;
                 continue;
             };
             let Some(supertrait_signature) = self.resolved_trait_signature(supertrait_id) else {

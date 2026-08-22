@@ -141,8 +141,9 @@ it does not make a reset implicit.
 - Trait-object object-safety checks must reject a source trait whose supertrait
   graph requires builtin `Sized`: the erased object has no statically known
   layout, so accepting that relationship would make the object contract
-  impossible. Other builtin supertraits remain outside source-method vtable
-  traversal unless their object contract is explicitly defined.
+  impossible. Builtin supertraits with methods or associated items must also
+  be rejected until their object-level vtable contract is explicitly defined;
+  marker-only builtin bounds remain eligible for their existing semantics.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.
