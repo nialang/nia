@@ -246,7 +246,7 @@ impl<'a> ModuleLowerer<'a> {
                             self.instantiate_const_generic_arg_with_id(
                                 &arg,
                                 substitutions,
-                                &mut HashSet::new(),
+                                &mut Vec::new(),
                             )
                         })
                         .collect(),
@@ -293,7 +293,7 @@ impl<'a> ModuleLowerer<'a> {
                                 self.instantiate_const_generic_arg_with_id(
                                     &arg,
                                     substitutions,
-                                    &mut HashSet::new(),
+                                    &mut Vec::new(),
                                 )
                             })
                             .collect(),
@@ -784,7 +784,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_const_generic_arg_with_id(
                             arg,
                             substitutions,
-                            &mut HashSet::new(),
+                            &mut Vec::new(),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -799,7 +799,7 @@ impl<'a> ModuleLowerer<'a> {
                             self.instantiate_const_generic_arg_with_id(
                                 &arg,
                                 substitutions,
-                                &mut HashSet::new(),
+                                &mut Vec::new(),
                             )
                         })
                         .collect(),
@@ -832,7 +832,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_const_generic_arg_with_id(
                             &arg,
                             substitutions,
-                            &mut HashSet::new(),
+                            &mut Vec::new(),
                         )
                     })
                     .collect();
@@ -869,7 +869,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_const_generic_arg_with_id(
                             arg,
                             substitutions,
-                            &mut HashSet::new(),
+                            &mut Vec::new(),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -982,7 +982,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_const_generic_arg_with_id(
                             arg,
                             substitutions,
-                            &mut HashSet::new(),
+                            &mut Vec::new(),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -996,7 +996,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_const_generic_arg_with_id(
                             arg,
                             substitutions,
-                            &mut HashSet::new(),
+                            &mut Vec::new(),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -1136,7 +1136,7 @@ impl<'a> ModuleLowerer<'a> {
                         self.instantiate_const_generic_arg_with_id(
                             &arg,
                             substitutions,
-                            &mut HashSet::new(),
+                            &mut Vec::new(),
                         )
                     })
                     .collect(),
@@ -1456,7 +1456,7 @@ impl<'a> ModuleLowerer<'a> {
                             self.instantiate_const_generic_arg_with_id(
                                 &arg,
                                 substitutions,
-                                &mut HashSet::new(),
+                                &mut Vec::new(),
                             )
                         })
                         .collect(),

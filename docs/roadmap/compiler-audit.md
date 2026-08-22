@@ -1964,6 +1964,12 @@ acceptance item only when its phase-wide evidence is complete.
       bits, while retaining exact declaration and cache identity. An owner test
       covers equivalent signed/unsigned const arguments across two type-store
       appenders.
+- [x] Batch 341 closes the backend-lower projection active-guard identity
+      bypass. Associated-type instantiation now uses a path-local semantic stack
+      instead of a raw `HashSet<ProjectionInstantiationKey>`, so equivalent
+      rebuilt handles and integer const spellings cannot reopen recursion while
+      sibling projections remain independent. Exact type-instantiation cache
+      keys are unchanged.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
