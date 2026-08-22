@@ -1790,6 +1790,11 @@ Backend extension-trait candidate selection applies the same semantic const
 matching to concrete impl arguments, including recursive const-argument types;
 generic pattern parameters remain wildcards.
 
+The extension type-pattern matcher uses that const-pattern relation at every
+nominal, trait-object, pointee, projection, and associated-binding boundary.
+Pattern matching therefore cannot fall back to raw const-argument vectors when
+the surrounding type was rebuilt in another interner.
+
 Where-bound candidate matching applies the same nominal identity rule during
 substitution: type arguments and const arguments remain separate, and each
 const argument type is recursively substituted. This keeps const-generic

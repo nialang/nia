@@ -1928,6 +1928,12 @@ acceptance item only when its phase-wide evidence is complete.
       compares their types semantically, and compares integer values by bits;
       generic pattern parameters remain wildcards. This keeps extension and
       trait-resolution selection aligned with backend vtable identity rules.
+- [x] Batch 335 closes the backend extension type-pattern identity bypass.
+      Nominal, trait-object, trait-object-pointee, projection, and associated
+      binding pattern branches now use the same semantic const-pattern relation
+      instead of raw const vectors. The extension-specificity regression now
+      runs through codegen, proving backend selection sees normalized const
+      expressions as the same concrete instance.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

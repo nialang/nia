@@ -514,20 +514,37 @@ impl<'a> ModuleLowerer<'a> {
         pattern: &[nia_ty::ConstGenericArg],
         actual: &[nia_ty::ConstGenericArg],
     ) -> bool {
+        self.const_generic_arg_patterns_match_semantic(pattern, actual)
+    }
+
+    fn const_generic_arg_patterns_match_semantic(
+        &mut self,
+        pattern: &[nia_ty::ConstGenericArg],
+        actual: &[nia_ty::ConstGenericArg],
+    ) -> bool {
         pattern.len() == actual.len()
-            && pattern.iter().zip(actual).all(|(pattern, actual)| {
-                let pattern = self.canonicalize_instance_const_arg(pattern);
-                let actual = self.canonicalize_instance_const_arg(actual);
-                matches!(pattern.value, nia_ty::ConstGenericValue::GenericParam(_))
-                    || (self.types_match(pattern.ty, actual.ty)
-                        && match (&pattern.value, &actual.value) {
-                            (
-                                nia_ty::ConstGenericValue::Int(pattern),
-                                nia_ty::ConstGenericValue::Int(actual),
-                            ) => pattern.bits() == actual.bits(),
-                            (pattern, actual) => pattern == actual,
-                        })
-            })
+            && pattern
+                .iter()
+                .zip(actual)
+                .all(|(pattern, actual)| self.const_generic_arg_pattern_matches(pattern, actual))
+    }
+
+    fn const_generic_arg_pattern_matches(
+        &mut self,
+        pattern: &nia_ty::ConstGenericArg,
+        actual: &nia_ty::ConstGenericArg,
+    ) -> bool {
+        let pattern = self.canonicalize_instance_const_arg(pattern);
+        let actual = self.canonicalize_instance_const_arg(actual);
+        self.types_match(pattern.ty, actual.ty)
+            && (matches!(pattern.value, nia_ty::ConstGenericValue::GenericParam(_))
+                || match (&pattern.value, &actual.value) {
+                    (
+                        nia_ty::ConstGenericValue::Int(pattern),
+                        nia_ty::ConstGenericValue::Int(actual),
+                    ) => pattern.bits() == actual.bits(),
+                    (pattern, actual) => pattern == actual,
+                })
     }
 
     pub(crate) fn normalize_where_predicates(
@@ -1724,7 +1741,10 @@ impl<'a> ModuleLowerer<'a> {
                     args,
                     const_args,
                 }) if pattern_def == def_id
-                    && pattern_const_args == const_args
+                    && self.const_generic_arg_patterns_match_semantic(
+                        &pattern_const_args,
+                        &const_args,
+                    )
                     && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
@@ -1762,7 +1782,10 @@ impl<'a> ModuleLowerer<'a> {
                 }) if is_readonly == pattern_const
                     && trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
-                    && pattern_const_args == trait_const_args
+                    && self.const_generic_arg_patterns_match_semantic(
+                        &pattern_const_args,
+                        &trait_const_args,
+                    )
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {
                     pattern_args
@@ -1792,7 +1815,10 @@ impl<'a> ModuleLowerer<'a> {
                     associated_type_bindings,
                 }) if trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
-                    && pattern_const_args == trait_const_args
+                    && self.const_generic_arg_patterns_match_semantic(
+                        &pattern_const_args,
+                        &trait_const_args,
+                    )
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {
                     pattern_args
@@ -1825,7 +1851,10 @@ impl<'a> ModuleLowerer<'a> {
                 }) if pattern_trait == trait_id
                     && pattern_name == name
                     && pattern_args.len() == trait_args.len()
-                    && pattern_const_args == trait_const_args =>
+                    && self.const_generic_arg_patterns_match_semantic(
+                        &pattern_const_args,
+                        &trait_const_args,
+                    ) =>
                 {
                     self.match_extension_type_pattern(pattern_self, self_ty, substitutions)
                         && pattern_args
@@ -2342,7 +2371,10 @@ impl<'a> ModuleLowerer<'a> {
         if pattern.name != actual.name
             || pattern.trait_id != actual.trait_id
             || pattern.trait_args.len() != actual.trait_args.len()
-            || pattern.trait_const_args != actual.trait_const_args
+            || !self.const_generic_arg_patterns_match_semantic(
+                &pattern.trait_const_args,
+                &actual.trait_const_args,
+            )
         {
             return false;
         }
