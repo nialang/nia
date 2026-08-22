@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 323 completed entries in this ledger.
+- Implementation batches: 324 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1874,6 +1874,11 @@ acceptance item only when its phase-wide evidence is complete.
       function references, BIR keeps const-only references as concrete instances,
       and backend templates/instances canonicalize const arguments so the
       source-visible receiver signature matches the emitted LLVM function.
+- [x] Batch 324 closes the supertrait obligation cycle-guard alias bypass.
+      Supertrait expansion now compares visited goals through semantic
+      obligation equivalence rather than raw interned type handles; the diamond
+      regression routes one branch through a generic type alias and still emits
+      one coherent concrete obligation set.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
