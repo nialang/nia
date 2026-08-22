@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 259 completed entries in this ledger.
+- Implementation batches: 260 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1561,6 +1561,13 @@ acceptance item only when its phase-wide evidence is complete.
       unsupported object-level contracts are rejected earlier. The body-check
       regression covers a const-generic inherited default method and all 254
       body-check tests pass.
+- [x] Phase A trait-object semantic instantiation collection now deduplicates
+      repeated concrete source-supertrait instances reached through diamond
+      inheritance while retaining the path-local cycle guard. Backend vtable
+      slot expansion remains path-shaped, but frontend dependency facts contain
+      one generic instance per concrete method identity; a const-generic
+      diamond regression verifies four identities rather than recording the
+      shared base twice.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

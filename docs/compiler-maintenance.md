@@ -133,8 +133,10 @@ it does not make a reset implicit.
 - Frontend vtable-instantiation facts and backend vtable-entry lowering must
   traverse the same source-supertrait graph. Substitute type and const
   arguments at each edge and key the active path guard by the complete trait
-  instance; otherwise inherited default methods can be omitted from semantic
-  facts even when backend lowering emits their slots.
+  instance; keep a separate per-coercion expanded set so diamond paths do not
+  duplicate semantic dependency facts. Otherwise inherited default methods can
+  be omitted from semantic facts even when backend lowering emits their slots,
+  or the same method instance can be recorded repeatedly.
 - Trait-object upcasts must use the same unordered bijection semantics as other
   associated-binding consumers. Candidate source bindings are speculative until
   all target bindings match, so a failed later binding cannot leave an earlier

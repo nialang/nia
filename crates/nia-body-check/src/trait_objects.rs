@@ -45,6 +45,15 @@ struct ObjectSafetyCheck<'a> {
     ok: &'a mut bool,
 }
 
+type TraitObjectVtableVisitKey = (GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>);
+
+struct TraitObjectVtableInstantiationContext {
+    span: Span,
+    self_ty: InternedTyId,
+    visiting: Vec<TraitObjectVtableVisitKey>,
+    expanded: Vec<TraitObjectVtableVisitKey>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn coerce_trait_object_to_supertrait(
         &mut self,
@@ -532,25 +541,26 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
-        let mut visiting = Vec::new();
-        self.record_trait_object_vtable_instantiations_inner(
+        let mut context = TraitObjectVtableInstantiationContext {
             span,
             self_ty,
+            visiting: Vec::new(),
+            expanded: Vec::new(),
+        };
+        self.record_trait_object_vtable_instantiations_inner(
             trait_id,
             trait_args,
             trait_const_args,
-            &mut visiting,
+            &mut context,
         );
     }
 
     fn record_trait_object_vtable_instantiations_inner(
         &mut self,
-        span: Span,
-        self_ty: InternedTyId,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
-        visiting: &mut Vec<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
+        context: &mut TraitObjectVtableInstantiationContext,
     ) {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
             return;
@@ -560,13 +570,21 @@ impl<'a> BodyChecker<'a> {
             trait_args.to_vec(),
             trait_const_args.to_vec(),
         );
-        if visiting.contains(&visit_key) {
+        if context.visiting.contains(&visit_key) {
             return;
         }
-        visiting.push(visit_key);
+        if context.expanded.contains(&visit_key) {
+            return;
+        }
+        context.visiting.push(visit_key);
+        context.expanded.push((
+            source_trait_id,
+            trait_args.to_vec(),
+            trait_const_args.to_vec(),
+        ));
 
         let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
-            visiting.pop();
+            context.visiting.pop();
             return;
         };
         for method in &trait_signature.methods {
@@ -577,19 +595,26 @@ impl<'a> BodyChecker<'a> {
             if let Some((def_id, args, const_args)) = self.trait_object_impl_method_instance(
                 source_trait_id,
                 &method.name,
-                self_ty,
+                context.self_ty,
                 trait_args,
                 trait_const_args,
             ) {
-                self.record_generic_instantiation_with_const_args(def_id, &args, &const_args, span);
+                self.record_generic_instantiation_with_const_args(
+                    def_id,
+                    &args,
+                    &const_args,
+                    context.span,
+                );
             } else if method.has_default {
-                let default_self_ty = self.trait_receiver_self_ty(self_ty).unwrap_or(self_ty);
+                let default_self_ty = self
+                    .trait_receiver_self_ty(context.self_ty)
+                    .unwrap_or(context.self_ty);
                 self.record_generic_instantiation_with_self_and_const_args(
                     method_id,
                     Some(default_self_ty),
                     trait_args,
                     trait_const_args,
-                    span,
+                    context.span,
                 );
             }
         }
@@ -615,15 +640,13 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
             self.record_trait_object_vtable_instantiations_inner(
-                span,
-                self_ty,
                 nia_ty::TraitId::Source(supertrait_id),
                 &supertrait_args,
                 &supertrait_const_args,
-                visiting,
+                context,
             );
         }
-        visiting.pop();
+        context.visiting.pop();
     }
 
     fn trait_object_impl_method_instance(
