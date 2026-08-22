@@ -1805,6 +1805,11 @@ checking a vtable payload against its trait-object type. This keeps malformed IR
 rejection strict for types and non-equivalent values without rejecting integer
 spellings that carry the same semantic bits.
 
+The dynamic-call validator and LLVM vtable slot/upcast lookup use the same
+relation. A rebuilt trait-object call therefore selects the same inherited slot
+when its integer const arguments differ only in signedness, while different
+values remain distinct.
+
 Where-bound candidate matching applies the same nominal identity rule during
 substitution: type arguments and const arguments remain separate, and each
 const argument type is recursively substituted. This keeps const-generic
