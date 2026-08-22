@@ -252,6 +252,10 @@ Nia-owned optimization consumers:
   reachability, and LLVM fingerprints must preserve both argument groups when
   converting a trait callee to a concrete method or associated-function
   instance; dropping method const arguments can alias distinct symbols.
+  Executable-facts extraction has two equivalent inputs, typed Body IR and
+  retained semantic facts. Both paths must emit the method's own generic
+  instantiation, including const arguments; typed-callee scanning cannot reduce
+  a method call to only its trait or receiver identity.
   Module-level DCE also builds per-pass indexes from function ids and instance
   refs to bodies, then walks transitive reachability with queues instead of
   repeatedly scanning every lowered function for each discovered reference.
