@@ -194,6 +194,10 @@ it does not make a reset implicit.
 - Backend IR validation recursively validates const-argument types in every
   type constructor, so malformed or session-mismatched metadata cannot bypass
   the validator merely by appearing in a const generic argument.
+- Executable reachability's type-only owner projection must retain both
+  `ConstGenericValue::ConstExpr` modules and `ArrayLenTy::ConstExpr` modules.
+  They can own layout/signature facts without owning a runtime body, so they
+  belong in `type_modules` even when no ordinary type argument points there.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

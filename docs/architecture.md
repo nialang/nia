@@ -1566,6 +1566,13 @@ module remains in the pending closure alongside the argument type and nominal
 owner. The backend validator mirrors this closure by recursively checking all
 const-argument types before accepting a type into LLVM lowering.
 
+Executable reachability applies the same owner rule to its type-only module
+projection: const generic values and array lengths that remain as
+`GlobalConstExprId` references add their expression modules even if those
+modules contribute no runtime function or global. This keeps type/layout
+products available for reachable signatures without promoting compile-time
+owners into the runtime body set.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
