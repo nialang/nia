@@ -1380,8 +1380,17 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .zip(&general.trait_const_args)
             .all(|(specific, general)| {
+                let specific = self.canonicalize_instance_const_arg(specific);
+                let general = self.canonicalize_instance_const_arg(general);
                 matches!(general.value, nia_ty::ConstGenericValue::GenericParam(_))
-                    || specific.value == general.value
+                    || (self.types_match(specific.ty, general.ty)
+                        && match (&specific.value, &general.value) {
+                            (
+                                nia_ty::ConstGenericValue::Int(specific),
+                                nia_ty::ConstGenericValue::Int(general),
+                            ) => specific.bits() == general.bits(),
+                            (specific, general) => specific == general,
+                        })
             });
         let const_strict = specific
             .trait_const_args
