@@ -2302,6 +2302,13 @@ structurally, including integer bits, instead of hashing raw interner handles;
 the stack is popped after each expansion so sibling projections remain
 independent. Exact type-instantiation caches continue to use their exact keys.
 
+Duplicate trait-object vtables retain an exact `(self type, object type)` owner
+key, but their repeated payload validation uses structural type equivalence and
+semantic integer-const comparison. Function and module identities, method and
+slot identities, and unresolved const-expression IDs remain exact, preserving
+ABI/output ownership while avoiding false conflicts from equivalent payload
+spellings.
+
 `GlobalDefId` is both the semantic identity and query key of a function; there
 is no separate body storage identity or body store. Immutable snapshots use
 `Arc` only when they have concurrent owners, a single-call read path uses a

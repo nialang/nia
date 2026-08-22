@@ -1977,6 +1977,12 @@ acceptance item only when its phase-wide evidence is complete.
       deduplication, symbols, and type-instantiation cache keys remain unchanged;
       an owner regression covers rebuilt cross-module handles and signed/unsigned
       equivalent const spellings.
+- [x] Batch 343 closes the backend-lower vtable-owner payload identity bypass.
+      Exact `(self type, object type)` vtable owner keys remain unchanged, while
+      duplicate payload validation compares nested type arguments structurally
+      and integer const values by bits. Function/module, method/slot, and
+      unresolved const-expression identities remain exact; a focused owner
+      regression covers signed/unsigned equivalent payload spellings.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
