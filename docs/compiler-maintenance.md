@@ -126,6 +126,10 @@ it does not make a reset implicit.
   the full parent identity (trait, type arguments, const arguments, and
   associated name) in diagnostics and tests so later consumers cannot inherit
   an ambiguous projection.
+- Trait-object reachability traversals must keep cycle guards path-local. Always
+  remove a node before returning from a DFS branch, including error or missing
+  signature paths; a global visited set can incorrectly hide a valid sibling
+  supertrait.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

@@ -1384,7 +1384,7 @@ impl<'a> BodyChecker<'a> {
             source.args.clone(),
             source.const_args.clone(),
         ));
-        match source.trait_id {
+        let result = match source.trait_id {
             TraitId::Builtin(trait_id) => trait_id.supertraits().iter().any(|supertrait| {
                 let supertrait_args = if supertrait.preserves_trait_args {
                     source.args.clone()
@@ -1403,6 +1403,9 @@ impl<'a> BodyChecker<'a> {
             }),
             TraitId::Source(source_trait_id) => {
                 let Some(signature) = self.resolved_trait_signature(source_trait_id) else {
+                    // The outer match must still unwind the path guard below.
+                    // Missing signatures are represented as a failed branch.
+                    visited.pop();
                     return false;
                 };
                 let (substitutions, const_substitutions) = self
@@ -1446,6 +1449,11 @@ impl<'a> BodyChecker<'a> {
                     }
                 })
             }
-        }
+        };
+        // `visited` tracks only the active DFS path. Pop before returning so
+        // a sibling supertrait can be explored independently after a failed
+        // branch, while cycles on the current path still terminate.
+        visited.pop();
+        result
     }
 }

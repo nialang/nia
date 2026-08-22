@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 252 completed entries in this ledger.
+- Implementation batches: 253 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1521,6 +1521,11 @@ acceptance item only when its phase-wide evidence is complete.
       produce a binding-specific diagnostic. Direct and diamond conflict
       regressions pass with 639 driver tests, 246 compiler-query tests, the
       workspace check, formatting, and strict affected Clippy.
+- [x] Phase A trait-object supertrait reachability now uses a path-local cycle
+      guard. DFS nodes are removed on every return, including missing-signature
+      diagnostics, so a failed branch cannot suppress a later sibling path.
+      Body-check (253), focused supertrait driver (23), workspace check, and
+      strict body-check Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
