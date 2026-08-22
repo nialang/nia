@@ -24,16 +24,16 @@ struct TraitVtableInstance<'a> {
     const_args: &'a [nia_ty::ConstGenericArg],
 }
 
-#[derive(Clone, PartialEq, Eq)]
-struct TraitVtableInstanceKey {
+#[derive(Clone)]
+struct TraitVtableInstanceSnapshot {
     trait_id: nia_ids::TraitId,
     args: Vec<InternedTyId>,
     const_args: Vec<nia_ty::ConstGenericArg>,
 }
 
 impl TraitVtableInstance<'_> {
-    fn key(self) -> TraitVtableInstanceKey {
-        TraitVtableInstanceKey {
+    fn snapshot(self) -> TraitVtableInstanceSnapshot {
+        TraitVtableInstanceSnapshot {
             trait_id: self.trait_id,
             args: self.args.to_vec(),
             const_args: self.const_args.to_vec(),
@@ -42,6 +42,31 @@ impl TraitVtableInstance<'_> {
 }
 
 impl<'a> ModuleLowerer<'a> {
+    fn trait_vtable_instances_match(
+        &mut self,
+        left: &TraitVtableInstanceSnapshot,
+        right: &TraitVtableInstanceSnapshot,
+    ) -> bool {
+        left.trait_id == right.trait_id
+            && left.args.len() == right.args.len()
+            && left.const_args.len() == right.const_args.len()
+            && left
+                .args
+                .iter()
+                .zip(&right.args)
+                .all(|(left, right)| self.types_match(*left, *right))
+            && left
+                .const_args
+                .iter()
+                .zip(&right.const_args)
+                .all(|(left, right)| {
+                    self.const_generic_args_match_semantic(
+                        std::slice::from_ref(left),
+                        std::slice::from_ref(right),
+                    )
+                })
+    }
+
     pub(crate) fn collect_trait_object_vtables_from_concrete_body(
         &mut self,
         body: &FunctionBody,
@@ -443,6 +468,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut entries,
             &mut next_slot,
             &mut Vec::new(),
+            &mut Vec::new(),
         );
         Some(BackendTraitObjectVtable {
             key,
@@ -475,13 +501,29 @@ impl<'a> ModuleLowerer<'a> {
         trait_instance: TraitVtableInstance<'_>,
         entries: &mut Vec<BackendTraitObjectVtableEntry>,
         next_slot: &mut usize,
-        visiting: &mut Vec<TraitVtableInstanceKey>,
+        visiting: &mut Vec<TraitVtableInstanceSnapshot>,
+        expanded: &mut Vec<TraitVtableInstanceSnapshot>,
     ) {
-        let visit_key = trait_instance.key();
-        if visiting.contains(&visit_key) {
+        let visit_key = trait_instance.snapshot();
+        if visiting
+            .iter()
+            .any(|existing| self.trait_vtable_instances_match(existing, &visit_key))
+        {
+            return;
+        }
+        if expanded
+            .iter()
+            .any(|existing| self.trait_vtable_instances_match(existing, &visit_key))
+        {
             return;
         }
         visiting.push(visit_key);
+        expanded.push(
+            visiting
+                .last()
+                .expect("just pushed vtable instance")
+                .clone(),
+        );
         let nia_ids::TraitId::Source(source_trait_id) = trait_instance.trait_id else {
             visiting.pop();
             return;
@@ -590,6 +632,7 @@ impl<'a> ModuleLowerer<'a> {
                 entries,
                 next_slot,
                 visiting,
+                expanded,
             );
         }
         visiting.pop();

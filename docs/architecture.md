@@ -1780,6 +1780,12 @@ so equivalent rebuilt handles or integer const spellings cannot reopen a cycle,
 duplicate an inherited method candidate, or materialize a second generic vtable
 instance.
 
+Backend supertrait vtable expansion keeps the exact `(self_ty, object_ty)` key for
+cache and output identity, while its traversal uses semantic type/const matching.
+The path-local recursion stack remains balanced for cyclic declarations, and a
+separate semantic expanded set suppresses repeated diamond branches so each
+inherited trait instance contributes one set of slots.
+
 Where-bound candidate matching applies the same nominal identity rule during
 substitution: type arguments and const arguments remain separate, and each
 const argument type is recursively substituted. This keeps const-generic

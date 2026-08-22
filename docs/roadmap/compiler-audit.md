@@ -1916,6 +1916,13 @@ acceptance item only when its phase-wide evidence is complete.
       adds a semantic expanded set alongside its path-local guard. A diamond
       regression with equivalent signed/unsigned const spellings proves dynamic
       dispatch remains unambiguous and records one generic vtable instance.
+- [x] Batch 333 closes the backend supertrait-vtable traversal identity bypass.
+      Backend type matching now compares nested nominal, trait-object,
+      projection, and associated-binding const arguments semantically. Vtable
+      expansion retains its path-local recursion guard and adds a semantic
+      expanded set, while exact cache/output keys remain unchanged. A codegen
+      diamond regression proves equivalent const spellings emit one inherited
+      trait segment and stable slots.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
