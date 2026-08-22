@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 255 completed entries in this ledger.
+- Implementation batches: 256 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1536,6 +1536,11 @@ acceptance item only when its phase-wide evidence is complete.
       proves that an earlier unbound sibling cannot hide the later `Item = i32`
       constraint; the focused driver matrix passes alongside the existing
       body-check and workspace gates.
+- [x] Phase A trait-witness visibility now uses the canonical module-graph
+      visibility predicate for direct imported traits, including `pub(pkg)`.
+      Same-package trait impl witnesses remain usable while package-external
+      callers are rejected; the regression matrix passes with 640 driver tests,
+      246 compiler-query tests, and strict affected Clippy.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
