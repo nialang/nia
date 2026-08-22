@@ -141,12 +141,26 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn same_const_args(&self, left: &[ConstGenericArg], right: &[ConstGenericArg]) -> bool {
-        left.len() == right.len()
-            && left
-                .iter()
-                .zip(right)
-                .all(|(left, right)| left.value == right.value && self.same_type(left.ty, right.ty))
+        const_args_match_semantic(left, right, |left, right| self.same_type(left, right))
     }
+}
+
+fn const_args_match_semantic(
+    left: &[ConstGenericArg],
+    right: &[ConstGenericArg],
+    mut same_type: impl FnMut(InternedTyId, InternedTyId) -> bool,
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            same_type(left.ty, right.ty)
+                && match (&left.value, &right.value) {
+                    (
+                        nia_ty::ConstGenericValue::Int(left),
+                        nia_ty::ConstGenericValue::Int(right),
+                    ) => left.bits() == right.bits(),
+                    (left, right) => left == right,
+                }
+        })
 }
 
 /// Converts a vtable entry count to LLVM's array-length representation.
@@ -179,5 +193,26 @@ mod tests {
         );
         assert_eq!(checked_vtable_slot_array_len(u32::MAX as usize), None);
         assert_eq!(checked_vtable_index(42), Some(42));
+    }
+
+    #[test]
+    fn const_argument_matching_ignores_integer_signedness() {
+        let ty = InternedTyId::new(
+            nia_ids::TypeStoreId::fresh(),
+            nia_ids::TypeStoreIndex::from_store_index(0),
+        );
+        let signed = ConstGenericArg {
+            ty,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(3)),
+        };
+        let unsigned = ConstGenericArg {
+            ty,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)),
+        };
+        assert!(const_args_match_semantic(
+            &[signed],
+            &[unsigned],
+            |left, right| left == right,
+        ));
     }
 }

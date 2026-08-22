@@ -1946,6 +1946,11 @@ acceptance item only when its phase-wide evidence is complete.
       instead of raw value equality. The malformed-IR regression uses equivalent
       signed/unsigned integer payload spellings and still reports independent
       slot and missing-function errors without a false trait-argument mismatch.
+- [x] Batch 338 closes the LLVM dynamic-slot const identity bypass. Dynamic-call
+      validator matching and module-codegen vtable slot/upcast lookup now use
+      semantic integer const comparison instead of raw values. Existing malformed
+      dynamic-call coverage plus a focused slot-matcher regression prove slot
+      selection remains stable for equivalent signed/unsigned spellings.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

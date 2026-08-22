@@ -4028,14 +4028,7 @@ impl BackendValidator<'_> {
     ) -> bool {
         entry.trait_id == trait_instance.trait_id
             && self.same_type_args(&entry.trait_args, trait_instance.args)
-            && entry.trait_const_args.len() == trait_instance.const_args.len()
-            && entry
-                .trait_const_args
-                .iter()
-                .zip(trait_instance.const_args)
-                .all(|(entry_arg, call_arg)| {
-                    entry_arg.value == call_arg.value && self.same_type(entry_arg.ty, call_arg.ty)
-                })
+            && self.same_const_args(&entry.trait_const_args, trait_instance.const_args)
     }
 
     fn dynamic_trait_target_signature(
