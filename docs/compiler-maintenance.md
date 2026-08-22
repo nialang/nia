@@ -187,6 +187,13 @@ it does not make a reset implicit.
   instance collectors and top-level backend type registration must likewise
   enqueue those types from nominal, trait-object, associated-binding, and
   projection positions.
+- LLVM declaration readiness must retain const-expression ownership as well as
+  const-argument type ownership. A `ConstGenericValue::ConstExpr` embedded in a
+  nominal, trait-object, associated binding, or projection contributes its
+  expression module to the pending dependency closure before codegen starts.
+- Backend IR validation recursively validates const-argument types in every
+  type constructor, so malformed or session-mismatched metadata cannot bypass
+  the validator merely by appearing in a const generic argument.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

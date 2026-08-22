@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 269 completed entries in this ledger.
+- Implementation batches: 270 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1620,6 +1620,11 @@ acceptance item only when its phase-wide evidence is complete.
       checks, while top-level type registration and struct/union discovery
       retain const metadata roots for nested aggregate materialization;
       backend-lower's focused regression and full 113-test suite pass.
+- [x] Phase B LLVM declaration readiness now retains owners of unevaluated
+      `ConstGenericValue::ConstExpr` values embedded in nominal, trait-object,
+      associated-binding, and projection metadata. Backend IR validation also
+      recursively checks every const-argument type; the declaration-membership
+      owner regression and codegen validation gates pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

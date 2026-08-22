@@ -12,7 +12,7 @@ use nia_function_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{MangleModuleId, MangleResolvers, mangle_symbol_id, mangle_type_with};
-use nia_ty::{ArrayLenTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TraitId, TyKind};
 
 use crate::program_index::ProgramIndex;
 
@@ -437,6 +437,14 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
+    fn add_const_arg_dependencies(&mut self, args: &[ConstGenericArg]) {
+        for arg in args {
+            if let ConstGenericValue::ConstExpr(expr_id) = arg.value {
+                self.dependency_modules.insert(expr_id.module_id);
+            }
+        }
+    }
+
     fn add_type_owner_dependencies(&mut self, kind: &TyKind) {
         match kind {
             TyKind::Array {
@@ -445,27 +453,41 @@ impl<'a> MembershipBuilder<'a> {
             } => {
                 self.dependency_modules.insert(expr_id.module_id);
             }
-            TyKind::Nominal { def_id, .. } => {
+            TyKind::Nominal {
+                def_id, const_args, ..
+            } => {
                 self.dependency_modules.insert(def_id.module_id);
+                self.add_const_arg_dependencies(const_args);
             }
             TyKind::TraitObject {
                 trait_id,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }
             | TyKind::TraitObjectPointee {
                 trait_id,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             } => {
                 self.add_trait_dependency(*trait_id);
+                self.add_const_arg_dependencies(trait_const_args);
                 for binding in associated_type_bindings {
                     if let Some(trait_id) = binding.trait_id {
                         self.add_trait_dependency(trait_id);
                     }
+                    self.add_const_arg_dependencies(&binding.trait_const_args);
                 }
             }
-            TyKind::Projection { trait_id, .. } => self.add_trait_dependency(*trait_id),
+            TyKind::Projection {
+                trait_id,
+                trait_const_args,
+                ..
+            } => {
+                self.add_trait_dependency(*trait_id);
+                self.add_const_arg_dependencies(trait_const_args);
+            }
             _ => {}
         }
     }
@@ -701,15 +723,15 @@ mod tests {
 
     use nia_backend_ir::{
         BackendConstFacts, BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule,
-        BackendModuleOwnerDirectory, BackendProgram,
+        BackendModuleOwnerDirectory, BackendProgram, BackendStruct,
     };
-    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_ids::{ConstExprId, DefId, GlobalConstExprId, ModuleIdAllocator};
     use nia_layout::TargetDataLayout;
     use nia_source::SourceIdentity;
     use nia_span::Span;
     use nia_static_ir::StaticInit;
     use nia_symbol::SymbolId;
-    use nia_ty::{PrimitiveTy, TypeStore};
+    use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TypeStore};
 
     use super::*;
     use crate::program_index::ProgramIndex;
@@ -877,6 +899,76 @@ mod tests {
             }
         };
         assert_eq!(ready.dependencies.modules(), &[caller, actual_owner]);
+    }
+
+    #[test]
+    fn membership_waits_for_const_expression_owner_in_nominal_type() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let caller = module_ids.allocate();
+        let const_owner = module_ids.allocate();
+        let types = TypeStore::new();
+        let append = types.append_for_module(caller);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let nominal_def = GlobalDefId {
+            module_id: caller,
+            def_id: DefId(9),
+        };
+        let nominal_ty = append.intern(TyKind::Nominal {
+            def_id: nominal_def,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: i32_ty,
+                value: ConstGenericValue::ConstExpr(GlobalConstExprId {
+                    module_id: const_owner,
+                    const_expr_id: ConstExprId(0),
+                }),
+            }],
+        });
+        let mut caller_backend = empty_module(caller, "caller.nia");
+        caller_backend.globals.push(BackendGlobal {
+            def_id: GlobalDefId {
+                module_id: caller,
+                def_id: DefId(0),
+            },
+            name: SymbolId::EMPTY,
+            link_name: None,
+            ty: nominal_ty,
+            is_let: false,
+            is_extern: true,
+            init: None,
+            span: Span::default(),
+        });
+        caller_backend.structs.push(BackendStruct {
+            def_id: nominal_def,
+            name: SymbolId::EMPTY,
+            generics: Vec::new(),
+            fields: Vec::new(),
+            is_extern: false,
+            span: Span::default(),
+        });
+        let modules = vec![caller_backend, empty_module(const_owner, "const-owner.nia")];
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let program = BackendProgram::new(modules);
+        let unit = CodegenUnitId::SourceModule {
+            module_id: caller,
+            ordinal: 0,
+        };
+        let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
+        publisher.publish(caller);
+
+        let result = {
+            let mut builder = MembershipBuilder::new(&index, &owners);
+            builder.add_type(nominal_ty);
+            builder.close_types();
+            builder.finish(unit)
+        };
+        let pending = match result {
+            CodegenDeclarationMembershipBuild::Pending(pending) => pending,
+            CodegenDeclarationMembershipBuild::Ready(_) => {
+                panic!("membership became ready before the const expression owner")
+            }
+        };
+        assert_eq!(pending.modules(), &[const_owner]);
     }
 
     #[test]
