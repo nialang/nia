@@ -41,7 +41,7 @@ use nia_trait_solve::TraitSolverContext;
 use nia_ty::TypeStoreAppend;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue,
-    TyKind, TypeStore,
+    TyKind, TypeEquivalence, TypeStore,
 };
 use nia_type_normalize::TypeNormalization;
 
@@ -225,7 +225,7 @@ struct TypeInstantiationKey {
     substitutions: TypeSubstitutionId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ProjectionInstantiationKey {
     self_ty: InternedTyId,
     trait_id: nia_ty::TraitId,
@@ -912,7 +912,7 @@ impl MonoCollector<'_> {
         ty: InternedTyId,
         substitutions: TypeSubstitutionId,
     ) -> InternedTyId {
-        self.instantiate_ty_inner(module_id, ty, substitutions, &mut HashSet::new())
+        self.instantiate_ty_inner(module_id, ty, substitutions, &mut Vec::new())
     }
 
     fn instantiate_ty_inner(
@@ -920,7 +920,7 @@ impl MonoCollector<'_> {
         module_id: ModuleId,
         ty: InternedTyId,
         substitutions: TypeSubstitutionId,
-        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+        active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> InternedTyId {
         let key = TypeInstantiationKey {
             module_id,
@@ -1095,9 +1095,12 @@ impl MonoCollector<'_> {
                         name,
                     },
                 );
-                if !active_projections.insert(projection_key.clone()) {
+                if active_projections.iter().any(|active| {
+                    projection_keys_match_semantic(self.type_store, active, &projection_key)
+                }) {
                     projection
                 } else {
+                    active_projections.push(projection_key.clone());
                     let resolved = self
                         .resolve_associated_type_projection(
                             module_id,
@@ -1115,7 +1118,7 @@ impl MonoCollector<'_> {
                                 active_projections,
                             )
                         });
-                    active_projections.remove(&projection_key);
+                    active_projections.pop();
                     resolved.unwrap_or(projection)
                 }
             }
@@ -1555,6 +1558,60 @@ impl MonoCollector<'_> {
     }
 }
 
+struct MonoTypeEquivalence<'a> {
+    type_store: &'a TypeStore,
+}
+
+impl TypeEquivalence for MonoTypeEquivalence<'_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.type_store.get(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        left == right
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        left == right || self.compute_same_type_for_equiv(left, right)
+    }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[ConstGenericArg],
+        right: &[ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type_for_equiv(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                            left.bits() == right.bits()
+                        }
+                        (left, right) => left == right,
+                    }
+            })
+    }
+}
+
+fn projection_keys_match_semantic(
+    type_store: &TypeStore,
+    left: &ProjectionInstantiationKey,
+    right: &ProjectionInstantiationKey,
+) -> bool {
+    let equivalence = MonoTypeEquivalence { type_store };
+    left.trait_id == right.trait_id
+        && left.name == right.name
+        && equivalence.same_type_for_equiv(left.self_ty, right.self_ty)
+        && left.trait_args.len() == right.trait_args.len()
+        && left
+            .trait_args
+            .iter()
+            .zip(&right.trait_args)
+            .all(|(left, right)| equivalence.same_type_for_equiv(*left, *right))
+        && equivalence
+            .same_const_generic_args_for_equiv(&left.trait_const_args, &right.trait_const_args)
+}
+
 fn module_mangle_id(
     source_identities: &HashMap<ModuleId, SourceIdentity>,
     module_id: ModuleId,
@@ -1698,4 +1755,45 @@ mod tests {
 
     #[path = "monomorphize/collector_caches.rs"]
     mod collector_caches;
+
+    #[test]
+    fn projection_guard_matches_rebuilt_const_arguments_semantically() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let left_module = module_ids.allocate();
+        let right_module = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let left = type_store.append_for_module(left_module);
+        let right = type_store.append_for_module(right_module);
+        let left_ty = left.primitive(PrimitiveTy::U32);
+        let right_ty = right.primitive(PrimitiveTy::U32);
+        let trait_id = nia_ty::TraitId::Source(GlobalDefId {
+            module_id: left_module,
+            def_id: DefId(1),
+        });
+        let left_key = ProjectionInstantiationKey {
+            self_ty: left_ty,
+            trait_id,
+            trait_args: vec![left_ty],
+            trait_const_args: vec![ConstGenericArg {
+                ty: left_ty,
+                value: ConstGenericValue::Int(nia_ty::IntConst::signed(5)),
+            }],
+            name: sym("Output"),
+        };
+        let right_key = ProjectionInstantiationKey {
+            self_ty: right_ty,
+            trait_id,
+            trait_args: vec![right_ty],
+            trait_const_args: vec![ConstGenericArg {
+                ty: right_ty,
+                value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(5)),
+            }],
+            name: left_key.name,
+        };
+        assert!(projection_keys_match_semantic(
+            &type_store,
+            &left_key,
+            &right_key
+        ));
+    }
 }
