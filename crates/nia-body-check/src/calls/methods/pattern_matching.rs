@@ -488,7 +488,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn match_array_len_pattern(
-        &self,
+        &mut self,
         pattern: &ArrayLenTy,
         actual: &ArrayLenTy,
         const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
@@ -506,34 +506,61 @@ impl<'a> BodyChecker<'a> {
             ty: self.interner.primitive(PrimitiveTy::Usize),
             value,
         };
-        Self::record_const_pattern_substitution(name, arg, const_substitutions)
+        self.record_const_pattern_substitution(name, arg, const_substitutions)
     }
 
     pub(crate) fn match_const_generic_arg_pattern(
-        &self,
+        &mut self,
         pattern: &nia_ty::ConstGenericArg,
         actual: &nia_ty::ConstGenericArg,
         const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
-        if pattern == actual {
+        if !self.types_equivalent_without_projection_resolution(pattern.ty, actual.ty) {
+            return false;
+        }
+        if let nia_ty::ConstGenericValue::GenericParam(name) = &pattern.value {
+            if let Some(existing) = const_substitutions.get(name) {
+                return self.const_pattern_args_match(existing, actual);
+            }
+            const_substitutions.insert(*name, actual.clone());
             return true;
         }
-        let nia_ty::ConstGenericValue::GenericParam(name) = &pattern.value else {
-            return false;
-        };
-        Self::record_const_pattern_substitution(name, actual.clone(), const_substitutions)
+        self.const_pattern_values_match(&pattern.value, &actual.value)
     }
 
     fn record_const_pattern_substitution(
+        &mut self,
         name: &SymbolId,
         arg: nia_ty::ConstGenericArg,
         const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         if let Some(existing) = const_substitutions.get(name) {
-            existing == &arg
+            self.const_pattern_args_match(existing, &arg)
         } else {
             const_substitutions.insert(*name, arg);
             true
+        }
+    }
+
+    fn const_pattern_args_match(
+        &mut self,
+        left: &nia_ty::ConstGenericArg,
+        right: &nia_ty::ConstGenericArg,
+    ) -> bool {
+        self.types_equivalent_without_projection_resolution(left.ty, right.ty)
+            && self.const_pattern_values_match(&left.value, &right.value)
+    }
+
+    fn const_pattern_values_match(
+        &self,
+        left: &nia_ty::ConstGenericValue,
+        right: &nia_ty::ConstGenericValue,
+    ) -> bool {
+        match (left, right) {
+            (nia_ty::ConstGenericValue::Int(left), nia_ty::ConstGenericValue::Int(right)) => {
+                left.bits() == right.bits()
+            }
+            (left, right) => left == right,
         }
     }
 

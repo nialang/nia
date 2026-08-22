@@ -1805,6 +1805,12 @@ generic pattern parameters remain wildcards. Extension specificity applies the
 same rule when proving a concrete candidate subsumes a general one, so signed
 and unsigned spellings of the same integer do not create a false mismatch.
 
+Body-check method and trait-object pattern matching uses the same boundary:
+const pattern types compare structurally, integer values compare by bits, and
+unresolved expression IDs remain exact. Generic pattern parameters are still
+wildcards, with repeated substitutions checked through this relation rather
+than raw `ConstGenericArg` equality.
+
 The extension type-pattern matcher uses that const-pattern relation at every
 nominal, trait-object, pointee, projection, and associated-binding boundary.
 Pattern matching therefore cannot fall back to raw const-argument vectors when
