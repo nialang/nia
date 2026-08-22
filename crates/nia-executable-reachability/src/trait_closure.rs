@@ -530,6 +530,7 @@ fn split_trait_generic_args(
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ReachableGenericInstantiationKey {
     def_id: GlobalDefId,
+    self_arg: Option<InternedTyId>,
     args: Vec<InternedTyId>,
     const_args: Vec<nia_ty::ConstGenericArg>,
 }
@@ -539,6 +540,7 @@ fn reachable_generic_instantiation_key(
 ) -> ReachableGenericInstantiationKey {
     ReachableGenericInstantiationKey {
         def_id: instantiation.def_id,
+        self_arg: instantiation.self_arg,
         args: instantiation.args.clone(),
         const_args: instantiation.const_args.clone(),
     }
@@ -1226,5 +1228,34 @@ mod tests {
         );
 
         assert_eq!(refs.methods.len(), 2);
+    }
+
+    #[test]
+    fn generic_trait_closure_identity_includes_method_receiver() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let receiver_a = append.primitive(PrimitiveTy::U8);
+        let receiver_b = append.primitive(PrimitiveTy::U16);
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(2),
+        };
+        let instantiation = |self_arg| nia_sema_ir::GenericInstantiation {
+            def_id,
+            self_arg,
+            args: Vec::new(),
+            const_args: Vec::new(),
+            generics: Vec::new(),
+            span: nia_span::Span::default(),
+            source_def_id: None,
+        };
+
+        let first = reachable_generic_instantiation_key(&instantiation(Some(receiver_a)));
+        let second = reachable_generic_instantiation_key(&instantiation(Some(receiver_b)));
+        let same = reachable_generic_instantiation_key(&instantiation(Some(receiver_a)));
+
+        assert_ne!(first, second);
+        assert_eq!(first, same);
     }
 }
