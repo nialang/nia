@@ -2615,6 +2615,14 @@ tree and returns a changed flag with the simplified value.
 Provides thin wrappers around LLVM APIs. It should keep unsafe and FFI-heavy LLVM
 interaction isolated from language phases.
 
+Typed GEP operations keep their LLVM layout preconditions at this boundary.
+`Builder::build_gep` and `Builder::build_struct_gep` are explicitly `unsafe`:
+the caller must establish pointee/layout compatibility, valid indices, and
+pointer provenance before LLVM receives the handles. The code generator derives
+those facts from checked backend projections and documents the corresponding
+unsafe call sites. The unused pointer-difference wrapper was removed rather
+than exposing an unchecked provenance contract with no consumer.
+
 ### 12.2 `nia-codegen-llvm`
 
 Emits LLVM IR, objects, and native codegen units from backend IR. It owns:

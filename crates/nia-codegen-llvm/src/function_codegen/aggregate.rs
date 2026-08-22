@@ -62,10 +62,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             let index = u32::try_from(index)
                 .map_err(|_| self.error(elem.span, "tuple field index is too large for LLVM"))?;
-            let field_ptr = self
-                .builder
-                .build_struct_gep(tuple_ty, ptr, index, "tuple.field.ptr")
-                .map_err(|_| self.error(elem.span, "failed to address tuple field"))?;
+            let field_ptr = unsafe {
+                self.builder
+                    .build_struct_gep(tuple_ty, ptr, index, "tuple.field.ptr")
+            }
+            .map_err(|_| self.error(elem.span, "failed to address tuple field"))?;
             let value = self.emit_expr(elem)?;
             self.builder
                 .build_store(field_ptr, value)
@@ -163,10 +164,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 continue;
             }
             let field_index = self.field_index(expr.ty, field_id, field.span)?;
-            let field_ptr = self
-                .builder
-                .build_struct_gep(struct_ty, ptr, field_index, "fieldptr")
-                .map_err(|_| self.error(field.span, "failed to build struct field address"))?;
+            let field_ptr = unsafe {
+                self.builder
+                    .build_struct_gep(struct_ty, ptr, field_index, "fieldptr")
+            }
+            .map_err(|_| self.error(field.span, "failed to build struct field address"))?;
             let value = self.emit_expr(&field.value)?;
             self.builder
                 .build_store(field_ptr, value)
@@ -743,9 +745,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ptr: PointerValue<'ctx>,
     ) -> Result<(), Diagnostic> {
         let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let tag_ptr = self
-            .builder
-            .build_struct_gep(ty, ptr, 0, "tagptr")
+        let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, "tagptr") }
             .map_err(|_| self.error(expr.span, "failed to build tagged union tag address"))?;
         let tag_value = self.module.context.i8_type().const_int(tag.into(), false);
         self.builder
@@ -756,9 +756,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_effect_expr(payload)?;
                 return Ok(());
             }
-            let storage_ptr = self
-                .builder
-                .build_struct_gep(ty, ptr, 1, "payloadptr")
+            let storage_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 1, "payloadptr") }
                 .map_err(|_| {
                     self.error(expr.span, "failed to build tagged union payload address")
                 })?;
@@ -791,9 +789,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_alloca(ty, "enumtmp")
             .map_err(|_| self.error(expr.span, "failed to allocate enum literal"))?;
-        let tag_ptr = self
-            .builder
-            .build_struct_gep(ty, ptr, 0, "enum.tag.ptr")
+        let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, "enum.tag.ptr") }
             .map_err(|_| self.error(expr.span, "failed to address enum tag"))?;
         let tag = self.enum_variant_tag_value(expr.span, def_id, enum_item.backing_type)?;
         self.builder

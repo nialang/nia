@@ -68,9 +68,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     return Ok(base_ptr);
                 }
                 let field_index = self.field_index(lhs.ty, *field, span)?;
-                self.builder
-                    .build_struct_gep(base_ty, base_ptr, field_index, "fieldptr")
-                    .map_err(|_| self.error(span, "failed to build field address"))
+                unsafe {
+                    self.builder
+                        .build_struct_gep(base_ty, base_ptr, field_index, "fieldptr")
+                }
+                .map_err(|_| self.error(span, "failed to build field address"))
             }
             FunctionExprKind::Index { lhs, index } => self.emit_index_expr_addr(span, lhs, index),
             FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
@@ -455,10 +457,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             continue;
                         }
                         let field_index = self.field_index(current_ty, *field, place.span)?;
-                        ptr = self
-                            .builder
-                            .build_struct_gep(base_ty, ptr, field_index, "fieldptr")
-                            .map_err(|_| self.error(place.span, "failed to build field address"))?;
+                        ptr = unsafe {
+                            self.builder
+                                .build_struct_gep(base_ty, ptr, field_index, "fieldptr")
+                        }
+                        .map_err(|_| self.error(place.span, "failed to build field address"))?;
                     }
                     current_ty = self.field_ty(current_ty, *field, place.span)?;
                 }
@@ -482,12 +485,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         let index = u32::try_from(*index).map_err(|_| {
                             self.error(place.span, "tuple field index is too large for LLVM")
                         })?;
-                        ptr = self
-                            .builder
-                            .build_struct_gep(base_ty, ptr, index, "tuple.place.field.ptr")
-                            .map_err(|_| {
-                                self.error(place.span, "failed to build tuple field address")
-                            })?;
+                        ptr = unsafe {
+                            self.builder.build_struct_gep(
+                                base_ty,
+                                ptr,
+                                index,
+                                "tuple.place.field.ptr",
+                            )
+                        }
+                        .map_err(|_| {
+                            self.error(place.span, "failed to build tuple field address")
+                        })?;
                     }
                     current_ty = elem_ty;
                 }

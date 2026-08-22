@@ -13,8 +13,8 @@ use llvm_sys::core::{
     LLVMBuildFRem, LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp,
     LLVMBuildInsertElement, LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2,
     LLVMBuildMemCpy, LLVMBuildMemMove, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot,
-    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrDiff2, LLVMBuildPtrToInt,
-    LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
+    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrToInt, LLVMBuildRet,
+    LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
     LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
     LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
     LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
@@ -192,7 +192,14 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Computes the address of a physical struct field.
-    pub fn build_struct_gep<T: AsTypeRef>(
+    ///
+    /// # Safety
+    /// `pointee_ty` must be the actual struct type addressed by `ptr`, and
+    /// `index` must be less than that struct's field count. The pointer must
+    /// retain provenance to an allocation whose layout is compatible with the
+    /// supplied type. LLVM's opaque-pointer API cannot prove these conditions
+    /// from the handles alone, so callers must establish them before calling.
+    pub unsafe fn build_struct_gep<T: AsTypeRef>(
         &self,
         pointee_ty: T,
         ptr: PointerValue<'ctx>,
@@ -200,6 +207,8 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
+        // SAFETY: The caller upholds the struct type, field index, and pointer
+        // provenance contract documented above.
         let value = unsafe {
             LLVMBuildStructGEP2(
                 self.raw,
@@ -210,27 +219,6 @@ impl<'ctx> Builder<'ctx> {
             )
         };
         Ok(PointerValue::new(require_value(value, "struct GEP")?))
-    }
-
-    /// Computes the element distance between two pointers of one pointee type.
-    pub fn build_ptr_diff<T: AsTypeRef>(
-        &self,
-        pointee_ty: T,
-        lhs: PointerValue<'ctx>,
-        rhs: PointerValue<'ctx>,
-        name: &str,
-    ) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name)?;
-        let value = unsafe {
-            LLVMBuildPtrDiff2(
-                self.raw,
-                pointee_ty.as_type_ref(),
-                lhs.as_value_ref(),
-                rhs.as_value_ref(),
-                name.as_ptr(),
-            )
-        };
-        Ok(IntValue::new(require_value(value, "pointer difference")?))
     }
 
     /// Creates an empty phi node whose incoming edges are added separately.

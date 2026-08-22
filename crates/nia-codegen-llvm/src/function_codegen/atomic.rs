@@ -213,10 +213,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             out,
             FunctionOptionalTag::Some.discriminant(),
         )?;
-        let payload_ptr = self
-            .builder
-            .build_struct_gep(optional_ty, out, 1, "cmpxchg.payload")
-            .map_err(|_| self.error(expr.span, "failed to build cmpxchg payload address"))?;
+        let payload_ptr = unsafe {
+            self.builder
+                .build_struct_gep(optional_ty, out, 1, "cmpxchg.payload")
+        }
+        .map_err(|_| self.error(expr.span, "failed to build cmpxchg payload address"))?;
         self.builder
             .build_store(payload_ptr, old)
             .map_err(|_| self.error(expr.span, "failed to store cmpxchg old value"))?;
@@ -251,10 +252,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         tag: u8,
     ) -> Result<(), Diagnostic> {
         let optional_ty = self.module.llvm_basic_type(optional_ty, span)?;
-        let tag_ptr = self
-            .builder
-            .build_struct_gep(optional_ty, ptr, 0, "optional.tag")
-            .map_err(|_| self.error(span, "failed to build optional tag address"))?;
+        let tag_ptr = unsafe {
+            self.builder
+                .build_struct_gep(optional_ty, ptr, 0, "optional.tag")
+        }
+        .map_err(|_| self.error(span, "failed to build optional tag address"))?;
         let tag = self.module.context.i8_type().const_int(tag.into(), false);
         self.builder
             .build_store(tag_ptr, tag)
