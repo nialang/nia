@@ -159,6 +159,10 @@ it does not make a reset implicit.
   arguments as well as ordinary type arguments. Check `ConstGenericArg::ty` at
   both recursive type traversal and concrete instance admission, or deeply
   nested const metadata can bypass convergence protection.
+- Layout-root collection must enqueue the type of every const argument, not only
+  ordinary type arguments. This applies to nominal values, trait objects,
+  associated bindings, projections, and standalone generic instantiation facts;
+  const metadata can reference aggregates with independent layout ownership.
 - Object-safety DFS must substitute both type and const arguments for every
   inherited source trait instance. Key its active cycle guard by the complete
   `(trait, args, const_args)` identity and keep a separate expanded set so

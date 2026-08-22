@@ -1547,6 +1547,11 @@ identity-bearing inputs: the depth walker and concrete-instance admission both
 traverse each `ConstGenericArg::ty`, including types nested inside nominal,
 trait-object, and projection arguments.
 
+Layout-root collection follows the same rule. It enqueues const argument types
+from standalone instantiation facts and every nested nominal, trait-object,
+associated-binding, or projection position so aggregate owners referenced only
+by const metadata still receive layout materialization.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
