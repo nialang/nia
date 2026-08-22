@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 253 completed entries in this ledger.
+- Implementation batches: 254 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1526,6 +1526,11 @@ acceptance item only when its phase-wide evidence is complete.
       diagnostics, so a failed branch cannot suppress a later sibling path.
       Body-check (253), focused supertrait driver (23), workspace check, and
       strict body-check Clippy pass.
+- [x] Phase A trait-object upcast binding validation now performs a complete
+      one-to-one backtracking match instead of committing the first compatible
+      source binding. This keeps upcast identity aligned with body-check,
+      solver, specialization, and backend binding-set semantics. Body-check
+      and four focused driver upcast tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
