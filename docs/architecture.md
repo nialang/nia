@@ -1795,6 +1795,11 @@ nominal, trait-object, pointee, projection, and associated-binding boundary.
 Pattern matching therefore cannot fall back to raw const-argument vectors when
 the surrounding type was rebuilt in another interner.
 
+Executable reachability replays the same extension pattern match across cached
+type stores. Its const witness relation compares integer values by semantic bits
+and preserves typed structural comparison; unresolved const-expression IDs
+remain exact because reachability does not own a const evaluator.
+
 Where-bound candidate matching applies the same nominal identity rule during
 substitution: type arguments and const arguments remain separate, and each
 const argument type is recursively substituted. This keeps const-generic

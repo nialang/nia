@@ -1934,6 +1934,13 @@ acceptance item only when its phase-wide evidence is complete.
       instead of raw const vectors. The extension-specificity regression now
       runs through codegen, proving backend selection sees normalized const
       expressions as the same concrete instance.
+- [x] Batch 336 closes the executable-reachability const witness identity
+      bypass. Cross-store extension pattern matching and repeated const
+      substitutions now compare integer values by semantic bits while retaining
+      typed structural comparison; unresolved const-expression IDs remain exact
+      because this phase has no evaluator. A reachability regression accepts
+      equivalent signed/unsigned integer spellings but still rejects conflicting
+      repeated values.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

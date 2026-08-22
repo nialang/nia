@@ -758,7 +758,7 @@ fn match_const_generic_arg_patterns(
                 substitutions,
             );
         }
-        pattern.value == actual.value
+        const_generic_values_equivalent(&pattern.value, &actual.value)
             && typed_refs_equivalent(
                 TypedTyRef {
                     store: pattern_store,
@@ -778,7 +778,7 @@ fn record_const_substitution(
     substitutions: &mut PatternSubstitutions,
 ) -> bool {
     if let Some(existing) = substitutions.consts.get(&name) {
-        existing == &arg
+        existing.ty == arg.ty && const_generic_values_equivalent(&existing.value, &arg.value)
     } else {
         substitutions.consts.insert(name, arg);
         true
@@ -1272,7 +1272,7 @@ fn const_generic_args_equivalent(
 ) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
-            left.value == right.value
+            const_generic_values_equivalent(&left.value, &right.value)
                 && typed_refs_equivalent(
                     TypedTyRef {
                         store: left_store,
@@ -1284,6 +1284,18 @@ fn const_generic_args_equivalent(
                     },
                 )
         })
+}
+
+fn const_generic_values_equivalent(
+    left: &nia_ty::ConstGenericValue,
+    right: &nia_ty::ConstGenericValue,
+) -> bool {
+    match (left, right) {
+        (nia_ty::ConstGenericValue::Int(left), nia_ty::ConstGenericValue::Int(right)) => {
+            left.bits() == right.bits()
+        }
+        (left, right) => left == right,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1621,6 +1633,71 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn repeated_const_pattern_compares_integer_values_semantically() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let const_name = symbol("N");
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(3),
+        };
+        let param = || ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::GenericParam(const_name),
+        };
+        let pattern = append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![param(), param()],
+        });
+        let actual = append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![
+                ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::signed(3)),
+                },
+                ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)),
+                },
+            ],
+        });
+        let generic_params = [nia_item_signatures::GenericParamSignature {
+            name: const_name,
+            kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
+        }];
+
+        let matched = match_reachable_extension_impl(
+            TypedTyRef {
+                store: &store,
+                ty: pattern,
+            },
+            std::iter::empty(),
+            &generic_params,
+            TypedTyRef {
+                store: &store,
+                ty: actual,
+            },
+            std::iter::empty(),
+            &[],
+            &[],
+        )
+        .expect("equivalent integer spellings should bind one const parameter");
+
+        assert!(matches!(
+            matched.consts.get(&const_name),
+            Some(ConstGenericArg {
+                value: ConstGenericValue::Int(value),
+                ..
+            }) if value.bits() == 3
+        ));
     }
 
     #[test]
