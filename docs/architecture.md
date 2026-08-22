@@ -1055,6 +1055,11 @@ Body-check projection normalization applies the same path-local semantic key
 rule before asking the solver to resolve a projection, so frontend normalization
 cannot reopen a recursive associated-type path through a rebuilt handle.
 
+Program-signature trait-impl and associated-projection deduplication also uses
+the shared structural const-argument relation. Integer values compare by bits,
+while unresolved expression identities stay exact; this keeps equivalent
+impls from being duplicated without collapsing distinct unresolved values.
+
 ## 7. Name Resolution
 
 ### 7.1 `nia-value-resolve`

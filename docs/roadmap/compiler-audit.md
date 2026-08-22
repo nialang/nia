@@ -1989,6 +1989,11 @@ acceptance item only when its phase-wide evidence is complete.
       exact definition and argument-module identities remain unchanged. This
       prevents semantically equivalent const spellings from becoming false
       external declarations; the full LLVM unit suite and strict Clippy pass.
+- [x] Batch 345 closes the program-signatures trait-impl deduplication const
+      identity bypass. Associated-projection assumptions and trait-impl
+      candidate checks now reuse `const_args_equivalent_in_store`, preserving
+      exact unresolved expression identities while matching integer values by
+      semantic bits. Program-signatures tests and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

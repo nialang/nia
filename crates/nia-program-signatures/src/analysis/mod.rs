@@ -708,20 +708,11 @@ fn validate_supertrait_associated_binding_conflicts(
                         .all(|(left, right)| {
                             types_equivalent(module.type_store, module.lowering, *left, *right)
                         })
-                    && existing
-                        .goal
-                        .trait_const_args
-                        .iter()
-                        .zip(&binding.goal.trait_const_args)
-                        .all(|(left, right)| {
-                            left.value == right.value
-                                && types_equivalent(
-                                    module.type_store,
-                                    module.lowering,
-                                    left.ty,
-                                    right.ty,
-                                )
-                        })
+                    && const_args_equivalent_in_store(
+                        module.type_store,
+                        &existing.goal.trait_const_args,
+                        &binding.goal.trait_const_args,
+                    )
             });
         if let Some(existing) = duplicate {
             if !types_equivalent(module.type_store, module.lowering, existing.ty, binding.ty) {
@@ -1571,14 +1562,11 @@ fn has_matching_trait_impl(
                 .iter()
                 .zip(trait_args)
                 .all(|(left, right)| types_equivalent_in_store(interner, *left, *right))
-            && impl_signature
-                .trait_const_args
-                .iter()
-                .zip(trait_const_args)
-                .all(|(left, right)| {
-                    left.value == right.value
-                        && types_equivalent_in_store(interner, left.ty, right.ty)
-                })
+            && const_args_equivalent_in_store(
+                interner,
+                &impl_signature.trait_const_args,
+                trait_const_args,
+            )
     })
 }
 
