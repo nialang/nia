@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 264 completed entries in this ledger.
+- Implementation batches: 265 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1592,6 +1592,12 @@ acceptance item only when its phase-wide evidence is complete.
       uses the same complete identity as frontend facts and vtable lowering;
       the const-generic default-method codegen regression and 112 backend-lower
       tests pass.
+- [x] Phase B backend trait-method fallback now carries the same const identity
+      through operator-dispatch fallback paths as ordinary function-body
+      instantiation. Both method and associated-function fallback callees retain
+      substituted trait const arguments after solver selection, closing the
+      parallel consumer boundary under the existing const-generic dispatch
+      regression and backend-lower suite.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
