@@ -561,6 +561,24 @@ impl BackendValidator<'_> {
         self.same_type_args_for_equiv(left, right)
     }
 
+    pub(super) fn same_const_args(
+        &self,
+        left: &[nia_ty::ConstGenericArg],
+        right: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (
+                            nia_ty::ConstGenericValue::Int(left),
+                            nia_ty::ConstGenericValue::Int(right),
+                        ) => left.bits() == right.bits(),
+                        (left, right) => left == right,
+                    }
+            })
+    }
+
     pub(super) fn same_optional_type(
         &self,
         left: Option<InternedTyId>,
@@ -575,6 +593,24 @@ impl BackendValidator<'_> {
 
     pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
         if left == right {
+            return true;
+        }
+        if let (
+            Some(TyKind::Nominal {
+                def_id: left_def,
+                args: left_args,
+                const_args: left_consts,
+            }),
+            Some(TyKind::Nominal {
+                def_id: right_def,
+                args: right_args,
+                const_args: right_consts,
+            }),
+        ) = (self.ty_kind(left), self.ty_kind(right))
+            && left_def == right_def
+            && self.same_type_args(left_args, right_args)
+            && self.same_const_args(left_consts, right_consts)
+        {
             return true;
         }
         if let Some(cached) = self.same_type_cache.borrow().get(&(left, right)) {

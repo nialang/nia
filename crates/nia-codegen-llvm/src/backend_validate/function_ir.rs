@@ -2413,14 +2413,14 @@ impl BackendValidator<'_> {
                 .index
                 .union_instance(def_id, &args, &const_args)
                 .is_some()
-            || self
-                .index
-                .struct_instances_for(def_id)
-                .any(|item| self.same_type_args(&item.args, &args) && item.const_args == const_args)
-            || self
-                .index
-                .union_instances_for(def_id)
-                .any(|item| self.same_type_args(&item.args, &args) && item.const_args == const_args)
+            || self.index.struct_instances_for(def_id).any(|item| {
+                self.same_type_args(&item.args, &args)
+                    && self.same_const_args(&item.const_args, &const_args)
+            })
+            || self.index.union_instances_for(def_id).any(|item| {
+                self.same_type_args(&item.args, &args)
+                    && self.same_const_args(&item.const_args, &const_args)
+            })
     }
 
     fn validate_aggregate_literal_identity(
@@ -3466,7 +3466,7 @@ impl BackendValidator<'_> {
                 self.index.function_instances_for(def_id).find(|item| {
                     self.same_optional_type(item.self_arg, self_arg)
                         && self.same_type_args(&item.args, args)
-                        && item.const_args.as_slice() == const_args
+                        && self.same_const_args(&item.const_args, const_args)
                 })
             })
             .map(|function| CallTargetSignature {

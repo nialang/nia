@@ -994,6 +994,33 @@ fn main() usize {
 }
 
 #[test]
+fn preserves_const_generic_extension_target_in_function_pointers() {
+    let checked = pipeline(
+        r#"
+struct Buffer[N: usize] {
+    value: i32,
+}
+
+extend[N: usize] Buffer[N] {
+    fn rank(& self) i32 {
+        self.value
+    }
+}
+
+fn apply(buffer: & Buffer[3], callback: &fn(& Buffer[3]) i32) i32 {
+    callback(buffer)
+}
+
+fn main() i32 {
+    let buffer = Buffer[3] { value: 42 };
+    apply(& buffer, & Buffer[3]::rank)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn infers_method_generics_from_expected_return_type() {
     let checked = pipeline(
         r#"

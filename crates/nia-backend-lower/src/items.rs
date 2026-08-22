@@ -264,9 +264,18 @@ impl<'a> ModuleLowerer<'a> {
             .effective_generics(global_def_id, &signature.generics)
             .to_vec();
         let source_function_body = self.input.program.function_body(global_def_id);
-        let identity_substitutions = effective_generics
+        let effective_params = self
+            .effective_generic_params_for_def(global_def_id)
+            .unwrap_or_else(|| {
+                effective_generics
+                    .iter()
+                    .map(|generic| (*generic, false))
+                    .collect()
+            });
+        let identity_substitutions = effective_params
             .iter()
-            .map(|generic| {
+            .filter(|(_, is_const)| !is_const)
+            .map(|(generic, _)| {
                 (
                     *generic,
                     self.type_context

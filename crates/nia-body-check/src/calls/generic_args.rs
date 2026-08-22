@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_item_signatures::{GenericParamSignature, GenericParamSignatureKind};
+use nia_item_signatures::{FunctionSignature, GenericParamSignature, GenericParamSignatureKind};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
@@ -450,6 +450,63 @@ impl<'a> BodyChecker<'a> {
             generics.extend(def.generics.clone());
         }
         generics
+    }
+
+    pub(crate) fn effective_const_generics_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        signature: &FunctionSignature,
+    ) -> Vec<SymbolId> {
+        if let Some(lookup) = self
+            .extension_method_lookup_for_id(def_id)
+            .cloned()
+            .or_else(|| self.ensure_extension_method_lookup_for_id(def_id).cloned())
+        {
+            return lookup.effective_const_generics;
+        }
+
+        let mut const_generics = signature
+            .generic_params
+            .iter()
+            .filter_map(|generic| {
+                matches!(generic.kind, GenericParamSignatureKind::Const { .. })
+                    .then_some(generic.name)
+            })
+            .collect::<Vec<_>>();
+        if let Some((trait_id, trait_signature)) =
+            self.program_signature_scope.trait_owning_method(def_id)
+            && let Some(method) = trait_signature.signature.methods.iter().find(|method| {
+                GlobalDefId {
+                    module_id: trait_id.module_id,
+                    def_id: method.def_id,
+                } == def_id
+            })
+        {
+            const_generics.extend(
+                trait_signature
+                    .signature
+                    .generic_params
+                    .iter()
+                    .chain(method.signature.generic_params.iter())
+                    .filter_map(|generic| {
+                        matches!(generic.kind, GenericParamSignatureKind::Const { .. })
+                            .then_some(generic.name)
+                    }),
+            );
+            return const_generics;
+        }
+        if let Some(def) = self.defs.defs.get(def_id.def_id)
+            && let Some(parent) = def.parent.and_then(|parent| self.defs.defs.get(parent))
+        {
+            const_generics.splice(
+                0..0,
+                parent.generic_params.iter().filter_map(|generic| {
+                    matches!(generic.kind, nia_ast::GenericParamKind::Const { .. })
+                        .then_some(generic.name)
+                }),
+            );
+        }
+        const_generics
     }
 
     fn trait_method_effective_generics(&self, def_id: GlobalDefId) -> Option<Vec<SymbolId>> {

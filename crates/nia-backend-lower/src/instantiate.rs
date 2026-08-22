@@ -138,7 +138,7 @@ impl<'a> ModuleLowerer<'a> {
         (substitutions, const_substitutions)
     }
 
-    fn effective_generic_params_for_def(
+    pub(crate) fn effective_generic_params_for_def(
         &self,
         def_id: GlobalDefId,
     ) -> Option<Vec<(SymbolId, bool)>> {
