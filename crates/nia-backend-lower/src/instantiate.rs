@@ -19,7 +19,7 @@ use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 mod function_body_instantiation;
 mod trait_resolution;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ProjectionInstantiationKey {
     self_ty: InternedTyId,
     trait_id: nia_ty::TraitId,
@@ -87,7 +87,7 @@ impl<'a> ModuleLowerer<'a> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
         substitutions: TypeSubstitutionId,
-        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+        active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> Option<InternedTyId> {
         let alias = self.input.program.type_aliases().get(&def_id)?.clone();
         if alias.signature.generics.len() != args.len() + const_args.len() {
@@ -327,7 +327,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         arg: &nia_ty::ConstGenericArg,
         substitutions: TypeSubstitutionId,
-        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+        active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> nia_ty::ConstGenericArg {
         if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
             && let Some(substituted) = self.const_substitution(substitutions, name)
@@ -349,7 +349,7 @@ impl<'a> ModuleLowerer<'a> {
         arg: &nia_ty::ConstGenericArg,
         substitutions: TypeSubstitutionId,
     ) -> nia_ty::ConstGenericArg {
-        self.instantiate_const_generic_arg_with_id(arg, substitutions, &mut HashSet::new())
+        self.instantiate_const_generic_arg_with_id(arg, substitutions, &mut Vec::new())
     }
 
     fn const_generic_expr_from_arg(&mut self, arg: nia_ty::ConstGenericArg) -> FunctionExprKind {
@@ -762,14 +762,14 @@ impl<'a> ModuleLowerer<'a> {
         ty: InternedTyId,
         substitutions: TypeSubstitutionId,
     ) -> InternedTyId {
-        self.instantiate_ty_with_id_inner(ty, substitutions, &mut HashSet::new())
+        self.instantiate_ty_with_id_inner(ty, substitutions, &mut Vec::new())
     }
 
     fn instantiate_ty_with_id_inner(
         &mut self,
         ty: InternedTyId,
         substitutions: TypeSubstitutionId,
-        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+        active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> InternedTyId {
         let ty = self.normalize_instance_arg_type(ty);
         let key = TypeInstantiationKey {
@@ -1230,9 +1230,13 @@ impl<'a> ModuleLowerer<'a> {
                     trait_const_args: trait_const_args.clone(),
                     name,
                 });
-                if !active_projections.insert(projection_key.clone()) {
+                if active_projections
+                    .iter()
+                    .any(|active| self.projection_keys_match_semantic(active, &projection_key))
+                {
                     return projection;
                 }
+                active_projections.push(projection_key.clone());
                 let resolved = self
                     .resolve_associated_type_projection(
                         &projection_key,
@@ -1246,16 +1250,19 @@ impl<'a> ModuleLowerer<'a> {
                             active_projections,
                         )
                     });
-                active_projections.remove(&projection_key);
+                active_projections.pop();
                 let instantiated = resolved.unwrap_or_else(|| {
-                    if self_ty == original_self_ty
-                        && trait_args == original_trait_args
-                        && trait_const_args == original_trait_const_args
-                    {
-                        ty
-                    } else {
-                        projection
-                    }
+                    let unchanged = self.types_match(self_ty, original_self_ty)
+                        && trait_args.len() == original_trait_args.len()
+                        && trait_args
+                            .iter()
+                            .zip(&original_trait_args)
+                            .all(|(left, right)| self.types_match(*left, *right))
+                        && self.const_generic_args_match_semantic(
+                            &trait_const_args,
+                            &original_trait_const_args,
+                        );
+                    if unchanged { ty } else { projection }
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -1446,7 +1453,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         projection: &ProjectionInstantiationKey,
         substitutions: TypeSubstitutionId,
-        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+        active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> Option<InternedTyId> {
         let associated_type_assumptions =
             self.current_associated_type_assumptions(substitutions, active_projections);
@@ -1477,7 +1484,7 @@ impl<'a> ModuleLowerer<'a> {
     fn current_associated_type_assumptions(
         &mut self,
         substitutions: TypeSubstitutionId,
-        active_projections: &mut HashSet<ProjectionInstantiationKey>,
+        active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> Vec<AssociatedTypeProjectionEq> {
         let Some(current) = self.instantiation.function else {
             return Vec::new();
@@ -1544,7 +1551,7 @@ impl<'a> ModuleLowerer<'a> {
         let Some(substitutions) = self.instantiation.type_substitutions else {
             return Vec::new();
         };
-        self.current_associated_type_assumptions(substitutions, &mut HashSet::new())
+        self.current_associated_type_assumptions(substitutions, &mut Vec::new())
     }
 
     pub(crate) fn match_extension_type_pattern(
@@ -1559,7 +1566,7 @@ impl<'a> ModuleLowerer<'a> {
             && self.extension_pattern_generics_are_bound(pattern, substitutions)
         {
             let substitution_id = self.intern_type_substitutions(substitutions);
-            let mut active_projections = HashSet::new();
+            let mut active_projections = Vec::new();
             let pattern = self.instantiate_ty_with_id_inner(
                 pattern,
                 substitution_id,
@@ -2095,6 +2102,24 @@ impl<'a> ModuleLowerer<'a> {
                         (left, right) => left == right,
                     }
             })
+    }
+
+    fn projection_keys_match_semantic(
+        &mut self,
+        left: &ProjectionInstantiationKey,
+        right: &ProjectionInstantiationKey,
+    ) -> bool {
+        left.trait_id == right.trait_id
+            && left.name == right.name
+            && self.types_match(left.self_ty, right.self_ty)
+            && left.trait_args.len() == right.trait_args.len()
+            && left
+                .trait_args
+                .iter()
+                .zip(&right.trait_args)
+                .all(|(left, right)| self.types_match(*left, *right))
+            && self
+                .const_generic_args_match_semantic(&left.trait_const_args, &right.trait_const_args)
     }
 
     pub(crate) fn types_match(&mut self, left: InternedTyId, right: InternedTyId) -> bool {

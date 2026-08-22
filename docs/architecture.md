@@ -2290,6 +2290,12 @@ resolution, and coercions, and consumes typed runtime bodies for function
 lowering. Typed bodies are not exposed through backend IR as the function
 codegen boundary.
 
+Projection instantiation keeps a path-local semantic active stack. Recursive
+associated-type expansion compares projection self/types and const arguments
+structurally, including integer bits, instead of hashing raw interner handles;
+the stack is popped after each expansion so sibling projections remain
+independent. Exact type-instantiation caches continue to use their exact keys.
+
 `GlobalDefId` is both the semantic identity and query key of a function; there
 is no separate body storage identity or body store. Immutable snapshots use
 `Arc` only when they have concurrent owners, a single-call read path uses a

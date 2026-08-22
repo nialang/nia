@@ -663,7 +663,7 @@ impl<'a> ModuleLowerer<'a> {
                     },
                 };
                 let substitutions = self.empty_type_substitution_id();
-                let mut active_projections = std::collections::HashSet::new();
+                let mut active_projections = Vec::new();
                 let projection = super::ProjectionInstantiationKey {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
