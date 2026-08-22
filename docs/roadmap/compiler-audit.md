@@ -1958,6 +1958,12 @@ acceptance item only when its phase-wide evidence is complete.
       cache keys and declaration ownership remain unchanged. Backend function
       reference validation uses the same fallback relation, and the existing
       shared matcher regression covers signed/unsigned integer equivalence.
+- [x] Batch 340 closes the program-signatures projection-context identity
+      bypass. Impl-context projection substitution now compares self/type/const
+      arguments structurally, including cross-module rebuilt handles and integer
+      bits, while retaining exact declaration and cache identity. An owner test
+      covers equivalent signed/unsigned const arguments across two type-store
+      appenders.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
