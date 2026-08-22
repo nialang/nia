@@ -1524,6 +1524,11 @@ source candidate is not consumed permanently until the complete target set has
 matched; this keeps trait-object coercion consistent with the solver and backend
 binding rules.
 
+Trait witness visibility uses the same module-graph predicate as ordinary item
+visibility. Directly imported package-visible traits are available to sibling
+modules in the package, but not to external callers; visibility filtering must
+not reduce this distinction to a `Public`-only check.
+
 Supertrait binding expansion also validates consistency of the inherited graph.
 The identity of a constraint includes the parent trait, its type and const
 arguments, and the associated type name. The same identity may be reached more

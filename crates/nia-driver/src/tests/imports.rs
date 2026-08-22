@@ -3003,6 +3003,86 @@ fn main() i32 {
 }
 
 #[test]
+fn pub_package_trait_witnesses_are_visible_inside_package() {
+    let root = temp_dir("pub_package_trait_witnesses_are_visible_inside_package");
+    let dep_root = root.join("dep.nia");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::api;
+
+fn main() i32 {
+    api::inside()
+}
+"#,
+    );
+    write(&dep_root, "pub module api; pub module model;");
+    std::fs::create_dir_all(root.join("dep")).expect("create dep dir");
+    write(
+        &root.join("dep/model.nia"),
+        r#"
+pub struct Value { data: i32 }
+
+pub(pkg) trait PackageTag {
+    fn tag(&self) i32;
+}
+
+extend Value : PackageTag {
+    fn tag(&self) i32 { self.data + 1 }
+}
+"#,
+    );
+    write(
+        &root.join("dep/api.nia"),
+        r#"
+using pkg::model;
+
+pub fn inside() i32 {
+    let value = model::Value { data: 41 };
+    value.tag()
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::model;
+
+fn main() i32 {
+    let value = model::Value { data: 41 };
+    value.tag()
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(dep_root.to_string_lossy()));
+    let program = check_program_with_map(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        module_map,
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("unknown struct field")
+                || diagnostic.diagnostic.summary.contains("trait bound")
+        }),
+        "package-private trait witness must not be visible outside package: {:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn pub_package_extension_associated_values_are_visible_only_inside_package() {
     let root = temp_dir("pub_package_extension_associated_values_are_visible_only_inside_package");
     let dep_root = root.join("dep.nia");

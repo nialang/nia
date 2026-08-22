@@ -134,6 +134,10 @@ it does not make a reset implicit.
   associated-binding consumers. Candidate source bindings are speculative until
   all target bindings match, so a failed later binding cannot leave an earlier
   greedy choice committed.
+- Trait and impl witness filtering must call the canonical module-graph
+  visibility predicate. Keep `Public`, `PublicPkg`, `PublicSuper`, and private
+  behavior aligned with ordinary item lookup; do not duplicate a public-only
+  shortcut in visibility consumers.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

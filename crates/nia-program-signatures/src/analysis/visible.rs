@@ -172,6 +172,7 @@ pub fn visible_extensions_for_module(
                         module_id,
                         witness_modules,
                         trait_id,
+                        graph,
                         public_surfaces,
                         &mut resolver_cache,
                     )
@@ -216,6 +217,7 @@ pub fn visible_extensions_for_module(
                         module_id,
                         witness_modules,
                         trait_id,
+                        graph,
                         public_surfaces,
                         &mut resolver_cache,
                     )
@@ -296,6 +298,7 @@ pub fn visible_trait_impls_for_module(
                     module_id,
                     witness_modules,
                     impl_signature.trait_id,
+                    graph,
                     public_surfaces,
                     &mut resolver_cache,
                 )
@@ -355,6 +358,7 @@ fn trait_id_is_visible(
     current_module: nia_ids::ModuleId,
     imported_modules: &[nia_ids::ModuleId],
     trait_id: TraitId,
+    graph: &dyn nia_imports::ModuleGraphLookup,
     public_surfaces: &dyn PublicSurfaceLookup,
     resolver_cache: &mut VisibleExtensionResolverCache<'_>,
 ) -> bool {
@@ -366,9 +370,14 @@ fn trait_id_is_visible(
     }
     if imported_modules.contains(&trait_id.module_id) {
         return resolver_cache.defs(trait_id.module_id).is_some_and(|defs| {
-            defs.defs
-                .get(trait_id.def_id)
-                .is_some_and(|def| def.visibility == Visibility::Public)
+            defs.defs.get(trait_id.def_id).is_some_and(|def| {
+                nia_imports::visibility_allows(
+                    def.visibility,
+                    graph,
+                    trait_id.module_id,
+                    current_module,
+                )
+            })
         });
     }
     std::iter::once(current_module)
