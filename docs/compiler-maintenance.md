@@ -349,6 +349,9 @@ signals, not architecture goals.
 - Treat public reader/writer byte counts as untrusted implementation output:
   validate `n <= requested.len()` before changing any cursor, buffered length, or
   limit, and retain pending bytes when reporting an invalid transfer.
+- For multi-allocation collection cleanup, detach each owner only after its
+  allocator release succeeds. Preserve failed slots for a cleanup retry and do
+  not advertise partially deinitialized state as an empty reusable collection.
 - Tests and documentation describe the current contract. Historical behavior
   belongs in Git, not compatibility fixtures or stale debug switches.
 

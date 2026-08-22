@@ -109,29 +109,14 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut result: ?mem::Error = null;
-        match self.freeAllocations(allocator) {
-            !ok => {
-                _ = ok;
-            },
-            err! => {
-                result = ?err;
-            },
-        }
+        self.freeAllocations(allocator).?;
         self.ctrl = raw::danglingSlice[u8]();
         self.keys = raw::danglingSlice[K]();
         self.values = raw::danglingSlice[V]();
         self.bucketCount = 0;
         self.len = 0;
         self.growthLeft = 0;
-        match result {
-            ?err => {
-                err!
-            },
-            null => {
-                !()
-            },
-        }
+        !()
     }
 
     pub fn len(&self) usize {
@@ -764,6 +749,8 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !()
     }
 
+    // Successful frees relinquish their individual owners immediately. Failed
+    // slots stay attached so a caller can retry deinit without double-freeing.
     fn freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         let mut firstError: ?mem::Error = null;
         if self.ctrl.len() != 0 {
@@ -771,6 +758,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             match allocator.free(mem::Block::init(self.ctrl.ptrMut() as &mut u8, layout)) {
                 !ok => {
                     _ = ok;
+                    self.ctrl = raw::danglingSlice[u8]();
                 },
                 err! => {
                     firstError = ?err;
@@ -783,6 +771,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 match allocator.free(mem::Block::init(self.keys.ptrMut() as &mut u8, layout)) {
                     !ok => {
                         _ = ok;
+                        self.keys = raw::danglingSlice[K]();
                     },
                     err! => {
                         match firstError {
@@ -803,6 +792,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 match allocator.free(mem::Block::init(self.values.ptrMut() as &mut u8, layout)) {
                     !ok => {
                         _ = ok;
+                        self.values = raw::danglingSlice[V]();
                     },
                     err! => {
                         match firstError {

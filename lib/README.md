@@ -15,6 +15,10 @@ The library follows a small set of ownership rules:
 - Ownership-transfer constructors consume an existing owner. Copying
   constructors accept an allocator and preserve typed allocation or validation
   failures.
+- Fallible cleanup attempts every independently owned resource and retains each
+  allocation whose release fails. A partially completed collection `deinit` is
+  cleanup-only state: retry `deinit` with the same allocator rather than using
+  the value again.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

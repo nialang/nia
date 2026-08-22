@@ -1128,6 +1128,35 @@ fn run(init: process::Init) mem::Error!() {
         null => { return mem::Error::Invalid!; },
     }
 
+    let mut deinitStorage: [u8; 8192] = [0; 8192];
+    let mut deinitAllocator = FailAllocator::init(&mut deinitStorage);
+    let mut retryDeinit = std::HashMap[i32, i32]::initSeed(561u64);
+    retryDeinit.reserve(&mut deinitAllocator, 14).?;
+    key = 0;
+    while key < 14 {
+        _ = retryDeinit.insert(&mut deinitAllocator, key, key + 7).?;
+        key += 1;
+    }
+    deinitAllocator.failNextFree();
+    match retryDeinit.deinit(&mut deinitAllocator) {
+        !ok => { return mem::Error::Invalid!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return err!;
+            } },
+    }
+    let failedDeinitFreeCount = deinitAllocator.freeCount;
+    if failedDeinitFreeCount != 3 {
+        return mem::Error::Invalid!;
+    }
+    deinitAllocator.clearFailures();
+    retryDeinit.deinit(&mut deinitAllocator).?;
+    if deinitAllocator.freeCount != failedDeinitFreeCount + 1
+        or retryDeinit.len() != 0
+        or retryDeinit.capacity() != 0
+    {
+        return mem::Error::Invalid!;
+    }
+
     let mut collisions = std::collections::HashMapWithContext[i32, i32, ConstantHashContext]::initContextSeed(
         ConstantHashContext::init(),
         777u64,

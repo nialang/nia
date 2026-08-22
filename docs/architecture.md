@@ -1825,6 +1825,11 @@ otherwise it must return `false` so the default `realloc` creates an empty block
 and frees the old owner through the allocator's fallible release channel. This
 prevents allocator-specific tracking headers from becoming unreachable through
 a zero-sized `Block` whose later `free` operation is intentionally a no-op.
+Collection cleanup follows the same explicit-owner rule. `HashMap::deinit`
+attempts its control, key, and value releases independently, detaches only the
+successfully freed allocation slots, and retains failed slots for a later retry
+with the same allocator. After a cleanup error the map is cleanup-only state;
+ordinary lookup or mutation is not supported until ownership is fully retired.
 
 ### 9.5 `nia-function-lower`
 
