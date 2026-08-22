@@ -214,43 +214,73 @@ extend Build {
 
     pub fn deinit(&mut self) Error!() {
         let mut firstError: ?Error = null;
+        let mut elementError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.steps.asMutSlice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut elementError, self.steps.asMutSlice()[index].deinit(self.allocator));
         }
-        rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError(Operation::Release, Subject::Steps));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError(Operation::Release, Subject::Steps));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
         rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
+        elementError = null;
         index = self.packages.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.packages.asMutSlice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut elementError, self.packages.asMutSlice()[index].deinit(self.allocator));
         }
-        rememberCleanupError(&mut firstError, self.packages.deinit(self.allocator).asBuildError(Operation::Release, Subject::Packages));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.packages.deinit(self.allocator).asBuildError(Operation::Release, Subject::Packages));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        elementError = null;
         index = self.executables.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.executables.asMutSlice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut elementError, self.executables.asMutSlice()[index].deinit(self.allocator));
         }
-        rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError(Operation::Release, Subject::Executables));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError(Operation::Release, Subject::Executables));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        elementError = null;
         index = self.objects.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.objects.asMutSlice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut elementError, self.objects.asMutSlice()[index].deinit(self.allocator));
         }
-        rememberCleanupError(&mut firstError, self.objects.deinit(self.allocator).asBuildError(Operation::Release, Subject::Objects));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.objects.deinit(self.allocator).asBuildError(Operation::Release, Subject::Objects));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        elementError = null;
         index = self.staticArchives.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.staticArchives.asMutSlice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut elementError, self.staticArchives.asMutSlice()[index].deinit(self.allocator));
         }
-        rememberCleanupError(&mut firstError, self.staticArchives.deinit(self.allocator).asBuildError(Operation::Release, Subject::StaticArchives));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.staticArchives.deinit(self.allocator).asBuildError(Operation::Release, Subject::StaticArchives));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        elementError = null;
         index = self.modules.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.modules.asMutSlice()[index].deinit(self.allocator));
+            rememberCleanupError(&mut elementError, self.modules.asMutSlice()[index].deinit(self.allocator));
         }
-        rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError(Operation::Release, Subject::Modules));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError(Operation::Release, Subject::Modules));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
         rememberCleanupError(&mut firstError, self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
         rememberCleanupError(&mut firstError, self.hostTarget.deinit(self.allocator, Subject::HostTarget));
         rememberCleanupError(
@@ -1730,20 +1760,25 @@ extend RunExecutableStep {
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
+        let mut elementError: ?Error = null;
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;
             rememberCleanupError(
-                &mut firstError,
+                &mut elementError,
                 self.arguments.asMutSlice()[argumentIndex]
                     .deinit(allocator)
                     .asBuildError(Operation::Release, Subject::Step(index)),
             );
         }
-        rememberCleanupError(
-            &mut firstError,
-            self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
-        );
+        if elementError is null {
+            rememberCleanupError(
+                &mut firstError,
+                self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            );
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
         cleanupResult(firstError)
     }
 }
@@ -2060,30 +2095,40 @@ extend ExternalCommandStep {
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
+        let mut elementError: ?Error = null;
         let mut environmentIndex = self.environment.len();
         while environmentIndex != 0 {
             environmentIndex -= 1;
             rememberCleanupError(
-                &mut firstError,
+                &mut elementError,
                 self.environment.asMutSlice()[environmentIndex].deinit(allocator, index),
             );
         }
-        rememberCleanupError(
-            &mut firstError,
-            self.environment.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
-        );
+        if elementError is null {
+            rememberCleanupError(
+                &mut firstError,
+                self.environment.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            );
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        elementError = null;
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;
             rememberCleanupError(
-                &mut firstError,
+                &mut elementError,
                 self.arguments.asMutSlice()[argumentIndex].deinit(allocator, index),
             );
         }
-        rememberCleanupError(
-            &mut firstError,
-            self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
-        );
+        if elementError is null {
+            rememberCleanupError(
+                &mut firstError,
+                self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            );
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
         rememberCleanupError(
             &mut firstError,
             self.workingDirectory.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
@@ -2437,12 +2482,17 @@ extend Module {
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
+        let mut elementError: ?Error = null;
         let mut index = self.imports.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut firstError, self.imports.asMutSlice()[index].deinit(allocator));
+            rememberCleanupError(&mut elementError, self.imports.asMutSlice()[index].deinit(allocator));
         }
-        rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
         rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
         rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
         cleanupResult(firstError)
@@ -3002,12 +3052,17 @@ fn deinitModuleImports(
     allocator: &mut mem::Allocator,
 ) Error!() {
     let mut firstError: ?Error = null;
+    let mut elementError: ?Error = null;
     let mut index = imports.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, imports.asMutSlice()[index].deinit(allocator));
+        rememberCleanupError(&mut elementError, imports.asMutSlice()[index].deinit(allocator));
     }
-    rememberCleanupError(&mut firstError, imports.deinit(allocator).asBuildError(Operation::Release, Subject::Modules));
+    if elementError is null {
+        rememberCleanupError(&mut firstError, imports.deinit(allocator).asBuildError(Operation::Release, Subject::Modules));
+    } else {
+        rememberCleanupError(&mut firstError, cleanupResult(elementError));
+    }
     cleanupResult(firstError)
 }
 

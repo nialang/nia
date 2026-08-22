@@ -17,6 +17,8 @@
 // remain uncacheable unless they clear it, declare outputs, and opt into the
 // declared-input cache contract. `deinit()` releases the complete retained
 // graph and reports the first cleanup error after attempting every release.
+// When an owned graph element cannot be released, its containing list remains
+// attached so a later `deinit()` call can reach the residual owner.
 
 pub(pkg) module core;
 pub(pkg) module error;

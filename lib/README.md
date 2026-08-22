@@ -26,6 +26,9 @@ The library follows a small set of ownership rules:
 - Build-plan collection counts and derived dependency/input/output counts are
   checked before narrowing to the fixed-width protocol fields. Generated-file
   payload lengths are checked before their length prefixes are published.
+- Build graph cleanup releases a containing list only after all owning elements
+  in that list have been released. Failed nested strings, paths, arguments, or
+  imports remain reachable for a later `Build::deinit` retry.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

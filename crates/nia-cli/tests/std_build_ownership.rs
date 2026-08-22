@@ -26,6 +26,7 @@ struct FaultAllocator {
     activeAllocations: usize,
     failAt: usize,
     failFree: bool,
+    failRetainedFree: bool,
 }
 
 extend FaultAllocator {
@@ -36,6 +37,7 @@ extend FaultAllocator {
             activeAllocations: 0usize,
             failAt: 0usize,
             failFree: false,
+            failRetainedFree: false,
         }
     }
 
@@ -49,6 +51,10 @@ extend FaultAllocator {
 
     fn failNextFree(&mut self) () {
         self.failFree = true;
+    }
+
+    fn failNextRetainedFree(&mut self) () {
+        self.failRetainedFree = true;
     }
 }
 
@@ -68,6 +74,10 @@ extend FaultAllocator : mem::Allocator {
     }
 
     fn free(&mut self, block: mem::Block) mem::Error!() {
+        if not block.isEmpty() and self.failRetainedFree {
+            self.failRetainedFree = false;
+            return mem::Error::Invalid!;
+        }
         self.backing.free(block).?;
         if not block.isEmpty() {
             if self.activeAllocations == 0usize {
@@ -214,6 +224,28 @@ fn isPlanEncodingOom(error: build::Error) bool {
             operation: build::ErrorOperation::Encode,
             subject: build::ErrorSubject::BuildPlan,
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isStepReleaseInvalid(error: build::Error) bool {
+    match error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Release,
+            subject: build::ErrorSubject::Step(_),
+            cause: build::ErrorCause::Memory(mem::Error::Invalid),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isModuleImportReleaseInvalid(error: build::Error) bool {
+    match error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Release,
+            subject: build::ErrorSubject::ModuleImport(_),
+            cause: build::ErrorCause::Memory(mem::Error::Invalid),
         } => true,
         _ => false,
     }
@@ -585,6 +617,98 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     !()
 }
 
+fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut allocator = FaultAllocator::init();
+    let emptyPath = fs::PathView::init(&"");
+    let target = testTarget(&"");
+    let mut api = build::Build::init(
+        &mut allocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        build::OptimizationMode::O0,
+        1u32,
+        null,
+    ).exit().?;
+    let moduleHandle = api.addModule(
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia")),
+    ).exit().?;
+    let executable = api.addExecutable(
+        build::ExecutableOptions::init(&"app", moduleHandle),
+    ).exit().?;
+    _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
+    let runArguments: [&[char]; 2] = [&"first", &"second"];
+    _ = api.addRunExecutableStep(
+        &"run",
+        build::RunOptions::init(executable).withArguments(&runArguments[..]),
+    ).exit().?;
+
+    allocator.failNextRetainedFree();
+    match api.deinit() {
+        !ok => {
+            _ = ok;
+            return process::exit(40)!;
+        },
+        err! => if not isStepReleaseInvalid(err) {
+            return process::exit(41)!;
+        },
+    }
+    // The failed string owner plus both containing list allocations must stay
+    // attached until a later cleanup attempt can reach them.
+    if allocator.activeAllocations != 3usize {
+        return process::exit(42)!;
+    }
+    api.deinit().exit().?;
+    if allocator.activeAllocations != 0usize {
+        return process::exit(43)!;
+    }
+
+    let mut importAllocator = FaultAllocator::init();
+    let mut importApi = build::Build::init(
+        &mut importAllocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        build::OptimizationMode::O0,
+        1u32,
+        null,
+    ).exit().?;
+    let imports = [
+        build::ModuleImport::init(&"dependency", fs::PathView::init(&"dependency.nia")),
+    ];
+    _ = importApi.addModule(
+        build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia"))
+            .withImports(&imports[..]),
+    ).exit().?;
+    importAllocator.failNextRetainedFree();
+    match importApi.deinit() {
+        !ok => {
+            _ = ok;
+            return process::exit(44)!;
+        },
+        err! => if not isModuleImportReleaseInvalid(err) {
+            return process::exit(45)!;
+        },
+    }
+    if importAllocator.activeAllocations != 3usize {
+        return process::exit(46)!;
+    }
+    importApi.deinit().exit().?;
+    if importAllocator.activeAllocations != 0usize {
+        return process::exit(47)!;
+    }
+    !()
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
     checkTargetInitRollback(init, 7usize).?;
@@ -592,6 +716,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     checkCleanupFailureOverridesExit(init).?;
     checkRecordRollback(init).?;
     checkArgAssemblyRollback(init).?;
+    checkCleanupRetryRetainsNestedOwners(init).?;
     !()
 }
 "#,

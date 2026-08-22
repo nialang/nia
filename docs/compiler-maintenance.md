@@ -352,6 +352,9 @@ signals, not architecture goals.
 - For multi-allocation collection cleanup, detach each owner only after its
   allocator release succeeds. Preserve failed slots for a cleanup retry and do
   not advertise partially deinitialized state as an empty reusable collection.
+- For collections whose elements own allocations, retain the collection
+  backing whenever any element cleanup fails. Releasing the element storage
+  would discard the only metadata capable of retrying the residual owner.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.

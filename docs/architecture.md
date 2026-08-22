@@ -2528,6 +2528,10 @@ in-memory runner state from wrapping into an apparently valid smaller plan.
 The Rust re-encoder enforces the total plan budget before every buffer growth
 and retains the first attempted-size failure through `finish`, so canonical
 publication cannot transiently allocate an oversized serialized plan either.
+Build graph cleanup applies the same ownership rule recursively: a list backing
+allocation is released only after every owning element succeeds. Failed nested
+arguments, environment entries, imports, targets, modules, and steps therefore
+remain reachable for a later cleanup retry.
 
 Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries
