@@ -151,6 +151,11 @@ it does not make a reset implicit.
   impossible. Builtin supertraits with methods or associated items must also
   be rejected until their object-level vtable contract is explicitly defined;
   marker-only builtin bounds remain eligible for their existing semantics.
+- Object-safety DFS must substitute both type and const arguments for every
+  inherited source trait instance. Key its active cycle guard by the complete
+  `(trait, args, const_args)` identity and keep a separate expanded set so
+  diamond siblings do not repeat diagnostics while a recursive path still
+  terminates correctly.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

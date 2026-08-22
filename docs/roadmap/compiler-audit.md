@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 260 completed entries in this ledger.
+- Implementation batches: 261 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1568,6 +1568,12 @@ acceptance item only when its phase-wide evidence is complete.
       one generic instance per concrete method identity; a const-generic
       diamond regression verifies four identities rather than recording the
       shared base twice.
+- [x] Phase A trait-object object-safety traversal now carries declaration-order
+      type and const substitutions into inherited method and supertrait checks.
+      Its cycle identity includes the complete trait instance, while a separate
+      expanded set avoids duplicate diagnostics/work on diamond siblings. A
+      const-generic inherited-supertrait regression covers the corrected owner;
+      body-check and focused driver tests remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

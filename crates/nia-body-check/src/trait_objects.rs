@@ -32,6 +32,8 @@ struct TraitObjectUpcastBindings<'a> {
     source_bindings: &'a [AssociatedTypeBindingTy],
 }
 
+type TraitObjectInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>);
+
 struct ObjectSafetyCheck<'a> {
     span: Span,
     // A synthetic `Self` marker lets object-safety checks detect uses of
@@ -41,11 +43,12 @@ struct ObjectSafetyCheck<'a> {
     object_trait_id: nia_ty::TraitId,
     object_trait_args: Vec<InternedTyId>,
     associated_type_bindings: Vec<AssociatedTypeBindingTy>,
-    visiting: &'a mut Vec<nia_ids::GlobalDefId>,
+    visiting: &'a mut Vec<TraitObjectInstanceKey>,
+    expanded: &'a mut Vec<TraitObjectInstanceKey>,
     ok: &'a mut bool,
 }
 
-type TraitObjectVtableVisitKey = (GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>);
+type TraitObjectVtableVisitKey = TraitObjectInstanceKey;
 
 struct TraitObjectVtableInstantiationContext {
     span: Span,
@@ -829,6 +832,7 @@ impl<'a> BodyChecker<'a> {
         let mut ok = true;
         let self_ty = self.interner.intern(TyKind::SelfParam);
         let mut visiting = Vec::new();
+        let mut expanded = Vec::new();
         self.check_object_safe_trait_signature(
             &mut ObjectSafetyCheck {
                 span,
@@ -837,11 +841,13 @@ impl<'a> BodyChecker<'a> {
                 object_trait_args: trait_args.to_vec(),
                 associated_type_bindings,
                 visiting: &mut visiting,
+                expanded: &mut expanded,
                 ok: &mut ok,
             },
             source_trait_id,
             &trait_signature,
             trait_args,
+            trait_const_args,
         );
         ok
     }
@@ -957,11 +963,19 @@ impl<'a> BodyChecker<'a> {
         trait_id: nia_ids::GlobalDefId,
         trait_signature: &nia_item_signatures::TraitSignature,
         trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
-        if check.visiting.contains(&trait_id) {
+        let visit_key = (trait_id, trait_args.to_vec(), trait_const_args.to_vec());
+        if check.visiting.contains(&visit_key) {
             return;
         }
-        check.visiting.push(trait_id);
+        if check.expanded.contains(&visit_key) {
+            return;
+        }
+        check.visiting.push(visit_key);
+        check
+            .expanded
+            .push((trait_id, trait_args.to_vec(), trait_const_args.to_vec()));
         for method in &trait_signature.methods {
             if method
                 .signature
@@ -1012,9 +1026,14 @@ impl<'a> BodyChecker<'a> {
                 ));
                 *check.ok = false;
             }
-            let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
+            let (substitutions, const_substitutions) = self
+                .generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args);
             for param in method.signature.params.iter().skip(1) {
-                let ty = self.substitute_generics(param.ty, &substitutions);
+                let ty = self.substitute_generics_and_consts(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                );
                 let ty = self.object_safe_ty(check, ty);
                 if self.type_mentions_self(ty, check.self_ty) {
                     let method_name = self.symbol_name(method.name);
@@ -1029,8 +1048,11 @@ impl<'a> BodyChecker<'a> {
                     *check.ok = false;
                 }
             }
-            let return_type =
-                self.substitute_generics(method.signature.return_type, &substitutions);
+            let return_type = self.substitute_generics_and_consts(
+                method.signature.return_type,
+                &substitutions,
+                &const_substitutions,
+            );
             let return_type = self.object_safe_ty(check, return_type);
             if self.type_mentions_self(return_type, check.self_ty) {
                 let method_name = self.symbol_name(method.name);
@@ -1046,9 +1068,14 @@ impl<'a> BodyChecker<'a> {
                 *check.ok = false;
             }
         }
-        let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args);
         for supertrait in &trait_signature.supertraits {
-            let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
+            let supertrait = self.substitute_generics_and_consts(
+                supertrait.ty,
+                &substitutions,
+                &const_substitutions,
+            );
             let supertrait = self.normalization.normalize(supertrait);
             let Some(supertrait_kind) = self.interner.get(supertrait).cloned() else {
                 continue;
@@ -1056,7 +1083,7 @@ impl<'a> BodyChecker<'a> {
             let TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
-                ..
+                const_args: supertrait_const_args,
             } = supertrait_kind
             else {
                 let Some(builtin_trait_id) = (match supertrait_kind {
@@ -1103,6 +1130,7 @@ impl<'a> BodyChecker<'a> {
                 supertrait_id,
                 &supertrait_signature,
                 &supertrait_args,
+                &supertrait_const_args,
             );
         }
         check.visiting.pop();

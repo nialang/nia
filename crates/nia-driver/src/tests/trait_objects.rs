@@ -1221,3 +1221,33 @@ fn read(child: &Child) i32 {
         program.diagnostics
     );
 }
+
+#[test]
+fn trait_object_object_safety_checks_each_generic_supertrait_instance() {
+    let root = temp_dir("trait_object_object_safety_checks_each_generic_supertrait_instance");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base[T, N: usize] {
+    fn value(& self, other: & Self) T;
+}
+
+trait Root : Base[i32, 4] {}
+
+fn read(root: & Root) i32 {
+    _ = root;
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("not object safe")),
+        "{:?}",
+        program.diagnostics
+    );
+}
