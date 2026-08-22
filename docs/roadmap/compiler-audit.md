@@ -1989,6 +1989,11 @@ acceptance item only when its phase-wide evidence is complete.
       exact definition and argument-module identities remain unchanged. This
       prevents semantically equivalent const spellings from becoming false
       external declarations; the full LLVM unit suite and strict Clippy pass.
+- [x] Batch 346 closes the backend extension-specificity const identity bypass.
+      Candidate subsumption now canonicalizes concrete const arguments, compares
+      their types semantically, and compares integer values by bits while
+      retaining generic-parameter wildcards and exact unresolved expressions.
+      Backend-lower tests and strict Clippy pass.
 - [x] Batch 345 closes the program-signatures trait-impl deduplication const
       identity bypass. Associated-projection assumptions and trait-impl
       candidate checks now reuse `const_args_equivalent_in_store`, preserving

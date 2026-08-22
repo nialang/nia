@@ -1798,7 +1798,9 @@ inherited trait instance contributes one set of slots.
 
 Backend extension-trait candidate selection applies the same semantic const
 matching to concrete impl arguments, including recursive const-argument types;
-generic pattern parameters remain wildcards.
+generic pattern parameters remain wildcards. Extension specificity applies the
+same rule when proving a concrete candidate subsumes a general one, so signed
+and unsigned spellings of the same integer do not create a false mismatch.
 
 The extension type-pattern matcher uses that const-pattern relation at every
 nominal, trait-object, pointee, projection, and associated-binding boundary.
