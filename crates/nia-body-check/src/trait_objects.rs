@@ -976,6 +976,18 @@ impl<'a> BodyChecker<'a> {
         check
             .expanded
             .push((trait_id, trait_args.to_vec(), trait_const_args.to_vec()));
+        for associated_value in &trait_signature.associated_values {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                check.span,
+                format!(
+                    "trait `{}` is not object safe because associated value `{}` has no vtable contract",
+                    self.nominal_ty_name(trait_id, trait_args),
+                    self.symbol_name(associated_value.name)
+                ),
+            ));
+            *check.ok = false;
+        }
         for method in &trait_signature.methods {
             if method
                 .signature
