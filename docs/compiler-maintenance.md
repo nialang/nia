@@ -357,7 +357,8 @@ signals, not architecture goals.
   legal without allowing an exhausted growth counter to underflow.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
-  payload lengths before writing their prefixes.
+  payload lengths before writing their prefixes. Enforce the total byte budget
+  before each encoder buffer growth, not only after serialization completes.
 - Tests and documentation describe the current contract. Historical behavior
   belongs in Git, not compatibility fixtures or stale debug switches.
 

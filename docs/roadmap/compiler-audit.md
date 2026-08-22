@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 282 completed entries in this ledger.
+- Implementation batches: 283 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -500,6 +500,11 @@ acceptance item only when its phase-wide evidence is complete.
       payload lengths before writing their prefixes. Dependency validation also
       guards its derived indegree and producer counts against host arithmetic
       overflow.
+- [x] Phase F build-host plan re-encoding now enforces the 64 MiB total budget
+      before each Rust output-buffer growth. The writer retains the first
+      attempted-size error and suppresses later writes, with a direct owner
+      regression proving an over-budget field cannot transiently enlarge the
+      serialized buffer.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The
