@@ -58,7 +58,7 @@ pub(super) struct ExecutableFactModuleState {
     pub(super) module_id: ModuleId,
     pub(super) defs: Arc<DefCollection>,
     pub(super) body_ir: nia_body_ir::BodyIr,
-    pub(super) static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
+    pub(super) static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
     pub(super) provider_demands: HashSet<ProviderDemand>,
     pub(super) provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
@@ -475,7 +475,7 @@ fn executable_module_refs_for_increment(
     type_store: &nia_ty::TypeStore,
     body_ir: &nia_body_ir::BodyIr,
     semantic_facts: &nia_sema_ir::SemanticFacts,
-    static_init_refs: &HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
+    static_init_refs: &HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
 ) -> ExecutableModuleRefs {
     let empty_refs = ExecutableModuleRefs::default();
     let input = ReachableModuleInput {
@@ -495,7 +495,7 @@ fn executable_module_refs_for_increment(
 }
 
 fn executable_module_refs_from_static_init_refs(
-    refs_by_global: &HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
+    refs_by_global: &HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
 ) -> ExecutableModuleRefs {
     ExecutableModuleRefs {
         functions: HashMap::new(),
@@ -504,11 +504,7 @@ fn executable_module_refs_from_static_init_refs(
             .map(|(def_id, refs)| {
                 (
                     *def_id,
-                    nia_executable_facts::ExecutableItemRefs {
-                        functions: refs.functions.clone(),
-                        globals: refs.globals.clone(),
-                        ..nia_executable_facts::ExecutableItemRefs::default()
-                    },
+                    nia_executable_facts::executable_item_refs_from_function_body_refs(refs),
                 )
             })
             .collect(),

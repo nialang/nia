@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nia-body-ir.workspace = true
 nia-defs.workspace = true
+nia-function-ir.workspace = true
 nia-ids.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true

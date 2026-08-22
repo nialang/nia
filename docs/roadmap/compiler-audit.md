@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 314 completed entries in this ledger.
+- Implementation batches: 315 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1831,6 +1831,11 @@ acceptance item only when its phase-wide evidence is complete.
       regression checks the `AddrOfFunction` mapping, and a compiler-query
       regression proves a static `&identity[i32]` reaches the concrete backend
       instance plan and final Backend IR.
+- [x] Phase C facts-only static initializer summaries now retain the same
+      complete `FunctionBodyRefs` identity as typed static IR, instead of
+      reducing generic function addresses to bare functions. The body-check
+      owner regression checks the facts-only product, while compiler-query
+      conversion consumes the shared summary shape for reachability.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

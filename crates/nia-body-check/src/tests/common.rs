@@ -207,6 +207,17 @@ pub(super) fn pipeline_const_declarations(source: &str) -> TestBodyCheck {
     )
 }
 
+pub(super) fn pipeline_static_facts(source: &str) -> TestBodyCheck {
+    pipeline_with_options(
+        source,
+        |_, _, _| {},
+        true,
+        crate::BodyCheckFilter::All,
+        crate::BodyCheckProduct::FactsOnly,
+        true,
+    )
+}
+
 pub(super) fn pipeline_with_values(
     source: &str,
     adjust_values: impl FnOnce(

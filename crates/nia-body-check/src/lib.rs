@@ -192,7 +192,7 @@ struct BodyChecker<'a> {
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,
     global_inits: HashMap<GlobalDefId, Arc<nia_static_ir::StaticInit>>,
-    static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
+    static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     const_types: HashMap<DefId, InternedTyId>,
