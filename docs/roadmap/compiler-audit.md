@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 322 completed entries in this ledger.
+- Implementation batches: 323 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1869,6 +1869,11 @@ acceptance item only when its phase-wide evidence is complete.
       extern predicate now forwards the method's complete const-argument vector
       when selecting instance metadata; a handcrafted Backend IR regression
       verifies a const-only extern method keeps the C ABI declaration and call.
+- [x] Batch 323 preserves const identity for extension-method function pointers.
+      Body-check resolution now carries target type and const substitutions into
+      function references, BIR keeps const-only references as concrete instances,
+      and backend templates/instances canonicalize const arguments so the
+      source-visible receiver signature matches the emitted LLVM function.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

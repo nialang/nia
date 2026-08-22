@@ -81,11 +81,15 @@ impl<'a> BodyChecker<'a> {
             .first()
             .and_then(|param| param.receiver)
             .map(|receiver| self.receiver_ty_for_target(target_ty, receiver));
+        let (type_args, const_args) = self.extension_target_instance_args(
+            method_id,
+            &candidate.target_substitutions,
+            &candidate.target_const_substitutions,
+        );
         Some(FunctionItemRef {
             resolved,
-            type_args: self
-                .extension_target_instance_args(method_id, &candidate.target_substitutions),
-            const_args: Vec::new(),
+            type_args,
+            const_args,
             receiver_ty,
         })
     }
@@ -231,11 +235,15 @@ impl<'a> BodyChecker<'a> {
             .first()
             .and_then(|param| param.receiver)
             .map(|receiver| self.receiver_ty_for_target(target_ty, receiver));
+        let (type_args, const_args) = self.extension_target_instance_args(
+            method_id,
+            &candidate.target_substitutions,
+            &candidate.target_const_substitutions,
+        );
         Some(FunctionItemRef {
             resolved,
-            type_args: self
-                .extension_target_instance_args(method_id, &candidate.target_substitutions),
-            const_args: Vec::new(),
+            type_args,
+            const_args,
             receiver_ty,
         })
     }
@@ -250,29 +258,16 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
         let span = expr.span;
         let effective_generics = self.effective_generics_for_def(def_id);
+        let effective_const_generics = self.effective_const_generics_for_def(def_id, signature);
         let type_generics: Vec<_> = effective_generics
             .iter()
             .copied()
-            .filter(|name| {
-                signature
-                    .generic_params
-                    .iter()
-                    .find(|param| param.name == *name)
-                    .is_none_or(|param| matches!(param.kind, GenericParamSignatureKind::Type))
-            })
+            .filter(|name| !effective_const_generics.contains(name))
             .collect();
         let const_generics: Vec<_> = effective_generics
             .iter()
             .copied()
-            .filter(|name| {
-                signature
-                    .generic_params
-                    .iter()
-                    .find(|param| param.name == *name)
-                    .is_some_and(|param| {
-                        matches!(param.kind, GenericParamSignatureKind::Const { .. })
-                    })
-            })
+            .filter(|name| effective_const_generics.contains(name))
             .collect();
         if type_generics.len() != type_args.len() || const_generics.len() != const_args.len() {
             let message = if type_args.is_empty() && const_args.is_empty() {

@@ -349,6 +349,57 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_const_generic_extension_method_function_pointers() {
+    let root = temp_dir("emits_const_generic_extension_method_function_pointers");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Buffer[N: usize] {
+    value: i32,
+}
+
+extend[N: usize] Buffer[N] {
+    fn rank(& self) i32 {
+        self.value
+    }
+}
+
+fn apply(buffer: & Buffer[3], callback: &fn(& Buffer[3]) i32) i32 {
+    callback(buffer)
+}
+
+fn main() i32 {
+    let buffer = Buffer[3] { value: 42 };
+    apply(& buffer, & Buffer[3]::rank)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let instance = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| module.function_instances.iter())
+        .find(|instance| {
+            instance
+                .const_args
+                .iter()
+                .any(|arg| matches!(arg.value, nia_ty::ConstGenericValue::Int(value) if value.bits() == 3))
+        })
+        .expect("const-generic extension method instance");
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains(&instance.symbol), "{ir}");
+    assert!(ir.contains("call i32 %"), "{ir}");
+}
+
+#[test]
 fn emits_static_associated_method_function_pointer_initializers() {
     let root = temp_dir("emits_static_associated_method_function_pointer_initializers");
     let main = root.join("main.nia");

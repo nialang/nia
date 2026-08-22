@@ -1911,7 +1911,7 @@ impl<'a> BodyChecker<'a> {
 
     fn lower_function_item_ref(&mut self, expr: &Expr) -> Option<TypedExprKind> {
         let reference = self.function_reference(expr)?;
-        if reference.args.is_empty() {
+        if reference.args.is_empty() && reference.const_args.is_empty() {
             Some(TypedExprKind::Function(reference.def_id))
         } else {
             Some(TypedExprKind::FunctionInstance {

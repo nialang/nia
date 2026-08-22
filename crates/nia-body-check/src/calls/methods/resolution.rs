@@ -1209,22 +1209,29 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         method_id: GlobalDefId,
         substitutions: &SymbolMap<InternedTyId>,
-    ) -> Vec<InternedTyId> {
-        let Some(impl_generics) = self.extension_impl_generics_for_method(method_id) else {
-            return Vec::new();
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> (Vec<InternedTyId>, Vec<ConstGenericArg>) {
+        let Some(lookup) = self
+            .extension_method_lookup_for_id(method_id)
+            .cloned()
+            .or_else(|| {
+                self.ensure_extension_method_lookup_for_id(method_id)
+                    .cloned()
+            })
+        else {
+            return (Vec::new(), Vec::new());
         };
-        impl_generics
+        let type_args = lookup
+            .effective_generics
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
-            .collect()
-    }
-
-    fn extension_impl_generics_for_method(
-        &mut self,
-        method_id: GlobalDefId,
-    ) -> Option<&[SymbolId]> {
-        self.ensure_extension_method_lookup_for_id(method_id)
-            .map(|method| method.effective_generics.as_slice())
+            .collect();
+        let const_args = lookup
+            .effective_const_generics
+            .iter()
+            .filter_map(|generic| const_substitutions.get(generic).cloned())
+            .collect();
+        (type_args, const_args)
     }
 
     pub(in crate::calls::methods) fn infer_method_generics_from_args(

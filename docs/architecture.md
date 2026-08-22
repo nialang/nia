@@ -256,6 +256,10 @@ Nia-owned optimization consumers:
   retained semantic facts. Both paths must emit the method's own generic
   instantiation, including const arguments; typed-callee scanning cannot reduce
   a method call to only its trait or receiver identity.
+  Function-pointer references follow the same rule: extension target
+  substitutions retain both type and const arguments, including const-only
+  targets, and BIR lowering must keep those arguments in `FunctionInstance`
+  identity rather than collapsing the reference to a bare function.
   Module-level DCE also builds per-pass indexes from function ids and instance
   refs to bodies, then walks transitive reachability with queues instead of
   repeatedly scanning every lowered function for each discovered reference.
