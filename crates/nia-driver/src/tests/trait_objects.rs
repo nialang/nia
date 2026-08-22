@@ -355,6 +355,63 @@ fn main() usize {
     }
 }
 
+#[test]
+fn backend_vtable_guards_compare_diamond_const_instances_semantically() {
+    let root = temp_dir("backend_vtable_guards_compare_diamond_const_instances_semantically");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Base[N: usize] {
+    fn base(& self) usize { N }
+}
+
+type BaseAlias[N: usize] = Base[N];
+
+trait Left[N: usize] : BaseAlias[N] {
+    fn left(& self) usize { 1usize }
+}
+
+trait Right[N: usize] : Base[3usize] {
+    fn right(& self) usize { 2usize }
+}
+
+trait Root[N: usize] : Left[N] + Right[N] {
+    fn root(& self) usize { 3usize }
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Base[N] {}
+extend[N: usize] Meter : BaseAlias[N] {}
+extend Meter : Base[3usize] {}
+extend[N: usize] Meter : Left[N] {}
+extend[N: usize] Meter : Right[N] {}
+extend[N: usize] Meter : Root[N] {}
+
+fn read(value: & Root[3]) usize {
+    value.base() + value.left() + value.right() + value.root()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let vtable = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.trait_object_vtables)
+        .find(|vtable| vtable.trait_id != nia_ids::TraitId::Builtin(nia_ids::BuiltinTrait::Sized))
+        .expect("diamond trait-object vtable");
+    assert_eq!(vtable.entries.len(), 4, "{:?}", vtable.entries);
+}
+
 fn const_arg_bits(args: &[nia_ty::ConstGenericArg]) -> Vec<u64> {
     args.iter()
         .map(|arg| match &arg.value {

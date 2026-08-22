@@ -2039,6 +2039,26 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    pub(crate) fn const_generic_args_match_semantic(
+        &mut self,
+        left: &[nia_ty::ConstGenericArg],
+        right: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                let left = self.canonicalize_instance_const_arg(left);
+                let right = self.canonicalize_instance_const_arg(right);
+                self.types_match(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (
+                            nia_ty::ConstGenericValue::Int(left),
+                            nia_ty::ConstGenericValue::Int(right),
+                        ) => left.bits() == right.bits(),
+                        (left, right) => left == right,
+                    }
+            })
+    }
+
     pub(crate) fn types_match(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
         let left = self.normalize_type_for_match(left);
         let right = self.normalize_type_for_match(right);
@@ -2164,7 +2184,7 @@ impl<'a> ModuleLowerer<'a> {
                 }),
             ) => {
                 left_def == right_def
-                    && left_const_args == right_const_args
+                    && self.const_generic_args_match_semantic(&left_const_args, &right_const_args)
                     && left_args.len() == right_args.len()
                     && left_args
                         .iter()
@@ -2207,7 +2227,7 @@ impl<'a> ModuleLowerer<'a> {
                 left_const == right_const
                     && left_trait == right_trait
                     && left_args.len() == right_args.len()
-                    && left_const_args == right_const_args
+                    && self.const_generic_args_match_semantic(&left_const_args, &right_const_args)
                     && left_bindings.len() == right_bindings.len()
                     && left_args
                         .iter()
@@ -2253,7 +2273,7 @@ impl<'a> ModuleLowerer<'a> {
                 left_trait == right_trait
                     && left_name == right_name
                     && left_args.len() == right_args.len()
-                    && left_const_args == right_const_args
+                    && self.const_generic_args_match_semantic(&left_const_args, &right_const_args)
                     && self.types_match(left_self, right_self)
                     && left_args
                         .iter()
@@ -2272,7 +2292,8 @@ impl<'a> ModuleLowerer<'a> {
         left.name == right.name
             && left.trait_id == right.trait_id
             && left.trait_args.len() == right.trait_args.len()
-            && left.trait_const_args == right.trait_const_args
+            && self
+                .const_generic_args_match_semantic(&left.trait_const_args, &right.trait_const_args)
             && left
                 .trait_args
                 .iter()
