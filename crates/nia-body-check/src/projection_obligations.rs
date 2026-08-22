@@ -776,15 +776,26 @@ impl<'a> BodyChecker<'a> {
                 let value = self.substitute_ty(value, substitutions);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 let args = args
                     .into_iter()
                     .map(|arg| self.substitute_ty(arg, substitutions))
                     .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg
+                    })
+                    .collect();
                 self.interner.intern(TyKind::Nominal {
                     def_id,
                     args,
-                    const_args: Vec::new(),
+                    const_args,
                 })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {

@@ -160,6 +160,10 @@ it does not make a reset implicit.
   and recursively normalize each argument's type. Dropping those fields makes
   erased signatures disagree with trait-object identity and backend vtable
   instantiation even when the source declaration is otherwise valid.
+- Where-bound candidate substitution has the same identity rule: nominal
+  arguments must retain both type and const vectors, with const argument types
+  recursively substituted. A type-only reconstruction can accept or reject a
+  bound against the wrong const instance.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

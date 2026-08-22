@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 262 completed entries in this ledger.
+- Implementation batches: 263 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1580,6 +1580,11 @@ acceptance item only when its phase-wide evidence is complete.
       the same const-bearing nominal identity used by trait-object bindings and
       vtable lowering; body-check, driver, query, and workspace gates remain
       green.
+- [x] Phase A where-bound candidate substitution now preserves nominal const
+      arguments and recursively substitutes their argument types instead of
+      rebuilding every nominal as type-only. Existing const-generic where-bound
+      regressions for integer, bool, and char identities pass alongside the full
+      body-check and driver suites.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
