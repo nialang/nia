@@ -83,6 +83,11 @@ would exceed that budget it retains the first `TooLarge` error and stops growing
 the output buffer, rather than allocating the complete oversized encoding and
 rejecting it only at `finish`.
 
+The decoder does not reserve typed list capacity from a runner-controlled count.
+It grows a list only after each item has consumed and validated its bytes, so a
+truncated count prefix cannot amplify a tiny draft into `count * size_of(T)` of
+host allocation.
+
 The registered compatibility identities in `nia-compat` are the only schema
 and namespace authorities. Changing an encoded field or persistent cache input
 requires the corresponding registered schema or owner-local fingerprint domain

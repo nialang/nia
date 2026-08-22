@@ -2532,6 +2532,9 @@ Build graph cleanup applies the same ownership rule recursively: a list backing
 allocation is released only after every owning element succeeds. Failed nested
 arguments, environment entries, imports, targets, modules, and steps therefore
 remain reachable for a later cleanup retry.
+On the receiving side, list counts are validated but never used to reserve
+typed Rust capacity before item bytes are parsed. This prevents malformed
+truncated drafts from turning a small count prefix into a large host allocation.
 
 Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries

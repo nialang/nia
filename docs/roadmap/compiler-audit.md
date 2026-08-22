@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 284 completed entries in this ledger.
+- Implementation batches: 285 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -510,6 +510,11 @@ acceptance item only when its phase-wide evidence is complete.
       environments, and module imports. Fault-allocator regressions prove both
       step and module residual owners remain reachable and are fully released
       by a second `Build::deinit` attempt.
+- [x] Phase F build-plan decoding no longer reserves typed Rust list capacity
+      from a runner-controlled count before parsing any item. A deterministic
+      large-element regression proves a maximum accepted count followed by
+      truncation returns `Truncated` instead of overflowing or allocating
+      `count * size_of(T)` capacity.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The
