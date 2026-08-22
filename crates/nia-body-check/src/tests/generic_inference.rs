@@ -2,6 +2,33 @@
 use super::common::*;
 
 #[test]
+fn recursive_associated_projection_normalization_terminates() {
+    let checked = pipeline(
+        r#"
+trait Source[N: usize] {
+    type Item;
+}
+
+struct Box[N: usize] {}
+
+extend[N: usize] Box[N] : Source[N] {
+    type Item = [Self as Source[N]]::Item;
+}
+
+fn main() i32 {
+    let value: [Box[3] as Source[3]]::Item = 0;
+    value
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.is_empty(),
+        "recursive projections must terminate without diagnostics: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn infers_generic_function_type_arguments_from_call_arguments() {
     let checked = pipeline(
         r#"

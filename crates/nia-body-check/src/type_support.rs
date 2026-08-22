@@ -19,7 +19,7 @@ use nia_ty::{
 };
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 struct ProjectionNormalizationKey {
     self_ty: InternedTyId,
     trait_id: TraitId,
@@ -151,13 +151,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
-        self.normalize_projection_inner(ty, &mut HashSet::new())
+        self.normalize_projection_inner(ty, &mut Vec::new())
     }
 
     fn normalize_projection_inner(
         &mut self,
         ty: InternedTyId,
-        active_projections: &mut HashSet<ProjectionNormalizationKey>,
+        active_projections: &mut Vec<ProjectionNormalizationKey>,
     ) -> InternedTyId {
         let ty = self.normalize_aliases(ty);
         match self.interner.get(ty).cloned() {
@@ -403,9 +403,15 @@ impl<'a> BodyChecker<'a> {
                     trait_const_args: trait_const_args.clone(),
                     name,
                 });
-                if !active_projections.insert(key.clone()) {
+                // Projection recursion is path-local. Compare the complete key semantically so
+                // equivalent type handles or const spellings cannot reopen the same path.
+                if (0..active_projections.len()).any(|index| {
+                    let active = active_projections[index].clone();
+                    self.projection_normalization_keys_equivalent(&active, &key)
+                }) {
                     return projection;
                 }
+                active_projections.push(key.clone());
                 let normalized = self
                     .resolve_associated_type_projection(
                         self_ty,
@@ -416,7 +422,7 @@ impl<'a> BodyChecker<'a> {
                     )
                     .map(|resolved| self.normalize_projection_inner(resolved, active_projections))
                     .unwrap_or(projection);
-                active_projections.remove(&key);
+                active_projections.pop();
                 normalized
             }
             Some(
@@ -431,6 +437,26 @@ impl<'a> BodyChecker<'a> {
             )
             | None => ty,
         }
+    }
+
+    fn projection_normalization_keys_equivalent(
+        &mut self,
+        left: &ProjectionNormalizationKey,
+        right: &ProjectionNormalizationKey,
+    ) -> bool {
+        left.name == right.name
+            && left.trait_id == right.trait_id
+            && left.trait_args.len() == right.trait_args.len()
+            && left.trait_const_args.len() == right.trait_const_args.len()
+            && self.types_equivalent_without_projection_resolution(left.self_ty, right.self_ty)
+            && left
+                .trait_args
+                .iter()
+                .zip(&right.trait_args)
+                .all(|(left, right)| {
+                    self.types_equivalent_without_projection_resolution(*left, *right)
+                })
+            && self.const_generic_arg_slices_match(&left.trait_const_args, &right.trait_const_args)
     }
 
     pub(crate) fn resolve_associated_type_projection(
