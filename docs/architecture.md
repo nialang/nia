@@ -1542,6 +1542,11 @@ trait's const arguments into the source `TraitGoal`, matching dynamic vtable
 dispatch; the fallback `FunctionCallee` also stores those arguments so a
 type-only payload cannot materialize the wrong instance after selection.
 
+Monomorphization convergence accounting treats const arguments as typed
+identity-bearing inputs: the depth walker and concrete-instance admission both
+traverse each `ConstGenericArg::ty`, including types nested inside nominal,
+trait-object, and projection arguments.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait

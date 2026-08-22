@@ -613,6 +613,9 @@ impl MonoCollector<'_> {
             .args
             .iter()
             .any(|arg| self.ty_exceeds_instance_depth(*arg, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH))
+            || key.const_args.iter().any(|arg| {
+                self.ty_exceeds_instance_depth(arg.ty, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH)
+            })
         {
             self.report_instance_type_depth_limit(span, &key);
             return;
@@ -740,39 +743,61 @@ impl MonoCollector<'_> {
                 self.ty_exceeds_instance_depth(error, next)
                     || self.ty_exceeds_instance_depth(value, next)
             }
-            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => args
+            TyKind::Nominal {
+                args, const_args, ..
+            } => {
+                args.iter()
+                    .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+            }
+            TyKind::BuiltinTrait { args, .. } => args
                 .iter()
                 .any(|arg| self.ty_exceeds_instance_depth(*arg, next)),
             TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }
             | TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             } => {
                 trait_args
                     .iter()
                     .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
+                            || binding
+                                .trait_const_args
+                                .iter()
+                                .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
                             || self.ty_exceeds_instance_depth(binding.ty, next)
                     })
             }
             TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             } => {
                 self.ty_exceeds_instance_depth(self_ty, next)
                     || trait_args
                         .iter()
                         .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
             }
             TyKind::GenericParam(_)
             | TyKind::SelfParam

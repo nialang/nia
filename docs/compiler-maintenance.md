@@ -155,6 +155,10 @@ it does not make a reset implicit.
   contract. Until vtable metadata and lookup define one, reject such traits at
   object construction rather than silently erasing the item while retaining a
   source-level promise.
+- Monomorphization depth limits must inspect type structure carried by const
+  arguments as well as ordinary type arguments. Check `ConstGenericArg::ty` at
+  both recursive type traversal and concrete instance admission, or deeply
+  nested const metadata can bypass convergence protection.
 - Object-safety DFS must substitute both type and const arguments for every
   inherited source trait instance. Key its active cycle guard by the complete
   `(trait, args, const_args)` identity and keep a separate expanded set so
