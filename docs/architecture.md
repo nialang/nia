@@ -1531,6 +1531,11 @@ before checking inherited methods. A separate expanded-instance set suppresses
 duplicate diagnostics and work when a diamond reaches the same parent through
 multiple siblings without weakening the path-local recursion guard.
 
+Where-bound candidate matching applies the same nominal identity rule during
+substitution: type arguments and const arguments remain separate, and each
+const argument type is recursively substituted. This keeps const-generic
+where obligations aligned with trait projection and impl matching.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
