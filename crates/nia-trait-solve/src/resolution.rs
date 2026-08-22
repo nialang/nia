@@ -54,9 +54,13 @@ impl TraitSolver<'_> {
         // Trait implication is interpreted as a least fixed point. Re-entering
         // the same normalized goal through impl where-clauses is therefore not
         // a proof; only an assumption or a finite impl chain may establish it.
-        if !self.active_goals.insert(goal.clone()) {
+        if (0..self.active_goals.len()).any(|index| {
+            let active = self.active_goals[index].clone();
+            self.goals_equivalent(&active, goal)
+        }) {
             return TraitSelection::Unsatisfied;
         }
+        self.active_goals.push(goal.clone());
         let user_impls = self.matching_user_impls(goal);
         let selection = match user_impls.len() {
             0 => TraitSelection::Unsatisfied,
@@ -68,7 +72,12 @@ impl TraitSolver<'_> {
             ),
             _ => TraitSelection::Ambiguous,
         };
-        self.active_goals.remove(goal);
+        if let Some(index) = (0..self.active_goals.len()).rev().find(|index| {
+            let active = self.active_goals[*index].clone();
+            self.goals_equivalent(&active, goal)
+        }) {
+            self.active_goals.remove(index);
+        }
         selection
     }
 

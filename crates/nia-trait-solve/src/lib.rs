@@ -156,7 +156,7 @@ pub struct UserAssociatedConst {
 /// set of assumptions.
 pub struct TraitSolver<'a> {
     interner: TraitSolverTypeCx<'a>,
-    active_goals: HashSet<TraitGoal>,
+    active_goals: Vec<TraitGoal>,
     normalization: &'a TypeNormalization,
     trait_impls: &'a [ProgramTraitImplSignature],
     trait_impl_index: Option<&'a ProgramTraitImplIndex>,
@@ -245,7 +245,7 @@ impl<'a> TraitSolverContext<'a> {
                 store: self.type_store,
                 append: self.type_store.append_for_module(self.local_module_id),
             },
-            active_goals: HashSet::new(),
+            active_goals: Vec::new(),
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: self.trait_impl_index,
@@ -273,7 +273,7 @@ impl<'a> TraitSolverContext<'a> {
                 store: self.type_store,
                 append: self.type_store.append_for_module(self.local_module_id),
             },
-            active_goals: HashSet::new(),
+            active_goals: Vec::new(),
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: self.trait_impl_index,
