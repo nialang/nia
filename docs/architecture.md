@@ -1519,9 +1519,11 @@ signature branches. This preserves termination for recursive declarations while
 still allowing independent sibling supertraits to be explored.
 
 Object-safety validation rejects a source trait with builtin `Sized` as a
-supertrait. Trait objects are erased and therefore cannot satisfy the
-statically-known-layout requirement; this check belongs at the body-check
-object boundary before vtable construction.
+supertrait. It also rejects builtin supertraits that expose methods or
+associated items until their object-level vtable contract is defined. Trait
+objects are erased and therefore cannot satisfy the statically-known-layout
+requirement; these checks belong at the body-check object boundary before
+vtable construction.
 
 Upcast validation matches target associated bindings against source bindings as
 an unordered one-to-one set with transactional backtracking. A compatible
