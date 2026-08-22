@@ -532,10 +532,41 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
+        let mut visiting = Vec::new();
+        self.record_trait_object_vtable_instantiations_inner(
+            span,
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            &mut visiting,
+        );
+    }
+
+    fn record_trait_object_vtable_instantiations_inner(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        trait_id: nia_ty::TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
+        visiting: &mut Vec<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
+    ) {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
             return;
         };
+        let visit_key = (
+            source_trait_id,
+            trait_args.to_vec(),
+            trait_const_args.to_vec(),
+        );
+        if visiting.contains(&visit_key) {
+            return;
+        }
+        visiting.push(visit_key);
+
         let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
+            visiting.pop();
             return;
         };
         for method in &trait_signature.methods {
@@ -562,6 +593,37 @@ impl<'a> BodyChecker<'a> {
                 );
             }
         }
+
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            source_trait_id,
+            trait_args,
+            trait_const_args,
+        );
+        for supertrait in &trait_signature.supertraits {
+            let supertrait = self.substitute_generics_and_consts(
+                supertrait.ty,
+                &substitutions,
+                &const_substitutions,
+            );
+            let supertrait = self.normalization.normalize(supertrait);
+            let Some(nia_ty::TyKind::Nominal {
+                def_id: supertrait_id,
+                args: supertrait_args,
+                const_args: supertrait_const_args,
+            }) = self.interner.get(supertrait).cloned()
+            else {
+                continue;
+            };
+            self.record_trait_object_vtable_instantiations_inner(
+                span,
+                self_ty,
+                nia_ty::TraitId::Source(supertrait_id),
+                &supertrait_args,
+                &supertrait_const_args,
+                visiting,
+            );
+        }
+        visiting.pop();
     }
 
     fn trait_object_impl_method_instance(

@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 258 completed entries in this ledger.
+- Implementation batches: 259 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1553,6 +1553,14 @@ acceptance item only when its phase-wide evidence is complete.
       rejection regression; marker-only builtin bounds retain their existing
       semantics. Driver, body-check, query, workspace, formatting, and strict
       Clippy gates remain green.
+- [x] Phase A trait-object semantic instantiation facts now traverse the complete
+      source-supertrait graph used by backend vtable expansion. Each inherited
+      default method receives substituted type/const arguments, while a
+      path-local `(trait, args, const_args)` guard terminates recursive graphs;
+      builtin supertraits remain outside this source-vtable traversal because
+      unsupported object-level contracts are rejected earlier. The body-check
+      regression covers a const-generic inherited default method and all 254
+      body-check tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

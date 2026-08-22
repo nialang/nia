@@ -262,6 +262,12 @@ Nia-owned optimization consumers:
   types whose const expressions normalize to the same value, and module codegen
   memoizes semantic type-equality pairs so repeated layout, function-instance,
   and vtable fallback lookups do not recursively compare the same nested types.
+  Once a trait object is accepted, frontend semantic facts and backend vtable
+  entry expansion must walk the same complete source-supertrait graph. The
+  walk substitutes declaration-ordered type and const arguments at every edge
+  and uses a path-local trait-instance guard, so inherited default methods
+  retain their concrete identity without recursive graphs suppressing valid
+  siblings.
   Function-instance declarations derive
   their LLVM function type directly from the signature helper, so declarations
   do not need to construct temporary backend function bodies or clone instance
