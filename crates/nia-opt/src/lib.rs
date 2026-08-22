@@ -1,17 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Declarative optimization policies shared by compiler and backend passes.
+//!
+//! This crate selects pass depth, inlining thresholds, generic specialization,
+//! and size preference. It does not implement an optimization pass itself.
 
+/// User-facing optimization level mapped to a complete pass policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum NiaOptimizationLevel {
     #[default]
+    /// Required correctness work only.
     O0,
+    /// Cheap local improvements.
     O1,
+    /// Full normal optimization.
     O2,
+    /// Aggressive performance optimization.
     O3,
+    /// Full optimization biased toward code size.
     Os,
+    /// Minimal code-size-oriented optimization.
     Oz,
 }
 
 impl NiaOptimizationLevel {
+    /// Expands this level into the policy consumed by optimization passes.
     pub fn policy(self) -> OptimizationPolicy {
         match self {
             Self::O0 => OptimizationPolicy {
@@ -84,16 +96,26 @@ impl NiaOptimizationLevel {
     }
 }
 
+/// Complete optimization policy for one compilation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OptimizationPolicy {
+    /// Source optimization level.
     pub level: NiaOptimizationLevel,
+    /// Control-flow simplification depth.
     pub simplify_cfg: OptimizationDepth,
+    /// Constant-folding depth.
     pub const_fold: OptimizationDepth,
+    /// Dead-code elimination depth.
     pub dead_code_elim: OptimizationDepth,
+    /// Local copy-propagation depth.
     pub local_copy_prop: OptimizationDepth,
+    /// Function inlining threshold.
     pub inline_threshold: InlineThreshold,
+    /// Generic specialization policy.
     pub specialize_generics: SpecializationPolicy,
+    /// Whether equivalent monomorphized instances are deduplicated.
     pub dedup_monomorphized_instances: bool,
+    /// Whether size should be preferred over speed.
     pub prefer_size: bool,
 }
 
@@ -103,16 +125,23 @@ impl Default for OptimizationPolicy {
     }
 }
 
+/// Depth of an individual optimization family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OptimizationDepth {
+    /// Pass is disabled.
     Disabled,
+    /// Passes required for correctness.
     Required,
+    /// Bounded low-cost pass work.
     Cheap,
+    /// Complete normal pass work.
     Full,
+    /// Maximum pass work.
     Aggressive,
 }
 
 impl OptimizationDepth {
+    /// Returns whether this depth meets `minimum`.
     pub fn at_least(self, minimum: Self) -> bool {
         self.rank() >= minimum.rank()
     }
@@ -128,21 +157,33 @@ impl OptimizationDepth {
     }
 }
 
+/// Relative threshold used by function inlining.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InlineThreshold {
+    /// Never inline.
     Never,
+    /// Inline only the smallest bodies.
     Minimal,
+    /// Inline with code-size preference.
     Size,
+    /// Inline small bodies.
     Small,
+    /// Inline normal candidates.
     Normal,
+    /// Inline aggressively.
     Aggressive,
 }
 
+/// Generic specialization aggressiveness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpecializationPolicy {
+    /// Specialize only semantically required instances.
     RequiredOnly,
+    /// Specialize with code-size awareness.
     SizeAware,
+    /// Normal specialization.
     Normal,
+    /// Aggressive specialization.
     Aggressive,
 }
 

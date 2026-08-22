@@ -29,6 +29,8 @@ The library follows a small set of ownership rules:
 - Build graph cleanup releases a containing list only after all owning elements
   in that list have been released. Failed nested strings, paths, arguments, or
   imports remain reachable for a later `Build::deinit` retry.
+- File close paths treat the descriptor as consumed before the OS close result;
+  cleanup defers must not issue a second close after a close error.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

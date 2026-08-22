@@ -279,13 +279,37 @@ fn layouts_separate_semantic_value_from_diagnostics() {
 
 #[test]
 fn const_check_separates_semantic_value_from_diagnostics() {
-    let fixture = LoadedProgramFixture::new("main.nia", "const a: i32 = b; const b: i32 = a;");
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "const a: i32 = b; const b: i32 = a; const independent: i32 = 42;",
+    );
     let module_id = fixture.entry_id();
     let db = query_db(fixture.program());
 
     let const_eval = db.expect_get(ConstQuery(module_id));
+    let defs = db.expect_get(ModuleDefsQuery(module_id));
+    let independent = nia_const_check::ConstKey::Global(GlobalDefId {
+        module_id,
+        def_id: defs
+            .semantic
+            .module_scope
+            .values
+            .get(&sym("independent"))
+            .expect("independent const definition"),
+    });
     assert!(const_eval.semantic.diagnostics.is_empty());
-    assert!(!resolve_diagnostic_bundle(db.context(), &const_eval.diagnostics).is_empty());
+    assert!(
+        resolve_diagnostic_bundle(db.context(), &const_eval.diagnostics)
+            .iter()
+            .any(|diagnostic| diagnostic.summary == "cyclic const dependency")
+    );
+    assert_eq!(
+        const_eval.semantic.values.get(&independent),
+        Some(&nia_const_check::ConstValue::Int(nia_ty::IntConst::signed(
+            42
+        )))
+    );
+    assert!(const_eval.semantic.typed_values.contains_key(&independent));
 }
 
 #[test]

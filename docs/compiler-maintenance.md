@@ -355,6 +355,9 @@ signals, not architecture goals.
 - For collections whose elements own allocations, retain the collection
   backing whenever any element cleanup fails. Releasing the element storage
   would discard the only metadata capable of retrying the residual owner.
+- For consuming close APIs, clear the cleanup flag before the syscall. A failed
+  close may still consume the descriptor, so a defer retry can only mask the
+  original error with `BadFd`.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.
@@ -387,6 +390,15 @@ decisions likewise live in [`lib/README.md`](../lib/README.md) and the relevant
 `lib/std` facade or module. Current std APIs are not retained merely because
 they made the bootstrap run, and full build sessions remain resource-accounted
 integration work rather than ordinary unit tests.
+
+`nia-test-support` is the shared owner of that resource accounting. Explicit
+compiler/build sessions are thread-affine and cover nested compiler commands;
+runtime commands remain independently charged, while their memory reservation
+may reuse the enclosing compiler working set. Temporary directories are guard-
+owned, and fixture manifests are consuming schemas: tests must read every
+expected key and call `finish` so stale or misspelled fields cannot be ignored.
+Fixture-relative paths reject absolute and parent components, and fixture copies
+exclude generated `.nia-build` and `.nia-cache` state.
 
 Any compiler changes required by that work still follow this maintenance
 contract. Ordinary build or standard-library errors must continue through the

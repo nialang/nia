@@ -2,19 +2,31 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Program-qualified declaration facts collected from one module.
 pub struct ModuleProgramSignatureFacts {
+    /// Trait definition ids declared by the module.
     pub trait_defs: HashSet<GlobalDefId>,
+    /// Function signatures keyed by global definition id.
     pub functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    /// Global signatures keyed by global definition id.
     pub globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
+    /// Constant signatures keyed by global definition id.
     pub consts: HashMap<GlobalDefId, ProgramConstSignature>,
+    /// Struct signatures keyed by global definition id.
     pub structs: HashMap<GlobalDefId, ProgramStructSignature>,
+    /// Union signatures keyed by global definition id.
     pub unions: HashMap<GlobalDefId, ProgramUnionSignature>,
+    /// Enum signatures keyed by global definition id.
     pub enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    /// Trait signatures keyed by global definition id.
     pub traits: HashMap<GlobalDefId, ProgramTraitSignature>,
+    /// Type-alias signatures keyed by global definition id.
     pub type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    /// Program-qualified trait implementations.
     pub trait_impls: Vec<ProgramTraitImplSignature>,
 }
 
+/// Collects all program-qualified signature facts for one module.
 pub fn collect_module_program_signature_facts(
     module: ModuleSignatureInput<'_>,
 ) -> ModuleProgramSignatureFacts {
@@ -42,6 +54,7 @@ pub fn collect_module_program_signature_facts(
     }
 }
 
+/// Tests whether an active item tree contains facts in the requested set.
 pub fn signature_tree_has_program_signature_facts(
     tree: &nia_item_tree::ActiveModuleItemTree,
     set: nia_item_tree::SignatureItemSet,
@@ -98,6 +111,7 @@ fn signature_tree_item_has_program_signature_facts(
     }
 }
 
+/// Collects function signatures, omitting explicitly excluded ids.
 pub fn collect_program_functions_excluding(
     modules: &[ModuleSignatureInput<'_>],
     excluded: &HashSet<GlobalDefId>,
@@ -124,6 +138,7 @@ pub fn collect_program_functions_excluding(
     functions
 }
 
+/// Collects global signatures from the supplied modules.
 pub fn collect_program_globals(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
@@ -144,6 +159,7 @@ pub fn collect_program_globals(
     globals
 }
 
+/// Collects constant signatures from the supplied modules.
 pub fn collect_program_consts(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramConstSignature> {
@@ -164,6 +180,7 @@ pub fn collect_program_consts(
     consts
 }
 
+/// Collects struct signatures from the supplied modules.
 pub fn collect_program_structs(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramStructSignature> {
@@ -184,6 +201,7 @@ pub fn collect_program_structs(
     structs
 }
 
+/// Collects union signatures from the supplied modules.
 pub fn collect_program_unions(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramUnionSignature> {
@@ -204,6 +222,7 @@ pub fn collect_program_unions(
     unions
 }
 
+/// Collects enum signatures from the supplied modules.
 pub fn collect_program_enums(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramEnumSignature> {
@@ -224,6 +243,7 @@ pub fn collect_program_enums(
     enums
 }
 
+/// Collects trait signatures from the supplied modules.
 pub fn collect_program_traits(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramTraitSignature> {
@@ -244,6 +264,7 @@ pub fn collect_program_traits(
     traits
 }
 
+/// Collects type-alias signatures from the supplied modules.
 pub fn collect_program_type_aliases(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
@@ -264,6 +285,7 @@ pub fn collect_program_type_aliases(
     type_aliases
 }
 
+/// Collects non-builtin trait implementations from the supplied modules.
 pub fn collect_program_trait_impls(
     modules: &[ModuleSignatureInput<'_>],
 ) -> Vec<ProgramTraitImplSignature> {

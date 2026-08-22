@@ -13,15 +13,18 @@ use crate::Diagnostic;
 static NEXT_STORE_ID: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Store-qualified identity of a diagnostic bundle.
 pub struct DiagnosticBundleId {
     store: NonZeroU32,
     index: u32,
 }
 
 #[derive(Clone)]
+/// Immutable, shareable collection of diagnostics owned by one store.
 pub struct DiagnosticBundle(Arc<DiagnosticBundleData>);
 
 impl DiagnosticBundle {
+    /// Returns the store-qualified bundle identity.
     pub fn id(&self) -> DiagnosticBundleId {
         self.0.id
     }
@@ -44,6 +47,7 @@ impl PartialEq for DiagnosticBundle {
 }
 
 impl DiagnosticBundle {
+    /// Reports whether this bundle contains no diagnostics.
     pub fn is_empty(&self) -> bool {
         self.0.diagnostics.as_slice().is_empty()
     }
@@ -71,6 +75,7 @@ impl DiagnosticStorage {
 }
 
 #[derive(Debug)]
+/// Session-owned allocator and accessor for diagnostic bundles.
 pub struct DiagnosticStore {
     id: NonZeroU32,
     next_bundle_index: AtomicU32,
@@ -78,6 +83,7 @@ pub struct DiagnosticStore {
 }
 
 impl DiagnosticStore {
+    /// Creates an empty store with a fresh owner identity.
     pub fn new() -> Self {
         let id = NEXT_STORE_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -99,6 +105,7 @@ impl DiagnosticStore {
         }
     }
 
+    /// Publishes an owned diagnostic vector as an immutable bundle.
     pub fn bundle(&self, diagnostics: Vec<Diagnostic>) -> DiagnosticBundle {
         if diagnostics.is_empty() {
             return self.empty.clone();
@@ -118,6 +125,7 @@ impl DiagnosticStore {
         }))
     }
 
+    /// Publishes a shared diagnostic vector without copying its payload.
     pub fn bundle_shared(&self, diagnostics: Arc<Vec<Diagnostic>>) -> DiagnosticBundle {
         if diagnostics.is_empty() {
             return self.empty.clone();
@@ -137,6 +145,7 @@ impl DiagnosticStore {
         }))
     }
 
+    /// Borrows a bundle's diagnostics when it belongs to this store.
     pub fn diagnostics<'bundle>(
         &self,
         bundle: &'bundle DiagnosticBundle,

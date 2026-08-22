@@ -8,131 +8,212 @@ use crate::{
     StringLiteral, UnaryOp,
 };
 
+/// Kind of one source path segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PathSegmentKind {
+    /// Named path segment.
     Name(SymbolId),
+    /// Package-root path segment.
     Package,
+    /// Parent-module path segment.
     Super,
+    /// Current-module or value path segment.
     SelfValue,
 }
 
+/// Parsed type reference with source spelling and identity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
+    /// Source span covering the type.
     pub span: Span,
+    /// Stable syntax identity for the type node.
     pub node_key: VersionedNodeKey,
+    /// Original type spelling used by diagnostics.
     pub text: String,
+    /// Type syntax payload.
     pub kind: TypeKind,
 }
 
+/// Kinds of type syntax produced by the parser.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeKind {
+    /// Recovery type for invalid syntax.
     Error,
+    /// Qualified type path.
     Path {
+        /// Path segments in source order.
         segments: Vec<TypePathSegment>,
     },
+    /// Explicit associated-type projection.
     Projection {
+        /// Projected self type.
         ty: Box<TypeRef>,
+        /// Trait defining the associated type.
         trait_ref: Box<TypeRef>,
+        /// Associated type name.
         name: SymbolId,
     },
+    /// Pointer type.
     Pointer {
+        /// Whether mutation through the pointer is forbidden.
         is_readonly: bool,
+        /// Pointed-to type.
         elem: Box<TypeRef>,
     },
+    /// Volatile pointer type.
     VolatilePointer {
+        /// Whether mutation through the pointer is forbidden.
         is_readonly: bool,
+        /// Pointed-to type.
         elem: Box<TypeRef>,
     },
+    /// Slice view type.
     Slice {
+        /// Whether mutation through the slice is forbidden.
         is_readonly: bool,
+        /// Slice element type.
         elem: Box<TypeRef>,
     },
+    /// Unsized slice pointee type.
     SlicePointee {
+        /// Slice element type.
         elem: Box<TypeRef>,
     },
+    /// Fixed-length array type.
     Array {
+        /// Array length syntax.
         len: ArrayLen,
+        /// Array element type.
         elem: Box<TypeRef>,
     },
+    /// Tuple type.
     Tuple {
+        /// Tuple elements in source order.
         elems: Vec<TypeRef>,
     },
+    /// Type-level range.
     Range {
+        /// Optional start type.
         start: Option<Box<TypeRef>>,
+        /// Optional end type.
         end: Option<Box<TypeRef>>,
+        /// Whether the end is included.
         inclusive: bool,
     },
+    /// Concrete function pointer type.
     FunctionPointer {
+        /// Parameter types.
         params: Vec<TypeRef>,
+        /// Optional return type.
         return_type: Option<Box<TypeRef>>,
+        /// Whether variadic arguments are accepted.
         is_variadic: bool,
     },
+    /// Callable interface type.
     Callable {
+        /// Parameter types.
         params: Vec<TypeRef>,
+        /// Optional return type.
         return_type: Option<Box<TypeRef>>,
     },
+    /// Optional type.
     Optional {
+        /// Wrapped element type.
         elem: Box<TypeRef>,
     },
+    /// Error-union type.
     ErrorUnion {
+        /// Error type.
         error: Box<TypeRef>,
+        /// Success value type.
         value: Box<TypeRef>,
     },
+    /// `Self` type.
     SelfType,
+    /// Opaque inferred implementation type.
     Opaque,
+    /// Uninhabited never type.
     Never,
+    /// Type inference placeholder.
     Infer,
 }
 
+/// One segment in a type path with generic arguments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypePathSegment {
+    /// Segment kind.
     pub kind: PathSegmentKind,
+    /// Generic arguments attached to the segment.
     pub args: Vec<TypeArg>,
 }
 
+/// Generic argument syntax.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeArg {
+    /// Unambiguously parsed type argument.
     Type(TypeRef),
+    /// Unambiguously parsed const expression argument.
     Const(Expr),
+    /// Syntax retaining both type and const interpretations.
     TypeOrConst {
+        /// Type interpretation.
         ty: TypeRef,
+        /// Const-expression interpretation.
         expr: Expr,
     },
+    /// Associated-type equality binding.
     AssocBinding {
+        /// Named or projected binding key.
         key: AssocBindingKey,
+        /// Bound type.
         ty: TypeRef,
+        /// Source span covering the binding.
         span: Span,
     },
 }
 
+/// Left-hand key of an associated-type binding.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssocBindingKey {
+    /// Direct associated-type name.
     Name(SymbolId),
+    /// Explicit projected associated type.
     Projection(TypeRef),
 }
 
+/// Array length syntax.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayLen {
+    /// Inferred array length.
     Infer,
+    /// Explicit const expression length.
     Expr(Box<Expr>),
 }
 
+/// Parsed where clause.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct WhereClause {
+    /// Predicates in source order.
     pub predicates: Vec<WherePredicate>,
 }
 
+/// One type-and-bounds where predicate.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WherePredicate {
+    /// Constrained type.
     pub ty: TypeRef,
+    /// Required trait or type bounds.
     pub bounds: Vec<TypeRef>,
+    /// Source span covering the predicate.
     pub span: Span,
 }
 
+/// Compares two type references by declaration syntax, ignoring spans and node keys.
 pub fn type_ref_decl_eq(lhs: &TypeRef, rhs: &TypeRef) -> bool {
     type_kind_decl_eq(&lhs.kind, &rhs.kind)
 }
 
+/// Compares two ordered type-reference lists by declaration syntax.
 pub fn type_refs_decl_eq(lhs: &[TypeRef], rhs: &[TypeRef]) -> bool {
     lhs.len() == rhs.len()
         && lhs
@@ -141,6 +222,7 @@ pub fn type_refs_decl_eq(lhs: &[TypeRef], rhs: &[TypeRef]) -> bool {
             .all(|(lhs, rhs)| type_ref_decl_eq(lhs, rhs))
 }
 
+/// Compares optional type references by declaration syntax.
 pub fn option_type_ref_decl_eq(lhs: Option<&TypeRef>, rhs: Option<&TypeRef>) -> bool {
     match (lhs, rhs) {
         (Some(lhs), Some(rhs)) => type_ref_decl_eq(lhs, rhs),
@@ -149,6 +231,7 @@ pub fn option_type_ref_decl_eq(lhs: Option<&TypeRef>, rhs: Option<&TypeRef>) -> 
     }
 }
 
+/// Compares where clauses by ordered declaration syntax.
 pub fn where_clause_decl_eq(lhs: &WhereClause, rhs: &WhereClause) -> bool {
     lhs.predicates.len() == rhs.predicates.len()
         && lhs
@@ -160,16 +243,19 @@ pub fn where_clause_decl_eq(lhs: &WhereClause, rhs: &WhereClause) -> bool {
             })
 }
 
+/// Encodes one type reference as a stable syntax identity string.
 pub fn type_ref_identity(ty: &TypeRef) -> String {
     let mut out = String::new();
     write_type_ref_identity(&mut out, ty);
     out
 }
 
+/// Encodes type references as stable syntax identities in source order.
 pub fn type_refs_identity(types: &[TypeRef]) -> Vec<String> {
     types.iter().map(type_ref_identity).collect()
 }
 
+/// Encodes a where clause as stable constrained-type and bound identities.
 pub fn where_clause_identity(where_clause: &WhereClause) -> Vec<(String, Vec<String>)> {
     where_clause
         .predicates

@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Persistent semantic facts produced by front-end analysis.
+//!
+//! The products in this crate are declaration- and node-identity keyed facts;
+//! they carry no AST ownership. Node maps retain their owning [`NodeStore`]
+//! explicitly so facts can be merged or rehomed without allowing stale handles
+//! to alias a later syntax revision.
 use std::collections::{HashMap, HashSet};
 
 use nia_ast::{BinaryOp, UnaryOp};
@@ -11,14 +17,22 @@ use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
 
+/// Semantic uses keyed by revision-stable syntax node identities.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SemanticUseTable {
+    /// Local or global value resolutions by node.
     pub node_value_uses: NodeMap<SemanticValueUse>,
+    /// Const-generic parameter names used by nodes.
     pub node_const_generic_uses: NodeMap<SymbolId>,
+    /// Builtin associated values resolved at nodes.
     pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
+    /// Associated-const projections resolved at nodes.
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
+    /// Local definition resolutions by node.
     pub node_local_defs: NodeMap<LocalId>,
+    /// Type identities resolved at nodes.
     pub node_type_uses: NodeMap<InternedTyId>,
+    /// Type-prefix definitions resolved before generic application.
     pub node_type_prefixes: NodeMap<GlobalDefId>,
 }
 
@@ -29,26 +43,32 @@ impl Default for SemanticUseTable {
 }
 
 impl SemanticUseTable {
+    /// Creates a builder with a fresh node store.
     pub fn builder() -> SemanticUseTableBuilder {
         SemanticUseTableBuilder::new()
     }
 
+    /// Creates a builder whose maps share `store`.
     pub fn builder_with_node_store(store: &NodeStore) -> SemanticUseTableBuilder {
         SemanticUseTableBuilder::with_node_store(store)
     }
 
+    /// Returns the owning node-store identity.
     pub fn store_id(&self) -> NodeStoreId {
         self.node_value_uses.store_id()
     }
 
+    /// Returns the node store retained by this table.
     pub fn node_store(&self) -> &NodeStore {
         self.node_value_uses.node_store()
     }
 
+    /// Looks up a local or global value use.
     pub fn node_value_use(&self, key: &VersionedNodeKey) -> Option<SemanticValueUse> {
         self.node_value_uses.get(key).copied()
     }
 
+    /// Looks up a builtin associated value use.
     pub fn node_builtin_associated_value(
         &self,
         key: &VersionedNodeKey,
@@ -56,6 +76,7 @@ impl SemanticUseTable {
         self.node_builtin_associated_values.get(key).copied()
     }
 
+    /// Looks up an associated-const projection.
     pub fn node_associated_const_projection(
         &self,
         key: &VersionedNodeKey,
@@ -63,23 +84,28 @@ impl SemanticUseTable {
         self.node_associated_const_projections.get(key)
     }
 
+    /// Looks up a const-generic parameter use.
     pub fn node_const_generic_use(&self, key: &VersionedNodeKey) -> Option<&SymbolId> {
         self.node_const_generic_uses.get(key)
     }
 
+    /// Looks up a local definition use.
     pub fn node_local_def(&self, key: &VersionedNodeKey) -> Option<LocalId> {
         self.node_local_defs.get(key).copied()
     }
 
+    /// Looks up a resolved type use.
     pub fn node_type_use(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
         self.node_type_uses.get(key).copied()
     }
 
+    /// Looks up a resolved type prefix.
     pub fn node_type_prefix(&self, key: &VersionedNodeKey) -> Option<GlobalDefId> {
         self.node_type_prefixes.get(key).copied()
     }
 }
 
+/// Mutable builder for a [`SemanticUseTable`].
 #[derive(Debug)]
 pub struct SemanticUseTableBuilder {
     node_value_uses: NodeMapBuilder<SemanticValueUse>,
@@ -92,10 +118,12 @@ pub struct SemanticUseTableBuilder {
 }
 
 impl SemanticUseTableBuilder {
+    /// Creates a builder backed by a fresh node store.
     pub fn new() -> Self {
         Self::with_node_store(&NodeStore::new())
     }
 
+    /// Creates a builder backed by `store`.
     pub fn with_node_store(store: &NodeStore) -> Self {
         Self {
             node_value_uses: NodeMap::builder(store),
@@ -108,20 +136,24 @@ impl SemanticUseTableBuilder {
         }
     }
 
+    /// Records a local value use, replacing any prior value at `key`.
     pub fn insert_node_local_value_use(&mut self, key: VersionedNodeKey, local_id: LocalId) {
         self.node_value_uses
             .insert(key, SemanticValueUse::Local(local_id));
     }
 
+    /// Records a global value use only when `key` has no local resolution.
     pub fn insert_node_global_value_use(&mut self, key: VersionedNodeKey, global_id: GlobalDefId) {
         self.node_value_uses
             .insert_if_absent(key, SemanticValueUse::Global(global_id));
     }
 
+    /// Records a const-generic parameter use.
     pub fn insert_node_const_generic_use(&mut self, key: VersionedNodeKey, name: SymbolId) {
         self.node_const_generic_uses.insert(key, name);
     }
 
+    /// Extends const-generic uses in iteration order.
     pub fn extend_node_const_generic_uses(
         &mut self,
         uses: impl IntoIterator<Item = (VersionedNodeKey, SymbolId)>,
@@ -129,6 +161,7 @@ impl SemanticUseTableBuilder {
         self.node_const_generic_uses.extend(uses);
     }
 
+    /// Records a builtin associated value use.
     pub fn insert_node_builtin_associated_value(
         &mut self,
         key: VersionedNodeKey,
@@ -137,6 +170,7 @@ impl SemanticUseTableBuilder {
         self.node_builtin_associated_values.insert(key, value);
     }
 
+    /// Records an associated-const projection.
     pub fn insert_node_associated_const_projection(
         &mut self,
         key: VersionedNodeKey,
@@ -146,6 +180,7 @@ impl SemanticUseTableBuilder {
             .insert(key, projection);
     }
 
+    /// Extends associated-const projections in iteration order.
     pub fn extend_node_associated_const_projections(
         &mut self,
         projections: impl IntoIterator<Item = (VersionedNodeKey, AssociatedConstProjection)>,
@@ -153,6 +188,7 @@ impl SemanticUseTableBuilder {
         self.node_associated_const_projections.extend(projections);
     }
 
+    /// Extends builtin associated value uses in iteration order.
     pub fn extend_node_builtin_associated_values(
         &mut self,
         values: impl IntoIterator<Item = (VersionedNodeKey, BuiltinAssociatedValue)>,
@@ -160,6 +196,7 @@ impl SemanticUseTableBuilder {
         self.node_builtin_associated_values.extend(values);
     }
 
+    /// Adds global uses without replacing already-recorded local uses.
     pub fn extend_node_global_value_uses(
         &mut self,
         value_uses: impl IntoIterator<Item = (VersionedNodeKey, GlobalDefId)>,
@@ -169,10 +206,12 @@ impl SemanticUseTableBuilder {
         }
     }
 
+    /// Records a local definition.
     pub fn insert_node_local_def(&mut self, key: VersionedNodeKey, local_id: LocalId) {
         self.node_local_defs.insert(key, local_id);
     }
 
+    /// Extends local definitions in iteration order.
     pub fn extend_node_local_defs(
         &mut self,
         local_defs: impl IntoIterator<Item = (VersionedNodeKey, LocalId)>,
@@ -180,10 +219,12 @@ impl SemanticUseTableBuilder {
         self.node_local_defs.extend(local_defs);
     }
 
+    /// Records a resolved type use.
     pub fn insert_node_type_use(&mut self, key: VersionedNodeKey, ty: InternedTyId) {
         self.node_type_uses.insert(key, ty);
     }
 
+    /// Extends resolved type uses in iteration order.
     pub fn extend_node_type_uses(
         &mut self,
         type_uses: impl IntoIterator<Item = (VersionedNodeKey, InternedTyId)>,
@@ -191,10 +232,12 @@ impl SemanticUseTableBuilder {
         self.node_type_uses.extend(type_uses);
     }
 
+    /// Records the definition used as a type prefix.
     pub fn insert_node_type_prefix(&mut self, key: VersionedNodeKey, def_id: GlobalDefId) {
         self.node_type_prefixes.insert(key, def_id);
     }
 
+    /// Extends resolved type prefixes in iteration order.
     pub fn extend_node_type_prefixes(
         &mut self,
         prefixes: impl IntoIterator<Item = (VersionedNodeKey, GlobalDefId)>,
@@ -202,6 +245,7 @@ impl SemanticUseTableBuilder {
         self.node_type_prefixes.extend(prefixes);
     }
 
+    /// Freezes all maps into one semantic-use product.
     pub fn finish(self) -> SemanticUseTable {
         SemanticUseTable {
             node_value_uses: self.node_value_uses.finish(),
@@ -221,36 +265,53 @@ impl Default for SemanticUseTableBuilder {
     }
 }
 
+/// Resolution of a value expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemanticValueUse {
+    /// Function-local binding.
     Local(LocalId),
+    /// Program-global definition.
     Global(GlobalDefId),
 }
 
+/// Fully qualified associated-constant projection identity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AssociatedConstProjection {
+    /// Concrete `Self` type.
     pub self_ty: InternedTyId,
+    /// Trait declaring the associated constant.
     pub trait_id: TraitId,
+    /// Concrete type arguments for the trait.
     pub trait_args: Vec<InternedTyId>,
+    /// Concrete const arguments for the trait.
     pub trait_const_args: Vec<ConstGenericArg>,
+    /// Associated constant name.
     pub name: SymbolId,
 }
 
+/// Compiler-provided associated values resolved without a source definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinAssociatedValue {
+    /// Minimum or maximum value for a primitive integer type.
     PrimitiveIntLimit {
+        /// Integer primitive whose limit is requested.
         primitive: PrimitiveTy,
+        /// Which endpoint of the range is requested.
         kind: PrimitiveIntLimit,
     },
 }
 
+/// Endpoint of a primitive integer's representable range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimitiveIntLimit {
+    /// Minimum representable value.
     Min,
+    /// Maximum representable value.
     Max,
 }
 
 impl PrimitiveIntLimit {
+    /// Computes this endpoint, using `pointer_width` for `isize` and `usize`.
     pub fn value(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<IntConst> {
         let (min, max) = primitive_int_range(primitive, pointer_width)?;
         Some(match self {
@@ -260,6 +321,7 @@ impl PrimitiveIntLimit {
     }
 }
 
+/// Returns whether a primitive has integer range endpoints.
 pub fn supports_primitive_int_limit(primitive: PrimitiveTy) -> bool {
     primitive_int_range(primitive, 64).is_some()
 }
@@ -321,48 +383,80 @@ fn int_mask(bits: u32) -> u128 {
     }
 }
 
+/// Complete semantic facts for one module and its function bodies.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SemanticFacts {
+    /// Inferred types of globals.
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
+    /// Inferred types of constants.
     pub const_types: HashMap<GlobalDefId, InternedTyId>,
     /// Instantiations owned by module-level facts. Function body instantiations live in
     /// `function_facts`; use `iter_generic_instantiations` when both owners are relevant.
     pub generic_instantiations: Vec<GenericInstantiation>,
+    /// Function-body facts keyed by function definition.
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     /// Node facts owned by module-level expressions. Function body node facts live in
     /// `function_facts`; use the `iter_node_*` methods when both owners are relevant.
     pub node_expr_types: NodeMap<InternedTyId>,
+    /// Bracket suffix classifications owned by module-level expressions.
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
+    /// Pointer-to-array coercions owned by module-level expressions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Trait-object coercions owned by module-level expressions.
     pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
+    /// Trait-object upcasts owned by module-level expressions.
     pub node_trait_object_upcasts: NodeMap<TraitObjectUpcast>,
+    /// Compiler builtin values owned by module-level expressions.
     pub node_builtin_values: NodeMap<BuiltinValue>,
+    /// Compiler builtin associated values owned by module-level expressions.
     pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
+    /// Associated-const projections owned by module-level expressions.
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
+    /// Evaluated array-repeat counts owned by module-level expressions.
     pub node_array_repeat_counts: NodeMap<u64>,
+    /// Evaluated pattern constants owned by module-level expressions.
     pub node_pattern_values: NodeMap<i128>,
+    /// Call dispatch resolutions owned by module-level expressions.
     pub node_resolved_calls: NodeMap<ResolvedCall>,
+    /// Function references owned by module-level expressions.
     pub node_function_references: NodeMap<FunctionReference>,
 }
 
+/// Mutable, locator-keyed form of [`SemanticFacts`].
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFactsBuilder {
+    /// Inferred global types.
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
+    /// Inferred constant types.
     pub const_types: HashMap<GlobalDefId, InternedTyId>,
+    /// Module-level generic instantiations.
     pub generic_instantiations: Vec<GenericInstantiation>,
+    /// Function-body facts keyed by function definition.
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
+    /// Module-level expression types by stable locator.
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    /// Module-level bracket suffix classifications.
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    /// Module-level pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Module-level trait-object coercions.
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    /// Module-level trait-object upcasts.
     pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    /// Module-level compiler builtin values.
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    /// Module-level compiler builtin associated values.
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    /// Module-level associated-const projections.
     pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
+    /// Module-level evaluated array-repeat counts.
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    /// Module-level evaluated pattern constants.
     pub node_pattern_values: HashMap<VersionedNodeKey, i128>,
+    /// Module-level resolved call dispatches.
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    /// Module-level function references.
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
 }
 
@@ -373,18 +467,22 @@ impl Default for SemanticFacts {
 }
 
 impl SemanticFacts {
+    /// Creates empty facts whose node maps share `store`.
     pub fn with_node_store(store: &NodeStore) -> Self {
         SemanticFactsBuilder::default().finish(store)
     }
 
+    /// Returns the node-store identity shared by module-level maps.
     pub fn store_id(&self) -> NodeStoreId {
         self.node_expr_types.store_id()
     }
 
+    /// Returns the node store retained by this product.
     pub fn node_store(&self) -> &NodeStore {
         self.node_expr_types.node_store()
     }
 
+    /// Merges facts, rehoming incoming node maps into this product's store.
     pub fn extend(&mut self, facts: Self) {
         let node_store = self.node_store().clone();
         self.global_types.extend(facts.global_types);
@@ -435,6 +533,7 @@ impl SemanticFacts {
         );
     }
 
+    /// Thaws node maps into stable-locator maps for mutation or rehoming.
     pub fn into_builder(self) -> SemanticFactsBuilder {
         SemanticFactsBuilder {
             global_types: self.global_types,
@@ -468,6 +567,7 @@ impl SemanticFacts {
         }
     }
 
+    /// Iterates module-level and function-owned generic instantiations.
     pub fn iter_generic_instantiations(&self) -> impl Iterator<Item = &GenericInstantiation> + '_ {
         self.generic_instantiations.iter().chain(
             self.function_facts
@@ -476,6 +576,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Finds an expression type across module and function ownership domains.
     pub fn node_expr_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
         self.node_expr_types.get(key).copied().or_else(|| {
             self.function_facts
@@ -484,6 +585,7 @@ impl SemanticFacts {
         })
     }
 
+    /// Iterates expression types across module and function ownership domains.
     pub fn iter_node_expr_types(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &InternedTyId)> + '_ {
@@ -494,6 +596,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates bracket suffix classifications across all ownership domains.
     pub fn iter_node_bracket_suffix_resolutions(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &BracketSuffixResolution)> + '_ {
@@ -504,6 +607,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates pointer-to-array coercions across all ownership domains.
     pub fn iter_node_pointer_array_to_slice_coercions(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &PointerArrayToSliceCoercion)> + '_ {
@@ -514,6 +618,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates trait-object coercions across all ownership domains.
     pub fn iter_node_trait_object_coercions(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectCoercion)> + '_ {
@@ -524,6 +629,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates trait-object upcasts across all ownership domains.
     pub fn iter_node_trait_object_upcasts(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectUpcast)> + '_ {
@@ -534,6 +640,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates compiler builtin values across all ownership domains.
     pub fn iter_node_builtin_values(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &BuiltinValue)> + '_ {
@@ -544,6 +651,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates associated-const projections across all ownership domains.
     pub fn iter_node_associated_const_projections(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &AssociatedConstProjection)> + '_ {
@@ -554,6 +662,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates evaluated array-repeat counts across all ownership domains.
     pub fn iter_node_array_repeat_counts(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &u64)> + '_ {
@@ -564,6 +673,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates evaluated pattern constants across all ownership domains.
     pub fn iter_node_pattern_values(&self) -> impl Iterator<Item = (VersionedNodeKey, &i128)> + '_ {
         self.node_pattern_values.iter().chain(
             self.function_facts
@@ -572,6 +682,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates resolved calls across all ownership domains.
     pub fn iter_node_resolved_calls(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &ResolvedCall)> + '_ {
@@ -582,6 +693,7 @@ impl SemanticFacts {
         )
     }
 
+    /// Iterates function references across all ownership domains.
     pub fn iter_node_function_references(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &FunctionReference)> + '_ {
@@ -594,6 +706,10 @@ impl SemanticFacts {
 }
 
 impl SemanticFactsBuilder {
+    /// Removes node and instantiation facts owned by function bodies.
+    ///
+    /// Function products remain available in `function_facts`; this operation
+    /// removes their duplicate locators from the module-level staging maps.
     pub fn retain_module_level_facts(&mut self) {
         self.generic_instantiations
             .retain(|instantiation| instantiation.source_def_id.is_none());
@@ -634,6 +750,7 @@ impl SemanticFactsBuilder {
         }
     }
 
+    /// Freezes locator maps into node maps owned by `store`.
     pub fn finish(self, store: &NodeStore) -> SemanticFacts {
         SemanticFacts {
             global_types: self.global_types,
@@ -675,42 +792,74 @@ impl SemanticFactsBuilder {
     }
 }
 
+/// Semantic facts whose ownership is one function body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSemanticFacts {
+    /// Inferred local binding types.
     pub local_types: HashMap<LocalId, InternedTyId>,
+    /// Global definitions referenced by the function.
     pub global_value_uses: HashSet<GlobalDefId>,
+    /// Generic instantiations requested by the function.
     pub generic_instantiations: Vec<GenericInstantiation>,
+    /// Inferred expression types.
     pub node_expr_types: NodeMap<InternedTyId>,
+    /// Bracket suffix classifications.
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
+    /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Trait-object coercions.
     pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
+    /// Trait-object upcasts.
     pub node_trait_object_upcasts: NodeMap<TraitObjectUpcast>,
+    /// Compiler builtin values.
     pub node_builtin_values: NodeMap<BuiltinValue>,
+    /// Associated-const projections.
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
+    /// Evaluated array-repeat counts.
     pub node_array_repeat_counts: NodeMap<u64>,
+    /// Evaluated pattern constants.
     pub node_pattern_values: NodeMap<i128>,
+    /// Resolved call dispatches.
     pub node_resolved_calls: NodeMap<ResolvedCall>,
+    /// Concrete function references.
     pub node_function_references: NodeMap<FunctionReference>,
+    /// Trait methods referenced by the function.
     pub trait_method_refs: Vec<SemanticTraitMethodRef>,
 }
 
+/// Mutable, stable-locator form of [`FunctionSemanticFacts`].
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FunctionSemanticFactsBuilder {
+    /// Inferred local binding types.
     pub local_types: HashMap<LocalId, InternedTyId>,
+    /// Global definitions referenced by the function.
     pub global_value_uses: HashSet<GlobalDefId>,
+    /// Generic instantiations requested by the function.
     pub generic_instantiations: Vec<GenericInstantiation>,
+    /// Inferred expression types by stable locator.
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
+    /// Bracket suffix classifications.
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
+    /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Trait-object coercions.
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
+    /// Trait-object upcasts.
     pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
+    /// Compiler builtin values.
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
+    /// Associated-const projections.
     pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
+    /// Evaluated array-repeat counts.
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
+    /// Evaluated pattern constants.
     pub node_pattern_values: HashMap<VersionedNodeKey, i128>,
+    /// Resolved call dispatches.
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
+    /// Concrete function references.
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
+    /// Trait methods referenced by the function.
     pub trait_method_refs: Vec<SemanticTraitMethodRef>,
 }
 
@@ -721,10 +870,12 @@ impl Default for FunctionSemanticFacts {
 }
 
 impl FunctionSemanticFacts {
+    /// Returns the node-store identity shared by this function's maps.
     pub fn store_id(&self) -> NodeStoreId {
         self.node_expr_types.store_id()
     }
 
+    /// Thaws node maps into stable-locator maps for mutation or rehoming.
     pub fn into_builder(self) -> FunctionSemanticFactsBuilder {
         FunctionSemanticFactsBuilder {
             local_types: self.local_types,
@@ -764,6 +915,7 @@ impl FunctionSemanticFacts {
 }
 
 impl FunctionSemanticFactsBuilder {
+    /// Freezes locator maps into node maps owned by `store`.
     pub fn finish(self, store: &NodeStore) -> FunctionSemanticFacts {
         FunctionSemanticFacts {
             local_types: self.local_types,
@@ -813,161 +965,269 @@ fn extend_node_map<V>(target: &mut NodeMap<V>, source: NodeMap<V>) {
     *target = builder.finish();
 }
 
+/// Trait-method reference retained for reachability and dispatch analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticTraitMethodRef {
+    /// Module containing the reference.
     pub module_id: ModuleId,
+    /// Referenced trait identity.
     pub trait_id: TraitId,
+    /// Referenced method name.
     pub method_name: SymbolId,
+    /// Concrete receiver type.
     pub self_ty: InternedTyId,
+    /// Concrete trait type arguments.
     pub trait_args: Vec<InternedTyId>,
+    /// Concrete trait const arguments.
     pub trait_const_args: Vec<ConstGenericArg>,
 }
 
+/// Value synthesized by a compiler builtin expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinValue {
+    /// Arbitrary-width integer constant.
     Int(IntConst),
+    /// Host-independent `usize` value before target lowering.
     Usize(u64),
+    /// Layout query for a type.
     Layout {
+        /// Requested layout operation.
         builtin: LayoutBuiltin,
+        /// Queried type.
         ty: InternedTyId,
     },
+    /// Offset of a nominal field.
     FieldOffset {
+        /// Aggregate type containing the field.
         ty: InternedTyId,
+        /// Field definition identity.
         field: GlobalDefId,
     },
 }
 
+/// Semantic interpretation of an ambiguous bracket suffix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BracketSuffixResolution {
+    /// Runtime or const indexing operation.
     Index,
+    /// Generic arguments applied to a callable value.
     GenericCall,
+    /// Generic arguments applied to a type prefix.
     TypePrefixInstantiation,
 }
 
+/// Coercion from a pointer-to-array to a slice value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PointerArrayToSliceCoercion {
+    /// Source pointer type.
     pub pointer_ty: InternedTyId,
+    /// Pointed-to array type.
     pub array_ty: InternedTyId,
+    /// Result slice type.
     pub slice_ty: InternedTyId,
+    /// Whether the resulting slice forbids mutation.
     pub is_readonly: bool,
 }
 
+/// Coercion from a concrete value to a trait object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TraitObjectCoercion {
+    /// Concrete source expression type.
     pub source_ty: InternedTyId,
+    /// Result trait-object type.
     pub target_ty: InternedTyId,
+    /// Concrete `Self` type used for witness selection.
     pub self_ty: InternedTyId,
 }
 
+/// Upcast from one trait-object type to another.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TraitObjectUpcast {
+    /// Source trait-object type.
     pub source_ty: InternedTyId,
+    /// Target supertrait-object type.
     pub target_ty: InternedTyId,
 }
 
+/// Concrete generic instantiation requested by semantic analysis.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GenericInstantiation {
+    /// Definition being instantiated.
     pub def_id: GlobalDefId,
+    /// Optional concrete receiver type.
     pub self_arg: Option<InternedTyId>,
+    /// Concrete type arguments.
     pub args: Vec<InternedTyId>,
+    /// Concrete const arguments.
     pub const_args: Vec<ConstGenericArg>,
+    /// Effective generic parameter names in declaration order.
     pub generics: Vec<SymbolId>,
+    /// Source location requesting the instantiation.
     pub span: Span,
+    /// Function that owns the request, or `None` for module-level facts.
     pub source_def_id: Option<GlobalDefId>,
 }
 
+/// Concrete reference to a function or function instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionReference {
+    /// Referenced function definition.
     pub def_id: GlobalDefId,
+    /// Module owning the argument type identities.
     pub arg_module_id: ModuleId,
+    /// Concrete type arguments.
     pub args: Vec<InternedTyId>,
+    /// Concrete const arguments.
     pub const_args: Vec<ConstGenericArg>,
 }
 
+/// Semantically resolved call dispatch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedCall {
+    /// Direct compiler builtin call.
     BuiltinFunction {
+        /// Selected builtin function.
         builtin: BuiltinFunction,
+        /// Optional explicit type argument.
         type_arg: Option<InternedTyId>,
     },
+    /// Direct non-generic source function call.
     Function(GlobalDefId),
+    /// Direct generic source function instance.
     FunctionInstance {
+        /// Source function definition.
         def_id: GlobalDefId,
+        /// Module owning the argument type identities.
         arg_module_id: ModuleId,
+        /// Concrete type arguments.
         args: Vec<InternedTyId>,
+        /// Concrete const arguments.
         const_args: Vec<ConstGenericArg>,
     },
+    /// Direct inherent method call.
     Method {
+        /// Method definition.
         def_id: GlobalDefId,
+        /// Effective concrete type arguments.
         args: Vec<InternedTyId>,
+        /// Receiver passing convention.
         receiver_kind: ReceiverKind,
     },
+    /// Statically dispatched source trait method call.
     TraitMethod {
+        /// Source trait definition.
         trait_id: GlobalDefId,
+        /// Trait method definition.
         method_id: GlobalDefId,
+        /// Trait method name.
         method_name: SymbolId,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Concrete trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Part of the dispatch identity; never discard when lowering calls.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Effective method type arguments.
         args: Vec<InternedTyId>,
+        /// Receiver passing convention.
         receiver_kind: ReceiverKind,
     },
+    /// Statically dispatched source trait associated-function call.
     TraitAssociatedFunction {
+        /// Source trait definition.
         trait_id: GlobalDefId,
+        /// Associated function definition.
         method_id: GlobalDefId,
+        /// Associated function name.
         method_name: SymbolId,
+        /// Concrete implementing type.
         self_ty: InternedTyId,
+        /// Concrete trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Part of the dispatch identity; never discard when lowering calls.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Effective function type arguments.
         args: Vec<InternedTyId>,
     },
+    /// Dynamically dispatched trait-object method call.
     DynamicTraitMethod {
+        /// Concrete trait-object type.
         object_ty: InternedTyId,
+        /// Trait identity represented by the object.
         trait_id: TraitId,
+        /// Trait method definition.
         method_id: GlobalDefId,
+        /// Trait method name.
         method_name: SymbolId,
+        /// Concrete trait type arguments.
         trait_args: Vec<InternedTyId>,
         /// Identifies the concrete trait-object instantiation.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Vtable slot selected for dispatch.
         slot: usize,
+        /// Lowered method parameter types.
         params: Vec<InternedTyId>,
+        /// Lowered method return type.
         return_type: InternedTyId,
+        /// Receiver passing convention.
         receiver_kind: ReceiverKind,
     },
+    /// Statically dispatched compiler builtin trait operator.
     BuiltinTraitMethod {
+        /// Builtin trait providing the operator.
         trait_id: BuiltinTrait,
+        /// Resolved operator identity.
         op: BuiltinOperatorOp,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Concrete trait type arguments.
         trait_args: Vec<InternedTyId>,
     },
+    /// Compiler intrinsic value method.
     BuiltinMethod {
+        /// Intrinsic method identity.
         method: BuiltinMethod,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
     },
+    /// Compiler intrinsic place method backed by a builtin trait.
     BuiltinPlaceMethod {
+        /// Builtin trait providing the operation.
         trait_id: BuiltinTrait,
+        /// Selected builtin trait method.
         method: BuiltinTraitMethod,
+        /// Concrete receiver type.
         self_ty: InternedTyId,
+        /// Concrete trait type arguments.
         trait_args: Vec<InternedTyId>,
     },
+    /// Direct closure invocation.
     Closure,
+    /// Invocation through an unsized callable interface.
     Callable,
+    /// Invocation through a thin function pointer.
     FunctionPointer,
 }
 
+/// Compiler intrinsic methods that do not require ordinary trait dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinMethod {
+    /// Returns a slice length.
     SliceLen,
+    /// Returns a read-only slice data pointer.
     SlicePtr,
+    /// Returns a mutable slice data pointer.
     SlicePtrMut,
+    /// Returns a range start bound.
     Start,
+    /// Returns a range end bound.
     End,
+    /// Creates the builtin iterator representation.
     Iter,
 }
 
 impl BuiltinMethod {
+    /// Returns the language-visible method name.
     pub fn name(self) -> &'static str {
         match self {
             Self::SliceLen => "sliceLen",
@@ -993,9 +1253,12 @@ impl BuiltinMethod {
     }
 }
 
+/// Unary or binary operator resolved through builtin semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinOperatorOp {
+    /// Unary operator.
     Unary(UnaryOp),
+    /// Binary operator.
     Binary(BinaryOp),
 }
 
@@ -1038,6 +1301,7 @@ impl BuiltinOperatorOp {
 }
 
 impl BuiltinOperatorOp {
+    /// Returns the builtin trait that owns this operator, if trait-dispatched.
     pub fn trait_id(self) -> Option<BuiltinTrait> {
         match self {
             Self::Unary(op) => match op {
@@ -1066,6 +1330,7 @@ impl BuiltinOperatorOp {
         }
     }
 
+    /// Returns the builtin trait method implementing this operator.
     pub fn method(self) -> Option<BuiltinTraitMethod> {
         match self {
             Self::Unary(op) => match op {
@@ -1096,6 +1361,7 @@ impl BuiltinOperatorOp {
         }
     }
 
+    /// Converts an operator-like builtin trait method into its syntax operator.
     pub fn from_method(method: BuiltinTraitMethod) -> Option<Self> {
         match method {
             BuiltinTraitMethod::Add => Some(Self::Binary(BinaryOp::Add)),
@@ -1310,5 +1576,58 @@ mod tests {
         let rebuilt = facts.clone().into_builder().finish(&second_store);
         assert_ne!(facts.store_id(), rebuilt.store_id());
         assert_eq!(facts, rebuilt);
+    }
+
+    #[test]
+    fn retain_module_level_facts_removes_only_function_owned_staging_entries() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let projection = AssociatedConstProjection {
+            self_ty: ty,
+            trait_id: TraitId::Source(GlobalDefId {
+                module_id,
+                def_id: nia_ids::DefId(7),
+            }),
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            name: nia_symbol::known::ITEM,
+        };
+        let function_key = key_at(0);
+        let module_key = key_at(1);
+        let function_id = GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(1),
+        };
+        let mut function = FunctionSemanticFactsBuilder::default();
+        function
+            .node_associated_const_projections
+            .insert(function_key.clone(), projection.clone());
+        let mut builder = SemanticFactsBuilder::default();
+        builder
+            .node_associated_const_projections
+            .insert(function_key.clone(), projection.clone());
+        builder
+            .node_associated_const_projections
+            .insert(module_key.clone(), projection);
+        builder
+            .function_facts
+            .insert(function_id, function.finish(&NodeStore::new()));
+
+        builder.retain_module_level_facts();
+
+        assert!(
+            !builder
+                .node_associated_const_projections
+                .contains_key(&function_key)
+        );
+        assert!(
+            builder
+                .node_associated_const_projections
+                .contains_key(&module_key)
+        );
+        assert!(builder.function_facts.contains_key(&function_id));
     }
 }

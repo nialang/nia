@@ -19,6 +19,8 @@
 // graph and reports the first cleanup error after attempting every release.
 // When an owned graph element cannot be released, its containing list remains
 // attached so a later `deinit()` call can reach the residual owner.
+// `fs::File::close` consumes its descriptor before attempting the OS close; a
+// caller must not retry it after an error unless it owns a fresh descriptor.
 
 pub(pkg) module core;
 pub(pkg) module error;

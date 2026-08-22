@@ -13,6 +13,7 @@ pub struct ProgramTraitImplIndex {
 }
 
 impl ProgramTraitImplIndex {
+    /// Builds a trait-to-candidate index over an ordered signature slice.
     pub fn new(trait_impls: &[ProgramTraitImplSignature]) -> Self {
         let mut by_trait = HashMap::<TraitId, Vec<usize>>::new();
         for (index, impl_signature) in trait_impls.iter().enumerate() {
@@ -24,6 +25,7 @@ impl ProgramTraitImplIndex {
         Self { by_trait }
     }
 
+    /// Returns candidate indexes for one trait, preserving source order.
     pub fn indexes_for_trait(&self, trait_id: TraitId) -> &[usize] {
         self.by_trait
             .get(&trait_id)
@@ -31,6 +33,7 @@ impl ProgramTraitImplIndex {
             .unwrap_or(&[])
     }
 
+    /// Reports whether no trait implementation candidates are indexed.
     pub fn is_empty(&self) -> bool {
         self.by_trait.is_empty()
     }

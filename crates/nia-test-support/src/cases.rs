@@ -6,12 +6,14 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+/// Consuming reader for a fixture directory's `case.meta` manifest.
 pub struct CaseManifest {
     path: PathBuf,
     values: BTreeMap<String, String>,
 }
 
 impl CaseManifest {
+    /// Loads and validates unique non-empty `key=value` entries.
     pub fn load(case_root: &Path) -> Self {
         let path = case_root.join("case.meta");
         let text = fs::read_to_string(&path)
@@ -46,16 +48,19 @@ impl CaseManifest {
         Self { path, values }
     }
 
+    /// Returns the loaded manifest path.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Removes and returns a required manifest value.
     pub fn required(&mut self, key: &str) -> String {
         self.values
             .remove(key)
             .unwrap_or_else(|| panic!("{} must declare {key}", self.path.display()))
     }
 
+    /// Removes and parses a non-empty comma-separated value list.
     pub fn required_list(&mut self, key: &str) -> Vec<String> {
         let value = self.required(key);
         let values = value
@@ -71,6 +76,7 @@ impl CaseManifest {
         values
     }
 
+    /// Removes a required key and asserts that its value equals `expected`.
     pub fn expect(&mut self, key: &str, expected: &str) {
         let actual = self.required(key);
         assert_eq!(
@@ -81,6 +87,7 @@ impl CaseManifest {
         );
     }
 
+    /// Removes and parses a required `usize` value.
     pub fn required_usize(&mut self, key: &str) -> usize {
         let value = self.required(key);
         value.parse().unwrap_or_else(|error| {
@@ -91,6 +98,7 @@ impl CaseManifest {
         })
     }
 
+    /// Removes and parses a required `i32` value.
     pub fn required_i32(&mut self, key: &str) -> i32 {
         let value = self.required(key);
         value.parse().unwrap_or_else(|error| {
@@ -101,6 +109,7 @@ impl CaseManifest {
         })
     }
 
+    /// Removes all prefixed entries and returns validated relative paths by suffix.
     pub fn required_prefixed_paths(&mut self, prefix: &str) -> BTreeMap<String, PathBuf> {
         let keys = self
             .values
@@ -130,6 +139,7 @@ impl CaseManifest {
         paths
     }
 
+    /// Asserts that every manifest entry was consumed.
     pub fn finish(&self) {
         assert!(
             self.values.is_empty(),
@@ -140,6 +150,7 @@ impl CaseManifest {
     }
 }
 
+/// Returns sorted fixture directories, requiring each to contain `case.meta`.
 pub fn case_directories(root: &Path, suite: &str) -> Vec<PathBuf> {
     let mut cases = fs::read_dir(root)
         .unwrap_or_else(|error| panic!("read {} cases: {error}", root.display()))
@@ -162,6 +173,7 @@ pub fn case_directories(root: &Path, suite: &str) -> Vec<PathBuf> {
     cases
 }
 
+/// Copies a fixture tree while excluding generated build and cache directories.
 pub fn copy_case_tree(source: &Path, destination: &Path) {
     fs::create_dir_all(destination)
         .unwrap_or_else(|error| panic!("create {}: {error}", destination.display()));
@@ -192,6 +204,7 @@ fn is_generated_case_state(name: &OsStr) -> bool {
     name == OsStr::new(".nia-build") || name == OsStr::new(".nia-cache")
 }
 
+/// Validates a fixture-relative path with no absolute or parent components.
 pub fn fixture_relative_path(manifest_path: &Path, value: String) -> PathBuf {
     let path = PathBuf::from(value);
     assert!(

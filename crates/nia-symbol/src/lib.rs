@@ -1,13 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Stable symbol identities and the well-known language symbol registry.
+//!
+//! Symbols are represented by stable 64-bit hashes. The registry provides
+//! canonical identities for syntax keywords, builtin functions, trait methods,
+//! and target/configuration names without retaining source strings in semantic
+//! products.
 use std::{fmt, sync::Arc};
 
+/// Fast map keyed by a [`SymbolId`].
 pub type SymbolMap<T> = nia_hash::FastHashMap<SymbolId, T>;
+/// Fast set of [`SymbolId`] values.
 pub type SymbolSet = nia_hash::FastHashSet<SymbolId>;
 
+/// Resolves a symbol identity back to display text when available.
 pub trait SymbolText {
+    /// Returns known text for `symbol`, or `None` for an unknown identity.
     fn symbol_text(&self, symbol: SymbolId) -> Option<Arc<str>>;
 }
 
+/// Returns resolved symbol text, or a deterministic unresolved marker.
 pub fn symbol_text_or_unresolved(symbols: &dyn SymbolText, symbol: SymbolId) -> String {
     symbols
         .symbol_text(symbol)
@@ -15,6 +26,7 @@ pub fn symbol_text_or_unresolved(symbols: &dyn SymbolText, symbol: SymbolId) -> 
         .unwrap_or_else(|| unresolved_symbol_text(symbol))
 }
 
+/// Resolves through an optional symbol provider, falling back to an identity marker.
 pub fn symbol_text_from_optional_resolver(
     symbols: Option<&dyn SymbolText>,
     symbol: SymbolId,
@@ -25,6 +37,7 @@ pub fn symbol_text_from_optional_resolver(
     }
 }
 
+/// Resolves an optional symbol while preserving `None`.
 pub fn optional_symbol_text_or_unresolved(
     symbols: &dyn SymbolText,
     symbol: Option<SymbolId>,
@@ -32,14 +45,17 @@ pub fn optional_symbol_text_or_unresolved(
     symbol.map(|symbol| symbol_text_or_unresolved(symbols, symbol))
 }
 
+/// Formats a symbol that has no known source text.
 pub fn unresolved_symbol_text(symbol: SymbolId) -> String {
     format!("<unresolved symbol {:#018x}>", symbol.raw())
 }
 
+/// Returns the stable textual key used by persisted symbol consumers.
 pub fn symbol_identity_key(symbol: SymbolId) -> String {
     format!("sym:{:016x}", symbol.raw())
 }
 
+/// Returns registered text when known, otherwise the stable identity key.
 pub fn known_symbol_text_or_identity(symbol: SymbolId) -> String {
     known::WELL_KNOWN
         .iter()
@@ -48,6 +64,7 @@ pub fn known_symbol_text_or_identity(symbol: SymbolId) -> String {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Resolver backed by the built-in [`known`] symbol registry.
 pub struct KnownSymbolText;
 
 impl SymbolText for KnownSymbolText {
@@ -59,19 +76,24 @@ impl SymbolText for KnownSymbolText {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable identity of one interned source symbol.
 pub struct SymbolId(u64);
 
 impl SymbolId {
+    /// Identity of the empty symbol text.
     pub const EMPTY: Self = Self(stable_hash(""));
 
+    /// Creates an identity from a previously computed stable hash.
     pub const fn from_stable_hash(hash: u64) -> Self {
         Self(hash)
     }
 
+    /// Returns the raw stable hash value.
     pub const fn raw(self) -> u64 {
         self.0
     }
 
+    /// Reports whether this identity is [`Self::EMPTY`].
     pub const fn is_empty(self) -> bool {
         self.0 == Self::EMPTY.0
     }
@@ -90,10 +112,12 @@ impl fmt::Debug for SymbolId {
 }
 
 pub mod known {
+    //! Canonical symbols shared by parser, semantic, and builtin registries.
     use super::{SymbolId, stable_hash};
 
     macro_rules! known_symbol {
         ($name:ident, $text:literal) => {
+            #[doc = concat!("Well-known symbol for `", $text, "`.")]
             pub const $name: SymbolId = SymbolId::from_stable_hash(stable_hash($text));
         };
     }
@@ -262,6 +286,7 @@ pub mod known {
     known_symbol!(ENDIAN, "endian");
     known_symbol!(POINTER_WIDTH, "pointer_width");
 
+    /// Complete text-to-identity registry used by deterministic resolvers.
     pub const WELL_KNOWN: &[(SymbolId, &str)] = &[
         (EMPTY, ""),
         (ENTRY, "entry"),
@@ -419,23 +444,28 @@ pub mod known {
         (POINTER_WIDTH, "pointer_width"),
     ];
 
+    /// Returns [`ENTRY`].
     pub const fn entry() -> SymbolId {
         ENTRY
     }
 
+    /// Returns [`MODULE`].
     pub const fn module() -> SymbolId {
         MODULE
     }
 
+    /// Returns [`BUILTIN`].
     pub const fn builtin() -> SymbolId {
         BUILTIN
     }
 
+    /// Returns [`STD`].
     pub const fn std() -> SymbolId {
         STD
     }
 }
 
+/// Computes the append-only FNV-1a hash used for symbol identities.
 pub const fn stable_hash(text: &str) -> u64 {
     const OFFSET: u64 = 0xcbf29ce484222325;
     const PRIME: u64 = 0x00000100000001b3;
@@ -451,13 +481,16 @@ pub const fn stable_hash(text: &str) -> u64 {
     hash
 }
 
+/// Looks up a canonical symbol identity by its registered text.
 pub fn symbol_for_known_text(text: &str) -> Option<SymbolId> {
     known::WELL_KNOWN
         .iter()
         .find_map(|(symbol, known_text)| (*known_text == text).then_some(*symbol))
 }
 
+/// Converts a builtin descriptor into its canonical symbol identity.
 pub trait ToSymbolId {
+    /// Returns the registered symbol for this builtin descriptor.
     fn symbol_id(self) -> SymbolId;
 }
 

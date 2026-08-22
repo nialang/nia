@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Grammar parser that lowers lossless syntax trees into the semantic AST.
+//!
+//! The parser preserves syntax-origin identities for accepted AST nodes and
+//! reports lexical or grammar errors without discarding the original source.
 mod parser;
 
 pub use parser::{

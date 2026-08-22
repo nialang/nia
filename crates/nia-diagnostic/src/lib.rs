@@ -20,99 +20,116 @@ use std::collections::HashSet;
 use std::fmt;
 pub use store::{DiagnosticBundle, DiagnosticBundleId, DiagnosticStore};
 
+/// Registered diagnostic code definitions shared by all compiler stages.
 pub mod codes {
     use super::{DiagnosticCategory, DiagnosticCode, Severity};
 
+    /// Explicit internal compiler error.
     pub const ICE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0001",
         DiagnosticStage::Compiler,
         "ice",
         "compiler panic or explicit internal compiler error",
     );
+    /// Internal name/value resolution invariant failure.
     pub const INTERNAL_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0100",
         DiagnosticStage::Resolution,
         "internal-resolution",
         "resolver invariant failure",
     );
+    /// Internal item-signature definition-node failure.
     pub const ITEM_SIGNATURE_DEF_NODE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0101",
         DiagnosticStage::ItemSignature,
         "item-signature-def-node",
         "item signature definition node invariant failure",
     );
+    /// Internal item-signature definition-map failure.
     pub const ITEM_SIGNATURE_DEF_MAP: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0102",
         DiagnosticStage::ItemSignature,
         "item-signature-def-map",
         "item signature definition map invariant failure",
     );
+    /// Internal item-signature definition-kind failure.
     pub const ITEM_SIGNATURE_DEF_KIND: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0103",
         DiagnosticStage::ItemSignature,
         "item-signature-def-kind",
         "item signature definition kind invariant failure",
     );
+    /// Internal lowered item-signature type failure.
     pub const ITEM_SIGNATURE_LOWERED_TYPE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0104",
         DiagnosticStage::ItemSignature,
         "item-signature-lowered-type",
         "item signature lowered type invariant failure",
     );
+    /// Internal local-resolver scope-stack failure.
     pub const LOCAL_RESOLVER_SCOPE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0105",
         DiagnosticStage::LocalResolution,
         "local-resolver-scope",
         "local resolver scope stack invariant failure",
     );
+    /// Internal method-resolution invariant failure.
     pub const METHOD_RESOLUTION_INVARIANT: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0106",
         DiagnosticStage::TypeCheck,
         "method-resolution-invariant",
         "method resolution invariant failure",
     );
+    /// Internal module-graph lookup failure.
     pub const MODULE_GRAPH_LOOKUP: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0107",
         DiagnosticStage::Load,
         "module-graph-lookup",
         "module graph lookup invariant failure",
     );
+    /// Internal module-graph recording failure.
     pub const MODULE_GRAPH_RECORDING: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0108",
         DiagnosticStage::Load,
         "module-graph-recording",
         "module graph recording invariant failure",
     );
+    /// Internal module-graph child lookup failure.
     pub const MODULE_GRAPH_CHILD: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0109",
         DiagnosticStage::Load,
         "module-graph-child",
         "module graph child invariant failure",
     );
+    /// Internal query-engine failure.
     pub const QUERY_ENGINE: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0110",
         DiagnosticStage::Compiler,
         "query-engine",
         "query engine invariant failure",
     );
+    /// Internal LLVM API failure.
     pub const INTERNAL_LLVM_API: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0200",
         DiagnosticStage::Llvm,
         "llvm-api",
         "LLVM API returned an unexpected failure",
     );
+    /// Invalid function IR product.
     pub const INVALID_FUNCTION_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0201",
         DiagnosticStage::FunctionIr,
         "invalid-function-ir",
         "function IR invariant failure",
     );
+    /// Invalid backend IR product.
     pub const INVALID_BACKEND_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0300",
         DiagnosticStage::BackendIr,
         "invalid-backend-ir",
         "backend IR invariant failure",
     );
+    /// Invalid body IR product.
     pub const INVALID_BODY_IR: DiagnosticCodeDef = DiagnosticCodeDef::internal(
         "I0301",
         DiagnosticStage::BodyIr,
@@ -120,72 +137,84 @@ pub mod codes {
         "body IR invariant failure",
     );
 
+    /// User parse failure.
     pub const PARSE: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0101",
         DiagnosticStage::Parse,
         "parse",
         "source could not be parsed into valid Nia syntax",
     );
+    /// User module-load or import failure.
     pub const LOAD: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0102",
         DiagnosticStage::Load,
         "load",
         "module loading or import graph failed",
     );
+    /// Invalid target configuration.
     pub const TARGET_CONFIG: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0103",
         DiagnosticStage::TargetConfig,
         "target-config",
         "target configuration is invalid",
     );
+    /// Name or item resolution failure.
     pub const NAME_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0201",
         DiagnosticStage::Resolution,
         "name-resolution",
         "name or item resolution failed",
     );
+    /// Type normalization failure.
     pub const TYPE_NORMALIZATION: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0202",
         DiagnosticStage::TypeNormalization,
         "type-normalization",
         "type normalization failed",
     );
+    /// Item signature collection failure.
     pub const ITEM_SIGNATURE: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0203",
         DiagnosticStage::ItemSignature,
         "item-signature",
         "item signature collection failed",
     );
+    /// Expression, statement, or body type-check failure.
     pub const TYPE_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0301",
         DiagnosticStage::TypeCheck,
         "type-check",
         "expression, statement, or body type checking failed",
     );
+    /// Local binding resolution failure.
     pub const LOCAL_RESOLUTION: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0302",
         DiagnosticStage::LocalResolution,
         "local-resolution",
         "local binding resolution failed",
     );
+    /// Compile-time evaluation failure.
     pub const CONST: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0401",
         DiagnosticStage::Const,
         "const",
         "const evaluation failed",
     );
+    /// Static initializer or layout validation failure.
     pub const STATIC_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0501",
         DiagnosticStage::StaticCheck,
         "static-check",
         "static layout, ABI, or initializer check failed",
     );
+    /// LLVM code-generation failure.
     pub const LLVM_CODEGEN: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0601",
         DiagnosticStage::Llvm,
         "llvm-codegen",
         "LLVM code generation failed",
     );
+    /// Unused import warning.
     pub const UNUSED_IMPORT: DiagnosticCodeDef = DiagnosticCodeDef::user_warning(
         "W0201",
         DiagnosticStage::Load,
@@ -193,6 +222,7 @@ pub mod codes {
         "import binding is never used",
     );
 
+    /// All registered diagnostic codes in stable registry order.
     pub const ALL: &[DiagnosticCodeDef] = &[
         ICE,
         INTERNAL_RESOLUTION,
@@ -225,16 +255,24 @@ pub mod codes {
     ];
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    /// Metadata for one stable diagnostic code.
     pub struct DiagnosticCodeDef {
+        /// Stable machine-readable code such as `E0301`.
         pub code: &'static str,
+        /// Default report severity.
         pub severity: Severity,
+        /// User-facing or internal category.
         pub category: DiagnosticCategory,
+        /// Compiler stage that owns the code.
         pub stage: DiagnosticStage,
+        /// Short registry name.
         pub name: &'static str,
+        /// Stable description of the diagnostic class.
         pub description: &'static str,
     }
 
     impl DiagnosticCodeDef {
+        /// Creates a user-facing error code definition.
         pub const fn user(
             code: &'static str,
             stage: DiagnosticStage,
@@ -251,6 +289,7 @@ pub mod codes {
             }
         }
 
+        /// Creates an internal compiler error definition.
         pub const fn internal(
             code: &'static str,
             stage: DiagnosticStage,
@@ -267,6 +306,7 @@ pub mod codes {
             }
         }
 
+        /// Creates a user-facing warning definition.
         pub const fn user_warning(
             code: &'static str,
             stage: DiagnosticStage,
@@ -283,27 +323,44 @@ pub mod codes {
             }
         }
 
+        /// Returns the stable code string.
         pub const fn as_str(self) -> &'static str {
             self.code
         }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    /// Compiler stage associated with a diagnostic code.
     pub enum DiagnosticStage {
+        /// Cross-stage compiler infrastructure.
         Compiler,
+        /// Lexing or parsing.
         Parse,
+        /// Module loading and imports.
         Load,
+        /// Target configuration.
         TargetConfig,
+        /// Name and value resolution.
         Resolution,
+        /// Type normalization.
         TypeNormalization,
+        /// Item signature collection.
         ItemSignature,
+        /// Local binding resolution.
         LocalResolution,
+        /// Type checking.
         TypeCheck,
+        /// Typed body IR construction.
         BodyIr,
+        /// Compile-time evaluation.
         Const,
+        /// Static initializer validation.
         StaticCheck,
+        /// Function IR construction.
         FunctionIr,
+        /// Backend IR validation.
         BackendIr,
+        /// LLVM lowering and code generation.
         Llvm,
     }
 
@@ -315,85 +372,125 @@ pub mod codes {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Structured diagnostic payload emitted by compiler stages.
 pub struct Diagnostic {
+    /// Report severity.
     pub severity: Severity,
+    /// User-facing or internal category.
     pub category: DiagnosticCategory,
+    /// Stable diagnostic code.
     pub code: DiagnosticCode,
+    /// Primary summary shown to users.
     pub summary: String,
+    /// Source and generated labels.
     pub labels: Box<Vec<DiagnosticLabel>>,
+    /// Additional explanatory notes.
     pub notes: Box<Vec<String>>,
+    /// Suggested remediation text.
     pub help: Box<Vec<String>>,
+    /// Related source locations and messages.
     pub related: Box<Vec<RelatedDiagnostic>>,
+    /// Internal debug fields retained for diagnostics tooling.
     pub debug: Box<Vec<DebugField>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Severity shown for a diagnostic.
 pub enum Severity {
+    /// Compilation-blocking error.
     Error,
+    /// Non-blocking warning.
     Warning,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Ownership category of a diagnostic.
 pub enum DiagnosticCategory {
+    /// User-facing source or configuration problem.
     User,
+    /// Compiler invariant or infrastructure failure.
     Internal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Stable diagnostic code, optionally marked as registry-backed.
 pub struct DiagnosticCode {
     code: String,
     registered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One labeled source span attached to a diagnostic.
 pub struct DiagnosticLabel {
+    /// Labeled source span.
     pub span: Span,
+    /// Provenance of the span.
     pub span_source: SpanSource,
+    /// Primary or secondary presentation style.
     pub style: LabelStyle,
+    /// Optional label text.
     pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Provenance class for a diagnostic span.
 pub enum SpanSource {
+    /// Span came directly from source text.
     Source,
+    /// Span is a deliberate fallback for missing source ownership.
     Fallback,
+    /// Span was synthesized by a compiler transformation.
     Generated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Presentation style for a diagnostic label.
 pub enum LabelStyle {
+    /// Main location for the diagnostic.
     Primary,
+    /// Supporting location.
     Secondary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Related source location attached to a diagnostic.
 pub struct RelatedDiagnostic {
+    /// Related source span.
     pub span: Span,
+    /// Explanation for the related location.
     pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Internal key/value context attached to a diagnostic.
 pub struct DebugField {
+    /// Debug field name.
     pub key: String,
+    /// Debug field value.
     pub value: String,
 }
 
+/// Fluent builder for structured diagnostics.
 pub struct DiagnosticBuilder {
     diagnostic: Diagnostic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Validation policy for diagnostics emitted through a sink.
 pub struct DiagnosticSinkConfig {
+    /// Whether user diagnostics may use fallback spans.
     pub allow_user_fallback_spans: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Validates and collects diagnostics before publication.
 pub struct DiagnosticSink {
     diagnostics: Vec<Diagnostic>,
     config: DiagnosticSinkConfig,
 }
 
 impl DiagnosticSink {
+    /// Creates an empty sink with the supplied validation policy.
     pub fn new(config: DiagnosticSinkConfig) -> Self {
         Self {
             diagnostics: Vec::new(),
@@ -401,21 +498,25 @@ impl DiagnosticSink {
         }
     }
 
+    /// Validates and appends one diagnostic.
     pub fn emit(&mut self, diagnostic: Diagnostic) {
         self.validate_emit_contract(&diagnostic);
         self.diagnostics.push(diagnostic);
     }
 
+    /// Validates and appends all diagnostics from an iterator.
     pub fn extend(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
         for diagnostic in diagnostics {
             self.emit(diagnostic);
         }
     }
 
+    /// Consumes the sink and returns its diagnostics in emission order.
     pub fn finish(self) -> Vec<Diagnostic> {
         self.diagnostics
     }
 
+    /// Borrows diagnostics currently held by the sink.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
@@ -434,7 +535,9 @@ impl DiagnosticSink {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Presentation limit applied when building a diagnostic report.
 pub struct DiagnosticReportConfig {
+    /// Maximum number of unique diagnostics retained.
     pub max_diagnostics: usize,
 }
 
@@ -447,6 +550,7 @@ impl Default for DiagnosticReportConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Sorted, deduplicated diagnostic report with suppression counts.
 pub struct DiagnosticReport<'a, T> {
     entries: Vec<&'a T>,
     suppressed_duplicates: usize,
@@ -454,26 +558,33 @@ pub struct DiagnosticReport<'a, T> {
 }
 
 impl<'a, T> DiagnosticReport<'a, T> {
+    /// Returns selected report entries in presentation order.
     pub fn entries(&self) -> &[&'a T] {
         &self.entries
     }
 
+    /// Returns the number of exact duplicates removed.
     pub fn suppressed_duplicates(&self) -> usize {
         self.suppressed_duplicates
     }
 
+    /// Returns the number omitted by the configured limit.
     pub fn suppressed_by_limit(&self) -> usize {
         self.suppressed_by_limit
     }
 
+    /// Returns all suppressed entries.
     pub fn suppressed_total(&self) -> usize {
         self.suppressed_duplicates + self.suppressed_by_limit
     }
 }
 
+/// Supplies a diagnostic and optional source path to report ordering.
 pub trait DiagnosticReportItem {
+    /// Returns the structured diagnostic payload.
     fn report_diagnostic(&self) -> &Diagnostic;
 
+    /// Returns an optional path used as a deterministic ordering key.
     fn report_path(&self) -> Option<&str> {
         None
     }
@@ -496,6 +607,7 @@ impl Diagnostic {
         }
     }
 
+    /// Starts a user-facing error diagnostic builder.
     pub fn user_error(
         code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
@@ -505,6 +617,7 @@ impl Diagnostic {
         Self::build(code, summary)
     }
 
+    /// Starts a user-facing warning diagnostic builder.
     pub fn user_warning(
         code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
@@ -534,6 +647,7 @@ impl Diagnostic {
         }
     }
 
+    /// Creates a user error with one primary source label.
     pub fn user_error_at(
         code: codes::DiagnosticCodeDef,
         span: Span,
@@ -545,6 +659,7 @@ impl Diagnostic {
             .finish()
     }
 
+    /// Creates a user warning with one primary source label.
     pub fn user_warning_at(
         code: codes::DiagnosticCodeDef,
         span: Span,
@@ -556,6 +671,7 @@ impl Diagnostic {
             .finish()
     }
 
+    /// Starts an internal compiler error diagnostic builder.
     pub fn internal_error(
         code: codes::DiagnosticCodeDef,
         summary: impl Into<String>,
@@ -564,6 +680,7 @@ impl Diagnostic {
         Self::build(code, summary)
     }
 
+    /// Creates an internal error with one primary source label.
     pub fn internal_error_at(
         code: codes::DiagnosticCodeDef,
         span: Span,
@@ -575,6 +692,7 @@ impl Diagnostic {
             .finish()
     }
 
+    /// Returns the first primary span, falling back to the first label.
     pub fn primary_span(&self) -> Option<Span> {
         self.labels
             .iter()
@@ -583,6 +701,7 @@ impl Diagnostic {
             .or_else(|| self.labels.first().map(|label| label.span))
     }
 
+    /// Returns the primary label's message, when present.
     pub fn primary_message(&self) -> Option<&str> {
         self.labels
             .iter()
@@ -590,6 +709,7 @@ impl Diagnostic {
             .and_then(|label| label.message.as_deref())
     }
 
+    /// Returns the primary label, or the first label when no primary exists.
     pub fn primary_label(&self) -> Option<&DiagnosticLabel> {
         self.labels
             .iter()
@@ -597,10 +717,12 @@ impl Diagnostic {
             .or_else(|| self.labels.first())
     }
 
+    /// Returns the provenance of the selected primary label.
     pub fn primary_span_source(&self) -> Option<SpanSource> {
         self.primary_label().map(|label| label.span_source)
     }
 
+    /// Reports whether the diagnostic uses an unregistered code.
     pub fn uses_unregistered_code(&self) -> bool {
         !self.code.is_registered()
     }
@@ -613,6 +735,7 @@ impl DiagnosticReportItem for Diagnostic {
 }
 
 impl DiagnosticBuilder {
+    /// Adds a source-backed primary label with a message.
     pub fn primary(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
@@ -623,6 +746,7 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Adds a source-backed primary label without a message.
     pub fn primary_span(mut self, span: Span) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
@@ -633,6 +757,7 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Adds a fallback primary label with a message.
     pub fn primary_fallback(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
@@ -643,6 +768,7 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Adds a source-backed secondary label.
     pub fn secondary(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
@@ -653,6 +779,7 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Adds a fallback secondary label.
     pub fn secondary_fallback(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.labels.push(DiagnosticLabel {
             span,
@@ -663,16 +790,19 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Appends an explanatory note.
     pub fn note(mut self, note: impl Into<String>) -> Self {
         self.diagnostic.notes.push(note.into());
         self
     }
 
+    /// Appends suggested remediation text.
     pub fn help(mut self, help: impl Into<String>) -> Self {
         self.diagnostic.help.push(help.into());
         self
     }
 
+    /// Appends a related source location.
     pub fn related(mut self, span: Span, message: impl Into<String>) -> Self {
         self.diagnostic.related.push(RelatedDiagnostic {
             span,
@@ -681,6 +811,7 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Appends a formatted internal debug field.
     pub fn debug(mut self, key: impl Into<String>, value: impl fmt::Debug) -> Self {
         self.diagnostic.debug.push(DebugField {
             key: key.into(),
@@ -689,6 +820,7 @@ impl DiagnosticBuilder {
         self
     }
 
+    /// Finishes the builder and returns the immutable diagnostic.
     pub fn finish(self) -> Diagnostic {
         self.diagnostic
     }
@@ -811,6 +943,7 @@ impl DiagnosticCode {
         }
     }
 
+    /// Creates a code handle backed by the registered code definition.
     pub fn registered(code: codes::DiagnosticCodeDef) -> Self {
         Self {
             code: code.code.to_string(),
@@ -818,10 +951,12 @@ impl DiagnosticCode {
         }
     }
 
+    /// Returns the stable code text.
     pub fn as_str(&self) -> &str {
         &self.code
     }
 
+    /// Reports whether this handle came from the registry.
     pub fn is_registered(&self) -> bool {
         self.registered
     }
@@ -850,6 +985,7 @@ struct LineInfo {
     column: usize,
 }
 
+/// Renders one diagnostic using source labels and explanatory sections.
 pub fn render_diagnostic(path: &str, source: &str, diagnostic: &Diagnostic) -> String {
     let mut output = String::new();
     let category = match diagnostic.category {

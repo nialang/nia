@@ -30,25 +30,37 @@ use nia_toolchain::ToolchainLayout;
 
 use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
 
+/// Runtime startup mode selected for an artifact request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Runtime {
+    /// No runtime startup contract.
     #[default]
     Bare,
+    /// Freestanding runtime startup contract.
     Freestanding,
 }
 
+/// Frontend and semantic options shared by driver requests.
 #[derive(Debug, Clone)]
 pub struct CheckRequest {
+    /// Entry source path.
     pub entry_path: SourcePath,
+    /// Explicit module-name to source-path mappings.
     pub module_map: ModuleMap,
+    /// Nia optimization level.
     pub optimization: NiaOptimizationLevel,
+    /// Timing collection mode.
     pub timings: TimingMode,
+    /// Runtime startup mode.
     pub runtime: Runtime,
 }
 
+/// Checked program paired with the exact source closure used to produce it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedProgramWithSourceManifest {
+    /// Semantic checked program.
     pub program: CheckedProgram,
+    /// Final loader source-input manifest.
     pub source_manifest: SourceInputManifest,
 }
 
@@ -59,14 +71,17 @@ const STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN: usize = size_of::<[u64; 8]>();
 const DRIVER_FILE_STREAM_BYTES: usize = 64 * 1024;
 static DRIVER_OUTPUT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
+/// Environment fingerprint encoded alongside executable cache references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutableCacheEnvironment {
     fingerprint: LinkResultEnvironmentFingerprint,
 }
 
 impl ExecutableCacheEnvironment {
+    /// Fixed wire length of the environment fingerprint.
     pub const ENCODED_LEN: usize = EXECUTABLE_CACHE_ENVIRONMENT_LEN;
 
+    /// Encodes target, linker, and option fingerprints in stable order.
     pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
         let mut encoded = [0; Self::ENCODED_LEN];
         let mut offset = 0;
@@ -84,14 +99,17 @@ impl ExecutableCacheEnvironment {
     }
 }
 
+/// Complete executable cache identity reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutableCacheReference {
     fingerprints: LinkResultFingerprintSet,
 }
 
 impl ExecutableCacheReference {
+    /// Fixed wire length of the cache reference.
     pub const ENCODED_LEN: usize = EXECUTABLE_CACHE_REFERENCE_LEN;
 
+    /// Encodes all cache-key and component fingerprints.
     pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
         let mut encoded = [0; Self::ENCODED_LEN];
         let mut offset = 0;
@@ -111,6 +129,7 @@ impl ExecutableCacheReference {
         encoded
     }
 
+    /// Decodes an exact-length cache reference, rejecting malformed lengths.
     pub fn decode(encoded: &[u8]) -> Option<Self> {
         (encoded.len() == Self::ENCODED_LEN).then_some(())?;
         let mut parts = encoded.chunks_exact(size_of::<u64>()).map(|bytes| {
@@ -138,14 +157,17 @@ impl From<LinkResultFingerprintSet> for ExecutableCacheReference {
     }
 }
 
+/// Environment fingerprint encoded alongside static archive references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StaticArchiveCacheEnvironment {
     fingerprint: ArchiveEnvironmentFingerprint,
 }
 
 impl StaticArchiveCacheEnvironment {
+    /// Fixed wire length of the archive environment fingerprint.
     pub const ENCODED_LEN: usize = STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN;
 
+    /// Encodes toolchain, target, tool, and option fingerprints.
     pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
         let mut encoded = [0; Self::ENCODED_LEN];
         let mut offset = 0;
@@ -164,14 +186,17 @@ impl StaticArchiveCacheEnvironment {
     }
 }
 
+/// Complete static archive cache identity reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StaticArchiveCacheReference {
     fingerprints: ArchiveFingerprintSet,
 }
 
 impl StaticArchiveCacheReference {
+    /// Fixed wire length of the archive cache reference.
     pub const ENCODED_LEN: usize = STATIC_ARCHIVE_CACHE_REFERENCE_LEN;
 
+    /// Encodes all cache-key and component fingerprints.
     pub fn encode(self) -> [u8; Self::ENCODED_LEN] {
         let mut encoded = [0; Self::ENCODED_LEN];
         let mut offset = 0;
@@ -191,6 +216,7 @@ impl StaticArchiveCacheReference {
         encoded
     }
 
+    /// Decodes an exact-length archive cache reference.
     pub fn decode(encoded: &[u8]) -> Option<Self> {
         (encoded.len() == Self::ENCODED_LEN).then_some(())?;
         let mut parts = encoded.chunks_exact(size_of::<u64>()).map(|bytes| {
@@ -218,41 +244,64 @@ impl From<ArchiveFingerprintSet> for StaticArchiveCacheReference {
     }
 }
 
+/// Outcome of restoring a static archive from its cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StaticArchiveCacheRestore {
+    /// Valid matching artifact was restored.
     Hit,
+    /// No cache entry exists.
     NotFound,
+    /// Entry exists but one identity component is stale.
     Invalidated,
+    /// Entry failed decoding or validation.
     Corrupt,
+    /// Cache read failed.
     ReadError,
+    /// Cache is disabled for this request.
     Disabled,
 }
 
+/// Outcome of restoring an executable from its cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutableCacheRestore {
+    /// Valid matching artifact was restored.
     Hit,
+    /// No cache entry exists.
     NotFound,
+    /// Entry exists but one identity component is stale.
     Invalidated,
+    /// Entry failed decoding or validation.
     Corrupt,
+    /// Cache read failed.
     ReadError,
+    /// Cache is disabled for this request.
     Disabled,
 }
 
+/// Linked executable paired with the exact source closure used to link it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkedExecutableWithSourceManifest {
+    /// Linked artifact.
     pub artifact: ExecutableArtifact,
+    /// Final source-input manifest.
     pub source_manifest: SourceInputManifest,
 }
 
+/// Driver-wide toolchain, target, cache, and verification configuration.
 #[derive(Debug, Clone)]
 pub struct DriverConfig {
+    /// Toolchain layout used for compilation and linking.
     pub toolchain: std::sync::Arc<ToolchainLayout>,
+    /// Target configuration for emitted artifacts.
     pub artifact_target: TargetConfig,
+    /// Optional persistent artifact-cache directory.
     pub artifact_cache_dir: Option<PathBuf>,
+    /// Whether frontend cache hits receive semantic verification.
     pub verify_frontend_cache: bool,
 }
 
 impl DriverConfig {
+    /// Creates configuration using the toolchain's artifact target.
     pub fn new(toolchain: std::sync::Arc<ToolchainLayout>) -> Self {
         let artifact_target = toolchain.artifact_target().clone();
         Self {
@@ -263,12 +312,14 @@ impl DriverConfig {
         }
     }
 
+    /// Overrides the artifact target while retaining the toolchain.
     pub fn with_artifact_target(mut self, artifact_target: TargetConfig) -> Self {
         self.artifact_target = artifact_target;
         self
     }
 }
 
+/// Stateful compiler driver reusing source, loader, and compiler sessions.
 #[derive(Debug)]
 pub struct Driver {
     config: DriverConfig,
@@ -360,10 +411,12 @@ fn emit_link_result_reuse(timings: TimingMode, reuse: LinkResultReuse) {
 }
 
 impl Driver {
+    /// Creates a driver with default configuration for `toolchain`.
     pub fn new(toolchain: std::sync::Arc<ToolchainLayout>) -> Self {
         Self::with_config(DriverConfig::new(toolchain))
     }
 
+    /// Creates a driver with explicit configuration and optional caches.
     pub fn with_config(config: DriverConfig) -> Self {
         let object_cache = config.artifact_cache_dir.as_ref().map(|path| {
             std::sync::Arc::new(crate::object_cache::PersistentObjectWorkProductCache::new(
@@ -395,10 +448,12 @@ impl Driver {
         }
     }
 
+    /// Returns the immutable driver configuration.
     pub fn config(&self) -> &DriverConfig {
         &self.config
     }
 
+    /// Returns the source database owned by this driver.
     pub fn sources(&self) -> &SourceDatabase {
         &self.sources
     }
@@ -445,6 +500,7 @@ impl Driver {
         }
     }
 
+    /// Installs or replaces an in-memory source for subsequent requests.
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<std::sync::Arc<str>>) {
         let path = path.into();
         let loader = self.loader.lock().expect("driver loader lock poisoned");
@@ -456,6 +512,7 @@ impl Driver {
         }
     }
 
+    /// Checks every module reachable from the request's module map.
     pub fn check_all_modules(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
             let program = match self.check_all_modules_inner(request) {
@@ -473,6 +530,7 @@ impl Driver {
         })
     }
 
+    /// Returns the final source manifest for an entry request.
     pub fn source_input_manifest(
         &self,
         request: &CheckRequest,
@@ -509,6 +567,7 @@ impl Driver {
             .expect("test compiler analysis")
     }
 
+    /// Checks the request entry and its reachable semantic program.
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
             let program = match self.check_entry_inner(request) {
@@ -526,6 +585,7 @@ impl Driver {
         })
     }
 
+    /// Checks an entry and returns its exact source manifest alongside it.
     pub fn check_entry_with_source_manifest(
         &self,
         request: CheckRequest,
@@ -571,6 +631,7 @@ impl Driver {
             .expect("test entry compiler analysis")
     }
 
+    /// Checks and lowers the request into a code-generation program.
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
         DriverOutput::catch_ice(|| {
             let program = match self.codegen_inner(request) {
@@ -681,6 +742,7 @@ impl Driver {
         Ok((database, loader))
     }
 
+    /// Emits LLVM IR modules for a checked request.
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
@@ -787,6 +849,7 @@ impl Driver {
         })
     }
 
+    /// Emits LLVM IR from an already checked codegen product.
     pub fn emit_llvm_ir_from_codegen(
         &self,
         program: &CodegenProgram,
@@ -794,6 +857,7 @@ impl Driver {
         self.emit_llvm_ir_from_codegen_with_timings(program, TimingMode::Off)
     }
 
+    /// Emits LLVM IR from codegen while overriding timing mode.
     pub fn emit_llvm_ir_from_codegen_with_timings(
         &self,
         program: &CodegenProgram,
@@ -825,6 +889,7 @@ impl Driver {
         })
     }
 
+    /// Emits native object bytes for a checked request.
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
         self.emit_native_objects_with_source_manifest(request)
             .map(|output| output.artifact)
@@ -954,6 +1019,7 @@ impl Driver {
         })
     }
 
+    /// Emits native objects from an existing codegen product.
     pub fn emit_native_objects_from_codegen(
         &self,
         program: &CodegenProgram,
@@ -961,6 +1027,7 @@ impl Driver {
         self.emit_native_objects_from_codegen_with_timings(program, TimingMode::Off)
     }
 
+    /// Emits native objects while overriding timing mode.
     pub fn emit_native_objects_from_codegen_with_timings(
         &self,
         program: &CodegenProgram,
@@ -1006,6 +1073,7 @@ impl Driver {
             .query_session()
     }
 
+    /// Writes emitted native objects according to the request output policy.
     pub fn write_native_objects(
         &self,
         request: WriteObjectRequest,
@@ -1022,6 +1090,7 @@ impl Driver {
         })
     }
 
+    /// Writes an existing object artifact to disk.
     pub fn write_native_objects_from_artifact(
         &self,
         objects: &ObjectArtifact,
@@ -1083,6 +1152,7 @@ impl Driver {
         })
     }
 
+    /// Links an executable from a checked request and writes it to `output`.
     pub fn link_executable(
         &self,
         request: LinkExecutableRequest,
@@ -1091,6 +1161,7 @@ impl Driver {
             .map(|output| output.artifact)
     }
 
+    /// Links an executable while retaining the exact source manifest.
     pub fn link_executable_with_source_manifest(
         &self,
         request: LinkExecutableRequest,
@@ -1130,6 +1201,7 @@ impl Driver {
         })
     }
 
+    /// Links an executable from already emitted object inputs.
     pub fn link_executable_from_objects(
         &self,
         objects: &ObjectArtifact,
@@ -1254,6 +1326,7 @@ impl Driver {
         })
     }
 
+    /// Archives already emitted objects into a static library.
     pub fn archive_static_library_from_objects(
         &self,
         objects: &ObjectArtifact,
@@ -1348,6 +1421,7 @@ impl Driver {
         })
     }
 
+    /// Restores an executable artifact when its complete cache identity matches.
     pub fn restore_executable_cache(
         &self,
         reference: ExecutableCacheReference,
@@ -1386,10 +1460,12 @@ impl Driver {
         }
     }
 
+    /// Returns the current executable cache environment fingerprint.
     pub fn executable_cache_environment(&self) -> Option<ExecutableCacheEnvironment> {
         self.executable_cache_environment_for(&LinkOptions::default())
     }
 
+    /// Computes an executable cache environment for explicit link options.
     pub fn executable_cache_environment_for(
         &self,
         link_options: &LinkOptions,
@@ -1405,6 +1481,7 @@ impl Driver {
             .map(|fingerprint| ExecutableCacheEnvironment { fingerprint })
     }
 
+    /// Restores a static archive when its complete cache identity matches.
     pub fn restore_static_archive_cache(
         &self,
         reference: StaticArchiveCacheReference,
@@ -1443,6 +1520,7 @@ impl Driver {
         }
     }
 
+    /// Returns the current static archive cache environment fingerprint.
     pub fn static_archive_cache_environment(&self) -> Option<StaticArchiveCacheEnvironment> {
         self.archive_cache.as_ref()?;
         let options = ArchiveOptions {
@@ -1760,10 +1838,12 @@ impl fmt::Debug for SessionCompiler {
 }
 
 impl CheckRequest {
+    /// Creates a request for an entry path with default options.
     pub fn new(entry_path: impl Into<String>) -> Self {
         Self::from_source_path(SourcePath::new(entry_path.into()))
     }
 
+    /// Creates a request from an already normalized source path.
     pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
             entry_path,
@@ -1774,21 +1854,25 @@ impl CheckRequest {
         }
     }
 
+    /// Supplies explicit module mappings.
     pub fn with_module_map(mut self, module_map: ModuleMap) -> Self {
         self.module_map = module_map;
         self
     }
 
+    /// Selects the Nia optimization level.
     pub fn with_optimization(mut self, optimization: NiaOptimizationLevel) -> Self {
         self.optimization = optimization;
         self
     }
 
+    /// Selects timing collection for this request.
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
         self
     }
 
+    /// Selects runtime startup semantics.
     pub fn with_runtime(mut self, runtime: Runtime) -> Self {
         self.runtime = runtime;
         self
@@ -1802,48 +1886,63 @@ fn entry_runtime(runtime: Runtime) -> EntryRuntime {
     }
 }
 
+/// Request to emit LLVM IR from a check request.
 #[derive(Debug, Clone)]
 pub struct EmitLlvmRequest {
+    /// Underlying check and semantic options.
     pub check: CheckRequest,
 }
 
 impl EmitLlvmRequest {
+    /// Wraps a check request.
     pub fn new(check: CheckRequest) -> Self {
         Self { check }
     }
 }
 
+/// Request to emit native objects from a check request.
 #[derive(Debug, Clone)]
 pub struct EmitObjectRequest {
+    /// Underlying check and semantic options.
     pub check: CheckRequest,
 }
 
 impl EmitObjectRequest {
+    /// Wraps a check request.
     pub fn new(check: CheckRequest) -> Self {
         Self { check }
     }
 }
 
+/// Request to write native objects to one file or a directory.
 #[derive(Debug, Clone)]
 pub struct WriteObjectRequest {
+    /// Underlying check and semantic options.
     pub check: CheckRequest,
+    /// Destination policy.
     pub output: ObjectOutput,
 }
 
 impl WriteObjectRequest {
+    /// Creates a write request.
     pub fn new(check: CheckRequest, output: ObjectOutput) -> Self {
         Self { check, output }
     }
 }
 
+/// Request to link an executable from a check request.
 #[derive(Debug, Clone)]
 pub struct LinkExecutableRequest {
+    /// Underlying check and semantic options.
     pub check: CheckRequest,
+    /// Executable destination path.
     pub output: PathBuf,
+    /// Linker options.
     pub link_options: LinkOptions,
 }
 
 impl LinkExecutableRequest {
+    /// Creates a link request with default linker options.
     pub fn new(check: CheckRequest, output: impl Into<PathBuf>) -> Self {
         Self {
             check,
@@ -1852,31 +1951,45 @@ impl LinkExecutableRequest {
         }
     }
 
+    /// Replaces the linker options.
     pub fn with_link_options(mut self, link_options: LinkOptions) -> Self {
         self.link_options = link_options;
         self
     }
 }
 
+/// Destination policy for native object emission.
 #[derive(Debug, Clone)]
 pub enum ObjectOutput {
+    /// Emit one combined object file.
     Single(PathBuf),
+    /// Emit one object file per module into a directory.
     Directory(PathBuf),
 }
 
+/// LLVM IR artifact and its semantic diagnostics/report.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlvmIrArtifact {
+    /// Lowered LLVM modules.
     pub modules: Vec<nia_codegen_llvm::LlvmModuleOutput>,
+    /// Effective optimization policy.
     pub optimization: OptimizationPolicy,
+    /// Backend optimization changes.
     pub optimization_report: crate::BackendOptimizationReport,
+    /// Warnings and non-fatal diagnostics.
     pub diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
 }
 
+/// Native object artifact and incremental link inputs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectArtifact {
+    /// In-memory object inputs keyed for incremental linking.
     pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<nia_codegen_llvm::NativeObject>,
+    /// Effective optimization policy.
     pub optimization: OptimizationPolicy,
+    /// Backend optimization changes.
     pub optimization_report: crate::BackendOptimizationReport,
+    /// Warnings and non-fatal diagnostics.
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
@@ -1886,31 +1999,47 @@ struct ObjectArtifactWithSourceManifest {
     source_manifest: SourceInputManifest,
 }
 
+/// Native object artifact after writing inputs to filesystem paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WrittenObjectArtifact {
+    /// Path-based incremental link inputs.
     pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<PathBuf>,
 }
 
+/// Linked executable artifact and its cache identity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExecutableArtifact {
+    /// Output executable path.
     pub path: PathBuf,
+    /// Effective optimization policy.
     pub optimization: OptimizationPolicy,
+    /// Backend optimization changes.
     pub optimization_report: crate::BackendOptimizationReport,
+    /// Warnings and non-fatal diagnostics.
     pub diagnostics: Vec<ProgramDiagnostic>,
+    /// Cache identity installed with this artifact, when enabled.
     pub cache_reference: Option<ExecutableCacheReference>,
 }
 
+/// Static archive artifact and its cache identity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticArchiveArtifact {
+    /// Output archive path.
     pub path: PathBuf,
+    /// Effective optimization policy.
     pub optimization: OptimizationPolicy,
+    /// Backend optimization changes.
     pub optimization_report: crate::BackendOptimizationReport,
+    /// Warnings and non-fatal diagnostics.
     pub diagnostics: Vec<ProgramDiagnostic>,
+    /// Cache identity installed with this artifact, when enabled.
     pub cache_reference: Option<StaticArchiveCacheReference>,
 }
 
+/// Driver operation result, including structured failure categories.
 #[derive(Debug)]
 pub struct DriverOutput<T> {
+    /// Successful artifact/program or structured driver failure.
     pub result: Result<T, DriverError>,
 }
 
@@ -1945,36 +2074,61 @@ impl<T> DriverOutput<T> {
     }
 }
 
+/// Failures produced by orchestration, tools, diagnostics, or artifact I/O.
 #[derive(Debug)]
 pub enum DriverError {
+    /// Archive tool exited unsuccessfully.
     ArchiveStatus {
+        /// Tool program name.
         program: String,
+        /// Process exit status.
         status: std::process::ExitStatus,
     },
+    /// Archive tool could not be started or read.
     ArchiveIo {
+        /// Tool program name.
         program: String,
+        /// Underlying I/O error.
         error: io::Error,
     },
+    /// Archive configuration was rejected before execution.
     ArchiveConfig(nia_linker::LinkerConfigError),
+    /// Semantic checking produced user diagnostics.
     CheckDiagnostics(CheckedProgram),
+    /// Codegen preparation retained a checked program with diagnostics.
     CodegenProgramDiagnostics(Box<CodegenProgram>),
+    /// Codegen preparation diagnostics without a codegen product.
     CodegenPreparationDiagnostics(Vec<nia_compiler_query::ProgramDiagnostic>),
+    /// Backend codegen diagnostics.
     CodegenDiagnostics(Vec<Diagnostic>),
+    /// Internal compiler diagnostic or ICE conversion.
     InternalDiagnostic(Diagnostic),
+    /// Request shape cannot produce the requested artifact.
     InvalidArtifactRequest(String),
+    /// Filesystem operation failed while publishing an artifact.
     Io {
+        /// Destination path.
         path: PathBuf,
+        /// Operation description.
         operation: &'static str,
+        /// Underlying I/O error.
         error: io::Error,
     },
+    /// Linker exited unsuccessfully.
     LinkerStatus {
+        /// Tool program name.
         program: String,
+        /// Process exit status.
         status: std::process::ExitStatus,
     },
+    /// Linker could not be started or read.
     LinkerIo {
+        /// Tool program name.
         program: String,
+        /// Underlying I/O error.
         error: io::Error,
     },
+    /// Linker configuration was rejected before execution.
     LinkerConfig(nia_linker::LinkerConfigError),
 }
 

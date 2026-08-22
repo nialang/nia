@@ -3,6 +3,51 @@ use nia_const_eval::ConstValue;
 use nia_ty::IntConst;
 
 #[test]
+fn cyclic_const_dependencies_do_not_poison_independent_values() {
+    let fixture = check_source(
+        r#"
+const first: i32 = second;
+const second: i32 = first;
+const independent: i32 = 40 + 2;
+"#,
+    );
+
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary == "cyclic const dependency"),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    let global_key = |name| {
+        ConstKey::Global(GlobalDefId {
+            module_id: fixture.module_id,
+            def_id: fixture
+                .defs
+                .module_scope
+                .values
+                .get(&sym(name))
+                .unwrap_or_else(|| panic!("missing const `{name}`")),
+        })
+    };
+    assert!(!fixture.checked.values.contains_key(&global_key("first")));
+    assert!(!fixture.checked.values.contains_key(&global_key("second")));
+    assert_eq!(
+        fixture.checked.values.get(&global_key("independent")),
+        Some(&ConstValue::Int(IntConst::signed(42)))
+    );
+    assert!(
+        fixture
+            .checked
+            .typed_values
+            .contains_key(&global_key("independent")),
+        "independent const must retain its inferred type after cycle recovery"
+    );
+}
+
+#[test]
 fn const_switches_share_matrix_exhaustiveness_and_usefulness_rules() {
     let accepted = check_source(
         r#"
