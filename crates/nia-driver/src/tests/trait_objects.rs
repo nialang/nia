@@ -924,6 +924,51 @@ fn main() i32 {
 }
 
 #[test]
+fn trait_object_upcast_keeps_bindings_from_later_diamond_branch() {
+    let root = temp_dir("trait_object_upcast_keeps_bindings_from_later_diamond_branch");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Root {
+    type Item;
+}
+
+trait Left : Root {}
+trait Right : Root[Item = i32] {}
+trait Child : Left + Right {}
+
+struct Counter { value: i32 }
+
+extend Counter : Root {
+    type Item = i32;
+}
+extend Counter : Left {}
+extend Counter : Right {}
+extend Counter : Child {}
+
+fn as_root(child: & Child) & Root[Item = i32] {
+    child
+}
+
+fn main() i32 {
+    let mut counter = Counter { value: 7 };
+    _ = as_root(& counter);
+    counter.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| trait_object_upcast_count(module) >= 1)
+    );
+}
+
+#[test]
 fn trait_object_upcast_rejects_mismatched_declared_supertrait_binding() {
     let root = temp_dir("trait_object_upcast_rejects_mismatched_declared_supertrait_binding");
     write(

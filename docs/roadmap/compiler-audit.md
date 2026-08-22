@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 254 completed entries in this ledger.
+- Implementation batches: 255 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1531,6 +1531,11 @@ acceptance item only when its phase-wide evidence is complete.
       source binding. This keeps upcast identity aligned with body-check,
       solver, specialization, and backend binding-set semantics. Body-check
       and four focused driver upcast tests pass.
+- [x] Phase A trait-object upcast coverage now includes a diamond graph whose
+      later branch contributes the only associated-type binding. The regression
+      proves that an earlier unbound sibling cannot hide the later `Item = i32`
+      constraint; the focused driver matrix passes alongside the existing
+      body-check and workspace gates.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
