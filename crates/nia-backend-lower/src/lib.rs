@@ -1350,9 +1350,14 @@ impl ReachableAggregateRoots {
                     self.add_static_init(lowerer, &field.value);
                 }
             }
-            nia_static_ir::StaticInit::AddrOfFunction { args, .. } => {
+            nia_static_ir::StaticInit::AddrOfFunction {
+                args, const_args, ..
+            } => {
                 for arg in args {
                     self.add_ty(lowerer, *arg);
+                }
+                for arg in const_args {
+                    self.add_ty(lowerer, arg.ty);
                 }
             }
             nia_static_ir::StaticInit::Zero

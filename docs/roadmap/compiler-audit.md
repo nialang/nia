@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 315 completed entries in this ledger.
+- Implementation batches: 316 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1836,6 +1836,11 @@ acceptance item only when its phase-wide evidence is complete.
       reducing generic function addresses to bare functions. The body-check
       owner regression checks the facts-only product, while compiler-query
       conversion consumes the shared summary shape for reachability.
+- [x] Batch 316 preserves const-generic function-pointer identities through
+      static initializer IR, backend instance planning, LLVM validation and
+      lookup, and fingerprints. Owner regressions cover typed static refs and
+      facts-only body refs; compiler-query coverage verifies the const argument
+      survives executable static init, backend planning, and final Backend IR.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

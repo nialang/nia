@@ -49,6 +49,33 @@ static callback: &fn(i32) i32 = &identity[i32];
 }
 
 #[test]
+fn static_fact_references_retain_const_generic_function_instances() {
+    let checked = pipeline_static_facts(
+        r#"
+fn identity[T, N: usize](value: T) T {
+    value
+}
+
+static callback: &fn(i32) i32 = &identity[i32, 3];
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let refs = checked
+        .static_init_refs
+        .values()
+        .next()
+        .expect("callback static initializer references");
+    assert!(refs.functions.is_empty());
+    assert_eq!(refs.function_instances.len(), 1);
+    assert_eq!(refs.function_instances[0].const_args.len(), 1);
+    assert_eq!(
+        refs.function_instances[0].const_args[0].value,
+        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(3))
+    );
+}
+
+#[test]
 fn records_body_facts_by_source_versioned_node_keys() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

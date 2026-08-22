@@ -785,6 +785,7 @@ mod tests {
             init: Some(StaticInit::AddrOfFunction {
                 function: referenced_function,
                 args: vec![ty],
+                const_args: Vec::new(),
             }),
             span: Span::default(),
         });

@@ -20,6 +20,7 @@ use nia_value_resolve::ValueNameResolution;
 struct FunctionItemRef {
     resolved: ResolvedFunctionSignature,
     type_args: Vec<InternedTyId>,
+    const_args: Vec<ConstGenericArg>,
     receiver_ty: Option<InternedTyId>,
 }
 
@@ -84,6 +85,7 @@ impl<'a> BodyChecker<'a> {
             resolved,
             type_args: self
                 .extension_target_instance_args(method_id, &candidate.target_substitutions),
+            const_args: Vec::new(),
             receiver_ty,
         })
     }
@@ -119,11 +121,12 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let substitutions = self.generic_substitutions_for_function_ref(
+        let (substitutions, const_substitutions) = self.generic_substitutions_for_function_ref(
             expr,
             item.resolved.def_id,
             &signature,
             &item.type_args,
+            &item.const_args,
         )?;
         let params = signature
             .params
@@ -136,11 +139,19 @@ impl<'a> BodyChecker<'a> {
                 {
                     receiver_ty
                 } else {
-                    self.substitute_generics(param.ty, &substitutions)
+                    self.substitute_generics_and_consts(
+                        param.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    )
                 }
             })
             .collect();
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.substitute_generics_and_consts(
+            signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
         let return_type = self.normalize_projection(return_type);
         let return_type = self.normalize_aliases_in_type(return_type);
         Some(self.interner.intern(TyKind::FunctionPointer {
@@ -162,8 +173,18 @@ impl<'a> BodyChecker<'a> {
                     expr,
                     BracketSuffixResolution::GenericCall,
                 );
-                let type_args = self.lower_bracket_type_args(args);
-                item.type_args.extend(type_args);
+                if item.type_args.is_empty() && item.const_args.is_empty() {
+                    let lowered = self.lower_bracket_args_for_generic_params(
+                        expr.span,
+                        &item.resolved.signature.generic_params,
+                        args,
+                    )?;
+                    item.type_args.extend(lowered.type_args);
+                    item.const_args.extend(lowered.const_args);
+                } else {
+                    let type_args = self.lower_bracket_type_args(args);
+                    item.type_args.extend(type_args);
+                }
                 Some(item)
             }
             ExprKind::Qualified { lhs, name } => {
@@ -175,6 +196,7 @@ impl<'a> BodyChecker<'a> {
                     .map(|resolved| FunctionItemRef {
                         resolved,
                         type_args: Vec::new(),
+                        const_args: Vec::new(),
                         receiver_ty: None,
                     })
             }
@@ -184,6 +206,7 @@ impl<'a> BodyChecker<'a> {
                 .map(|resolved| FunctionItemRef {
                     resolved,
                     type_args: Vec::new(),
+                    const_args: Vec::new(),
                     receiver_ty: None,
                 })
                 .or_else(|| self.current_extension_method_callee_signature(expr)),
@@ -212,6 +235,7 @@ impl<'a> BodyChecker<'a> {
             resolved,
             type_args: self
                 .extension_target_instance_args(method_id, &candidate.target_substitutions),
+            const_args: Vec::new(),
             receiver_ty,
         })
     }
@@ -222,25 +246,52 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         type_args: &[InternedTyId],
-    ) -> Option<SymbolMap<InternedTyId>> {
+        const_args: &[ConstGenericArg],
+    ) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
         let span = expr.span;
-        let generics = self.effective_generics_for_def(def_id);
-        if generics.len() != type_args.len() {
-            let message = if type_args.is_empty() {
+        let effective_generics = self.effective_generics_for_def(def_id);
+        let type_generics: Vec<_> = effective_generics
+            .iter()
+            .copied()
+            .filter(|name| {
+                signature
+                    .generic_params
+                    .iter()
+                    .find(|param| param.name == *name)
+                    .is_none_or(|param| matches!(param.kind, GenericParamSignatureKind::Type))
+            })
+            .collect();
+        let const_generics: Vec<_> = effective_generics
+            .iter()
+            .copied()
+            .filter(|name| {
+                signature
+                    .generic_params
+                    .iter()
+                    .find(|param| param.name == *name)
+                    .is_some_and(|param| {
+                        matches!(param.kind, GenericParamSignatureKind::Const { .. })
+                    })
+            })
+            .collect();
+        if type_generics.len() != type_args.len() || const_generics.len() != const_args.len() {
+            let message = if type_args.is_empty() && const_args.is_empty() {
                 "generic function pointer requires explicit type arguments".to_string()
             } else {
                 format!(
-                    "generic argument count mismatch for function pointer: expected {}, got {}",
-                    generics.len(),
-                    type_args.len()
+                    "generic argument count mismatch for function pointer: expected {} type and {} const arguments, got {} type and {} const arguments",
+                    type_generics.len(),
+                    const_generics.len(),
+                    type_args.len(),
+                    const_args.len()
                 )
             };
             self.diagnostics
                 .push(Diagnostic::user_error_at(codes::TYPE_CHECK, span, message));
             return None;
         }
-        if !type_args.is_empty() {
-            self.record_generic_instantiation(def_id, type_args, span);
+        if !type_args.is_empty() || !const_args.is_empty() {
+            self.record_generic_instantiation_with_const_args(def_id, type_args, const_args, span);
         }
         self.record_function_node_reference(
             span,
@@ -249,12 +300,20 @@ impl<'a> BodyChecker<'a> {
                 def_id,
                 arg_module_id: self.defs.module_id,
                 args: type_args.to_vec(),
-                const_args: Vec::new(),
+                const_args: const_args.to_vec(),
             },
         );
-        let mut substitutions = self.generic_substitutions(&generics, type_args);
+        let mut substitutions = self.generic_substitutions(&type_generics, type_args);
+        let mut const_substitutions = SymbolMap::default();
+        for (name, arg) in const_generics
+            .iter()
+            .copied()
+            .zip(const_args.iter().cloned())
+        {
+            const_substitutions.insert(name, arg);
+        }
         for generic in &signature.generics {
-            if !substitutions.contains_key(generic) {
+            if !substitutions.contains_key(generic) && !const_substitutions.contains_key(generic) {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
@@ -266,7 +325,7 @@ impl<'a> BodyChecker<'a> {
                 return None;
             }
         }
-        Some(std::mem::take(&mut substitutions))
+        Some((std::mem::take(&mut substitutions), const_substitutions))
     }
 
     pub(super) fn check_function_signature_call(

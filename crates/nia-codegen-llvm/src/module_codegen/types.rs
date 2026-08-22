@@ -1101,14 +1101,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.program.function(def_id)
     }
 
-    pub(crate) fn function_instance_item(
-        &self,
-        def_id: GlobalDefId,
-        args: &[InternedTyId],
-    ) -> Option<&'a BackendFunctionInstance> {
-        self.function_instance_item_with_arg_module(def_id, self.source.id, None, args, &[])
-    }
-
     pub(crate) fn function_instance_item_with_arg_module(
         &self,
         def_id: GlobalDefId,

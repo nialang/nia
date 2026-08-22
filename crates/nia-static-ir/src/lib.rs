@@ -77,6 +77,8 @@ pub enum StaticInit {
         function: GlobalDefId,
         /// Type arguments for a concrete function instance.
         args: Vec<InternedTyId>,
+        /// Const arguments for a concrete function instance.
+        const_args: Vec<nia_ty::ConstGenericArg>,
     },
 }
 
@@ -126,8 +128,12 @@ impl StaticInit {
             Self::AddrOfGlobal { global, .. } => {
                 sink.global(*global);
             }
-            Self::AddrOfFunction { function, args } => {
-                sink.function(*function, args);
+            Self::AddrOfFunction {
+                function,
+                args,
+                const_args,
+            } => {
+                sink.function(*function, args, const_args);
             }
             Self::Zero
             | Self::Int(_)
@@ -144,7 +150,12 @@ impl StaticInit {
 
 trait StaticInitRefSink {
     fn global(&mut self, global: GlobalDefId);
-    fn function(&mut self, function: GlobalDefId, args: &[InternedTyId]);
+    fn function(
+        &mut self,
+        function: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    );
 }
 
 impl StaticInitRefSink for StaticInitRefs {
@@ -152,7 +163,12 @@ impl StaticInitRefSink for StaticInitRefs {
         self.globals.insert(global);
     }
 
-    fn function(&mut self, function: GlobalDefId, _args: &[InternedTyId]) {
+    fn function(
+        &mut self,
+        function: GlobalDefId,
+        _args: &[InternedTyId],
+        _const_args: &[nia_ty::ConstGenericArg],
+    ) {
         self.functions.insert(function);
     }
 }
@@ -167,9 +183,15 @@ impl StaticInitRefSink for FunctionBodyRefSink<'_> {
         self.refs.globals.insert(global);
     }
 
-    fn function(&mut self, function: GlobalDefId, args: &[InternedTyId]) {
+    fn function(
+        &mut self,
+        function: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) {
         self.refs.types.extend(args.iter().copied());
-        if args.is_empty() {
+        self.refs.types.extend(const_args.iter().map(|arg| arg.ty));
+        if args.is_empty() && const_args.is_empty() {
             self.refs.functions.insert(function);
         } else {
             self.refs.function_instances.push(FunctionInstanceRef {
@@ -177,7 +199,7 @@ impl StaticInitRefSink for FunctionBodyRefSink<'_> {
                 arg_module_id: self.module_id,
                 self_arg: None,
                 args: args.to_vec(),
-                const_args: Vec::new(),
+                const_args: const_args.to_vec(),
                 span: Span::default(),
             });
         }
@@ -225,6 +247,7 @@ mod tests {
                 value: Box::new(StaticInit::AddrOfFunction {
                     function,
                     args: Vec::new(),
+                    const_args: Vec::new(),
                 }),
                 count: 0,
             },
@@ -255,10 +278,12 @@ mod tests {
             StaticInit::AddrOfFunction {
                 function,
                 args: Vec::new(),
+                const_args: Vec::new(),
             },
             StaticInit::AddrOfFunction {
                 function,
                 args: Vec::new(),
+                const_args: Vec::new(),
             },
             StaticInit::AddrOfGlobal {
                 global,
@@ -287,11 +312,13 @@ mod tests {
             StaticInit::AddrOfFunction {
                 function,
                 args: vec![arg],
+                const_args: Vec::new(),
             },
             StaticInit::Repeat {
                 value: Box::new(StaticInit::AddrOfFunction {
                     function,
                     args: vec![arg],
+                    const_args: Vec::new(),
                 }),
                 count: 0,
             },
@@ -305,5 +332,36 @@ mod tests {
         assert_eq!(refs.function_instances[0].def_id, function);
         assert_eq!(refs.function_instances[0].arg_module_id, module_id);
         assert_eq!(refs.function_instances[0].args, vec![arg]);
+    }
+
+    #[test]
+    fn typed_refs_preserve_function_instance_const_identity() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let function = GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        };
+        let types = nia_ty::TypeStore::new();
+        let arg_ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::Usize);
+        let init = StaticInit::AddrOfFunction {
+            function,
+            args: Vec::new(),
+            const_args: vec![nia_ty::ConstGenericArg {
+                ty: arg_ty,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(3)),
+            }],
+        };
+
+        let refs = init.value_refs(module_id);
+        assert!(refs.functions.is_empty());
+        assert_eq!(refs.types, std::collections::BTreeSet::from([arg_ty]));
+        assert_eq!(refs.function_instances.len(), 1);
+        assert_eq!(
+            refs.function_instances[0].const_args[0].value,
+            nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(3))
+        );
     }
 }

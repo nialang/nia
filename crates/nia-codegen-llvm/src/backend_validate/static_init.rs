@@ -167,9 +167,15 @@ impl BackendValidator<'_> {
                     span,
                 );
             }
-            StaticInit::AddrOfFunction { function, args } => {
-                self.validate_static_function_address_signature(ty, *function, args, span);
-                if args.is_empty() {
+            StaticInit::AddrOfFunction {
+                function,
+                args,
+                const_args,
+            } => {
+                self.validate_static_function_address_signature(
+                    ty, *function, args, const_args, span,
+                );
+                if args.is_empty() && const_args.is_empty() {
                     self.validate_function_ref(
                         *function,
                         span,
@@ -182,7 +188,7 @@ impl BackendValidator<'_> {
                             arg_module_id: function.module_id,
                             self_arg: None,
                             args,
-                            const_args: &[],
+                            const_args,
                         },
                         span,
                         "backend IR static initializer references missing function instance",
@@ -256,6 +262,7 @@ impl BackendValidator<'_> {
         ty: InternedTyId,
         function: nia_ids::GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) {
         let Some(TyKind::FunctionPointer {
@@ -285,12 +292,12 @@ impl BackendValidator<'_> {
             })
         } else {
             self.index
-                .function_instance(function, function.module_id, None, args, &[])
+                .function_instance(function, function.module_id, None, args, const_args)
                 .or_else(|| {
                     self.index.function_instances_for(function).find(|item| {
                         item.self_arg.is_none()
                             && item.args.as_slice() == args
-                            && item.const_args.is_empty()
+                            && item.const_args.as_slice() == const_args
                     })
                 })
                 .map(|item| {

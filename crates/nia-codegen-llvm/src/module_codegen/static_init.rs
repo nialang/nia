@@ -63,9 +63,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::AddrOfGlobal { global, path } => {
                 self.static_addr_of_global_value(ty, *global, path, span)
             }
-            StaticInit::AddrOfFunction { function, args } => {
-                self.static_addr_of_function_value(ty, *function, args, span)
-            }
+            StaticInit::AddrOfFunction {
+                function,
+                args,
+                const_args,
+            } => self.static_addr_of_function_value(ty, *function, args, const_args, span),
         }
     }
 
@@ -129,21 +131,28 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         ty: InternedTyId,
         function: GlobalDefId,
         args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let function = if args.is_empty() {
+        let function = if args.is_empty() && const_args.is_empty() {
             self.function(function)
         } else {
-            self.function_instance_item(function, args)
-                .and_then(|instance| {
-                    self.function_instance_value(
-                        instance.def_id,
-                        instance.arg_module_id,
-                        instance.self_arg,
-                        &instance.args,
-                        &instance.const_args,
-                    )
-                })
+            self.function_instance_item_with_arg_module(
+                function,
+                function.module_id,
+                None,
+                args,
+                const_args,
+            )
+            .and_then(|instance| {
+                self.function_instance_value(
+                    instance.def_id,
+                    instance.arg_module_id,
+                    instance.self_arg,
+                    &instance.args,
+                    &instance.const_args,
+                )
+            })
         }
         .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
         let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
