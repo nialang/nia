@@ -32,7 +32,7 @@ use nia_llvm::{
     values::{BasicValueEnum, FunctionValue, PointerValue},
 };
 use nia_span::Span;
-use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
+use nia_ty::{ConstGenericArg, LayoutBuiltin, PrimitiveTy, TyKind};
 
 pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     module: &'m ModuleCodegen<'ctx, 'a>,
@@ -1366,9 +1366,10 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
             arg_module_id,
             self_arg,
             args,
+            const_args,
             ..
         } => {
-            if self_arg.is_none() && args.is_empty() {
+            if !method_requires_instance_metadata(*self_arg, args, const_args) {
                 codegen
                     .module
                     .function_item(*def_id)
@@ -1393,5 +1394,36 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
         | FunctionCallee::BuiltinPlaceMethod { .. }
         | FunctionCallee::BuiltinMethod { .. }
         | FunctionCallee::BuiltinOperator(_) => false,
+    }
+}
+
+pub(super) fn method_requires_instance_metadata(
+    self_arg: Option<InternedTyId>,
+    args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
+) -> bool {
+    self_arg.is_some() || !args.is_empty() || !const_args.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::ModuleIdAllocator;
+    use nia_ty::{ConstGenericValue, IntConst, TypeStore};
+
+    #[test]
+    fn const_generic_method_calls_require_instance_metadata() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let types = TypeStore::new();
+        let usize_ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Usize);
+        let const_arg = ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Int(IntConst::unsigned(4)),
+        };
+
+        assert!(method_requires_instance_metadata(None, &[], &[const_arg]));
+        assert!(!method_requires_instance_metadata(None, &[], &[]));
     }
 }
