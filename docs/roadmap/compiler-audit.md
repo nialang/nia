@@ -1989,16 +1989,22 @@ acceptance item only when its phase-wide evidence is complete.
       exact definition and argument-module identities remain unchanged. This
       prevents semantically equivalent const spellings from becoming false
       external declarations; the full LLVM unit suite and strict Clippy pass.
-- [x] Batch 346 closes the backend extension-specificity const identity bypass.
-      Candidate subsumption now canonicalizes concrete const arguments, compares
-      their types semantically, and compares integer values by bits while
-      retaining generic-parameter wildcards and exact unresolved expressions.
-      Backend-lower tests and strict Clippy pass.
 - [x] Batch 345 closes the program-signatures trait-impl deduplication const
       identity bypass. Associated-projection assumptions and trait-impl
       candidate checks now reuse `const_args_equivalent_in_store`, preserving
       exact unresolved expression identities while matching integer values by
       semantic bits. Program-signatures tests and strict Clippy pass.
+- [x] Batch 346 closes the backend extension-specificity const identity bypass.
+      Candidate subsumption now canonicalizes concrete const arguments, compares
+      their types semantically, and compares integer values by bits while
+      retaining generic-parameter wildcards and exact unresolved expressions.
+      Backend-lower tests and strict Clippy pass.
+- [x] Batch 347 closes the executable-reachability trait-closure guard identity
+      bypass. Recursive supertrait expansion now uses a path-local guard that
+      includes receiver, type, and const arguments with structural type and
+      integer-bit comparison. Exact reachable method/vtable identities remain
+      unchanged; rebuilt-handle/integer-equivalence regression and executable
+      reachability consumer tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

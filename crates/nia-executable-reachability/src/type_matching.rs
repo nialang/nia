@@ -21,9 +21,9 @@ pub(super) struct ReachableExtensionMethodMatch<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TypedTyRef<'a> {
-    store: &'a TypeStore,
-    ty: InternedTyId,
+pub(super) struct TypedTyRef<'a> {
+    pub(super) store: &'a TypeStore,
+    pub(super) ty: InternedTyId,
 }
 
 impl<'a> TypedTyRef<'a> {
@@ -820,7 +820,7 @@ fn typed_pointer_elem_ref(ty: TypedTyRef<'_>) -> Option<TypedTyRef<'_>> {
     }
 }
 
-fn typed_refs_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
+pub(super) fn typed_refs_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
     if left.ty == right.ty {
         return true;
     }
@@ -1205,7 +1205,7 @@ fn optional_typed_refs_equivalent(
     }
 }
 
-fn typed_ref_slices_equivalent(
+pub(super) fn typed_ref_slices_equivalent(
     left_store: &TypeStore,
     left: &[InternedTyId],
     right_store: &TypeStore,
@@ -1264,7 +1264,7 @@ fn array_lens_equivalent(
     }
 }
 
-fn const_generic_args_equivalent(
+pub(super) fn const_generic_args_equivalent(
     left_store: &TypeStore,
     left: &[nia_ty::ConstGenericArg],
     right_store: &TypeStore,

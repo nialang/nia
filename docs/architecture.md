@@ -1777,8 +1777,11 @@ bindings remain rejected.
 
 Reachability checks use a path-local depth-first guard: each visited trait
 instance is removed before returning from its branch, including unavailable
-signature branches. This preserves termination for recursive declarations while
-still allowing independent sibling supertraits to be explored.
+signature branches. The active identity includes receiver, type arguments, and
+const arguments; structural type equivalence and integer-bit const comparison
+are used for the guard, while unresolved expression IDs remain exact. This
+preserves termination for recursive declarations while still allowing
+independent sibling supertraits to be explored.
 
 Object-safety traversal keys that guard by the complete source trait instance,
 including type and const arguments, and rebuilds declaration-order substitutions
@@ -2223,6 +2226,11 @@ analysis module. Its inputs borrow the session `TypeStore` as the sole type read
 source. Generic substitution uses a separate canonical append capability, so
 the analysis cannot depend on module snapshots, recursive import, or paired
 argument interners.
+
+Trait/default-method closure keeps exact reachability output identities, but its
+recursive supertrait guard is path-local and semantic. Rebuilt type handles and
+signed/unsigned spellings of the same integer const cannot reopen or suppress a
+recursive branch, and different receiver types remain independent.
 
 ## 10. Monomorphization And Symbols
 
