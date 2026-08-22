@@ -332,6 +332,61 @@ fn main() usize {
 }
 
 #[test]
+fn trait_object_vtable_guards_compare_const_values_semantically() {
+    let checked = pipeline(
+        r#"
+trait Base[N: usize] {
+    fn base(& self) usize { N }
+}
+
+type BaseAlias[N: usize] = Base[N];
+
+trait Left[N: usize] : Base[N] {
+    fn left(& self) usize { 1usize }
+}
+
+trait Right[N: usize] : BaseAlias[3usize] {
+    fn right(& self) usize { 2usize }
+}
+
+trait Root[N: usize] : Left[N] + Right[N] {
+    fn root(& self) usize { 3usize }
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Base[N] {}
+extend[N: usize] Meter : Left[N] {}
+extend[N: usize] Meter : Right[N] {}
+extend[N: usize] Meter : Root[N] {}
+
+fn read(value: & Root[3]) usize {
+    value.base() + value.left() + value.right() + value.root()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let const_instances = checked
+        .facts
+        .iter_generic_instantiations()
+        .filter(|instantiation| !instantiation.const_args.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(const_instances.len(), 4, "{const_instances:?}");
+    assert!(const_instances.iter().all(|instantiation| matches!(
+        instantiation.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 3
+    )));
+}
+
+#[test]
 fn infers_const_generic_array_lengths_from_array_literal_arguments() {
     let checked = pipeline(
         r#"

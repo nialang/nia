@@ -50,6 +50,21 @@ struct ObjectSafetyCheck<'a> {
 
 type TraitObjectVtableVisitKey = TraitObjectInstanceKey;
 
+impl<'a> BodyChecker<'a> {
+    fn trait_object_instance_keys_equivalent(
+        &mut self,
+        left: &TraitObjectInstanceKey,
+        right: &TraitObjectInstanceKey,
+    ) -> bool {
+        left.0 == right.0
+            && left.1.len() == right.1.len()
+            && left.1.iter().zip(&right.1).all(|(left, right)| {
+                self.types_equivalent_without_projection_resolution(*left, *right)
+            })
+            && self.const_generic_arg_slices_match(&left.2, &right.2)
+    }
+}
+
 struct TraitObjectVtableInstantiationContext {
     span: Span,
     self_ty: InternedTyId,
@@ -579,10 +594,18 @@ impl<'a> BodyChecker<'a> {
             trait_args.to_vec(),
             trait_const_args.to_vec(),
         );
-        if context.visiting.contains(&visit_key) {
+        if context
+            .visiting
+            .iter()
+            .any(|active| self.trait_object_instance_keys_equivalent(active, &visit_key))
+        {
             return;
         }
-        if context.expanded.contains(&visit_key) {
+        if context
+            .expanded
+            .iter()
+            .any(|expanded| self.trait_object_instance_keys_equivalent(expanded, &visit_key))
+        {
             return;
         }
         context.visiting.push(visit_key);
@@ -972,10 +995,18 @@ impl<'a> BodyChecker<'a> {
         trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
         let visit_key = (trait_id, trait_args.to_vec(), trait_const_args.to_vec());
-        if check.visiting.contains(&visit_key) {
+        if check
+            .visiting
+            .iter()
+            .any(|active| self.trait_object_instance_keys_equivalent(active, &visit_key))
+        {
             return;
         }
-        if check.expanded.contains(&visit_key) {
+        if check
+            .expanded
+            .iter()
+            .any(|expanded| self.trait_object_instance_keys_equivalent(expanded, &visit_key))
+        {
             return;
         }
         check.visiting.push(visit_key);
