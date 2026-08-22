@@ -964,15 +964,37 @@ impl<'a> BodyChecker<'a> {
         let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
         for supertrait in &trait_signature.supertraits {
             let supertrait = self.substitute_generics(supertrait.ty, &substitutions);
-            let Some(TyKind::Nominal {
+            let supertrait = self.normalization.normalize(supertrait);
+            let Some(supertrait_kind) = self.interner.get(supertrait).cloned() else {
+                continue;
+            };
+            let TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
                 ..
-            }) = self
-                .interner
-                .get(self.normalization.normalize(supertrait))
-                .cloned()
+            } = supertrait_kind
             else {
+                // A `Sized` supertrait requires the erased object itself to
+                // have a statically known layout, which is impossible for a
+                // trait object. Other builtin supertraits do not contribute
+                // source-level object methods and remain handled elsewhere.
+                if matches!(
+                    supertrait_kind,
+                    TyKind::BuiltinTrait {
+                        trait_id: nia_ty::BuiltinTrait::Sized,
+                        ..
+                    }
+                ) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        check.span,
+                        format!(
+                            "trait `{}` is not object safe because it has `Sized` as a supertrait",
+                            self.nominal_ty_name(trait_id, trait_args)
+                        ),
+                    ));
+                    *check.ok = false;
+                }
                 continue;
             };
             let Some(supertrait_signature) = self.resolved_trait_signature(supertrait_id) else {

@@ -1518,6 +1518,11 @@ instance is removed before returning from its branch, including unavailable
 signature branches. This preserves termination for recursive declarations while
 still allowing independent sibling supertraits to be explored.
 
+Object-safety validation rejects a source trait with builtin `Sized` as a
+supertrait. Trait objects are erased and therefore cannot satisfy the
+statically-known-layout requirement; this check belongs at the body-check
+object boundary before vtable construction.
+
 Upcast validation matches target associated bindings against source bindings as
 an unordered one-to-one set with transactional backtracking. A compatible
 source candidate is not consumed permanently until the complete target set has
