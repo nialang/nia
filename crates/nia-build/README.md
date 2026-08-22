@@ -78,6 +78,11 @@ in-memory state is rejected instead of wrapping into a smaller protocol value.
 Generated-file payload lengths are likewise checked before their fixed-width
 length prefix is written.
 
+The Rust encoder applies the 64 MiB plan budget at each raw write. Once a write
+would exceed that budget it retains the first `TooLarge` error and stops growing
+the output buffer, rather than allocating the complete oversized encoding and
+rejecting it only at `finish`.
+
 The registered compatibility identities in `nia-compat` are the only schema
 and namespace authorities. Changing an encoded field or persistent cache input
 requires the corresponding registered schema or owner-local fingerprint domain

@@ -2525,6 +2525,9 @@ aggregate addition covers package/artifact totals as well as action input,
 output, and dependency counts; oversized generated-file payload lengths are
 rejected before their length prefix is emitted. This keeps malformed
 in-memory runner state from wrapping into an apparently valid smaller plan.
+The Rust re-encoder enforces the total plan budget before every buffer growth
+and retains the first attempted-size failure through `finish`, so canonical
+publication cannot transiently allocate an oversized serialized plan either.
 
 Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries

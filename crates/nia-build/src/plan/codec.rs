@@ -139,17 +139,44 @@ impl BuildPlan {
 
 struct Writer {
     bytes: Vec<u8>,
+    max_bytes: usize,
+    failure: Option<PlanCodecError>,
 }
 
 impl Writer {
     fn new() -> Self {
-        Self { bytes: Vec::new() }
+        Self {
+            bytes: Vec::new(),
+            max_bytes: MAX_PLAN_BYTES,
+            failure: None,
+        }
     }
+
+    #[cfg(test)]
+    fn with_limit(max_bytes: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_bytes,
+            failure: None,
+        }
+    }
+
     fn bytes(&mut self, bytes: &[u8]) {
+        if self.failure.is_some() {
+            return;
+        }
+        let actual = self.bytes.len().saturating_add(bytes.len());
+        if actual > self.max_bytes {
+            self.failure = Some(PlanCodecError::TooLarge {
+                limit: self.max_bytes,
+                actual,
+            });
+            return;
+        }
         self.bytes.extend_from_slice(bytes);
     }
     fn u8(&mut self, value: u8) {
-        self.bytes.push(value);
+        self.bytes(std::slice::from_ref(&value));
     }
     fn u32(&mut self, value: u32) {
         self.bytes(value.to_le_bytes().as_slice());
@@ -191,13 +218,12 @@ impl Writer {
     }
 
     fn finish(self) -> Result<Vec<u8>, PlanCodecError> {
-        if self.bytes.len() > MAX_PLAN_BYTES {
-            Err(PlanCodecError::TooLarge {
-                limit: MAX_PLAN_BYTES,
-                actual: self.bytes.len(),
-            })
-        } else {
-            Ok(self.bytes)
+        match self.failure {
+            Some(error) => Err(error),
+            None => {
+                debug_assert!(self.bytes.len() <= self.max_bytes);
+                Ok(self.bytes)
+            }
         }
     }
 
@@ -1137,6 +1163,23 @@ mod tests {
         });
         let plan = BuildPlan::freeze(value).unwrap();
         assert_eq!(BuildPlan::decode(&plan.encode().unwrap()).unwrap(), plan);
+    }
+
+    #[test]
+    fn writer_stops_before_exceeding_the_total_plan_budget() {
+        let mut writer = Writer::with_limit(8);
+        writer.bytes(&[1, 2, 3, 4, 5, 6]);
+        writer.u32(7);
+        writer.u8(8);
+
+        assert_eq!(writer.bytes, [1, 2, 3, 4, 5, 6]);
+        assert_eq!(
+            writer.finish(),
+            Err(PlanCodecError::TooLarge {
+                limit: 8,
+                actual: 10,
+            })
+        );
     }
 
     #[test]
