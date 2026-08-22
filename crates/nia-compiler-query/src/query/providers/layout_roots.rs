@@ -20,6 +20,9 @@ pub(super) fn collect_semantic_layout_roots(
         for ty in &instantiation.args {
             roots.add(*ty);
         }
+        for arg in &instantiation.const_args {
+            roots.add(arg.ty);
+        }
     }
     for (_, coercion) in semantic_facts.iter_node_pointer_array_to_slice_coercions() {
         roots.add(coercion.pointer_ty);
@@ -189,25 +192,51 @@ impl<'a> LayoutRootCollector<'a> {
                 }
                 self.add_nominal_fields(def_id, &args, &const_args);
             }
-            Some(TyKind::BuiltinTrait { args, .. })
-            | Some(TyKind::TraitObject {
-                trait_args: args, ..
-            })
-            | Some(TyKind::TraitObjectPointee {
-                trait_args: args, ..
-            }) => {
+            Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
                     self.add(arg);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.add(arg);
+                }
+                for arg in trait_const_args {
+                    self.add(arg.ty);
+                }
+                for binding in associated_type_bindings {
+                    for arg in binding.trait_args {
+                        self.add(arg);
+                    }
+                    for arg in binding.trait_const_args {
+                        self.add(arg.ty);
+                    }
+                    self.add(binding.ty);
                 }
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.add(self_ty);
                 for arg in trait_args {
                     self.add(arg);
+                }
+                for arg in trait_const_args {
+                    self.add(arg.ty);
                 }
             }
             Some(TyKind::Primitive(_))
@@ -426,5 +455,51 @@ mod tests {
                 len: nia_ty::ArrayLenTy::ConstValue(4),
             }) if *elem == u8_ty
         )));
+    }
+
+    #[test]
+    fn trait_object_const_argument_types_are_layout_roots() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let types = type_store.append_for_module(module_id);
+        let nominal_id = GlobalDefId {
+            module_id,
+            def_id: nia_defs::DefId(10),
+        };
+        let nominal = types.intern(TyKind::Nominal {
+            def_id: nominal_id,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let trait_id = nia_ids::TraitId::Source(GlobalDefId {
+            module_id,
+            def_id: nia_defs::DefId(11),
+        });
+        let usize_ty = types.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
+        let object = types.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: vec![nia_ty::ConstGenericArg {
+                ty: nominal,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(1)),
+            }],
+            associated_type_bindings: vec![nia_ty::AssociatedTypeBindingTy {
+                trait_id: Some(trait_id),
+                trait_args: Vec::new(),
+                trait_const_args: vec![nia_ty::ConstGenericArg {
+                    ty: usize_ty,
+                    value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(2)),
+                }],
+                name: SymbolId::from_stable_hash(nia_symbol::stable_hash("Item")),
+                ty: nominal,
+            }],
+        });
+        let mut roots = LayoutRootCollector::new(&type_store, module_id);
+        roots.add(object);
+        let roots = roots.finish();
+        assert!(roots.types.contains(&nominal));
+        assert!(roots.types.contains(&usize_ty));
     }
 }

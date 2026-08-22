@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 267 completed entries in this ledger.
+- Implementation batches: 268 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1609,6 +1609,11 @@ acceptance item only when its phase-wide evidence is complete.
       concrete instance enqueue gate. Deep type structure carried only by a
       `ConstGenericArg::ty` can no longer bypass the convergence limit; a direct
       recursive-instance regression covers the previously unbounded path.
+- [x] Phase B layout-root collection now retains const argument types from
+      generic instantiations, trait objects, associated bindings, projections,
+      and nominal identities. These types can own aggregates that require layout
+      materialization even when their const values are scalar; a focused query
+      regression covers trait-object and binding const metadata roots.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
