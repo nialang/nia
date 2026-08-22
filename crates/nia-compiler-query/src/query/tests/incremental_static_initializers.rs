@@ -258,6 +258,83 @@ callback()
 }
 
 #[test]
+fn generic_function_pointer_static_initializers_materialize_concrete_instances() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+fn identity[T](value: T) T {
+    value
+}
+
+static callback: &fn(i32) i32 = &identity[i32];
+
+fn main() i32 {
+    callback(7)
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let codegen = db.expect_get(CodegenProgramQuery);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    let identity = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Function && def.name == sym("identity"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("identity definition");
+    let callback = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Global && def.name == sym("callback"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("callback definition");
+
+    let init = db.expect_get(ExecutableStaticInitQuery(callback));
+    let init_args = match init.as_ref().as_deref() {
+        Some(nia_static_ir::StaticInit::AddrOfFunction { function, args }) => {
+            assert_eq!(*function, identity);
+            args.clone()
+        }
+        other => panic!("expected generic function static initializer, got {other:?}"),
+    };
+    assert_eq!(init_args.len(), 1);
+
+    let plan = db.expect_get(BackendModuleFunctionInstancePlanQuery(module_id));
+    let planned = plan
+        .instances
+        .iter()
+        .find(|instance| instance.def_id == identity)
+        .expect("static function pointer target instance plan");
+    assert_eq!(planned.args, init_args);
+
+    assert!(
+        codegen
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.function_instances)
+            .any(|instance| instance.def_id == identity && instance.args == init_args),
+        "backend must materialize the concrete static function pointer target"
+    );
+}
+
+#[test]
 fn local_static_item_uses_owner_function_facts_for_associated_function_reference() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

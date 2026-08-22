@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 313 completed entries in this ledger.
+- Implementation batches: 314 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1825,6 +1825,12 @@ acceptance item only when its phase-wide evidence is complete.
       the exact `GenericInstantiation`; a compiler-query backend regression
       proves `&identity[i32]` reaches the concrete function-instance plan and
       final Backend IR.
+- [x] Phase C static executable-fact collection now consumes the complete
+      `StaticInit::value_refs` identity, preserving generic, const, and receiver
+      arguments for function-pointer values stored in globals. The owner
+      regression checks the `AddrOfFunction` mapping, and a compiler-query
+      regression proves a static `&identity[i32]` reaches the concrete backend
+      instance plan and final Backend IR.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
