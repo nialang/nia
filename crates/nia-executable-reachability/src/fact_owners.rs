@@ -5,6 +5,17 @@ fn add_reachable_type_module(module_id: ModuleId, type_modules: &mut HashSet<Mod
     type_modules.insert(module_id);
 }
 
+fn collect_const_arg_owner_modules(
+    args: &[nia_ty::ConstGenericArg],
+    type_modules: &mut HashSet<ModuleId>,
+) {
+    for arg in args {
+        if let nia_ty::ConstGenericValue::ConstExpr(expr_id) = arg.value {
+            add_reachable_type_module(expr_id.module_id, type_modules);
+        }
+    }
+}
+
 pub(super) fn collect_reachable_fact_owner_modules(
     module: &ReachableModuleInput<'_>,
     program_signatures: ExecutableSignatureIndex<'_>,
@@ -94,6 +105,7 @@ fn collect_function_fact_owner_modules(
     for instantiation in &facts.generic_instantiations {
         type_ids.extend(instantiation.args.iter().copied());
         type_ids.extend(instantiation.const_args.iter().map(|arg| arg.ty));
+        collect_const_arg_owner_modules(&instantiation.const_args, type_modules);
     }
     for coercion in facts.node_pointer_array_to_slice_coercions.values() {
         type_ids.extend([coercion.pointer_ty, coercion.array_ty, coercion.slice_ty]);
@@ -117,6 +129,7 @@ fn collect_function_fact_owner_modules(
     for reference in facts.node_function_references.values() {
         type_ids.extend(reference.args.iter().copied());
         type_ids.extend(reference.const_args.iter().map(|arg| arg.ty));
+        collect_const_arg_owner_modules(&reference.const_args, type_modules);
     }
     for reference in &facts.trait_method_refs {
         traits.insert_method_with_const_args(
@@ -130,6 +143,7 @@ fn collect_function_fact_owner_modules(
         type_ids.push(reference.self_ty);
         type_ids.extend(reference.trait_args.iter().copied());
         type_ids.extend(reference.trait_const_args.iter().map(|arg| arg.ty));
+        collect_const_arg_owner_modules(&reference.trait_const_args, type_modules);
     }
 }
 
@@ -148,6 +162,7 @@ fn collect_resolved_call_owner_modules(
         } => {
             type_ids.extend(args.iter().copied());
             type_ids.extend(const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(const_args, type_modules);
         }
         nia_sema_ir::ResolvedCall::Method { args, .. } => {
             type_ids.extend(args.iter().copied());
@@ -173,6 +188,7 @@ fn collect_resolved_call_owner_modules(
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(trait_const_args, type_modules);
             type_ids.extend(args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::TraitAssociatedFunction {
@@ -196,6 +212,7 @@ fn collect_resolved_call_owner_modules(
             type_ids.push(*self_ty);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(trait_const_args, type_modules);
             type_ids.extend(args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::DynamicTraitMethod {
@@ -220,6 +237,7 @@ fn collect_resolved_call_owner_modules(
             type_ids.push(*object_ty);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(trait_const_args, type_modules);
             type_ids.extend(params.iter().copied());
             type_ids.push(*return_type);
         }
@@ -339,6 +357,7 @@ fn collect_ty_owner_modules<'a>(
             add_reachable_type_module(def_id.module_id, type_modules);
             type_ids.extend(args.iter().copied());
             type_ids.extend(const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(const_args, type_modules);
             collect_nominal_signature_owner_type_ids(
                 *def_id,
                 program_signatures,
@@ -368,7 +387,7 @@ fn collect_ty_owner_modules<'a>(
         }
         TyKind::Array { len, elem } => {
             type_ids.push_back(*elem);
-            collect_array_len_owner_modules(len, type_ids);
+            collect_array_len_owner_modules(len, type_ids, type_modules);
         }
         TyKind::Range { bound, .. } => {
             if let Some(bound) = bound {
@@ -412,6 +431,7 @@ fn collect_ty_owner_modules<'a>(
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(trait_const_args, type_modules);
             collect_associated_binding_owner_modules(
                 associated_type_bindings,
                 type_ids,
@@ -430,6 +450,7 @@ fn collect_ty_owner_modules<'a>(
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
             type_ids.extend(trait_args.iter().copied());
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(trait_const_args, type_modules);
         }
         TyKind::BuiltinTrait { args, .. } => type_ids.extend(args.iter().copied()),
         TyKind::Error
@@ -572,9 +593,16 @@ fn collect_owned_where_predicate_type_ids_deque(
 fn collect_array_len_owner_modules(
     len: &nia_ty::ArrayLenTy,
     type_ids: &mut VecDeque<InternedTyId>,
+    type_modules: &mut HashSet<ModuleId>,
 ) {
-    if let nia_ty::ArrayLenTy::Builtin { ty, .. } = len {
-        type_ids.push_back(*ty);
+    match len {
+        nia_ty::ArrayLenTy::Builtin { ty, .. } => type_ids.push_back(*ty),
+        nia_ty::ArrayLenTy::ConstExpr(expr_id) => {
+            add_reachable_type_module(expr_id.module_id, type_modules);
+        }
+        nia_ty::ArrayLenTy::Infer
+        | nia_ty::ArrayLenTy::GenericParam(_)
+        | nia_ty::ArrayLenTy::ConstValue(_) => {}
     }
 }
 
@@ -601,6 +629,45 @@ fn collect_associated_binding_owner_modules(
         }
         type_ids.extend(binding.trait_args.iter().copied());
         type_ids.extend(binding.trait_const_args.iter().map(|arg| arg.ty));
+        collect_const_arg_owner_modules(&binding.trait_const_args, type_modules);
         type_ids.push_back(binding.ty);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ConstExprId, GlobalConstExprId, ModuleIdAllocator};
+    use nia_ty::{PrimitiveTy, TypeStore};
+
+    #[test]
+    fn const_expression_metadata_contributes_type_owner_modules() {
+        let mut modules = ModuleIdAllocator::new();
+        let const_owner = modules.allocate();
+        let types = TypeStore::new();
+        let ty = types
+            .append_for_module(const_owner)
+            .primitive(PrimitiveTy::Usize);
+        let arg = nia_ty::ConstGenericArg {
+            ty,
+            value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
+                module_id: const_owner,
+                const_expr_id: ConstExprId(0),
+            }),
+        };
+        let mut type_modules = HashSet::new();
+        collect_const_arg_owner_modules(&[arg], &mut type_modules);
+        assert!(type_modules.contains(&const_owner));
+
+        let mut array_modules = HashSet::new();
+        collect_array_len_owner_modules(
+            &nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
+                module_id: const_owner,
+                const_expr_id: ConstExprId(1),
+            }),
+            &mut VecDeque::new(),
+            &mut array_modules,
+        );
+        assert!(array_modules.contains(&const_owner));
     }
 }
