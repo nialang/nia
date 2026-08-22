@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 263 completed entries in this ledger.
+- Implementation batches: 264 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1585,6 +1585,13 @@ acceptance item only when its phase-wide evidence is complete.
       rebuilding every nominal as type-only. Existing const-generic where-bound
       regressions for integer, bool, and char identities pass alongside the full
       body-check and driver suites.
+- [x] Phase B backend trait-method fallback and concrete-implementation checks
+      now retain trait const arguments through default-method self selection and
+      source trait-goal solving, and default `FunctionCallee` payloads preserve
+      those arguments as well. Static const-generic default dispatch therefore
+      uses the same complete identity as frontend facts and vtable lowering;
+      the const-generic default-method codegen regression and 112 backend-lower
+      tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

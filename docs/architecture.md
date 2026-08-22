@@ -1536,6 +1536,12 @@ substitution: type arguments and const arguments remain separate, and each
 const argument type is recursively substituted. This keeps const-generic
 where obligations aligned with trait projection and impl matching.
 
+Static trait-method fallback also preserves the complete trait identity. Backend
+default-method self selection and concrete-implementation checks pass the
+trait's const arguments into the source `TraitGoal`, matching dynamic vtable
+dispatch; the fallback `FunctionCallee` also stores those arguments so a
+type-only payload cannot materialize the wrong instance after selection.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
