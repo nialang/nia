@@ -351,9 +351,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(5)!;
     }
 
+    let empty_layout = mem::Layout::init(0, 4096).exit().?;
+    block = allocator.realloc(block, empty_layout).exit().?;
+    if not block.isEmpty() or not allocator.isEmpty() {
+        return process::exit(6)!;
+    }
     allocator.free(block).exit().?;
     if not allocator.isEmpty() {
-        return process::exit(6)!;
+        return process::exit(7)!;
     }
     allocator.deinit().ok().exit().?;
     !()
