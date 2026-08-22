@@ -7,14 +7,14 @@ impl TraitSolver<'_> {
     /// Compares normalized types, resolving associated projections when they
     /// have a finite, unambiguous definition.
     pub fn types_equivalent(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
-        self.types_equivalent_resolving_projections(left, right, &mut HashSet::new())
+        self.types_equivalent_resolving_projections(left, right, &mut Vec::new())
     }
 
     pub(crate) fn types_equivalent_resolving_projections(
         &mut self,
         left: InternedTyId,
         right: InternedTyId,
-        active: &mut HashSet<(InternedTyId, InternedTyId)>,
+        active: &mut Vec<(InternedTyId, InternedTyId)>,
     ) -> bool {
         let left = self.normalize(left);
         let right = self.normalize(right);
@@ -23,26 +23,30 @@ impl TraitSolver<'_> {
         }
         // Re-entering a pair means projection resolution made no progress. These are not known
         // inductive recursive types, so an unresolved cycle is not evidence of equality.
-        if !active.insert((left, right)) {
+        if active.iter().any(|(active_left, active_right)| {
+            self.structural_types_equivalent(*active_left, left)
+                && self.structural_types_equivalent(*active_right, right)
+        }) {
             return false;
         }
+        active.push((left, right));
         if let Some(resolved_left) = self.resolve_projection_ty(left)
             && resolved_left != left
             && self.types_equivalent_resolving_projections(resolved_left, right, active)
         {
-            active.remove(&(left, right));
+            active.pop();
             return true;
         }
         if let Some(resolved_right) = self.resolve_projection_ty(right)
             && resolved_right != right
             && self.types_equivalent_resolving_projections(left, resolved_right, active)
         {
-            active.remove(&(left, right));
+            active.pop();
             return true;
         }
         let equivalent =
             self.structural_types_equivalent_resolving_projections(left, right, active);
-        active.remove(&(left, right));
+        active.pop();
         equivalent
     }
 
@@ -77,7 +81,7 @@ impl TraitSolver<'_> {
         &mut self,
         left: InternedTyId,
         right: InternedTyId,
-        active: &mut HashSet<(InternedTyId, InternedTyId)>,
+        active: &mut Vec<(InternedTyId, InternedTyId)>,
     ) -> bool {
         let left = self.normalize(left);
         let right = self.normalize(right);
@@ -386,7 +390,7 @@ impl TraitSolver<'_> {
         &mut self,
         left: &[nia_ty::AssociatedTypeBindingTy],
         right: &[nia_ty::AssociatedTypeBindingTy],
-        active: &mut HashSet<(InternedTyId, InternedTyId)>,
+        active: &mut Vec<(InternedTyId, InternedTyId)>,
     ) -> bool {
         if left.len() != right.len() {
             return false;

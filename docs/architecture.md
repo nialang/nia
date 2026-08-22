@@ -258,6 +258,10 @@ Nia-owned optimization consumers:
   semantic goal equivalence. Raw `TraitGoal` hashing is insufficient when
   normalization or const evaluation presents the same recursive goal through
   another interned handle or integer spelling.
+  Type equivalence's projection resolver likewise tracks active type pairs as a
+  path-local vector and compares their non-resolving structural shapes
+  semantically. This prevents equivalent rebuilt projection pairs from escaping
+  the unresolved-cycle result while preserving independent sibling comparisons.
   Function-instance discovery caches whether each lowered type contains generic
   parameters, so repeated instance-call scans do not recursively re-walk the
   same nested type shapes while rejecting still-generic call arguments.
