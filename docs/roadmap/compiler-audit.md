@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-21):
+Current snapshot (2026-08-22):
 
-- Implementation batches: 251 completed entries in this ledger.
+- Implementation batches: 252 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1514,6 +1514,13 @@ acceptance item only when its phase-wide evidence is complete.
       normalization, and upcast validation. Clean/incremental edits agree, and
       all 253 body-check, 246 compiler-query, 638 driver, and 265 LLVM codegen
       tests plus strict affected Clippy pass.
+- [x] Phase A supertrait validation now expands the complete inherited
+      associated-binding graph and rejects conflicting equalities for the same
+      parent trait instance. Repeated constraints with the same right-hand side
+      remain valid, including diamond inheritance; distinct right-hand sides
+      produce a binding-specific diagnostic. Direct and diamond conflict
+      regressions pass with 639 driver tests, 246 compiler-query tests, the
+      workspace check, formatting, and strict affected Clippy.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

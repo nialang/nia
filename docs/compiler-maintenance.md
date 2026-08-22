@@ -120,6 +120,12 @@ it does not make a reset implicit.
   spelling, while unrelated or incompatible parent bindings remain rejected.
   Adding such a field requires a persisted-format version change so old entries
   fail closed instead of being read with a shifted positional layout.
+- Supertrait assumptions are checked as a graph, not as a flat list. A repeated
+  parent instance with the same associated-type value is an allowed diamond;
+  the same parent instance with different values is a declaration error. Keep
+  the full parent identity (trait, type arguments, const arguments, and
+  associated name) in diagnostics and tests so later consumers cannot inherit
+  an ambiguous projection.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

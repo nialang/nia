@@ -1513,6 +1513,14 @@ these guarantees through the same cycle-guarded supertrait traversal. Bindings
 not present on that path are never synthesized, and incompatible target
 bindings remain rejected.
 
+Supertrait binding expansion also validates consistency of the inherited graph.
+The identity of a constraint includes the parent trait, its type and const
+arguments, and the associated type name. The same identity may be reached more
+than once (for example through a diamond) when every occurrence has an
+equivalent right-hand side; differing right-hand sides are rejected during
+signature validation instead of leaving projection normalization or trait
+object construction with an ambiguous assumption set.
+
 All body-check entry points read existing handles from the compilation
 `TypeStore` and publish inferred or substituted structural types through a
 module-scoped `TypeStoreAppend`. They never borrow a mutable interner, and query
