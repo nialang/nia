@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 279 completed entries in this ledger.
+- Implementation batches: 280 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -485,6 +485,11 @@ acceptance item only when its phase-wide evidence is complete.
       pipes share the same boundary contract; a malicious implementation
       regression proves invalid counts return errors without corrupting pending
       buffered state.
+- [x] Phase F hash-map cleanup now detaches only allocation slots whose fallible
+      release succeeds and retains failed control/key/value owners for a later
+      `deinit` retry. A failing allocator regression proves the first cleanup
+      attempts every slot and the retry releases only the residual owner before
+      resetting the map.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The
