@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 266 completed entries in this ledger.
+- Implementation batches: 267 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1604,6 +1604,11 @@ acceptance item only when its phase-wide evidence is complete.
       make the object type promise an unmaterialized item; a focused driver
       regression covers the diagnostic while marker-only builtin policy remains
       unchanged.
+- [x] Phase B monomorphization type-depth accounting now traverses const
+      argument types in nominal values, trait objects, projections, and the
+      concrete instance enqueue gate. Deep type structure carried only by a
+      `ConstGenericArg::ty` can no longer bypass the convergence limit; a direct
+      recursive-instance regression covers the previously unbounded path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

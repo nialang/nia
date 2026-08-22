@@ -106,3 +106,55 @@ fn growing_recursive_generic_body_reports_type_depth_limit() {
             .any(|help| help.contains("finite set of concrete type arguments"))
     );
 }
+
+#[test]
+fn const_argument_type_contributes_to_instance_depth_limit() {
+    let (module, errors) = parse_module("fn use[T, N: usize](value: T) T { value }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let fixture = test_fixture();
+    let defs = collect_module_defs(fixture.module_id, &module);
+    let use_id = GlobalDefId {
+        module_id: fixture.module_id,
+        def_id: value_def(&defs, "use"),
+    };
+    let mut nested = fixture.types.primitive(PrimitiveTy::I32);
+    for _ in 0..=MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH {
+        nested = fixture.types.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: nested,
+        });
+    }
+    let instantiation = GenericInstantiation {
+        def_id: use_id,
+        self_arg: None,
+        args: vec![fixture.types.primitive(PrimitiveTy::I32)],
+        const_args: vec![ConstGenericArg {
+            ty: nested,
+            value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(1)),
+        }],
+        generics: vec![sym("T"), sym("N")],
+        span: Span::new(1, 2),
+        source_def_id: None,
+    };
+    let normalization = normalization_for();
+    let const_eval = ConstCheck::default();
+    let const_exprs = HashMap::new();
+    let mono = collect_test_monomorphizations(
+        &[mono_input(
+            &defs,
+            &normalization,
+            &const_eval,
+            &const_exprs,
+            &[instantiation],
+        )],
+        &fixture.type_store,
+    );
+
+    assert!(
+        mono.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("type depth limit")),
+        "{:#?}",
+        mono.diagnostics
+    );
+}
