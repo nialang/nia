@@ -717,6 +717,9 @@ fn collect_signature_type_modules(
                 collect_trait_owner_module(*trait_id, &mut modules);
                 collect_const_arg_owner_modules(trait_const_args, &mut modules);
                 for binding in associated_type_bindings {
+                    if let Some(trait_id) = binding.trait_id {
+                        collect_trait_owner_module(trait_id, &mut modules);
+                    }
                     collect_const_arg_owner_modules(&binding.trait_const_args, &mut modules);
                 }
             }
@@ -1037,11 +1040,16 @@ mod tests {
     fn signature_type_modules_include_const_expression_owners() {
         let mut module_ids = ModuleIdAllocator::new();
         let trait_module = module_ids.allocate();
+        let binding_trait_module = module_ids.allocate();
         let const_module = module_ids.allocate();
         let array_module = module_ids.allocate();
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
             module_id: trait_module,
             def_id: DefId(1),
+        });
+        let binding_trait_id = nia_ty::TraitId::Source(GlobalDefId {
+            module_id: binding_trait_module,
+            def_id: DefId(4),
         });
         let const_expr = GlobalConstExprId {
             module_id: const_module,
@@ -1065,7 +1073,7 @@ mod tests {
             trait_args: Vec::new(),
             trait_const_args: vec![const_arg.clone()],
             associated_type_bindings: vec![nia_ty::AssociatedTypeBindingTy {
-                trait_id: Some(trait_id),
+                trait_id: Some(binding_trait_id),
                 trait_args: Vec::new(),
                 trait_const_args: vec![const_arg],
                 name: SymbolId::EMPTY,
@@ -1078,6 +1086,7 @@ mod tests {
         });
         let modules = collect_signature_type_modules(&types, [array]);
         assert!(modules.contains(&trait_module));
+        assert!(modules.contains(&binding_trait_module));
         assert!(modules.contains(&const_module));
         assert!(modules.contains(&array_module));
     }
