@@ -139,28 +139,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map(|entry| entry.slot)
             .min()
     }
-
-    fn same_const_args(&self, left: &[ConstGenericArg], right: &[ConstGenericArg]) -> bool {
-        const_args_match_semantic(left, right, |left, right| self.same_type(left, right))
-    }
-}
-
-fn const_args_match_semantic(
-    left: &[ConstGenericArg],
-    right: &[ConstGenericArg],
-    mut same_type: impl FnMut(InternedTyId, InternedTyId) -> bool,
-) -> bool {
-    left.len() == right.len()
-        && left.iter().zip(right).all(|(left, right)| {
-            same_type(left.ty, right.ty)
-                && match (&left.value, &right.value) {
-                    (
-                        nia_ty::ConstGenericValue::Int(left),
-                        nia_ty::ConstGenericValue::Int(right),
-                    ) => left.bits() == right.bits(),
-                    (left, right) => left == right,
-                }
-        })
 }
 
 /// Converts a vtable entry count to LLVM's array-length representation.
@@ -182,6 +160,7 @@ pub(crate) fn checked_vtable_index(slot: usize) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::module_codegen::types::const_args_match_semantic;
 
     #[test]
     fn vtable_index_conversions_reject_llvm_width_overflow() {

@@ -451,14 +451,14 @@ impl BackendValidator<'_> {
                                 .struct_instance_layouts(*def_id)
                                 .find_map(|item| {
                                     (self.same_type_args(&item.key.args, args)
-                                        && item.key.const_args.as_slice() == const_args.as_slice())
+                                        && self.same_const_args(&item.key.const_args, const_args))
                                     .then_some(item.layout.layout.clone())
                                 })
                         })
                         .or_else(|| {
                             self.index.union_instance_layouts(*def_id).find_map(|item| {
                                 (self.same_type_args(&item.key.args, args)
-                                    && item.key.const_args.as_slice() == const_args.as_slice())
+                                    && self.same_const_args(&item.key.const_args, const_args))
                                 .then_some(item.layout.layout.clone())
                             })
                         })
@@ -474,7 +474,7 @@ impl BackendValidator<'_> {
                                 .struct_instances_for(*def_id)
                                 .find(|item| {
                                     self.same_type_args(&item.args, args)
-                                        && item.const_args.as_slice() == const_args.as_slice()
+                                        && self.same_const_args(&item.const_args, const_args)
                                 })
                                 .and_then(|item| {
                                     self.zero_sized_aggregate_layout(&item.fields, active)
@@ -497,7 +497,7 @@ impl BackendValidator<'_> {
                                 .union_instances_for(*def_id)
                                 .find(|item| {
                                     self.same_type_args(&item.args, args)
-                                        && item.const_args.as_slice() == const_args.as_slice()
+                                        && self.same_const_args(&item.const_args, const_args)
                                 })
                                 .and_then(|item| {
                                     self.zero_sized_aggregate_layout(&item.fields, active)

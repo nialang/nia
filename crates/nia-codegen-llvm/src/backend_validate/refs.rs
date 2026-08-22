@@ -59,7 +59,7 @@ impl BackendValidator<'_> {
                 || self.index.function_instances_for(def_id).any(|item| {
                     self.same_optional_type(item.self_arg, self_arg)
                         && self.same_type_args(&item.args, args)
-                        && item.const_args.as_slice() == const_args
+                        && self.same_const_args(&item.const_args, const_args)
                 });
             self.function_instance_ref_cache
                 .borrow_mut()

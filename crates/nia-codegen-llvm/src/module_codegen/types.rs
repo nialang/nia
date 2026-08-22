@@ -14,6 +14,24 @@ use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 
+pub(super) fn const_args_match_semantic(
+    left: &[nia_ty::ConstGenericArg],
+    right: &[nia_ty::ConstGenericArg],
+    mut same_type: impl FnMut(InternedTyId, InternedTyId) -> bool,
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            same_type(left.ty, right.ty)
+                && match (&left.value, &right.value) {
+                    (
+                        nia_ty::ConstGenericValue::Int(left),
+                        nia_ty::ConstGenericValue::Int(right),
+                    ) => left.bits() == right.bits(),
+                    (left, right) => left == right,
+                }
+        })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbiParam {
     Direct(InternedTyId),
@@ -921,8 +939,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .union_instance_layouts(def_id)
                 .find_map(|item| {
                     (self.same_type_args(&item.key.args, args)
-                        && item.key.const_args.as_slice() == const_args)
-                        .then(|| item.key.args.clone())
+                        && self.same_const_args(&item.key.const_args, const_args))
+                    .then(|| item.key.args.clone())
                 });
             self.union_layout_lookups
                 .borrow_mut()
@@ -961,8 +979,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .struct_instance_layouts(def_id)
                 .find_map(|item| {
                     (self.same_type_args(&item.key.args, args)
-                        && item.key.const_args.as_slice() == const_args)
-                        .then(|| item.key.args.clone())
+                        && self.same_const_args(&item.key.const_args, const_args))
+                    .then(|| item.key.args.clone())
                 });
             self.struct_layout_lookups
                 .borrow_mut()
@@ -1002,7 +1020,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .flatten()
             .find_map(|(candidate_args, candidate_const_args, ty)| {
                 (self.same_type_args(args, candidate_args)
-                    && const_args == candidate_const_args.as_slice())
+                    && self.same_const_args(const_args, candidate_const_args))
                 .then_some(*ty)
             });
         self.struct_instance_type_lookups
@@ -1021,7 +1039,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Some(item);
         }
         self.program.struct_instances_for(def_id).find(|item| {
-            self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
+            self.same_type_args(args, &item.args)
+                && self.same_const_args(const_args, &item.const_args)
         })
     }
 
@@ -1053,7 +1072,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .flatten()
             .find_map(|(candidate_args, candidate_const_args, ty)| {
                 (self.same_type_args(args, candidate_args)
-                    && const_args == candidate_const_args.as_slice())
+                    && self.same_const_args(const_args, candidate_const_args))
                 .then_some(*ty)
             });
         self.union_instance_type_lookups
@@ -1072,7 +1091,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Some(item);
         }
         self.program.union_instances_for(def_id).find(|item| {
-            self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
+            self.same_type_args(args, &item.args)
+                && self.same_const_args(const_args, &item.const_args)
         })
     }
 
@@ -1119,7 +1139,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             item.arg_module_id == arg_module_id
                 && self.same_optional_type(self_arg, item.self_arg)
                 && self.same_type_args(args, &item.args)
-                && const_args == item.const_args.as_slice()
+                && self.same_const_args(const_args, &item.const_args)
         });
         let first = matches.next()?;
         if matches.next().is_some() {
@@ -1173,8 +1193,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     (*candidate_arg_module_id == arg_module_id
                         && self.same_optional_type(self_arg, *candidate_self_arg)
                         && self.same_type_args(args, candidate_args)
-                        && candidate_const_args.as_slice() == const_args)
-                        .then_some(*value)
+                        && self.same_const_args(candidate_const_args, const_args))
+                    .then_some(*value)
                 },
             );
         self.function_instance_value_lookups
@@ -1185,6 +1205,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
         self.same_type_args_for_equiv(left, right)
+    }
+
+    pub(super) fn same_const_args(
+        &self,
+        left: &[nia_ty::ConstGenericArg],
+        right: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        const_args_match_semantic(left, right, |left, right| self.same_type(left, right))
     }
 
     pub(super) fn same_optional_type(

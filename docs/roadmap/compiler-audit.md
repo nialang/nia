@@ -1951,6 +1951,13 @@ acceptance item only when its phase-wide evidence is complete.
       semantic integer const comparison instead of raw values. Existing malformed
       dynamic-call coverage plus a focused slot-matcher regression prove slot
       selection remains stable for equivalent signed/unsigned spellings.
+- [x] Batch 339 closes the remaining LLVM aggregate/function-instance fallback
+      const identity bypasses. Layout, struct/union instance, and function
+      instance fallback scans now share one semantic const matcher, as do
+      aggregate/layout/static-initializer validation fallbacks, while exact
+      cache keys and declaration ownership remain unchanged. Backend function
+      reference validation uses the same fallback relation, and the existing
+      shared matcher regression covers signed/unsigned integer equivalence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
