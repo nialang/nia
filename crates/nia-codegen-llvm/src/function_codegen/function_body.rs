@@ -701,10 +701,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 } else {
                     None
                 };
-                let tag_ptr = self
-                    .builder
-                    .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.return.tag")
-                    .map_err(|_| self.error(span, "failed to build propagation return tag"))?;
+                let tag_ptr = unsafe {
+                    self.builder
+                        .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.return.tag")
+                }
+                .map_err(|_| self.error(span, "failed to build propagation return tag"))?;
                 let tag = self
                     .module
                     .context
@@ -716,12 +717,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if let Some(payload_ty) = self.error_union_error_ty(return_ty)
                     && !self.is_zero_sized(payload_ty)
                 {
-                    let payload_ptr = self
-                        .builder
-                        .build_struct_gep(return_llvm_ty, return_ptr, 1, "try.return.payload")
-                        .map_err(|_| {
-                            self.error(span, "failed to build propagation return payload")
-                        })?;
+                    let payload_ptr = unsafe {
+                        self.builder.build_struct_gep(
+                            return_llvm_ty,
+                            return_ptr,
+                            1,
+                            "try.return.payload",
+                        )
+                    }
+                    .map_err(|_| self.error(span, "failed to build propagation return payload"))?;
                     let payload = match converted_payload {
                         Some(payload) => payload,
                         None => self.load_tagged_union_payload_from_value(

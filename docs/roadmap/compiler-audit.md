@@ -2010,6 +2010,13 @@ acceptance item only when its phase-wide evidence is complete.
       integer values by bits, while preserving generic wildcards and exact
       unresolved expression IDs. Repeated inferred substitutions use the same
       relation; the full body-check suite and strict Clippy pass.
+- [x] Batch 349 closes the LLVM struct-GEP safety boundary and removes an
+      unused pointer-difference API. `Builder::build_struct_gep` is now an
+      explicit unsafe wrapper whose Rustdoc requires the actual struct layout,
+      field bounds, and pointer provenance; every codegen caller enters it only
+      after backend projection checks. The uncalled `build_ptr_diff` wrapper and
+      its FFI import were deleted instead of retaining an unverifiable API.
+      LLVM/codegen tests, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

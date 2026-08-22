@@ -772,10 +772,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_alloca(optional_ty, "char.optional")
             .map_err(|_| self.error(expr.span, "failed to allocate char optional"))?;
-        let tag_ptr = self
-            .builder
-            .build_struct_gep(optional_ty, out, 0, "char.optional.tag")
-            .map_err(|_| self.error(expr.span, "failed to build char optional tag"))?;
+        let tag_ptr = unsafe {
+            self.builder
+                .build_struct_gep(optional_ty, out, 0, "char.optional.tag")
+        }
+        .map_err(|_| self.error(expr.span, "failed to build char optional tag"))?;
         let tag = self
             .builder
             .build_select(
@@ -806,10 +807,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_store(tag_ptr, tag)
             .map_err(|_| self.error(expr.span, "failed to store char optional tag"))?;
-        let payload_ptr = self
-            .builder
-            .build_struct_gep(optional_ty, out, 1, "char.optional.payload")
-            .map_err(|_| self.error(expr.span, "failed to build char optional payload"))?;
+        let payload_ptr = unsafe {
+            self.builder
+                .build_struct_gep(optional_ty, out, 1, "char.optional.payload")
+        }
+        .map_err(|_| self.error(expr.span, "failed to build char optional payload"))?;
         self.builder
             .build_store(payload_ptr, value)
             .map_err(|_| self.error(expr.span, "failed to store char optional payload"))?;
@@ -1133,10 +1135,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_store(tagged_ptr, tagged_value)
             .map_err(|_| self.error(span, "failed to store tagged union payload copy"))?;
-        let payload_ptr = self
-            .builder
-            .build_struct_gep(tagged_ty, tagged_ptr, 1, "tagged.payload.ptr")
-            .map_err(|_| self.error(span, "failed to build tagged union payload address"))?;
+        let payload_ptr = unsafe {
+            self.builder
+                .build_struct_gep(tagged_ty, tagged_ptr, 1, "tagged.payload.ptr")
+        }
+        .map_err(|_| self.error(span, "failed to build tagged union payload address"))?;
         let payload_llvm_ty = self.module.llvm_basic_type(payload_ty, span)?;
         self.builder
             .build_load(payload_llvm_ty, payload_ptr, "tagged.payload")
