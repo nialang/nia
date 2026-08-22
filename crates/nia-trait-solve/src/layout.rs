@@ -509,4 +509,21 @@ impl TypeEquivalence for TraitSolver<'_> {
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         self.structural_types_equivalent(left, right)
     }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[ConstGenericArg],
+        right: &[ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.structural_types_equivalent(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                            left.bits() == right.bits()
+                        }
+                        (left, right) => left == right,
+                    }
+            })
+    }
 }

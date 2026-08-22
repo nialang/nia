@@ -1151,3 +1151,60 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
         "a recursive projection must not disturb its caller's guard"
     );
 }
+
+#[test]
+fn projection_equivalence_guard_uses_semantic_pair_identity() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let left = type_store.append_for_module(left_module);
+    let right = type_store.append_for_module(right_module);
+    let left_usize = left.primitive(PrimitiveTy::Usize);
+    let right_usize = right.primitive(PrimitiveTy::Usize);
+    let def_id = GlobalDefId {
+        module_id: left_module,
+        def_id: DefId(63),
+    };
+    let make = |append: &nia_ty::TypeStoreAppend, usize_ty, value| {
+        append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: usize_ty,
+                value: ConstGenericValue::Int(value),
+            }],
+        })
+    };
+    let left_signed = make(&left, left_usize, nia_ty::IntConst::signed(7));
+    let left_unsigned = make(&left, left_usize, nia_ty::IntConst::unsigned(7));
+    let right_signed = make(&right, right_usize, nia_ty::IntConst::signed(7));
+    let right_unsigned = make(&right, right_usize, nia_ty::IntConst::unsigned(7));
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: left_module,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    let mut active = vec![(left_signed, left_unsigned)];
+
+    assert!(!solver.types_equivalent_resolving_projections(
+        right_signed,
+        right_unsigned,
+        &mut active,
+    ));
+    assert_eq!(active, vec![(left_signed, left_unsigned)]);
+}
