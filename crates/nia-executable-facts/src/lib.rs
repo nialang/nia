@@ -922,16 +922,17 @@ fn collect_typed_callee_refs(
         TypedCallee::Method {
             def_id,
             args: method_args,
+            const_args: method_const_args,
             receiver,
             ..
         } => {
             refs.functions.insert(*def_id);
-            if !method_args.is_empty() {
+            if !method_args.is_empty() || !method_const_args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
                     def_id: *def_id,
                     self_arg: None,
                     args: method_args.clone(),
-                    const_args: Vec::new(),
+                    const_args: method_const_args.clone(),
                     generics: Vec::new(),
                     span: nia_span::Span::default(),
                     source_def_id: None,
@@ -946,6 +947,8 @@ fn collect_typed_callee_refs(
             self_ty,
             trait_args,
             trait_const_args,
+            args: method_args,
+            const_args: method_const_args,
             receiver,
             ..
         } => {
@@ -958,6 +961,17 @@ fn collect_typed_callee_refs(
                 trait_args.clone(),
                 trait_const_args.clone(),
             );
+            if !method_args.is_empty() || !method_const_args.is_empty() {
+                refs.generic_instantiations.push(GenericInstantiation {
+                    def_id: *method_id,
+                    self_arg: Some(*self_ty),
+                    args: method_args.clone(),
+                    const_args: method_const_args.clone(),
+                    generics: Vec::new(),
+                    span: nia_span::Span::default(),
+                    source_def_id: None,
+                });
+            }
             collect_typed_expr_refs(module, receiver, refs);
         }
         TypedCallee::TraitAssociatedFunction {
@@ -967,6 +981,8 @@ fn collect_typed_callee_refs(
             self_ty,
             trait_args,
             trait_const_args,
+            args: method_args,
+            const_args: method_const_args,
             ..
         } => {
             refs.functions.insert(*method_id);
@@ -978,6 +994,17 @@ fn collect_typed_callee_refs(
                 trait_args.clone(),
                 trait_const_args.clone(),
             );
+            if !method_args.is_empty() || !method_const_args.is_empty() {
+                refs.generic_instantiations.push(GenericInstantiation {
+                    def_id: *method_id,
+                    self_arg: Some(*self_ty),
+                    args: method_args.clone(),
+                    const_args: method_const_args.clone(),
+                    generics: Vec::new(),
+                    span: nia_span::Span::default(),
+                    source_def_id: None,
+                });
+            }
         }
         TypedCallee::DynamicTraitMethod {
             trait_id,
@@ -1261,7 +1288,7 @@ mod tests {
         TypedForIn, TypedInlineAsm, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern,
         TypedPatternKind, TypedPlace, TypedUnionRelocation,
     };
-    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_ids::{DefId, ModuleIdAllocator, ReceiverKind};
     use nia_span::Span;
 
     #[test]
@@ -1413,6 +1440,124 @@ mod tests {
                 span: Span::default(),
                 source_def_id: None,
             }]
+        );
+    }
+
+    #[test]
+    fn typed_method_callees_retain_method_const_arguments() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = nia_ty::TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::I32);
+        let method = GlobalDefId {
+            module_id,
+            def_id: DefId(11),
+        };
+        let const_arg = nia_ty::ConstGenericArg {
+            ty,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4_u8.into())),
+        };
+        let defs = nia_defs::DefCollection {
+            module_id,
+            defs: Default::default(),
+            module_scope: Default::default(),
+            scopes: nia_defs::DefScopes {
+                struct_members: HashMap::new(),
+                union_members: HashMap::new(),
+                enum_members: HashMap::new(),
+            },
+            def_nodes: Default::default(),
+            module_usings: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let body_ir = BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        };
+        let executable_refs = ExecutableModuleRefs::default();
+        let semantic_facts = nia_sema_ir::SemanticFacts::default();
+        let module = ReachableModuleInput {
+            module_id,
+            defs: &defs,
+            type_store: &types,
+            body_ir: &body_ir,
+            executable_refs: &executable_refs,
+            semantic_facts: &semantic_facts,
+        };
+        let receiver = TypedExpr {
+            span: Span::default(),
+            ty,
+            kind: TypedExprKind::Bool(true),
+        };
+        let callee = TypedCallee::Method {
+            def_id: method,
+            args: vec![ty],
+            const_args: vec![const_arg.clone()],
+            receiver_kind: ReceiverKind::Value,
+            receiver: Box::new(receiver),
+        };
+        let mut refs = ExecutableItemRefs::default();
+
+        collect_typed_callee_refs(&module, &callee, &[], &mut refs);
+
+        assert_eq!(refs.generic_instantiations.len(), 1);
+        assert_eq!(refs.generic_instantiations[0].def_id, method);
+        assert_eq!(refs.generic_instantiations[0].args, vec![ty]);
+        assert_eq!(
+            refs.generic_instantiations[0].const_args,
+            vec![const_arg.clone()]
+        );
+
+        let trait_id = GlobalDefId {
+            module_id,
+            def_id: DefId(12),
+        };
+        let trait_callee = TypedCallee::TraitMethod {
+            trait_id,
+            method_id: method,
+            method_name: nia_symbol::known::ADD,
+            self_ty: ty,
+            trait_args: vec![ty],
+            trait_const_args: vec![const_arg.clone()],
+            args: vec![ty],
+            const_args: vec![const_arg.clone()],
+            receiver_kind: ReceiverKind::Value,
+            receiver: Box::new(TypedExpr {
+                span: Span::default(),
+                ty,
+                kind: TypedExprKind::Bool(true),
+            }),
+        };
+        collect_typed_callee_refs(&module, &trait_callee, &[], &mut refs);
+
+        let trait_instance = refs
+            .generic_instantiations
+            .iter()
+            .find(|instance| instance.self_arg == Some(ty))
+            .expect("trait method generic instance");
+        assert_eq!(trait_instance.def_id, method);
+        assert_eq!(trait_instance.args, vec![ty]);
+        assert_eq!(trait_instance.const_args, vec![const_arg.clone()]);
+
+        let associated_callee = TypedCallee::TraitAssociatedFunction {
+            trait_id,
+            method_id: method,
+            method_name: nia_symbol::known::ADD,
+            self_ty: ty,
+            trait_args: vec![ty],
+            trait_const_args: vec![const_arg.clone()],
+            args: vec![ty],
+            const_args: vec![const_arg.clone()],
+        };
+        collect_typed_callee_refs(&module, &associated_callee, &[], &mut refs);
+        assert_eq!(
+            refs.generic_instantiations
+                .iter()
+                .filter(|instance| instance.self_arg == Some(ty))
+                .count(),
+            2
         );
     }
 

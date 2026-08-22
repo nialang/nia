@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 316 completed entries in this ledger.
+- Implementation batches: 318 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1846,6 +1846,11 @@ acceptance item only when its phase-wide evidence is complete.
       dispatch, function-instance planning, and LLVM fingerprints. Owner tests
       cover a direct const-generic extension method; compiler-query coverage
       verifies the method const argument survives planning and final Backend IR.
+- [x] Batch 318 closes the parallel typed-IR executable-facts path for method
+      identities. Direct methods, trait methods, and trait-associated functions
+      now retain their own type/const arguments when typed callees are scanned,
+      matching semantic-fact extraction; the owner regression covers direct and
+      trait method const arguments.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
