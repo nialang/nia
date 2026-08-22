@@ -254,7 +254,9 @@ trait Base[N: usize] {
     fn base(& self) usize { N }
 }
 
-trait Left[N: usize] : Base[N] {
+type BaseAlias[N: usize] = Base[N];
+
+trait Left[N: usize] : BaseAlias[N] {
     fn left(& self) usize { 1usize }
 }
 

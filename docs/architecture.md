@@ -243,6 +243,10 @@ Nia-owned optimization consumers:
   Generic parameter lists discovered from extension target types are cached by
   target type id, avoiding repeated recursive scans across trait-method and
   builtin-operator resolution.
+  Supertrait obligation expansion uses semantic obligation equivalence for its
+  cycle guard as well as its output deduplication. Type aliases and projection
+  normalization may allocate distinct interned handles for one goal; raw handle
+  hashing is therefore insufficient to terminate or deduplicate expansion.
   Function-instance discovery caches whether each lowered type contains generic
   parameters, so repeated instance-call scans do not recursively re-walk the
   same nested type shapes while rejecting still-generic call arguments.

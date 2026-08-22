@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::BodyChecker;
 use nia_defs::{DefId, DefKind};
@@ -1173,22 +1173,26 @@ impl<'a> BodyChecker<'a> {
         obligations: &mut Vec<TraitObligation>,
         obligation: TraitObligation,
     ) {
-        self.push_trait_obligation_with_supertraits_inner(
-            obligations,
-            obligation,
-            &mut HashSet::new(),
-        );
+        self.push_trait_obligation_with_supertraits_inner(obligations, obligation, &mut Vec::new());
     }
 
     fn push_trait_obligation_with_supertraits_inner(
         &mut self,
         obligations: &mut Vec<TraitObligation>,
         obligation: TraitObligation,
-        visited: &mut HashSet<TraitObligation>,
+        visited: &mut Vec<TraitObligation>,
     ) {
-        if !visited.insert(obligation.clone()) {
+        // Normalization can produce distinct interned handles for the same
+        // semantic goal. Cycle guards therefore use the same equivalence
+        // relation as obligation collection instead of raw `InternedTyId`
+        // hashing, so aliases cannot reopen a supertrait cycle.
+        if visited
+            .iter()
+            .any(|existing| self.trait_obligations_equivalent(existing, &obligation))
+        {
             return;
         }
+        visited.push(obligation.clone());
         if !obligations
             .iter()
             .any(|existing| self.trait_obligations_equivalent(existing, &obligation))
