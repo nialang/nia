@@ -1525,6 +1525,12 @@ instance is removed before returning from its branch, including unavailable
 signature branches. This preserves termination for recursive declarations while
 still allowing independent sibling supertraits to be explored.
 
+Object-safety traversal keys that guard by the complete source trait instance,
+including type and const arguments, and rebuilds declaration-order substitutions
+before checking inherited methods. A separate expanded-instance set suppresses
+duplicate diagnostics and work when a diamond reaches the same parent through
+multiple siblings without weakening the path-local recursion guard.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
