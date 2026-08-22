@@ -2005,6 +2005,11 @@ acceptance item only when its phase-wide evidence is complete.
       integer-bit comparison. Exact reachable method/vtable identities remain
       unchanged; rebuilt-handle/integer-equivalence regression and executable
       reachability consumer tests pass.
+- [x] Batch 348 closes the body-check const-pattern identity bypass. Method and
+      trait-object pattern matching now compares const types structurally and
+      integer values by bits, while preserving generic wildcards and exact
+      unresolved expression IDs. Repeated inferred substitutions use the same
+      relation; the full body-check suite and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
