@@ -10,7 +10,7 @@ use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::{TyKind, TypeEquivalence};
 
-use super::{FunctionCodegen, callee_is_extern};
+use super::{FunctionCodegen, callee_is_extern, method_requires_instance_metadata};
 
 struct DynamicTraitMethodCall<'a, 'ctx> {
     expr: &'a FunctionExpr,
@@ -369,7 +369,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 receiver,
             } => {
                 let (function, is_extern, is_variadic, param_tys) =
-                    if self_arg.is_none() && type_args.is_empty() && const_args.is_empty() {
+                    if !method_requires_instance_metadata(*self_arg, type_args, const_args) {
                         let item = self.module.function_item(*def_id);
                         (
                             self.module.function(*def_id),

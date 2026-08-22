@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 320 completed entries in this ledger.
+- Implementation batches: 321 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1861,6 +1861,10 @@ acceptance item only when its phase-wide evidence is complete.
       generic-instantiation key, so otherwise equal method type/const arguments
       with different receivers each expand their own trait predicates and
       default-method witnesses.
+- [x] Batch 321 closes the LLVM extern-method instance predicate. The ABI
+      classification and extern lookup paths now treat method const arguments
+      as sufficient to select `FunctionInstance` metadata, matching type and
+      receiver substitutions; the owner regression covers the const-only case.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

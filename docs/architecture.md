@@ -2008,6 +2008,12 @@ forwards it as the entry's hidden state pointer. Adapters are keyed by the full
 source-or-instance closure entry identity and use a stable symbol derived from
 the entry symbol.
 
+Extern method calls use the same complete instance test as ordinary method
+lookup: a receiver substitution, type argument, or const argument selects the
+materialized function-instance metadata and its C ABI. In particular, a method
+with only const arguments is still an instance; it must not fall back to the
+non-generic source declaration when deciding whether to emit the extern ABI.
+
 The LLVM backend validator treats generated entries as first-class backend
 products before codegen. It validates the hidden state parameter as a
 readonly pointer to the published closure-state type, checks user parameter
