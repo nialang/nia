@@ -717,6 +717,9 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in &args {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
+                for arg in &const_args {
+                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                }
                 if seen.insert((def_id, args.clone(), const_args.clone())) {
                     if !args.is_empty() || !const_args.is_empty() {
                         if let Some(item) = self.lower_struct_instance(def_id, args, const_args) {
@@ -736,20 +739,28 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 for arg in trait_args {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
+                for arg in trait_const_args {
+                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.collect_struct_instance_ty(arg, seen, out);
+                    }
+                    for arg in binding.trait_const_args {
+                        self.collect_struct_instance_ty(arg.ty, seen, out);
                     }
                     self.collect_struct_instance_ty(binding.ty, seen, out);
                 }
@@ -757,11 +768,15 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.collect_struct_instance_ty(self_ty, seen, out);
                 for arg in trait_args {
                     self.collect_struct_instance_ty(arg, seen, out);
+                }
+                for arg in trait_const_args {
+                    self.collect_struct_instance_ty(arg.ty, seen, out);
                 }
             }
             Some(
@@ -1394,6 +1409,9 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in &args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
+                for arg in &const_args {
+                    self.collect_union_instance_ty(arg.ty, seen, out);
+                }
                 if seen.insert((def_id, args.clone(), const_args.clone())) {
                     if !args.is_empty() || !const_args.is_empty() {
                         if let Some(item) = self.lower_union_instance(def_id, args, const_args) {
@@ -1413,20 +1431,28 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 for arg in trait_args {
                     self.collect_union_instance_ty(arg, seen, out);
                 }
+                for arg in trait_const_args {
+                    self.collect_union_instance_ty(arg.ty, seen, out);
+                }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.collect_union_instance_ty(arg, seen, out);
+                    }
+                    for arg in binding.trait_const_args {
+                        self.collect_union_instance_ty(arg.ty, seen, out);
                     }
                     self.collect_union_instance_ty(binding.ty, seen, out);
                 }
@@ -1434,11 +1460,15 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.collect_union_instance_ty(self_ty, seen, out);
                 for arg in trait_args {
                     self.collect_union_instance_ty(arg, seen, out);
+                }
+                for arg in trait_const_args {
+                    self.collect_union_instance_ty(arg.ty, seen, out);
                 }
             }
             Some(

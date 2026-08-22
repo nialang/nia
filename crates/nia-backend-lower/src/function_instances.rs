@@ -107,16 +107,24 @@ impl<'a> ModuleLowerer<'a> {
             if seen.contains(&key) {
                 continue;
             }
-            if args.iter().any(|arg| {
-                self.cached_ty_contains_generic_param(*arg)
-                    || self.cached_ty_contains_unresolved_projection(*arg)
-                    || self.cached_ty_contains_error(*arg)
-            }) {
+            if args
+                .iter()
+                .chain(const_args.iter().map(|arg| &arg.ty))
+                .any(|arg| {
+                    self.cached_ty_contains_generic_param(*arg)
+                        || self.cached_ty_contains_unresolved_projection(*arg)
+                        || self.cached_ty_contains_error(*arg)
+                })
+            {
                 continue;
             }
-            if args.iter().any(|arg| {
-                self.ty_exceeds_backend_instance_depth(*arg, MAX_BACKEND_INSTANCE_TYPE_DEPTH)
-            }) {
+            if args
+                .iter()
+                .chain(const_args.iter().map(|arg| &arg.ty))
+                .any(|arg| {
+                    self.ty_exceeds_backend_instance_depth(*arg, MAX_BACKEND_INSTANCE_TYPE_DEPTH)
+                })
+            {
                 self.report_backend_instance_type_depth_limit(instance.span, instance.def_id);
                 continue;
             }
@@ -330,39 +338,61 @@ impl<'a> ModuleLowerer<'a> {
                 self.ty_exceeds_backend_instance_depth(*error, next)
                     || self.ty_exceeds_backend_instance_depth(*value, next)
             }
-            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => args
+            TyKind::Nominal {
+                args, const_args, ..
+            } => {
+                args.iter()
+                    .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+            }
+            TyKind::BuiltinTrait { args, .. } => args
                 .iter()
                 .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next)),
             TyKind::TraitObject {
                 trait_args,
                 associated_type_bindings,
+                trait_const_args,
                 ..
             }
             | TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
+                trait_const_args,
                 ..
             } => {
                 trait_args
                     .iter()
                     .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+                            || binding
+                                .trait_const_args
+                                .iter()
+                                .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
                             || self.ty_exceeds_backend_instance_depth(binding.ty, next)
                     })
             }
             TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             } => {
                 self.ty_exceeds_backend_instance_depth(*self_ty, next)
                     || trait_args
                         .iter()
                         .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+                    || trait_const_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
             }
             TyKind::GenericParam(_)
             | TyKind::SelfParam
@@ -817,39 +847,60 @@ pub(crate) fn contains_generic_param(
             contains_generic_param(error, ty_kind, cache.as_deref_mut())
                 || contains_generic_param(value, ty_kind, cache.as_deref_mut())
         }
-        Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+        Some(TyKind::Nominal {
+            args, const_args, ..
+        }) => {
+            args.iter()
+                .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || const_args
+                    .iter()
+                    .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
+        }
+        Some(TyKind::BuiltinTrait { args, .. }) => args
             .iter()
             .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut())),
         Some(TyKind::TraitObject {
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         })
         | Some(TyKind::TraitObjectPointee {
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         }) => {
             trait_args
                 .iter()
                 .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || trait_const_args
+                    .iter()
+                    .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
                 || associated_type_bindings.iter().any(|binding| {
                     binding
                         .trait_args
                         .iter()
                         .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                        || binding.trait_const_args.iter().any(|arg| {
+                            contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut())
+                        })
                         || contains_generic_param(binding.ty, ty_kind, cache.as_deref_mut())
                 })
         }
         Some(TyKind::Projection {
             self_ty,
             trait_args,
+            trait_const_args,
             ..
         }) => {
             contains_generic_param(self_ty, ty_kind, cache.as_deref_mut())
                 || trait_args
                     .iter()
                     .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || trait_const_args
+                    .iter()
+                    .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
         }
         Some(
             TyKind::Primitive(_)
@@ -911,27 +962,45 @@ pub(crate) fn contains_unresolved_projection(
             contains_unresolved_projection(error, ty_kind)
                 || contains_unresolved_projection(value, ty_kind)
         }
-        Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+        Some(TyKind::Nominal {
+            args, const_args, ..
+        }) => {
+            args.into_iter()
+                .any(|arg| contains_unresolved_projection(arg, ty_kind))
+                || const_args
+                    .into_iter()
+                    .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+        }
+        Some(TyKind::BuiltinTrait { args, .. }) => args
             .into_iter()
             .any(|arg| contains_unresolved_projection(arg, ty_kind)),
         Some(TyKind::TraitObject {
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         })
         | Some(TyKind::TraitObjectPointee {
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         }) => {
             trait_args
                 .into_iter()
                 .any(|arg| contains_unresolved_projection(arg, ty_kind))
+                || trait_const_args
+                    .into_iter()
+                    .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
                 || associated_type_bindings.into_iter().any(|binding| {
                     binding
                         .trait_args
                         .into_iter()
                         .any(|arg| contains_unresolved_projection(arg, ty_kind))
+                        || binding
+                            .trait_const_args
+                            .into_iter()
+                            .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
                         || contains_unresolved_projection(binding.ty, ty_kind)
                 })
         }
@@ -998,27 +1067,45 @@ pub(crate) fn contains_error(
         Some(TyKind::ErrorUnion { error, value }) => {
             contains_error(error, ty_kind, None) || contains_error(value, ty_kind, None)
         }
-        Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+        Some(TyKind::Nominal {
+            args, const_args, ..
+        }) => {
+            args.into_iter()
+                .any(|arg| contains_error(arg, ty_kind, None))
+                || const_args
+                    .into_iter()
+                    .any(|arg| contains_error(arg.ty, ty_kind, None))
+        }
+        Some(TyKind::BuiltinTrait { args, .. }) => args
             .into_iter()
             .any(|arg| contains_error(arg, ty_kind, None)),
         Some(TyKind::TraitObject {
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         })
         | Some(TyKind::TraitObjectPointee {
             trait_args,
+            trait_const_args,
             associated_type_bindings,
             ..
         }) => {
             trait_args
                 .into_iter()
                 .any(|arg| contains_error(arg, ty_kind, None))
+                || trait_const_args
+                    .into_iter()
+                    .any(|arg| contains_error(arg.ty, ty_kind, None))
                 || associated_type_bindings.into_iter().any(|binding| {
                     binding
                         .trait_args
                         .into_iter()
                         .any(|arg| contains_error(arg, ty_kind, None))
+                        || binding
+                            .trait_const_args
+                            .into_iter()
+                            .any(|arg| contains_error(arg.ty, ty_kind, None))
                         || contains_error(binding.ty, ty_kind, None)
                 })
         }
@@ -1057,8 +1144,9 @@ fn known_backend_function_instance_count(existing: usize, newly_materialized: us
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::TypeStoreIndex;
-    use nia_ty::PrimitiveTy;
+    use nia_defs::DefId;
+    use nia_ids::{GlobalDefId, ModuleIdAllocator, TypeStoreIndex};
+    use nia_ty::{ConstGenericValue, IntConst, PrimitiveTy};
 
     #[test]
     fn backend_instance_limit_counts_existing_and_new_instances() {
@@ -1152,6 +1240,67 @@ mod tests {
         assert!(!second);
         assert_eq!(first_calls, 2);
         assert_eq!(calls, first_calls);
+    }
+
+    #[test]
+    fn recursive_type_filters_visit_const_argument_types() {
+        let mut modules = ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let nominal = test_ty(3);
+        let generic = test_ty(0);
+        let projection = test_ty(1);
+        let error = test_ty(2);
+        let const_arg = |ty| ConstGenericArg {
+            ty,
+            value: ConstGenericValue::Int(IntConst::from(0)),
+        };
+        let kind = |ty: InternedTyId| match ty.index.index() {
+            0 => Some(TyKind::GenericParam(
+                nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("N")),
+            )),
+            1 => Some(TyKind::Projection {
+                self_ty: generic,
+                trait_id: nia_ids::TraitId::Source(GlobalDefId {
+                    module_id,
+                    def_id: DefId(0),
+                }),
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                name: nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("Item")),
+            }),
+            2 => Some(TyKind::Error),
+            3 => Some(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(1),
+                },
+                args: Vec::new(),
+                const_args: vec![const_arg(generic)],
+            }),
+            4 => Some(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(1),
+                },
+                args: Vec::new(),
+                const_args: vec![const_arg(projection)],
+            }),
+            5 => Some(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(1),
+                },
+                args: Vec::new(),
+                const_args: vec![const_arg(error)],
+            }),
+            _ => None,
+        };
+
+        assert!(contains_generic_param(nominal, &mut |ty| kind(ty), None));
+        assert!(contains_unresolved_projection(test_ty(4), &mut |ty| kind(
+            ty
+        )));
+        assert!(contains_error(test_ty(5), &mut |ty| kind(ty), None));
     }
 
     fn test_ty(index: u32) -> InternedTyId {
