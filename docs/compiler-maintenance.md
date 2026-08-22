@@ -187,6 +187,15 @@ it does not make a reset implicit.
   instance collectors and top-level backend type registration must likewise
   enqueue those types from nominal, trait-object, associated-binding, and
   projection positions.
+- Target-relative primitive widths must not be encoded as host constants in
+  builtin validation. In particular, atomic `isize`/`usize` values use the
+  configured target pointer width before the native-width admission check;
+  focused tests must include a non-host pointer width.
+- Allocator `resize`/`remap` implementations may turn a non-empty allocation
+  into an empty block only if the resize itself retires all ownership state.
+  Allocators with separately fallible backing ownership must return `false` so
+  default `realloc` creates an empty block and frees the old owner; otherwise
+  empty-block `free` semantics strand metadata and report a false leak.
 - LLVM declaration readiness must retain const-expression ownership as well as
   const-argument type ownership. A `ConstGenericValue::ConstExpr` embedded in a
   nominal, trait-object, associated binding, or projection contributes its

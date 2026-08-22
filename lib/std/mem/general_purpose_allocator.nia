@@ -241,6 +241,9 @@ extend GeneralPurposeAllocator : Allocator {
         }
         match self.findLargeHeader(block.ptr()) {
             mut ?header => {
+                if newLayout.isEmpty() {
+                    return false;
+                }
                 if header.userLayout.size() != block.size() or header.userLayout.align() != block.align() {
                     return false;
                 }

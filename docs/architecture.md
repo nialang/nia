@@ -1792,6 +1792,12 @@ order and local identities against the ABI record, and validates the generated
 Function IR body and return type. This keeps malformed closure products from
 reaching LLVM before declarations and bodies are emitted.
 
+Atomic builtin type admission is target-relative before Body IR construction.
+Fixed-width integers retain their declared width, while `isize`, `usize`, and
+ordinary object pointers use the configured target pointer width; the checker
+then rejects values wider than that width. This rule is shared by source-level
+ordering/type diagnostics and the backend's pre-LLVM validation contract.
+
 `nia-closure-check` is the independent semantic stage for this escape boundary.
 It consumes stable `nia-body-ir::TypedBody` products and the session
 `TypeStore`; it does not depend on `nia-body-check`, compiler queries, Function
@@ -1812,6 +1818,13 @@ pointers, layout values, integer/raw-address boundaries, and explicit `deinit`;
 the compiler does not know about allocators or heap policy. Success and error
 payload provenance are tracked separately so an error-only stack address cannot
 contaminate a successfully allocated value.
+
+The allocator protocol keeps non-empty ownership transitions explicit. A
+successful resize to an empty layout must itself retire all ownership state;
+otherwise it must return `false` so the default `realloc` creates an empty block
+and frees the old owner through the allocator's fallible release channel. This
+prevents allocator-specific tracking headers from becoming unreachable through
+a zero-sized `Block` whose later `free` operation is intentionally a no-op.
 
 ### 9.5 `nia-function-lower`
 

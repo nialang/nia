@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 274 completed entries in this ledger.
+- Implementation batches: 276 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -461,6 +461,15 @@ acceptance item only when its phase-wide evidence is complete.
       Cmpxchg failure ordering uses the actual acquire/release partial order,
       rejecting incomparable `Release`/`Acquire` pairs at both source and
       backend boundaries; focused matrices cover malformed producer IR.
+- [x] Phase A/F atomic primitive admission now derives `isize` and `usize`
+      widths from the configured target instead of assuming LP64. A direct
+      32/64-bit owner regression proves pointer-sized atomics remain legal on
+      ILP32 while fixed `i64` remains rejected by the 32-bit width gate.
+- [x] Phase F general-purpose allocation no longer resizes a tracked large
+      allocation to an empty block in place. The default `realloc` path now
+      creates the canonical empty block and frees the old large owner; the
+      existing real executable allocator regression verifies empty state and
+      clean deinitialization after the transition.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The

@@ -1309,20 +1309,9 @@ impl<'a> BodyChecker<'a> {
 
     fn atomic_value_bits(&mut self, ty: InternedTyId) -> Option<u32> {
         match self.interner.get(ty)? {
-            TyKind::Primitive(primitive) => match primitive {
-                PrimitiveTy::Bool => Some(1),
-                PrimitiveTy::I8 | PrimitiveTy::U8 => Some(8),
-                PrimitiveTy::I16 | PrimitiveTy::U16 => Some(16),
-                PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => Some(32),
-                PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::Isize | PrimitiveTy::Usize => {
-                    Some(64)
-                }
-                PrimitiveTy::I128
-                | PrimitiveTy::U128
-                | PrimitiveTy::F32
-                | PrimitiveTy::F64
-                | PrimitiveTy::Never => None,
-            },
+            TyKind::Primitive(primitive) => {
+                supported_primitive_atomic_value_bits(*primitive, self.target.pointer_width)
+            }
             TyKind::Pointer { .. } => Some(self.target.pointer_width),
             TyKind::GenericParam(_) => Some(self.target.pointer_width),
             TyKind::Nominal { .. } if self.is_enum(ty) => {
@@ -1492,6 +1481,55 @@ impl<'a> BodyChecker<'a> {
                 None
             }
         }
+    }
+}
+
+fn primitive_atomic_value_bits(primitive: PrimitiveTy, pointer_width: u32) -> Option<u32> {
+    match primitive {
+        PrimitiveTy::Bool => Some(1),
+        PrimitiveTy::I8 | PrimitiveTy::U8 => Some(8),
+        PrimitiveTy::I16 | PrimitiveTy::U16 => Some(16),
+        PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::Char => Some(32),
+        PrimitiveTy::I64 | PrimitiveTy::U64 => Some(64),
+        PrimitiveTy::Isize | PrimitiveTy::Usize => Some(pointer_width),
+        PrimitiveTy::I128
+        | PrimitiveTy::U128
+        | PrimitiveTy::F32
+        | PrimitiveTy::F64
+        | PrimitiveTy::Never => None,
+    }
+}
+
+fn supported_primitive_atomic_value_bits(
+    primitive: PrimitiveTy,
+    pointer_width: u32,
+) -> Option<u32> {
+    primitive_atomic_value_bits(primitive, pointer_width).filter(|bits| *bits <= pointer_width)
+}
+
+#[cfg(test)]
+mod atomic_value_tests {
+    use super::supported_primitive_atomic_value_bits;
+    use nia_ty::PrimitiveTy;
+
+    #[test]
+    fn pointer_sized_atomic_types_follow_target_width() {
+        assert_eq!(
+            supported_primitive_atomic_value_bits(PrimitiveTy::Isize, 32),
+            Some(32)
+        );
+        assert_eq!(
+            supported_primitive_atomic_value_bits(PrimitiveTy::Usize, 32),
+            Some(32)
+        );
+        assert_eq!(
+            supported_primitive_atomic_value_bits(PrimitiveTy::Isize, 64),
+            Some(64)
+        );
+        assert_eq!(
+            supported_primitive_atomic_value_bits(PrimitiveTy::I64, 32),
+            None
+        );
     }
 }
 
