@@ -204,6 +204,51 @@ fn main() usize {
 }
 
 #[test]
+fn trait_object_vtable_instantiations_include_inherited_default_methods() {
+    let checked = pipeline(
+        r#"
+trait Base[N: usize] {
+    fn value(& self) usize { N }
+}
+
+trait Child[N: usize] : Base[N] {
+    fn child(& self) usize;
+}
+
+struct Meter {}
+
+extend[N: usize] Meter : Base[N] {}
+extend[N: usize] Meter : Child[N] {
+    fn child(& self) usize { 1usize }
+}
+
+fn read(value: & Child[8]) usize {
+    value.value() + value.child()
+}
+
+fn main() usize {
+    let meter = Meter {};
+    read(& meter)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let const_instances = checked
+        .facts
+        .iter_generic_instantiations()
+        .filter(|instantiation| !instantiation.const_args.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(const_instances.len(), 1, "{const_instances:?}");
+    assert!(const_instances.iter().all(|instantiation| matches!(
+        instantiation.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 8
+    )));
+}
+
+#[test]
 fn infers_const_generic_array_lengths_from_array_literal_arguments() {
     let checked = pipeline(
         r#"

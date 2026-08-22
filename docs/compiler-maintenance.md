@@ -130,6 +130,11 @@ it does not make a reset implicit.
   remove a node before returning from a DFS branch, including error or missing
   signature paths; a global visited set can incorrectly hide a valid sibling
   supertrait.
+- Frontend vtable-instantiation facts and backend vtable-entry lowering must
+  traverse the same source-supertrait graph. Substitute type and const
+  arguments at each edge and key the active path guard by the complete trait
+  instance; otherwise inherited default methods can be omitted from semantic
+  facts even when backend lowering emits their slots.
 - Trait-object upcasts must use the same unordered bijection semantics as other
   associated-binding consumers. Candidate source bindings are speculative until
   all target bindings match, so a failed later binding cannot leave an earlier
