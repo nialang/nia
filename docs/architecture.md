@@ -247,6 +247,9 @@ Nia-owned optimization consumers:
   cycle guard as well as its output deduplication. Type aliases and projection
   normalization may allocate distinct interned handles for one goal; raw handle
   hashing is therefore insufficient to terminate or deduplicate expansion.
+  Trait-object supertrait traversal applies the same semantic matching to its
+  visited path guard, keeping upcast binding collection and target-supertrait
+  checks consistent with obligation expansion.
   Function-instance discovery caches whether each lowered type contains generic
   parameters, so repeated instance-call scans do not recursively re-walk the
   same nested type shapes while rejecting still-generic call arguments.
