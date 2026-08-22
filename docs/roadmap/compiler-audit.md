@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 268 completed entries in this ledger.
+- Implementation batches: 269 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1614,6 +1614,12 @@ acceptance item only when its phase-wide evidence is complete.
       and nominal identities. These types can own aggregates that require layout
       materialization even when their const values are scalar; a focused query
       regression covers trait-object and binding const metadata roots.
+- [x] Phase B backend recursive type filters and aggregate instance collectors
+      now traverse `ConstGenericArg::ty` alongside ordinary type arguments.
+      Function-instance admission covers generic, projection, error, and depth
+      checks, while top-level type registration and struct/union discovery
+      retain const metadata roots for nested aggregate materialization;
+      backend-lower's focused regression and full 113-test suite pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

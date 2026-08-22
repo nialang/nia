@@ -1412,11 +1412,18 @@ impl ReachableAggregateRoots {
                 self.add_ty(lowerer, error);
                 self.add_ty(lowerer, value);
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => {
                 self.add_struct(def_id);
                 self.add_union(def_id);
                 for arg in args {
                     self.add_ty(lowerer, arg);
+                }
+                for arg in const_args {
+                    self.add_ty(lowerer, arg.ty);
                 }
                 for field_ty in lowerer.struct_field_tys(def_id) {
                     self.add_ty(lowerer, field_ty);
@@ -1432,20 +1439,28 @@ impl ReachableAggregateRoots {
             }
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 for arg in trait_args {
                     self.add_ty(lowerer, arg);
                 }
+                for arg in trait_const_args {
+                    self.add_ty(lowerer, arg.ty);
+                }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.add_ty(lowerer, arg);
+                    }
+                    for arg in binding.trait_const_args {
+                        self.add_ty(lowerer, arg.ty);
                     }
                     self.add_ty(lowerer, binding.ty);
                 }
@@ -1453,11 +1468,15 @@ impl ReachableAggregateRoots {
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.add_ty(lowerer, self_ty);
                 for arg in trait_args {
                     self.add_ty(lowerer, arg);
+                }
+                for arg in trait_const_args {
+                    self.add_ty(lowerer, arg.ty);
                 }
             }
             Some(

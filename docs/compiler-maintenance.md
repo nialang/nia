@@ -181,6 +181,12 @@ it does not make a reset implicit.
   solver `TraitGoal`, then retain them in the fallback `FunctionCallee` payload.
   Clearing them at either boundary can select or materialize the wrong
   implementation context even when dynamic vtable dispatch is correct.
+- Backend recursive type filters must inspect `ConstGenericArg::ty` anywhere a
+  type can carry const metadata. This includes function-instance admission and
+  the generic, projection, error, and depth walkers; aggregate struct/union
+  instance collectors and top-level backend type registration must likewise
+  enqueue those types from nominal, trait-object, associated-binding, and
+  projection positions.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

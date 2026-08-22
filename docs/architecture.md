@@ -1552,6 +1552,14 @@ from standalone instantiation facts and every nested nominal, trait-object,
 associated-binding, or projection position so aggregate owners referenced only
 by const metadata still receive layout materialization.
 
+Backend function-instance admission applies the same typed-const rule to its
+generic-parameter, unresolved-projection, error, and convergence-depth walkers.
+Struct and union instance discovery also traverses const argument types in
+nominal, trait-object, associated-binding, and projection positions before
+requesting aggregate materialization. The backend type-registration frontier
+uses the same traversal before adding field owners; preserving the identity
+without walking these types would silently omit nested aggregate owners.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait
