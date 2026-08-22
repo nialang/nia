@@ -1923,6 +1923,11 @@ acceptance item only when its phase-wide evidence is complete.
       expanded set, while exact cache/output keys remain unchanged. A codegen
       diamond regression proves equivalent const spellings emit one inherited
       trait segment and stable slots.
+- [x] Batch 334 closes the backend extension-candidate const identity bypass.
+      Concrete impl candidate matching now canonicalizes const arguments,
+      compares their types semantically, and compares integer values by bits;
+      generic pattern parameters remain wildcards. This keeps extension and
+      trait-resolution selection aligned with backend vtable identity rules.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

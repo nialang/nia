@@ -510,14 +510,23 @@ impl<'a> ModuleLowerer<'a> {
     /// Matches concrete const arguments against an impl pattern. Generic
     /// pattern values remain open; the trait solver resolves their bindings.
     pub(crate) fn const_trait_args_match(
-        &self,
+        &mut self,
         pattern: &[nia_ty::ConstGenericArg],
         actual: &[nia_ty::ConstGenericArg],
     ) -> bool {
         pattern.len() == actual.len()
             && pattern.iter().zip(actual).all(|(pattern, actual)| {
+                let pattern = self.canonicalize_instance_const_arg(pattern);
+                let actual = self.canonicalize_instance_const_arg(actual);
                 matches!(pattern.value, nia_ty::ConstGenericValue::GenericParam(_))
-                    || pattern.value == actual.value
+                    || (self.types_match(pattern.ty, actual.ty)
+                        && match (&pattern.value, &actual.value) {
+                            (
+                                nia_ty::ConstGenericValue::Int(pattern),
+                                nia_ty::ConstGenericValue::Int(actual),
+                            ) => pattern.bits() == actual.bits(),
+                            (pattern, actual) => pattern == actual,
+                        })
             })
     }
 
