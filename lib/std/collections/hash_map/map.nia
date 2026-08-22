@@ -488,12 +488,15 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn insertNewUninitializedIndexAssumeCapacity(&mut self, key: K) usize {
-        if self.growthLeft == 0 {
+        if self.len >= self.capacity() {
             std::builtin::trap()
         }
         let valueHash = self.hashKey(&key);
         let slot = self.findInsertIndex(valueHash);
-        if self.ctrl[slot] == raw::ctrlEmpty {
+        // A deletion makes logical capacity available without restoring the
+        // empty-slot growth budget. A new probe may still reach an empty slot
+        // before that tombstone, so keep an exhausted budget saturated at zero.
+        if self.ctrl[slot] == raw::ctrlEmpty and self.growthLeft != 0 {
             self.growthLeft -= 1;
         }
         self.setCtrl(slot, raw::tag(valueHash));

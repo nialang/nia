@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 280 completed entries in this ledger.
+- Implementation batches: 281 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -490,6 +490,11 @@ acceptance item only when its phase-wide evidence is complete.
       `deinit` retry. A failing allocator regression proves the first cleanup
       attempts every slot and the retry releases only the residual owner before
       resetting the map.
+- [x] Phase F hash-map assume-capacity insertion now uses logical spare capacity
+      after deletion even when its physical empty-slot growth budget is zero.
+      The budget remains saturated if probing reaches an empty slot before a
+      tombstone; a full-table delete/insert/reserve executable regression proves
+      the insertion does not trap or underflow later capacity accounting.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The

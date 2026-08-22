@@ -1878,6 +1878,42 @@ fn run(init: process::Init) mem::Error!() {
     } else {
         return mem::Error::Invalid!;
     }
+
+    let mut full = std::HashMap[i32, i32]::initSeed(654u64);
+    defer full.deinit(&mut page).?;
+    full.reserve(&mut page, 7).?;
+    let fullCapacity = full.capacity();
+    let mut key = 0;
+    while key < 7 {
+        if full.insertAssumeCapacity(key, key * 10) is ?unexpected {
+            _ = unexpected;
+            return mem::Error::Invalid!;
+        }
+        key += 1;
+    }
+    match full.remove(&3) {
+        ?value => { if value != 30 {
+                return mem::Error::Invalid!;
+            } },
+        null => { return mem::Error::Invalid!; },
+    }
+    if full.insertAssumeCapacity(7, 70) is ?unexpected {
+        _ = unexpected;
+        return mem::Error::Invalid!;
+    }
+    if full.len() != fullCapacity {
+        return mem::Error::Invalid!;
+    }
+    full.reserve(&mut page, 1).?;
+    if full.capacity() <= fullCapacity {
+        return mem::Error::Invalid!;
+    }
+    match full.get(&7) {
+        ?value => { if value.* != 70 {
+                return mem::Error::Invalid!;
+            } },
+        null => { return mem::Error::Invalid!; },
+    }
     !()
 }
 
