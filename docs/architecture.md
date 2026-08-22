@@ -1800,6 +1800,11 @@ type stores. Its const witness relation compares integer values by semantic bits
 and preserves typed structural comparison; unresolved const-expression IDs
 remain exact because reachability does not own a const evaluator.
 
+LLVM backend validation reuses the semantic const-argument validator when
+checking a vtable payload against its trait-object type. This keeps malformed IR
+rejection strict for types and non-equivalent values without rejecting integer
+spellings that carry the same semantic bits.
+
 Where-bound candidate matching applies the same nominal identity rule during
 substitution: type arguments and const arguments remain separate, and each
 const argument type is recursively substituted. This keeps const-generic
