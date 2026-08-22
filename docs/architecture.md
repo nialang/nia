@@ -2013,6 +2013,10 @@ lookup: a receiver substitution, type argument, or const argument selects the
 materialized function-instance metadata and its C ABI. In particular, a method
 with only const arguments is still an instance; it must not fall back to the
 non-generic source declaration when deciding whether to emit the extern ABI.
+The extern predicate and instance lookup must pass the same complete
+`(self_arg, args, const_args)` identity. Looking up extern metadata with an
+empty const-argument vector can silently classify a valid const-only instance
+as an ordinary method and add the hidden Nia state parameter to its call.
 
 The LLVM backend validator treats generated entries as first-class backend
 products before codegen. It validates the hidden state parameter as a
