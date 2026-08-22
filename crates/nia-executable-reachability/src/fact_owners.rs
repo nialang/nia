@@ -164,8 +164,12 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(const_args.iter().map(|arg| arg.ty));
             collect_const_arg_owner_modules(const_args, type_modules);
         }
-        nia_sema_ir::ResolvedCall::Method { args, .. } => {
+        nia_sema_ir::ResolvedCall::Method {
+            args, const_args, ..
+        } => {
             type_ids.extend(args.iter().copied());
+            type_ids.extend(const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(const_args, type_modules);
         }
         nia_sema_ir::ResolvedCall::TraitMethod {
             trait_id,
@@ -174,6 +178,7 @@ fn collect_resolved_call_owner_modules(
             trait_args,
             trait_const_args,
             args,
+            const_args,
             ..
         } => {
             collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
@@ -190,6 +195,8 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
             collect_const_arg_owner_modules(trait_const_args, type_modules);
             type_ids.extend(args.iter().copied());
+            type_ids.extend(const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(const_args, type_modules);
         }
         nia_sema_ir::ResolvedCall::TraitAssociatedFunction {
             trait_id,
@@ -198,6 +205,7 @@ fn collect_resolved_call_owner_modules(
             trait_args,
             trait_const_args,
             args,
+            const_args,
             ..
         } => {
             collect_trait_id_owner_module(TraitId::Source(*trait_id), type_modules, traits);
@@ -214,6 +222,8 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(trait_const_args.iter().map(|arg| arg.ty));
             collect_const_arg_owner_modules(trait_const_args, type_modules);
             type_ids.extend(args.iter().copied());
+            type_ids.extend(const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_owner_modules(const_args, type_modules);
         }
         nia_sema_ir::ResolvedCall::DynamicTraitMethod {
             object_ty,

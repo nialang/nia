@@ -246,6 +246,12 @@ Nia-owned optimization consumers:
   Function-instance discovery caches whether each lowered type contains generic
   parameters, so repeated instance-call scans do not recursively re-walk the
   same nested type shapes while rejecting still-generic call arguments.
+  Method and trait-method instances use a complete identity: the receiver or
+  trait type arguments are followed by the method's own type and const
+  arguments in declaration order. Backend dispatch, instance planning,
+  reachability, and LLVM fingerprints must preserve both argument groups when
+  converting a trait callee to a concrete method or associated-function
+  instance; dropping method const arguments can alias distinct symbols.
   Module-level DCE also builds per-pass indexes from function ids and instance
   refs to bodies, then walks transitive reachability with queues instead of
   repeatedly scanning every lowered function for each discovered reference.

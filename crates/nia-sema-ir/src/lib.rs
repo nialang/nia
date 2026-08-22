@@ -1110,6 +1110,8 @@ pub enum ResolvedCall {
         def_id: GlobalDefId,
         /// Effective concrete type arguments.
         args: Vec<InternedTyId>,
+        /// Const arguments for the concrete method instance.
+        const_args: Vec<ConstGenericArg>,
         /// Receiver passing convention.
         receiver_kind: ReceiverKind,
     },
@@ -1129,6 +1131,8 @@ pub enum ResolvedCall {
         trait_const_args: Vec<ConstGenericArg>,
         /// Effective method type arguments.
         args: Vec<InternedTyId>,
+        /// Const arguments for the concrete method instance.
+        const_args: Vec<ConstGenericArg>,
         /// Receiver passing convention.
         receiver_kind: ReceiverKind,
     },
@@ -1148,6 +1152,8 @@ pub enum ResolvedCall {
         trait_const_args: Vec<ConstGenericArg>,
         /// Effective function type arguments.
         args: Vec<InternedTyId>,
+        /// Const arguments for the concrete function instance.
+        const_args: Vec<ConstGenericArg>,
     },
     /// Dynamically dispatched trait-object method call.
     DynamicTraitMethod {

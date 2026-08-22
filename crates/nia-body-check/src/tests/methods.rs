@@ -958,6 +958,42 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn preserves_const_generic_method_arguments_in_resolved_calls() {
+    let checked = pipeline(
+        r#"
+struct Counter {}
+
+extend Counter {
+    fn value[N: usize](& self) usize {
+        N
+    }
+}
+
+fn main() usize {
+    let counter = Counter {};
+    counter.value[3]()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let method = checked
+        .facts
+        .iter_node_resolved_calls()
+        .find_map(|(_, call)| match call {
+            nia_sema_ir::ResolvedCall::Method { const_args, .. } if !const_args.is_empty() => {
+                Some(const_args.clone())
+            }
+            _ => None,
+        })
+        .expect("const-generic method call");
+    assert_eq!(method.len(), 1);
+    assert_eq!(
+        method[0].value,
+        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(3))
+    );
+}
+
+#[test]
 fn infers_method_generics_from_expected_return_type() {
     let checked = pipeline(
         r#"

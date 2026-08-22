@@ -1073,6 +1073,7 @@ impl<'a> BodyChecker<'a> {
                         trait_args,
                         trait_const_args: Vec::new(),
                         args: Vec::new(),
+                        const_args: Vec::new(),
                         receiver_kind,
                     });
                 }

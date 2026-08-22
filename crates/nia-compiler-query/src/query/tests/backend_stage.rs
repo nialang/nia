@@ -269,6 +269,80 @@ fn main() i32 {
 }
 
 #[test]
+fn const_generic_method_instances_retain_method_const_arguments() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Counter {}
+
+extend Counter {
+    fn value[N: usize](& self) usize {
+        N
+    }
+}
+
+fn main() usize {
+    let counter = Counter {};
+    counter.value[3]()
+}
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let codegen = db.expect_get(CodegenProgramQuery);
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    let value = module
+        .defs
+        .defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.kind == nia_defs::DefKind::Method && def.name == sym("value"))
+                .then_some(GlobalDefId { module_id, def_id })
+        })
+        .expect("value method definition");
+    let plan = db.expect_get(BackendModuleFunctionInstancePlanQuery(module_id));
+    let planned = plan
+        .instances
+        .iter()
+        .find(|instance| instance.def_id == value)
+        .expect("const-generic method instance plan");
+
+    assert!(matches!(
+        planned.const_args.as_slice(),
+        [nia_ty::ConstGenericArg {
+            value: nia_ty::ConstGenericValue::Int(value),
+            ..
+        }] if value.bits() == 3
+    ));
+    assert!(
+        codegen
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.function_instances)
+            .any(|instance| {
+                instance.def_id == value
+                    && matches!(
+                        instance.const_args.as_slice(),
+                        [nia_ty::ConstGenericArg {
+                            value: nia_ty::ConstGenericValue::Int(value),
+                            ..
+                        }] if value.bits() == 3
+                    )
+            })
+    );
+}
+
+#[test]
 fn const_only_generic_iteration_instances_do_not_enter_backend_plan() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

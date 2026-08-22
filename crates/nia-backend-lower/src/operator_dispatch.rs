@@ -645,6 +645,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
                 receiver_kind,
                 receiver,
             } => {
@@ -667,12 +668,14 @@ impl<'a> ModuleLowerer<'a> {
                     {
                         let mut instance_args = target_args;
                         instance_args.extend(args);
+                        let mut instance_const_args = target_const_args;
+                        instance_const_args.extend(const_args);
                         FunctionCallee::Method {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: None,
                             args: instance_args,
-                            const_args: target_const_args,
+                            const_args: instance_const_args,
                             receiver_kind,
                             receiver,
                         }
@@ -685,12 +688,14 @@ impl<'a> ModuleLowerer<'a> {
                         );
                         let mut instance_args = trait_args.clone();
                         instance_args.extend(args);
+                        let mut instance_const_args = trait_const_args.clone();
+                        instance_const_args.extend(const_args);
                         FunctionCallee::Method {
                             def_id: method_id,
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: Some(default_self_ty),
                             args: instance_args,
-                            const_args: trait_const_args.clone(),
+                            const_args: instance_const_args,
                             receiver_kind,
                             receiver,
                         }
@@ -721,6 +726,7 @@ impl<'a> ModuleLowerer<'a> {
                             trait_args,
                             trait_const_args,
                             args,
+                            const_args,
                             receiver_kind,
                             receiver,
                         }
@@ -734,6 +740,7 @@ impl<'a> ModuleLowerer<'a> {
                         trait_args,
                         trait_const_args,
                         args,
+                        const_args,
                         receiver_kind,
                         receiver,
                     }
@@ -747,6 +754,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
             } => {
                 if self.trait_method_call_is_concrete(
                     self_ty,
@@ -766,12 +774,14 @@ impl<'a> ModuleLowerer<'a> {
                     {
                         let mut instance_args = target_args;
                         instance_args.extend(args);
+                        let mut instance_const_args = target_const_args;
+                        instance_const_args.extend(const_args);
                         FunctionCallee::FunctionInstance {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: None,
                             args: instance_args,
-                            const_args: target_const_args,
+                            const_args: instance_const_args,
                         }
                     } else if self.trait_method_has_default(method_id) {
                         let default_self_ty = self.default_trait_method_self_arg(
@@ -782,12 +792,14 @@ impl<'a> ModuleLowerer<'a> {
                         );
                         let mut instance_args = trait_args.clone();
                         instance_args.extend(args);
+                        let mut instance_const_args = trait_const_args.clone();
+                        instance_const_args.extend(const_args);
                         FunctionCallee::FunctionInstance {
                             def_id: method_id,
                             arg_module_id: self.current_arg_module_id(),
                             self_arg: Some(default_self_ty),
                             args: instance_args,
-                            const_args: trait_const_args.clone(),
+                            const_args: instance_const_args,
                         }
                     } else {
                         if self.trait_method_call_requires_concrete_impl(
@@ -816,6 +828,7 @@ impl<'a> ModuleLowerer<'a> {
                             trait_args,
                             trait_const_args,
                             args,
+                            const_args,
                         }
                     }
                 } else {
@@ -827,6 +840,7 @@ impl<'a> ModuleLowerer<'a> {
                         trait_args,
                         trait_const_args,
                         args,
+                        const_args,
                     }
                 }
             }

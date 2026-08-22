@@ -29,6 +29,7 @@ pub(super) struct MethodGenericContext<'a> {
     pub(super) target_const_substitutions: &'a SymbolMap<ConstGenericArg>,
     pub(super) method_args: Option<&'a [BracketArg]>,
     pub(super) lowered_method_args: &'a [InternedTyId],
+    pub(super) lowered_method_const_args: &'a [ConstGenericArg],
     pub(super) expected: Option<InternedTyId>,
 }
 
@@ -397,9 +398,9 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_receiver_match(call.receiver, call.actual_receiver_ty, receiver_kind);
 
-        let Some(method_instantiation_args) = self
+        let Some((method_instantiation_args, method_const_args)) = self
             .profile_stage("body_check.profile.method.lower_type_args", |this| {
-                this.lowered_method_type_args(call.type_args)
+                this.lowered_method_type_args(call.type_args, &signature.generic_params)
             })
         else {
             for arg in call.args {
@@ -407,7 +408,7 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
-        let Some(mut substitutions) =
+        let Some((mut substitutions, const_substitutions)) =
             self.profile_stage("body_check.profile.method.generic_substitutions", |this| {
                 this.method_generic_substitutions(
                     MethodGenericContext {
@@ -417,6 +418,7 @@ impl<'a> BodyChecker<'a> {
                         target_const_substitutions: &candidate.target_const_substitutions,
                         method_args: call.type_args,
                         lowered_method_args: &method_instantiation_args,
+                        lowered_method_const_args: &method_const_args,
                         expected: call.expected,
                     },
                     &signature,
@@ -436,7 +438,7 @@ impl<'a> BodyChecker<'a> {
                 self.substitute_generics_and_consts_with_self(
                     param.ty,
                     &substitutions,
-                    &candidate.target_const_substitutions,
+                    &const_substitutions,
                     candidate.self_ty,
                 )
             })
@@ -457,7 +459,7 @@ impl<'a> BodyChecker<'a> {
                     self.substitute_generics_and_consts_with_self(
                         param.ty,
                         &substitutions,
-                        &candidate.target_const_substitutions,
+                        &const_substitutions,
                         candidate.self_ty,
                     )
                 })
@@ -474,13 +476,13 @@ impl<'a> BodyChecker<'a> {
             this.check_where_predicates_hold(
                 &signature.where_predicates,
                 &substitutions,
-                &candidate.target_const_substitutions,
+                &const_substitutions,
                 call.span,
             );
             this.check_where_predicates_hold(
                 &candidate.method.where_predicates,
                 &substitutions,
-                &candidate.target_const_substitutions,
+                &const_substitutions,
                 call.span,
             );
         });
@@ -493,7 +495,7 @@ impl<'a> BodyChecker<'a> {
                     call.span,
                     method_id,
                     &substitutions,
-                    &candidate.target_const_substitutions,
+                    &const_substitutions,
                 )
             })
         else {
@@ -512,6 +514,7 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::Method {
                     def_id: method_id,
                     args: instance_args,
+                    const_args: const_instance_args,
                     receiver_kind,
                 },
             );
@@ -522,6 +525,7 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::Method {
                     def_id: method_id,
                     args: Vec::new(),
+                    const_args: Vec::new(),
                     receiver_kind,
                 },
             );
