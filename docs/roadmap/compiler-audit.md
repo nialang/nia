@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 326 completed entries in this ledger.
+- Implementation batches: 327 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1887,6 +1887,10 @@ acceptance item only when its phase-wide evidence is complete.
       Nominal layout keys now compare const argument types and values
       semantically across module-owned interners and integer signedness, with an
       owner regression proving `Sized` lookup finds the equivalent layout.
+- [x] Batch 327 closes the trait-solver active-goal identity bypass. Recursive
+      where-clause resolution now tracks a semantic goal path instead of a raw
+      `HashSet<TraitGoal>`; a cycle regression uses equivalent signed/unsigned
+      const spellings and still rejects the non-inductive proof.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

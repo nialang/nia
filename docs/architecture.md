@@ -254,6 +254,10 @@ Nia-owned optimization consumers:
   semantic type and value, not by raw argument handles. Layout products may be
   interned through another module append, and integer const spelling/sign state
   must not make an otherwise identical concrete layout miss.
+  Least-fixed-point trait resolution also guards active where-clause goals by
+  semantic goal equivalence. Raw `TraitGoal` hashing is insufficient when
+  normalization or const evaluation presents the same recursive goal through
+  another interned handle or integer spelling.
   Function-instance discovery caches whether each lowered type contains generic
   parameters, so repeated instance-call scans do not recursively re-walk the
   same nested type shapes while rejecting still-generic call arguments.

@@ -993,3 +993,90 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
         TraitResolution::Unsatisfied
     );
 }
+
+#[test]
+fn cyclic_where_goal_guard_uses_semantic_const_identity() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let target_def = GlobalDefId {
+        module_id,
+        def_id: DefId(50),
+    };
+    let trait_def = GlobalDefId {
+        module_id,
+        def_id: DefId(51),
+    };
+    let trait_id = TraitId::Source(trait_def);
+    let target_signed = append.intern(TyKind::Nominal {
+        def_id: target_def,
+        args: Vec::new(),
+        const_args: vec![ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::signed(3)),
+        }],
+    });
+    let target_unsigned = append.intern(TyKind::Nominal {
+        def_id: target_def,
+        args: Vec::new(),
+        const_args: vec![const_arg(usize_ty, 3)],
+    });
+    let trait_ty = append.intern(TyKind::Nominal {
+        def_id: trait_def,
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
+    let impl_signature = ProgramTraitImplSignature {
+        module_id,
+        impl_id: TraitImplId(50),
+        builtin: None,
+        generics: Vec::new(),
+        generic_params: Vec::new(),
+        target_ty: target_unsigned,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        where_predicates: vec![nia_item_signatures::WherePredicateSignature {
+            ty: target_unsigned,
+            bounds: vec![nia_item_signatures::WhereBoundSignature {
+                trait_ty,
+                associated_type_bindings: Vec::new(),
+                span: nia_span::Span::default(),
+            }],
+            span: nia_span::Span::default(),
+        }],
+        associated_types: Vec::new(),
+        associated_values: Vec::new(),
+    };
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let trait_impls = vec![impl_signature];
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+
+    assert_eq!(
+        solver.resolve(TraitGoal {
+            self_ty: target_signed,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+        }),
+        TraitResolution::Unsatisfied
+    );
+}
