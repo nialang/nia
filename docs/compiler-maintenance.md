@@ -198,6 +198,10 @@ it does not make a reset implicit.
   `ConstGenericValue::ConstExpr` modules and `ArrayLenTy::ConstExpr` modules.
   They can own layout/signature facts without owning a runtime body, so they
   belong in `type_modules` even when no ordinary type argument points there.
+- Semantic-input const-expression pruning must use a complete recursive type
+  walk. Trait-object and pointee const args, associated-binding type/const args,
+  and projection const args are roots just like nominal const args; omitting
+  them discards AST/value-resolution input that later semantic facts retain.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

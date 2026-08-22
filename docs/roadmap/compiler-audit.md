@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 271 completed entries in this ledger.
+- Implementation batches: 272 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1630,6 +1630,11 @@ acceptance item only when its phase-wide evidence is complete.
       `ArrayLenTy::ConstExpr`, including generic instantiations, function
       references, trait calls, nominal/object/projection types, and associated
       bindings. A direct fact-owner regression covers both metadata forms.
+- [x] Phase C semantic-input const-expression pruning now traverses trait-object
+      and pointee const args, associated-binding type/const args, and projection
+      const args, including recursively nested argument types. A direct query
+      provider regression proves these trait metadata positions retain their
+      active `GlobalConstExprId` inputs.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
