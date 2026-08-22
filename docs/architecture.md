@@ -250,6 +250,10 @@ Nia-owned optimization consumers:
   Trait-object supertrait traversal applies the same semantic matching to its
   visited path guard, keeping upcast binding collection and target-supertrait
   checks consistent with obligation expansion.
+  Trait-solver layout fallback compares nominal const arguments by their
+  semantic type and value, not by raw argument handles. Layout products may be
+  interned through another module append, and integer const spelling/sign state
+  must not make an otherwise identical concrete layout miss.
   Function-instance discovery caches whether each lowered type contains generic
   parameters, so repeated instance-call scans do not recursively re-walk the
   same nested type shapes while rejecting still-generic call arguments.
