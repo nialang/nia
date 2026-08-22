@@ -8,6 +8,9 @@
 //! later query round receives the same transitive witnesses as an initial root.
 
 use super::*;
+use crate::type_matching::{
+    TypedTyRef, const_generic_args_equivalent, typed_ref_slices_equivalent, typed_refs_equivalent,
+};
 
 #[derive(Clone, Copy)]
 struct GenericTraitReachabilityContext<'a> {
@@ -362,7 +365,7 @@ fn insert_trait_and_supertrait_methods(
         },
         traits,
         module_id: input.module_id,
-        active_traits: HashSet::new(),
+        active_traits: Vec::new(),
     }
     .insert(
         input.trait_id,
@@ -377,7 +380,43 @@ struct TraitMethodExpansion<'a, 'b> {
     types: ReachabilityTypeCx<'b>,
     traits: &'b mut ReachableTraitRefs,
     module_id: ModuleId,
-    active_traits: HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
+    active_traits: Vec<ActiveTraitExpansion<'b>>,
+}
+
+struct ActiveTraitExpansion<'a> {
+    store: &'a TypeStore,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
+}
+
+fn active_trait_expansion_matches(
+    types: ReachabilityTypeCx<'_>,
+    active: &ActiveTraitExpansion,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: &[InternedTyId],
+    trait_const_args: &[nia_ty::ConstGenericArg],
+) -> bool {
+    active.trait_id == trait_id
+        && typed_refs_equivalent(
+            TypedTyRef {
+                store: active.store,
+                ty: active.self_ty,
+            },
+            TypedTyRef {
+                store: types.store,
+                ty: self_ty,
+            },
+        )
+        && typed_ref_slices_equivalent(active.store, &active.trait_args, types.store, trait_args)
+        && const_generic_args_equivalent(
+            active.store,
+            &active.trait_const_args,
+            types.store,
+            trait_const_args,
+        )
 }
 
 impl TraitMethodExpansion<'_, '_> {
@@ -388,12 +427,25 @@ impl TraitMethodExpansion<'_, '_> {
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
     ) {
-        if !self
-            .active_traits
-            .insert((trait_id, trait_args.to_vec(), trait_const_args.to_vec()))
-        {
+        if self.active_traits.iter().any(|active| {
+            active_trait_expansion_matches(
+                self.types,
+                active,
+                trait_id,
+                self_ty,
+                trait_args,
+                trait_const_args,
+            )
+        }) {
             return;
         }
+        self.active_traits.push(ActiveTraitExpansion {
+            store: self.types.store,
+            trait_id,
+            self_ty,
+            trait_args: trait_args.to_vec(),
+            trait_const_args: trait_const_args.to_vec(),
+        });
         match trait_id {
             TraitId::Builtin(builtin_trait) => {
                 self.traits.insert_methods_with_const_args(
@@ -424,11 +476,7 @@ impl TraitMethodExpansion<'_, '_> {
             }
             TraitId::Source(trait_def) => {
                 let Some(trait_signature) = (self.program_signatures.trait_)(trait_def) else {
-                    self.active_traits.remove(&(
-                        trait_id,
-                        trait_args.to_vec(),
-                        trait_const_args.to_vec(),
-                    ));
+                    self.active_traits.pop();
                     return;
                 };
                 self.traits.insert_methods_with_const_args(
@@ -473,8 +521,7 @@ impl TraitMethodExpansion<'_, '_> {
                 }
             }
         }
-        self.active_traits
-            .remove(&(trait_id, trait_args.to_vec(), trait_const_args.to_vec()));
+        self.active_traits.pop();
     }
 }
 
@@ -1257,5 +1304,56 @@ mod tests {
 
         assert_ne!(first, second);
         assert_eq!(first, same);
+    }
+
+    #[test]
+    fn active_trait_expansion_guard_matches_rebuilt_types_and_integer_bits() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let left_store = TypeStore::new();
+        let right_store = TypeStore::new();
+        let left_append = left_store.append_for_module(module_id);
+        let right_append = right_store.append_for_module(module_id);
+        let left_i32 = left_append.primitive(PrimitiveTy::I32);
+        let right_i32 = right_append.primitive(PrimitiveTy::I32);
+        let trait_id = TraitId::Source(GlobalDefId {
+            module_id,
+            def_id: DefId(4),
+        });
+        let active = ActiveTraitExpansion {
+            store: &left_store,
+            trait_id,
+            self_ty: left_i32,
+            trait_args: vec![left_i32],
+            trait_const_args: vec![ConstGenericArg {
+                ty: left_i32,
+                value: ConstGenericValue::Int(nia_ty::IntConst::signed(9)),
+            }],
+        };
+        let active_types = ReachabilityTypeCx {
+            store: &right_store,
+            append: &right_append,
+        };
+        let candidate_const_args = [ConstGenericArg {
+            ty: right_i32,
+            value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(9)),
+        }];
+
+        assert!(active_trait_expansion_matches(
+            active_types,
+            &active,
+            trait_id,
+            right_i32,
+            &[right_i32],
+            &candidate_const_args,
+        ));
+        let right_u8 = right_append.primitive(PrimitiveTy::U8);
+        assert!(!active_trait_expansion_matches(
+            active_types,
+            &active,
+            trait_id,
+            right_u8,
+            &[right_i32],
+            &candidate_const_args,
+        ));
     }
 }
