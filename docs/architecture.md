@@ -1560,6 +1560,12 @@ requesting aggregate materialization. The backend type-registration frontier
 uses the same traversal before adding field owners; preserving the identity
 without walking these types would silently omit nested aggregate owners.
 
+LLVM declaration readiness also treats unevaluated const-expression values as
+owned dependencies. When a const argument contains a `GlobalConstExprId`, its
+module remains in the pending closure alongside the argument type and nominal
+owner. The backend validator mirrors this closure by recursively checking all
+const-argument types before accepting a type into LLVM lowering.
+
 Object-safety validation rejects a source trait with builtin `Sized` as a
 supertrait. It also rejects builtin supertraits that expose methods or
 associated items until their object-level vtable contract is defined. Trait

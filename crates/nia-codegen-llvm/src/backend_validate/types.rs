@@ -120,7 +120,11 @@ impl BackendValidator<'_> {
                 }
                 self.validate_runtime_type(return_type, span);
             }
-            TyKind::Nominal { def_id, args, .. } => {
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => {
                 if self.index.module(def_id.module_id).is_none() {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -134,23 +138,34 @@ impl BackendValidator<'_> {
                 for arg in args {
                     self.validate_type(arg, span);
                 }
+                for arg in const_args {
+                    self.validate_type(arg.ty, span);
+                }
             }
             TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }
             | TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             } => {
                 for arg in trait_args {
                     self.validate_type(arg, span);
                 }
+                for arg in trait_const_args {
+                    self.validate_type(arg.ty, span);
+                }
                 for binding in associated_type_bindings {
                     for arg in &binding.trait_args {
                         self.validate_type(*arg, span);
+                    }
+                    for arg in &binding.trait_const_args {
+                        self.validate_type(arg.ty, span);
                     }
                     self.validate_type(binding.ty, span);
                 }
@@ -158,11 +173,15 @@ impl BackendValidator<'_> {
             TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             } => {
                 self.validate_type(self_ty, span);
                 for arg in trait_args {
                     self.validate_type(arg, span);
+                }
+                for arg in trait_const_args {
+                    self.validate_type(arg.ty, span);
                 }
             }
             TyKind::BuiltinTrait { args, .. } => {
