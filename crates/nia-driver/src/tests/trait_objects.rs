@@ -1251,3 +1251,31 @@ fn read(root: & Root) i32 {
         program.diagnostics
     );
 }
+
+#[test]
+fn trait_object_rejects_source_associated_values_without_vtable_contract() {
+    let root = temp_dir("trait_object_rejects_source_associated_values_without_vtable_contract");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    const Width: usize;
+    fn value(& self) usize;
+}
+
+fn read(source: & Source) usize {
+    source.value()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("associated value `Width` has no vtable contract")),
+        "{:?}",
+        program.diagnostics
+    );
+}

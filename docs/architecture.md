@@ -1550,7 +1550,9 @@ requirement; these checks belong at the body-check object boundary before
 vtable construction. Nested object-safe type reconstruction preserves nominal
 type and const arguments, including recursively normalized const argument
 types, so erased method signatures retain the same identity used by trait
-bindings and vtable lowering.
+bindings and vtable lowering. Source associated values/consts are rejected at
+the same boundary because current vtables materialize methods only and have no
+object-level storage or lookup contract for those items.
 
 Upcast validation matches target associated bindings against source bindings as
 an unordered one-to-one set with transactional backtracking. A compatible

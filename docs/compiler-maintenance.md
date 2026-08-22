@@ -151,6 +151,10 @@ it does not make a reset implicit.
   impossible. Builtin supertraits with methods or associated items must also
   be rejected until their object-level vtable contract is explicitly defined;
   marker-only builtin bounds remain eligible for their existing semantics.
+- Source trait associated values/consts require an explicit object-level
+  contract. Until vtable metadata and lookup define one, reject such traits at
+  object construction rather than silently erasing the item while retaining a
+  source-level promise.
 - Object-safety DFS must substitute both type and const arguments for every
   inherited source trait instance. Key its active cycle guard by the complete
   `(trait, args, const_args)` identity and keep a separate expanded set so

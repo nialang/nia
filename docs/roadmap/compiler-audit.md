@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 265 completed entries in this ledger.
+- Implementation batches: 266 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1598,6 +1598,12 @@ acceptance item only when its phase-wide evidence is complete.
       substituted trait const arguments after solver selection, closing the
       parallel consumer boundary under the existing const-generic dispatch
       regression and backend-lower suite.
+- [x] Phase A source trait-object validation now rejects associated values/consts
+      when no object-level vtable contract exists. Source vtables contain method
+      slots only, so accepting an erased trait with an associated value would
+      make the object type promise an unmaterialized item; a focused driver
+      regression covers the diagnostic while marker-only builtin policy remains
+      unchanged.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
