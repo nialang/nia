@@ -119,51 +119,67 @@ impl<'a> BodyChecker<'a> {
             input.source_bindings,
         );
         let mut used = vec![false; source_bindings.len()];
-        input.target_bindings.iter().all(|target_binding| {
-            let effective_target_trait = target_binding.trait_id.unwrap_or(input.target.trait_id);
-            let effective_target_args = if target_binding.trait_id.is_some() {
-                &target_binding.trait_args
-            } else {
-                &input.target.args
-            };
-            let effective_target_const_args = if target_binding.trait_id.is_some() {
-                &target_binding.trait_const_args
-            } else {
-                &input.target.const_args
-            };
-            let matched = source_bindings
-                .iter()
-                .enumerate()
-                .find_map(|(index, source_binding)| {
-                    (!used[index]
-                        && source_binding.name == target_binding.name
-                        && source_binding.trait_id.unwrap_or(input.source.trait_id)
-                            == effective_target_trait
-                        && self.trait_args_match(
-                            if source_binding.trait_id.is_some() {
-                                &source_binding.trait_args
-                            } else {
-                                &input.source.args
-                            },
-                            effective_target_args,
-                        )
-                        && self.const_generic_arg_slices_match(
-                            if source_binding.trait_id.is_some() {
-                                &source_binding.trait_const_args
-                            } else {
-                                &input.source.const_args
-                            },
-                            effective_target_const_args,
-                        )
-                        && self.types_match(source_binding.ty, target_binding.ty))
-                    .then_some(index)
-                });
-            let Some(index) = matched else {
-                return false;
-            };
+        self.trait_object_upcast_bindings_match_inner(&input, &source_bindings, &mut used, 0)
+    }
+
+    fn trait_object_upcast_bindings_match_inner(
+        &mut self,
+        input: &TraitObjectUpcastBindings<'_>,
+        source_bindings: &[AssociatedTypeBindingTy],
+        used: &mut [bool],
+        target_index: usize,
+    ) -> bool {
+        let Some(target_binding) = input.target_bindings.get(target_index) else {
+            return true;
+        };
+        let effective_target_trait = target_binding.trait_id.unwrap_or(input.target.trait_id);
+        let effective_target_args = if target_binding.trait_id.is_some() {
+            &target_binding.trait_args
+        } else {
+            &input.target.args
+        };
+        let effective_target_const_args = if target_binding.trait_id.is_some() {
+            &target_binding.trait_const_args
+        } else {
+            &input.target.const_args
+        };
+        for (index, source_binding) in source_bindings.iter().enumerate() {
+            if used[index]
+                || source_binding.name != target_binding.name
+                || source_binding.trait_id.unwrap_or(input.source.trait_id)
+                    != effective_target_trait
+                || !self.trait_args_match(
+                    if source_binding.trait_id.is_some() {
+                        &source_binding.trait_args
+                    } else {
+                        &input.source.args
+                    },
+                    effective_target_args,
+                )
+                || !self.const_generic_arg_slices_match(
+                    if source_binding.trait_id.is_some() {
+                        &source_binding.trait_const_args
+                    } else {
+                        &input.source.const_args
+                    },
+                    effective_target_const_args,
+                )
+                || !self.types_match(source_binding.ty, target_binding.ty)
+            {
+                continue;
+            }
             used[index] = true;
-            true
-        })
+            if self.trait_object_upcast_bindings_match_inner(
+                input,
+                source_bindings,
+                used,
+                target_index + 1,
+            ) {
+                return true;
+            }
+            used[index] = false;
+        }
+        false
     }
 
     pub(crate) fn trait_object_bindings_with_supertraits(

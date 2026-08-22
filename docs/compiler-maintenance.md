@@ -130,6 +130,10 @@ it does not make a reset implicit.
   remove a node before returning from a DFS branch, including error or missing
   signature paths; a global visited set can incorrectly hide a valid sibling
   supertrait.
+- Trait-object upcasts must use the same unordered bijection semantics as other
+  associated-binding consumers. Candidate source bindings are speculative until
+  all target bindings match, so a failed later binding cannot leave an earlier
+  greedy choice committed.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.
