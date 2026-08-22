@@ -2420,9 +2420,10 @@ no separate `StaticInitId` or static-init store. `BodyIr.global_inits` shares
 immutable `Arc<StaticInit>` payloads with
 `ExecutableStaticInitQuery(GlobalDefId)`. The executable facts fixed point does
 not retain complete initializer trees. It keeps sorted runtime-global keys and
-per-global `StaticInitRefs` summaries containing only referenced functions and
-globals; reachability consumes those summaries instead of recovering edges from
-an aggregate payload. Zero-count repeats deliberately contribute no references.
+per-global `FunctionBodyRefs` summaries containing complete executable
+function, global, and concrete function-instance identities; reachability
+consumes those summaries instead of recovering edges from an aggregate payload.
+Zero-count repeats deliberately contribute no references.
 
 The item query materializes exactly one initializer from frozen checked facts
 with `StaticInitOnly`; a local static temporarily promotes the node facts owned
@@ -2431,8 +2432,9 @@ global is not type-checked again. `ExecutableCheckedModulesQuery` reconstructs
 its aggregate view from the item products, so there is no path that extracts an
 item payload from the facts aggregate. Facts-only checking lowers a transient
 tree once to preserve the single static-data
-representability and diagnostic implementation, derives `StaticInitRefs`, and
-immediately releases the tree.
+representability and diagnostic implementation, derives the same complete
+`FunctionBodyRefs` value-reference summary as typed Body IR, and immediately
+releases the tree.
 
 Semantic-value equality lets an unchanged initializer remain green even when
 its aggregate facts input causes the item query to execute again. The aggregate

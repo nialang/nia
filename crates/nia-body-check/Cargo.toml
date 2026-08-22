@@ -14,6 +14,7 @@ nia-const-eval.workspace = true
 nia-const-ir.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
+nia-function-ir.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
 nia-item-tree.workspace = true

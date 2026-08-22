@@ -122,7 +122,7 @@ impl FunctionInstanceRef {
 }
 
 /// Deduplicated identities discovered while walking one function body.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct FunctionBodyRefs {
     /// Modules whose definitions or type stores are needed.
     pub modules: BTreeSet<ModuleId>,

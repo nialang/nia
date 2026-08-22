@@ -14,6 +14,7 @@ use nia_body_ir::{
     TypedPattern, TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind,
 };
 use nia_defs::{DefCollection, DefKind};
+use nia_function_ir::FunctionBodyRefs;
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_sema_ir::{GenericInstantiation, ResolvedCall, SemanticFacts};
 use nia_static_ir::StaticInit;
@@ -67,6 +68,29 @@ impl ExecutableItemRefs {
         self.trait_refs.extend_ref(&refs.trait_refs);
         self.generic_instantiations
             .extend(refs.generic_instantiations.iter().cloned());
+    }
+}
+
+/// Projects the canonical function-body reference aggregate into executable
+/// reachability facts.
+pub fn executable_item_refs_from_function_body_refs(refs: &FunctionBodyRefs) -> ExecutableItemRefs {
+    ExecutableItemRefs {
+        functions: refs.functions.iter().copied().collect(),
+        globals: refs.globals.iter().copied().collect(),
+        generic_instantiations: refs
+            .function_instances
+            .iter()
+            .map(|instance| GenericInstantiation {
+                def_id: instance.def_id,
+                self_arg: instance.self_arg,
+                args: instance.args.clone(),
+                const_args: instance.const_args.clone(),
+                generics: Vec::new(),
+                span: instance.span,
+                source_def_id: None,
+            })
+            .collect(),
+        ..ExecutableItemRefs::default()
     }
 }
 
@@ -1148,23 +1172,7 @@ fn collect_typed_place_refs(
 
 fn collect_static_init_refs(module_id: ModuleId, init: &StaticInit, refs: &mut ExecutableItemRefs) {
     let init_refs = init.value_refs(module_id);
-    refs.functions.extend(init_refs.functions);
-    refs.globals.extend(init_refs.globals);
-    refs.generic_instantiations
-        .extend(
-            init_refs
-                .function_instances
-                .into_iter()
-                .map(|instance| GenericInstantiation {
-                    def_id: instance.def_id,
-                    self_arg: instance.self_arg,
-                    args: instance.args,
-                    const_args: instance.const_args,
-                    generics: Vec::new(),
-                    span: instance.span,
-                    source_def_id: None,
-                }),
-        );
+    refs.extend(executable_item_refs_from_function_body_refs(&init_refs));
 }
 
 fn builtin_method_trait(

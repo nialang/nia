@@ -587,7 +587,8 @@ impl<'a> BodyChecker<'a> {
             match self.product {
                 BodyCheckProduct::FactsOnly => {
                     if let Some(init) = self.lower_global_static_init_checked(value, global_ty) {
-                        self.static_init_refs.insert(global_def_id, init.refs());
+                        self.static_init_refs
+                            .insert(global_def_id, init.value_refs(self.defs.module_id));
                     }
                 }
                 BodyCheckProduct::Full => {

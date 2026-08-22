@@ -8,8 +8,8 @@ pub struct BodyCheck {
     pub ir: Arc<BodyIr>,
     /// Semantic facts collected from checked expressions and calls.
     pub facts: Arc<SemanticFacts>,
-    /// Static initializer references by global identity.
-    pub static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
+    /// Complete executable references from static initializers by global identity.
+    pub static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     /// Function identities checked by this product.
     pub checked_functions: HashSet<GlobalDefId>,
     /// Cross-module provider facts demanded during checking.
