@@ -71,6 +71,13 @@ identities, unresolved references, dependency cycles, conflicting output
 ownership, target mismatches, and missing producer closure. Protocol decoding
 repeats these semantic checks rather than trusting runner-produced bytes.
 
+The Nia encoder bounds every collection count by the registered `maxItems`
+limit before narrowing it to the wire `u32` representation. Aggregate counts
+and derived dependency/input/output counts use checked addition, so malformed
+in-memory state is rejected instead of wrapping into a smaller protocol value.
+Generated-file payload lengths are likewise checked before their fixed-width
+length prefix is written.
+
 The registered compatibility identities in `nia-compat` are the only schema
 and namespace authorities. Changing an encoded field or persistent cache input
 requires the corresponding registered schema or owner-local fingerprint domain

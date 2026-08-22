@@ -23,6 +23,9 @@ The library follows a small set of ownership rules:
   deletion. `insertAssumeCapacity` therefore requires `len < capacity`, not an
   unused physical empty-slot budget; it may reuse either an empty or deleted
   control slot without allocating.
+- Build-plan collection counts and derived dependency/input/output counts are
+  checked before narrowing to the fixed-width protocol fields. Generated-file
+  payload lengths are checked before their length prefixes are published.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

@@ -1028,7 +1028,14 @@ extend Build {
         let mut missingCount: usize = 0;
         let mut index: usize = 0;
         while index < self.steps.len() {
-            missingCount += self.missingGeneratedDependenciesForStep(index).?;
+            let missing = self.missingGeneratedDependenciesForStep(index).?;
+            missingCount = match missingCount.checked_add(missing) {
+                ?value => value,
+                null => return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Dependencies,
+                }!,
+            };
             index += 1;
         }
         self.dependencies.reserve(
@@ -1079,7 +1086,13 @@ extend Build {
                 moduleIndex,
             ).?;
             if not self.hasDependency(index, producer.index()) {
-                count += 1;
+                count = match count.checked_add(1) {
+                    ?value => value,
+                    null => return Error::Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Dependencies,
+                    }!,
+                };
             }
         }
         for &import in moduleRecord.imports.iter() {
@@ -1090,7 +1103,13 @@ extend Build {
                     moduleIndex,
                 ).?;
                 if not self.hasDependency(index, producer.index()) {
-                    count += 1;
+                    count = match count.checked_add(1) {
+                        ?value => value,
+                        null => return Error::Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Dependencies,
+                        }!,
+                    };
                 }
             }
         }
@@ -1202,7 +1221,14 @@ extend Build {
             index += 1;
         }
         for &edge in self.dependencies.iter() {
-            indegree.asMutSlice()[edge.step.index()] += 1;
+            let slot = &mut indegree.asMutSlice()[edge.step.index()];
+            slot.* = match slot.*.checked_add(1) {
+                ?value => value,
+                null => return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Dependencies,
+                }!,
+            };
         }
 
         let mut ready = collections::ArrayList[usize]::initCapacity(

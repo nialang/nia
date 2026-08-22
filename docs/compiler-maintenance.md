@@ -355,6 +355,9 @@ signals, not architecture goals.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.
+- Treat build-plan counts as untrusted protocol fields: check aggregate and
+  derived additions before narrowing to wire integers, and reject oversized
+  payload lengths before writing their prefixes.
 - Tests and documentation describe the current contract. Historical behavior
   belongs in Git, not compatibility fixtures or stale debug switches.
 

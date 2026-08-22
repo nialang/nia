@@ -2519,6 +2519,13 @@ API is documented beside [`lib/std/build.nia`](../lib/std/build.nia), and
 standard-library filesystem and process behavior belongs to the corresponding
 `lib/std` facades and providers.
 
+The generated runner's plan encoder checks every collection and derived graph
+count before narrowing it to the fixed-width protocol representation. Checked
+aggregate addition covers package/artifact totals as well as action input,
+output, and dependency counts; oversized generated-file payload lengths are
+rejected before their length prefix is emitted. This keeps malformed
+in-memory runner state from wrapping into an apparently valid smaller plan.
+
 Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries
 interrupted writes; the parent retries interrupted reads and reaps a failed
