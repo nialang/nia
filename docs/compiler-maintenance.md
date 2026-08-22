@@ -362,6 +362,9 @@ signals, not architecture goals.
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
   before each encoder buffer growth, not only after serialization completes.
+- Do not preallocate typed decoder collections directly from an untrusted count.
+  Grow after each item consumes bounded input, so truncated prefixes cannot
+  amplify into `count * size_of(T)` host memory.
 - Tests and documentation describe the current contract. Historical behavior
   belongs in Git, not compatibility fixtures or stale debug switches.
 

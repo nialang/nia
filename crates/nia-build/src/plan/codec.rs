@@ -546,7 +546,10 @@ impl<'a> Reader<'a> {
         mut read: impl FnMut(&mut Self) -> Result<T, PlanCodecError>,
     ) -> Result<Vec<T>, PlanCodecError> {
         let count = self.count()?;
-        let mut values = Vec::with_capacity(count);
+        // Count is runner-controlled. Grow only after each item has consumed
+        // and validated its bytes, so a truncated prefix cannot amplify a
+        // four-byte count into count * size_of::<T>() of allocation.
+        let mut values = Vec::new();
         for _ in 0..count {
             values.push(read(self)?);
         }
@@ -1180,6 +1183,20 @@ mod tests {
                 actual: 10,
             })
         );
+    }
+
+    #[test]
+    fn truncated_list_count_cannot_preallocate_element_capacity() {
+        type LargeItem = [u8; (isize::MAX as usize / MAX_ITEMS) + 1];
+
+        let encoded = (MAX_ITEMS as u32).to_le_bytes();
+        let mut reader = Reader::new(&encoded);
+        let result = reader.list::<LargeItem>(|reader| {
+            reader.take(1)?;
+            unreachable!()
+        });
+
+        assert_eq!(result, Err(PlanCodecError::Truncated { offset: 4 }));
     }
 
     #[test]
