@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 329 completed entries in this ledger.
+- Implementation batches: 330 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1900,6 +1900,11 @@ acceptance item only when its phase-wide evidence is complete.
       Frontend projection normalization now uses a path-local semantic key rather
       than raw interned handles and const hashing. A recursive associated-type
       normalization regression confirms equivalent projection paths terminate.
+- [x] Batch 330 closes the program-signatures supertrait-assumption identity
+      bypass. Source supertrait expansion now guards the complete `TraitGoal`
+      semantically, including `self_ty` and const values, and restores path-local
+      sibling traversal. Signature type equivalence also compares integer const
+      values by semantic bits across module-owned interners.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

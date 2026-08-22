@@ -1014,6 +1014,12 @@ instead of guessed. Callable extension visibility and trait-witness visibility
 are tracked separately so a public trait obligation cannot accidentally make a
 private method callable.
 
+Trait-goal assumptions expanded through source supertraits use a path-local
+semantic guard over the complete goal, including `self_ty`, type arguments, and
+const arguments. Assumption output deduplication uses the same equivalence rule;
+integer const spellings and module-owned interned handles therefore cannot hide
+an independent sibling or reopen a recursive path.
+
 ### 6.6 `nia-type-normalize`
 
 Expands type aliases and canonicalizes type forms where required. It detects

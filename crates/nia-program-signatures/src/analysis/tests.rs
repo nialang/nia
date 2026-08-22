@@ -252,3 +252,67 @@ fn const_generic_supertrait_instances_require_exact_impl_arguments() {
         std::slice::from_ref(&base_impl),
     ));
 }
+
+#[test]
+fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let left = type_store.append_for_module(left_module);
+    let right = type_store.append_for_module(right_module);
+    let usize_left = left.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let usize_right = right.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let target = GlobalDefId {
+        module_id: left_module,
+        def_id: nia_defs::DefId(70),
+    };
+    let trait_id = TraitId::Source(GlobalDefId {
+        module_id: left_module,
+        def_id: nia_defs::DefId(71),
+    });
+    let signed = left.intern(TyKind::Nominal {
+        def_id: target,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: usize_left,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(9)),
+        }],
+    });
+    let unsigned = right.intern(TyKind::Nominal {
+        def_id: target,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: usize_right,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(9)),
+        }],
+    });
+    let left_goal = TraitGoal {
+        self_ty: signed,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    };
+    let right_goal = TraitGoal {
+        self_ty: unsigned,
+        ..left_goal.clone()
+    };
+
+    assert!(trait_goals_equivalent(&type_store, &left_goal, &right_goal));
+    let other = left.intern(TyKind::Nominal {
+        def_id: GlobalDefId {
+            module_id: left_module,
+            def_id: nia_defs::DefId(72),
+        },
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
+    assert!(!trait_goals_equivalent(
+        &type_store,
+        &left_goal,
+        &TraitGoal {
+            self_ty: other,
+            ..right_goal
+        }
+    ));
+}

@@ -1786,7 +1786,7 @@ fn push_trait_goal_assumption_with_supertraits(
         goal,
         assumptions,
         associated_type_assumptions,
-        &mut HashSet::new(),
+        &mut Vec::new(),
     );
 }
 
@@ -1795,42 +1795,35 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
     associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
-    visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
+    visited: &mut Vec<TraitGoal>,
 ) {
-    let TraitGoal {
-        self_ty,
-        trait_id,
-        trait_args,
-        trait_const_args,
-    } = goal;
-    if !visited.insert((trait_id, trait_args.clone(), trait_const_args.clone())) {
+    if visited
+        .iter()
+        .any(|existing| trait_goals_equivalent(context.type_store, existing, &goal))
+    {
         return;
     }
-    if !assumptions.iter().any(|assumption| {
-        assumption.self_ty == self_ty
-            && assumption.trait_id == trait_id
-            && assumption.trait_args == trait_args
-            && assumption.trait_const_args == trait_const_args
-    }) {
-        assumptions.push(TraitGoal {
-            self_ty,
-            trait_id,
-            trait_args: trait_args.clone(),
-            trait_const_args: trait_const_args.clone(),
-        });
+    // This guard is path-local: sibling supertraits must still be expanded after one
+    // recursive or unavailable branch returns.
+    visited.push(goal.clone());
+    if !assumptions
+        .iter()
+        .any(|assumption| trait_goals_equivalent(context.type_store, assumption, &goal))
+    {
+        assumptions.push(goal.clone());
     }
-    match trait_id {
+    match goal.trait_id {
         TraitId::Builtin(trait_id) => {
             for supertrait in trait_id.supertraits() {
                 let supertrait_args = if supertrait.preserves_trait_args {
-                    trait_args.clone()
+                    goal.trait_args.clone()
                 } else {
                     Vec::new()
                 };
                 push_trait_goal_assumption_with_supertraits_inner(
                     context,
                     TraitGoal {
-                        self_ty,
+                        self_ty: goal.self_ty,
                         trait_id: TraitId::Builtin(supertrait.trait_id),
                         trait_args: supertrait_args,
                         trait_const_args: Vec::new(),
@@ -1844,12 +1837,13 @@ fn push_trait_goal_assumption_with_supertraits_inner(
         TraitId::Source(trait_id) => {
             let Some(trait_signature) = trait_signature_ref(context.trait_signatures, trait_id)
             else {
+                visited.pop();
                 return;
             };
             let (substitutions, const_substitutions) = substitutions_from_generic_params(
                 &trait_signature.signature.generic_params,
-                &trait_args,
-                &trait_const_args,
+                &goal.trait_args,
+                &goal.trait_const_args,
             );
             let append = context
                 .type_store
@@ -1864,7 +1858,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     &const_substitutions,
                     TypeSubstitutionTarget {
                         projection: None,
-                        self_ty: Some(self_ty),
+                        self_ty: Some(goal.self_ty),
                     },
                 );
                 let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
@@ -1873,7 +1867,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     continue;
                 };
                 let supertrait_goal = TraitGoal {
-                    self_ty,
+                    self_ty: goal.self_ty,
                     trait_id: supertrait_id,
                     trait_args: supertrait_args,
                     trait_const_args: supertrait_const_args,
@@ -1891,7 +1885,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                             &const_substitutions,
                             TypeSubstitutionTarget {
                                 projection: None,
-                                self_ty: Some(self_ty),
+                                self_ty: Some(goal.self_ty),
                             },
                         ),
                     });
@@ -1906,6 +1900,33 @@ fn push_trait_goal_assumption_with_supertraits_inner(
             }
         }
     }
+    visited.pop();
+}
+
+fn trait_goals_equivalent(type_store: &TypeStore, left: &TraitGoal, right: &TraitGoal) -> bool {
+    left.trait_id == right.trait_id
+        && types_equivalent_in_store(type_store, left.self_ty, right.self_ty)
+        && left.trait_args.len() == right.trait_args.len()
+        && left
+            .trait_args
+            .iter()
+            .zip(&right.trait_args)
+            .all(|(left, right)| types_equivalent_in_store(type_store, *left, *right))
+        && left.trait_const_args.len() == right.trait_const_args.len()
+        && left
+            .trait_const_args
+            .iter()
+            .zip(&right.trait_const_args)
+            .all(|(left, right)| {
+                types_equivalent_in_store(type_store, left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (
+                            nia_ty::ConstGenericValue::Int(left),
+                            nia_ty::ConstGenericValue::Int(right),
+                        ) => left.bits() == right.bits(),
+                        (left, right) => left == right,
+                    }
+            })
 }
 
 fn is_extendable_target(interner: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
