@@ -202,6 +202,11 @@ it does not make a reset implicit.
   walk. Trait-object and pointee const args, associated-binding type/const args,
   and projection const args are roots just like nominal const args; omitting
   them discards AST/value-resolution input that later semantic facts retain.
+- Extension-trait signature type-module discovery must retain the same owner
+  closure. Collect source trait/nominal owners, `ConstGenericValue::ConstExpr`
+  modules from every const metadata position, and `ArrayLenTy::ConstExpr`
+  modules before provider expansion; a type-only owner can be needed even when
+  it contributes no runtime provider body.
 - Aggregate whole-program products require evidence that a real consumer needs
   the aggregate. Prefer item-, body-, module-, or codegen-unit-owned products
   when they preserve the dependency boundary.

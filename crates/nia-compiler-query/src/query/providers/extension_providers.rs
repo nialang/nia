@@ -671,34 +671,91 @@ fn extension_signature_type_modules(
         module_id,
         nia_item_tree::SignatureItemSet::Traits,
     ))?;
-    let mut pending_types = signatures.semantic.type_roots();
+    let modules =
+        collect_signature_type_modules(&db.context().type_store, signatures.semantic.type_roots());
+    let mut modules = modules.into_iter().collect::<Vec<_>>();
+    modules.sort();
+    Ok(modules)
+}
+
+fn collect_signature_type_modules(
+    type_store: &nia_ty::TypeStore,
+    roots: impl IntoIterator<Item = nia_ids::InternedTyId>,
+) -> HashSet<ModuleId> {
+    let mut pending_types = roots.into_iter().collect::<Vec<_>>();
     let mut visited_types = HashSet::new();
     let mut modules = HashSet::new();
     while let Some(ty) = pending_types.pop() {
         if !visited_types.insert(ty) {
             continue;
         }
-        let Some(kind) = db.context().type_store.get(ty) else {
+        let Some(kind) = type_store.get(ty) else {
             continue;
         };
         match kind {
-            nia_ty::TyKind::Nominal { def_id, .. } => {
-                modules.insert(def_id.module_id);
+            nia_ty::TyKind::Array { len, .. } => {
+                collect_array_len_owner_module(len, &mut modules);
             }
-            nia_ty::TyKind::TraitObject { trait_id, .. }
-            | nia_ty::TyKind::TraitObjectPointee { trait_id, .. }
-            | nia_ty::TyKind::Projection { trait_id, .. } => {
-                if let nia_ty::TraitId::Source(def_id) = trait_id {
-                    modules.insert(def_id.module_id);
+            nia_ty::TyKind::Nominal {
+                def_id, const_args, ..
+            } => {
+                modules.insert(def_id.module_id);
+                collect_const_arg_owner_modules(const_args, &mut modules);
+            }
+            nia_ty::TyKind::TraitObject {
+                trait_id,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            }
+            | nia_ty::TyKind::TraitObjectPointee {
+                trait_id,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            } => {
+                collect_trait_owner_module(*trait_id, &mut modules);
+                collect_const_arg_owner_modules(trait_const_args, &mut modules);
+                for binding in associated_type_bindings {
+                    collect_const_arg_owner_modules(&binding.trait_const_args, &mut modules);
                 }
+            }
+            nia_ty::TyKind::Projection {
+                trait_id,
+                trait_const_args,
+                ..
+            } => {
+                collect_trait_owner_module(*trait_id, &mut modules);
+                collect_const_arg_owner_modules(trait_const_args, &mut modules);
             }
             _ => {}
         }
         kind.visit_referenced_types(|referenced| pending_types.push(referenced));
     }
-    let mut modules = modules.into_iter().collect::<Vec<_>>();
-    modules.sort();
-    Ok(modules)
+    modules
+}
+
+fn collect_trait_owner_module(trait_id: nia_ty::TraitId, modules: &mut HashSet<ModuleId>) {
+    if let nia_ty::TraitId::Source(def_id) = trait_id {
+        modules.insert(def_id.module_id);
+    }
+}
+
+fn collect_const_arg_owner_modules(
+    args: &[nia_ty::ConstGenericArg],
+    modules: &mut HashSet<ModuleId>,
+) {
+    for arg in args {
+        if let nia_ty::ConstGenericValue::ConstExpr(expr_id) = arg.value {
+            modules.insert(expr_id.module_id);
+        }
+    }
+}
+
+fn collect_array_len_owner_module(len: &nia_ty::ArrayLenTy, modules: &mut HashSet<ModuleId>) {
+    if let nia_ty::ArrayLenTy::ConstExpr(expr_id) = len {
+        modules.insert(expr_id.module_id);
+    }
 }
 
 fn visible_provider_modules_for_module(
@@ -966,5 +1023,62 @@ pub(super) fn provide_visible_trait_impls(
         Err(error)
     } else {
         Ok(visible_trait_impls)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
+    use nia_symbol::SymbolId;
+    use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind, TypeStore};
+
+    #[test]
+    fn signature_type_modules_include_const_expression_owners() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let trait_module = module_ids.allocate();
+        let const_module = module_ids.allocate();
+        let array_module = module_ids.allocate();
+        let trait_id = nia_ty::TraitId::Source(GlobalDefId {
+            module_id: trait_module,
+            def_id: DefId(1),
+        });
+        let const_expr = GlobalConstExprId {
+            module_id: const_module,
+            const_expr_id: ConstExprId(2),
+        };
+        let array_expr = GlobalConstExprId {
+            module_id: array_module,
+            const_expr_id: ConstExprId(3),
+        };
+        let types = TypeStore::new();
+        let append = types.append_for_module(trait_module);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let const_arg = ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::ConstExpr(const_expr),
+        };
+        let object = append.intern(TyKind::TraitObject {
+            is_readonly: false,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: vec![const_arg.clone()],
+            associated_type_bindings: vec![nia_ty::AssociatedTypeBindingTy {
+                trait_id: Some(trait_id),
+                trait_args: Vec::new(),
+                trait_const_args: vec![const_arg],
+                name: SymbolId::EMPTY,
+                ty: bool_ty,
+            }],
+        });
+        let array = append.intern(TyKind::Array {
+            elem: object,
+            len: nia_ty::ArrayLenTy::ConstExpr(array_expr),
+        });
+        let modules = collect_signature_type_modules(&types, [array]);
+        assert!(modules.contains(&trait_module));
+        assert!(modules.contains(&const_module));
+        assert!(modules.contains(&array_module));
     }
 }

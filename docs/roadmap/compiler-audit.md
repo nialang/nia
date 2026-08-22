@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 272 completed entries in this ledger.
+- Implementation batches: 273 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1635,6 +1635,11 @@ acceptance item only when its phase-wide evidence is complete.
       const args, including recursively nested argument types. A direct query
       provider regression proves these trait metadata positions retain their
       active `GlobalConstExprId` inputs.
+- [x] Phase C extension-trait signature type-module discovery now retains source
+      trait/nominal owners, const-expression owners from nominal/object/binding/
+      projection metadata, and array-length expression owners. A focused query
+      provider regression covers nested trait metadata and both const-expression
+      owner forms before provider expansion.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
