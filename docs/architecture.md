@@ -1443,6 +1443,13 @@ for pointer-free values. Static/global addresses remain represented by
 registry, so equal contents and a shared defining module cannot merge static
 storage with readonly const promotion storage.
 
+Executable reachability must consume `StaticInit::value_refs(module_id)` when
+extracting dependencies from a static initializer. The compatibility
+`StaticInit::refs()` view intentionally retains only bare function and global
+definitions; using it for executable facts would erase the concrete type,
+const, and receiver arguments of `AddrOfFunction` values and could leave a
+generic function-pointer target out of the backend instance plan.
+
 Foreign const execution receives three disjoint signature-fact channels:
 types, functions, and values. Executable reachability may request each
 `SignatureItemSet` independently, so function-call resolution must use the

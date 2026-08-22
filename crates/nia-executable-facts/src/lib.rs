@@ -301,7 +301,7 @@ pub fn executable_refs_for_items(
     if globals.len() <= module.body_ir.global_inits.len() {
         for def_id in globals {
             if let Some(init) = module.body_ir.global_inits.get(def_id) {
-                collect_static_init_refs(init, &mut refs);
+                collect_static_init_refs(module.module_id, init, &mut refs);
             }
         }
     } else {
@@ -309,7 +309,7 @@ pub fn executable_refs_for_items(
             if !globals.contains(def_id) {
                 continue;
             }
-            collect_static_init_refs(init, &mut refs);
+            collect_static_init_refs(module.module_id, init, &mut refs);
         }
     }
     refs
@@ -328,7 +328,7 @@ pub fn executable_module_refs_from_typed_ir(
     }
     for (def_id, init) in &module.body_ir.global_inits {
         let mut global_refs = ExecutableItemRefs::default();
-        collect_static_init_refs(init, &mut global_refs);
+        collect_static_init_refs(module.module_id, init, &mut global_refs);
         refs.globals.insert(*def_id, global_refs);
     }
     refs
@@ -1146,10 +1146,25 @@ fn collect_typed_place_refs(
     }
 }
 
-fn collect_static_init_refs(init: &StaticInit, refs: &mut ExecutableItemRefs) {
-    let init_refs = init.refs();
+fn collect_static_init_refs(module_id: ModuleId, init: &StaticInit, refs: &mut ExecutableItemRefs) {
+    let init_refs = init.value_refs(module_id);
     refs.functions.extend(init_refs.functions);
     refs.globals.extend(init_refs.globals);
+    refs.generic_instantiations
+        .extend(
+            init_refs
+                .function_instances
+                .into_iter()
+                .map(|instance| GenericInstantiation {
+                    def_id: instance.def_id,
+                    self_arg: instance.self_arg,
+                    args: instance.args,
+                    const_args: instance.const_args,
+                    generics: Vec::new(),
+                    span: instance.span,
+                    source_def_id: None,
+                }),
+        );
 }
 
 fn builtin_method_trait(
@@ -1384,6 +1399,63 @@ mod tests {
                 source_def_id: None,
             }]
         );
+    }
+
+    #[test]
+    fn static_function_instance_values_retain_generic_identity() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = nia_ty::TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::I32);
+        let function = GlobalDefId {
+            module_id,
+            def_id: DefId(9),
+        };
+        let global = GlobalDefId {
+            module_id,
+            def_id: DefId(10),
+        };
+        let defs = nia_defs::DefCollection {
+            module_id,
+            defs: Default::default(),
+            module_scope: Default::default(),
+            scopes: nia_defs::DefScopes {
+                struct_members: HashMap::new(),
+                union_members: HashMap::new(),
+                enum_members: HashMap::new(),
+            },
+            def_nodes: Default::default(),
+            module_usings: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let body_ir = BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::from([(
+                global,
+                std::sync::Arc::new(StaticInit::AddrOfFunction {
+                    function,
+                    args: vec![ty],
+                }),
+            )]),
+        };
+        let executable_refs = ExecutableModuleRefs::default();
+        let semantic_facts = nia_sema_ir::SemanticFacts::default();
+        let module = ReachableModuleInput {
+            module_id,
+            defs: &defs,
+            type_store: &types,
+            body_ir: &body_ir,
+            executable_refs: &executable_refs,
+            semantic_facts: &semantic_facts,
+        };
+        let refs = executable_refs_for_items(&module, &HashSet::new(), &HashSet::from([global]));
+
+        assert!(refs.functions.is_empty());
+        assert_eq!(refs.generic_instantiations.len(), 1);
+        assert_eq!(refs.generic_instantiations[0].def_id, function);
+        assert_eq!(refs.generic_instantiations[0].args, vec![ty]);
     }
 
     #[test]
