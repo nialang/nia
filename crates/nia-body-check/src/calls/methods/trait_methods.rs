@@ -23,53 +23,39 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         self.check_receiver_match(call.receiver, call.actual_receiver_ty, receiver_kind);
-        let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
+        let Some((method_instantiation_args, method_const_args)) =
+            self.lowered_method_type_args(call.type_args, &candidate.signature.generic_params)
+        else {
             for arg in call.args {
                 self.check_expr(arg);
             }
             return Some(self.error());
         };
-        if call.type_args.is_some()
-            && candidate.signature.generics.len() != method_instantiation_args.len()
-        {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                call.span,
-                format!(
-                    "generic argument count mismatch for trait method: expected {}, got {}",
-                    candidate.signature.generics.len(),
-                    method_instantiation_args.len()
-                ),
-            ));
-            for arg in call.args {
-                self.check_expr(arg);
-            }
-            return Some(self.error());
-        }
-        let mut substitutions =
+        let trait_substitutions =
             self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
-        let mut const_substitutions = self.trait_const_substitutions_for_candidate(
+        let trait_const_substitutions = self.trait_const_substitutions_for_candidate(
             candidate.trait_id,
             &candidate.trait_args,
             &candidate.trait_const_args,
         );
-        if call.type_args.is_some() {
-            substitutions.extend(
-                self.generic_substitutions(
-                    &candidate.signature.generics,
-                    &method_instantiation_args,
-                ),
-            );
-        } else if let Some(expected) = call.expected {
-            let return_type = self.substitute_generics_and_consts_with_self(
-                candidate.signature.return_type,
-                &substitutions,
-                &const_substitutions,
-                candidate.self_ty,
-            );
-            let expected = self.normalize_projection(expected);
-            self.infer_generics_from_type(return_type, expected, &mut substitutions, call.span);
-        }
+        let Some((mut substitutions, mut const_substitutions)) = self.method_generic_substitutions(
+            MethodGenericContext {
+                span: call.span,
+                self_ty: candidate.self_ty,
+                target_substitutions: &trait_substitutions,
+                target_const_substitutions: &trait_const_substitutions,
+                method_args: call.type_args,
+                lowered_method_args: &method_instantiation_args,
+                lowered_method_const_args: &method_const_args,
+                expected: call.expected,
+            },
+            &candidate.signature,
+        ) else {
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
         let mut params: Vec<InternedTyId> = candidate
             .signature
             .params
@@ -86,7 +72,12 @@ impl<'a> BodyChecker<'a> {
             .collect();
         if call.type_args.is_none() {
             self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
-            if !self.method_generics_are_complete(call.span, &candidate.signature, &substitutions) {
+            if !self.method_generics_are_complete_with_consts(
+                call.span,
+                &candidate.signature,
+                &substitutions,
+                &const_substitutions,
+            ) {
                 self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
                 return Some(self.error());
             }
@@ -177,6 +168,7 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args: method_instantiation_args,
+                const_args: method_const_args,
                 receiver_kind,
             },
         );
@@ -230,13 +222,15 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         }
         self.check_dynamic_trait_object_receiver_match(&call, receiver_kind);
-        let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
+        let Some((method_instantiation_args, method_const_args)) =
+            self.lowered_method_type_args(call.type_args, &candidate.signature.generic_params)
+        else {
             for arg in call.args {
                 self.check_expr(arg);
             }
             return Some(self.error());
         };
-        if !method_instantiation_args.is_empty() {
+        if !method_instantiation_args.is_empty() || !method_const_args.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call.span,

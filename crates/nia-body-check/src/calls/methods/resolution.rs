@@ -1042,10 +1042,12 @@ impl<'a> BodyChecker<'a> {
         else {
             return false;
         };
-        let Some(method_args) = self.lowered_method_type_args(call.type_args) else {
+        let Some((method_args, method_const_args)) =
+            self.lowered_method_type_args(call.type_args, &signature.generic_params)
+        else {
             return false;
         };
-        let Some(mut substitutions) = self.method_generic_substitutions(
+        let Some((mut substitutions, const_substitutions)) = self.method_generic_substitutions(
             MethodGenericContext {
                 span: call.span,
                 self_ty: candidate.self_ty,
@@ -1053,6 +1055,7 @@ impl<'a> BodyChecker<'a> {
                 target_const_substitutions: &candidate.target_const_substitutions,
                 method_args: call.type_args,
                 lowered_method_args: &method_args,
+                lowered_method_const_args: &method_const_args,
                 expected: call.expected,
             },
             &signature,
@@ -1073,7 +1076,7 @@ impl<'a> BodyChecker<'a> {
                     self.substitute_generics_and_consts_with_self(
                         param.ty,
                         &substitutions,
-                        &candidate.target_const_substitutions,
+                        &const_substitutions,
                         candidate.self_ty,
                     )
                 })
@@ -1103,33 +1106,80 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn lowered_method_type_args(
         &mut self,
         type_args: Option<&[BracketArg]>,
-    ) -> Option<Vec<InternedTyId>> {
+        params: &[nia_item_signatures::GenericParamSignature],
+    ) -> Option<(Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         type_args
-            .map(|args| self.lower_bracket_type_args(args))
-            .or(Some(Vec::new()))
+            .map(|args| {
+                if args.len() != params.len() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        Span::default(),
+                        format!(
+                            "generic argument count mismatch for method: expected {}, got {}",
+                            params.len(),
+                            args.len()
+                        ),
+                    ));
+                    return None;
+                }
+                self.lower_bracket_args_for_generic_params(Span::default(), params, args)
+                    .map(|lowered| (lowered.type_args, lowered.const_args))
+            })
+            .unwrap_or(Some((Vec::new(), Vec::new())))
     }
 
     pub(in crate::calls::methods) fn method_generic_substitutions(
         &mut self,
         context: MethodGenericContext<'_>,
         signature: &FunctionSignature,
-    ) -> Option<SymbolMap<InternedTyId>> {
+    ) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
         let mut substitutions = context.target_substitutions.clone();
+        let mut const_substitutions = context.target_const_substitutions.clone();
         let method_arg_count = context.lowered_method_args.len();
-        if context.method_args.is_some() && signature.generics.len() != method_arg_count {
-            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
+        let const_arg_count = context.lowered_method_const_args.len();
+        if context.method_args.is_some()
+            && signature.generic_params.len() != method_arg_count + const_arg_count
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
                 context.span,
                 format!(
-                    "generic argument count mismatch for method: expected {}, got {method_arg_count}",
-                    signature.generics.len()
+                    "generic argument count mismatch for method: expected {}, got {}",
+                    signature.generic_params.len(),
+                    method_arg_count + const_arg_count
                 ),
             ));
             return None;
         }
         if context.method_args.is_some() {
-            substitutions.extend(
-                self.generic_substitutions(&signature.generics, context.lowered_method_args),
-            );
+            for (name, ty) in signature
+                .generic_params
+                .iter()
+                .filter_map(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Type
+                    )
+                    .then_some(param.name)
+                })
+                .zip(context.lowered_method_args.iter().copied())
+            {
+                substitutions.insert(name, ty);
+            }
+            for (name, arg) in signature
+                .generic_params
+                .iter()
+                .filter_map(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    )
+                    .then_some(param.name)
+                })
+                .zip(context.lowered_method_const_args.iter().cloned())
+            {
+                const_substitutions.insert(name, arg);
+            }
         } else if let Some(expected) = context.expected {
             let return_type = self.substitute_generics_and_consts_with_self(
                 signature.return_type,
@@ -1139,7 +1189,7 @@ impl<'a> BodyChecker<'a> {
             );
             self.infer_generics_from_type(return_type, expected, &mut substitutions, context.span);
         }
-        Some(substitutions)
+        Some((substitutions, const_substitutions))
     }
 
     fn extension_method_where_predicates_can_hold(
@@ -1271,11 +1321,34 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
+        self.method_generics_are_complete_with_consts(
+            span,
+            signature,
+            substitutions,
+            &SymbolMap::default(),
+        )
+    }
+
+    pub(in crate::calls::methods) fn method_generics_are_complete_with_consts(
+        &mut self,
+        span: Span,
+        signature: &FunctionSignature,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> bool {
         let mut complete = true;
-        for generic in &signature.generics {
-            if !substitutions.contains_key(generic) {
+        for param in &signature.generic_params {
+            let present = match param.kind {
+                nia_item_signatures::GenericParamSignatureKind::Type => {
+                    substitutions.contains_key(&param.name)
+                }
+                nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
+                    const_substitutions.contains_key(&param.name)
+                }
+            };
+            if !present {
                 complete = false;
-                let name = self.symbol_name(*generic);
+                let name = self.symbol_name(param.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,

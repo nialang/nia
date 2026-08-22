@@ -445,14 +445,19 @@ fn collect_resolved_call_refs(
                 source_def_id: None,
             });
         }
-        ResolvedCall::Method { def_id, args, .. } => {
+        ResolvedCall::Method {
+            def_id,
+            args,
+            const_args,
+            ..
+        } => {
             refs.functions.insert(*def_id);
-            if !args.is_empty() {
+            if !args.is_empty() || !const_args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
                     def_id: *def_id,
                     self_arg: None,
                     args: args.clone(),
-                    const_args: Vec::new(),
+                    const_args: const_args.clone(),
                     generics: Vec::new(),
                     span: nia_span::Span::default(),
                     source_def_id: None,
@@ -467,6 +472,7 @@ fn collect_resolved_call_refs(
             trait_args,
             trait_const_args,
             args,
+            const_args,
             ..
         } => {
             refs.functions.insert(*method_id);
@@ -478,12 +484,12 @@ fn collect_resolved_call_refs(
                 trait_args.clone(),
                 trait_const_args.clone(),
             );
-            if !args.is_empty() {
+            if !args.is_empty() || !const_args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
                     def_id: *method_id,
                     self_arg: Some(*self_ty),
                     args: args.clone(),
-                    const_args: Vec::new(),
+                    const_args: const_args.clone(),
                     generics: Vec::new(),
                     span: nia_span::Span::default(),
                     source_def_id: None,
@@ -498,6 +504,7 @@ fn collect_resolved_call_refs(
             trait_args,
             trait_const_args,
             args,
+            const_args,
             ..
         } => {
             refs.functions.insert(*method_id);
@@ -509,12 +516,12 @@ fn collect_resolved_call_refs(
                 trait_args.clone(),
                 trait_const_args.clone(),
             );
-            if !args.is_empty() {
+            if !args.is_empty() || !const_args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
                     def_id: *method_id,
                     self_arg: Some(*self_ty),
                     args: args.clone(),
-                    const_args: Vec::new(),
+                    const_args: const_args.clone(),
                     generics: Vec::new(),
                     span: nia_span::Span::default(),
                     source_def_id: None,

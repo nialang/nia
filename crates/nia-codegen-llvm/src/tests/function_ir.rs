@@ -7544,6 +7544,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
                                 trait_args: Vec::new(),
                                 trait_const_args: Vec::new(),
                                 args: Vec::new(),
+                                const_args: Vec::new(),
                                 receiver_kind: nia_ids::ReceiverKind::Value,
                                 receiver: Box::new(FunctionExpr {
                                     span,

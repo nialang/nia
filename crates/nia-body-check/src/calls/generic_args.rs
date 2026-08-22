@@ -348,16 +348,6 @@ impl<'a> BodyChecker<'a> {
         complete.then_some(args)
     }
 
-    pub(crate) fn complete_instance_args_for_def(
-        &mut self,
-        span: Span,
-        def_id: GlobalDefId,
-        substitutions: &SymbolMap<InternedTyId>,
-    ) -> Option<Vec<InternedTyId>> {
-        let generics = self.effective_generics_for_def(def_id);
-        self.complete_instance_args_for_generics(span, &generics, substitutions)
-    }
-
     pub(crate) fn complete_instance_args_and_const_args_for_def(
         &mut self,
         span: Span,
@@ -384,15 +374,6 @@ impl<'a> BodyChecker<'a> {
             }
         }
         complete.then_some((args, const_args))
-    }
-
-    pub(crate) fn record_generic_instantiation(
-        &mut self,
-        def_id: GlobalDefId,
-        args: &[InternedTyId],
-        span: Span,
-    ) {
-        self.record_generic_instantiation_with_self_arg(def_id, None, args, span);
     }
 
     pub(crate) fn record_generic_instantiation_with_self_arg(

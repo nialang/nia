@@ -1841,6 +1841,11 @@ acceptance item only when its phase-wide evidence is complete.
       lookup, and fingerprints. Owner regressions cover typed static refs and
       facts-only body refs; compiler-query coverage verifies the const argument
       survives executable static init, backend planning, and final Backend IR.
+- [x] Batch 317 preserves method and trait-method const-generic identities from
+      semantic calls through Body IR, executable facts, reachability, backend
+      dispatch, function-instance planning, and LLVM fingerprints. Owner tests
+      cover a direct const-generic extension method; compiler-query coverage
+      verifies the method const argument survives planning and final Backend IR.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

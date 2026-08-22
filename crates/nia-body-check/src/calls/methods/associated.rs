@@ -127,40 +127,32 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        let mut substitutions = candidate.target_substitutions.clone();
-        let Some(method_instantiation_args) = self.lowered_method_type_args(method_type_args)
+        let Some((method_instantiation_args, method_const_args)) =
+            self.lowered_method_type_args(method_type_args, &signature.generic_params)
         else {
             for arg in args {
                 self.check_expr(arg);
             }
             return Some(self.error());
         };
-        let method_arg_count = method_instantiation_args.len();
-        if method_type_args.is_some() && signature.generics.len() != method_arg_count {
-            self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
+        let Some((mut substitutions, const_substitutions)) = self.method_generic_substitutions(
+            MethodGenericContext {
                 span,
-                format!(
-                    "generic argument count mismatch for method: expected {}, got {method_arg_count}",
-                    signature.generics.len()
-                ),
-            ));
+                self_ty: candidate.self_ty,
+                target_substitutions: &candidate.target_substitutions,
+                target_const_substitutions: &candidate.target_const_substitutions,
+                method_args: method_type_args,
+                lowered_method_args: &method_instantiation_args,
+                lowered_method_const_args: &method_const_args,
+                expected,
+            },
+            &signature,
+        ) else {
             for arg in args {
                 self.check_expr(arg);
             }
             return Some(self.error());
-        }
-        if method_type_args.is_some() {
-            substitutions.extend(
-                self.generic_substitutions(&signature.generics, &method_instantiation_args),
-            );
-        } else if let Some(expected) = expected {
-            self.infer_generics_from_type(
-                signature.return_type,
-                expected,
-                &mut substitutions,
-                span,
-            );
-        }
+        };
         let is_receiver_method = signature
             .params
             .first()
@@ -187,7 +179,12 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .skip(if is_receiver_method { 1 } else { 0 })
             .map(|param| {
-                self.substitute_generics_with_self(param.ty, &substitutions, candidate.self_ty)
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    candidate.self_ty,
+                )
             })
             .collect();
         let value_args = if is_receiver_method && !args.is_empty() {
@@ -197,7 +194,12 @@ impl<'a> BodyChecker<'a> {
         };
         if method_type_args.is_none() {
             self.infer_method_generics_from_args(value_args, &params, &mut substitutions);
-            if !self.method_generics_are_complete(span, &signature, &substitutions) {
+            if !self.method_generics_are_complete_with_consts(
+                span,
+                &signature,
+                &substitutions,
+                &const_substitutions,
+            ) {
                 self.check_call_arg_count(span, value_args.len(), params.len(), false);
                 return Some(self.error());
             }
@@ -210,13 +212,13 @@ impl<'a> BodyChecker<'a> {
         self.check_where_predicates_hold(
             &signature.where_predicates,
             &substitutions,
-            &SymbolMap::default(),
+            &const_substitutions,
             span,
         );
         self.check_where_predicates_hold(
             &candidate.method.where_predicates,
             &substitutions,
-            &SymbolMap::default(),
+            &const_substitutions,
             span,
         );
         let params: Vec<InternedTyId> = signature
@@ -224,17 +226,32 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .skip(if is_receiver_method { 1 } else { 0 })
             .map(|param| {
-                self.substitute_generics_with_self(param.ty, &substitutions, candidate.self_ty)
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    candidate.self_ty,
+                )
             })
             .collect();
         self.check_direct_call_args(span, value_args, &params, false);
-        let Some(instance_args) =
-            self.complete_instance_args_for_def(span, method_id, &substitutions)
+        let Some((instance_args, instance_const_args)) = self
+            .complete_instance_args_and_const_args_for_def(
+                span,
+                method_id,
+                &substitutions,
+                &const_substitutions,
+            )
         else {
             return Some(self.error());
         };
-        if !instance_args.is_empty() {
-            self.record_generic_instantiation(method_id, &instance_args, span);
+        if !instance_args.is_empty() || !instance_const_args.is_empty() {
+            self.record_generic_instantiation_with_const_args(
+                method_id,
+                &instance_args,
+                &instance_const_args,
+                span,
+            );
             self.record_resolved_node_call(
                 span,
                 &expr.node_key,
@@ -242,15 +259,16 @@ impl<'a> BodyChecker<'a> {
                     def_id: method_id,
                     arg_module_id: self.defs.module_id,
                     args: instance_args,
-                    const_args: Vec::new(),
+                    const_args: instance_const_args,
                 },
             );
         } else {
             self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Function(method_id));
         }
-        let return_type = self.substitute_generics_with_self(
+        let return_type = self.substitute_generics_and_consts_with_self(
             signature.return_type,
             &substitutions,
+            &const_substitutions,
             candidate.self_ty,
         );
         let return_type = self.normalize_projection(return_type);
@@ -306,57 +324,60 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
-        let Some(method_instantiation_args) = self.lowered_method_type_args(method_type_args)
+        let Some((method_instantiation_args, method_const_args)) =
+            self.lowered_method_type_args(method_type_args, &candidate.signature.generic_params)
         else {
             for arg in args {
                 self.check_expr(arg);
             }
             return Some(self.error());
         };
-        if method_type_args.is_some()
-            && candidate.signature.generics.len() != method_instantiation_args.len()
-        {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!(
-                    "generic argument count mismatch for trait method: expected {}, got {}",
-                    candidate.signature.generics.len(),
-                    method_instantiation_args.len()
-                ),
-            ));
+        let trait_substitutions =
+            self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        let trait_const_substitutions = self.trait_const_substitutions_for_candidate(
+            candidate.trait_id,
+            &candidate.trait_args,
+            &candidate.trait_const_args,
+        );
+        let Some((mut substitutions, const_substitutions)) = self.method_generic_substitutions(
+            MethodGenericContext {
+                span: expr.span,
+                self_ty: target_ty,
+                target_substitutions: &trait_substitutions,
+                target_const_substitutions: &trait_const_substitutions,
+                method_args: method_type_args,
+                lowered_method_args: &method_instantiation_args,
+                lowered_method_const_args: &method_const_args,
+                expected,
+            },
+            &candidate.signature,
+        ) else {
             for arg in args {
                 self.check_expr(arg);
             }
             return Some(self.error());
-        }
-        let mut substitutions =
-            self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
-        if method_type_args.is_some() {
-            substitutions.extend(
-                self.generic_substitutions(
-                    &candidate.signature.generics,
-                    &method_instantiation_args,
-                ),
-            );
-        } else if let Some(expected) = expected {
-            let return_type = self.substitute_generics_with_self(
-                candidate.signature.return_type,
-                &substitutions,
-                target_ty,
-            );
-            let expected = self.normalize_projection(expected);
-            self.infer_generics_from_type(return_type, expected, &mut substitutions, expr.span);
-        }
+        };
         let mut params: Vec<InternedTyId> = candidate
             .signature
             .params
             .iter()
-            .map(|param| self.substitute_generics_with_self(param.ty, &substitutions, target_ty))
+            .map(|param| {
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    target_ty,
+                )
+            })
             .collect();
         if method_type_args.is_none() {
             self.infer_method_generics_from_args(args, &params, &mut substitutions);
-            if !self.method_generics_are_complete(expr.span, &candidate.signature, &substitutions) {
+            if !self.method_generics_are_complete_with_consts(
+                expr.span,
+                &candidate.signature,
+                &substitutions,
+                &const_substitutions,
+            ) {
                 self.check_call_arg_count(expr.span, args.len(), params.len(), false);
                 return Some(self.error());
             }
@@ -365,7 +386,12 @@ impl<'a> BodyChecker<'a> {
                 .params
                 .iter()
                 .map(|param| {
-                    self.substitute_generics_with_self(param.ty, &substitutions, target_ty)
+                    self.substitute_generics_and_consts_with_self(
+                        param.ty,
+                        &substitutions,
+                        &const_substitutions,
+                        target_ty,
+                    )
                 })
                 .collect();
         }
@@ -373,13 +399,15 @@ impl<'a> BodyChecker<'a> {
         let trait_args = candidate
             .trait_args
             .iter()
-            .map(|arg| self.substitute_generics_with_self(*arg, &substitutions, target_ty))
+            .map(|arg| {
+                self.substitute_generics_and_consts_with_self(
+                    *arg,
+                    &substitutions,
+                    &const_substitutions,
+                    target_ty,
+                )
+            })
             .collect::<Vec<_>>();
-        let const_substitutions = self.trait_const_substitutions_for_candidate(
-            candidate.trait_id,
-            &candidate.trait_args,
-            &candidate.trait_const_args,
-        );
         let trait_const_args = candidate
             .trait_const_args
             .iter()
@@ -414,11 +442,13 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args: method_instantiation_args,
+                const_args: method_const_args,
             },
         );
-        let return_type = self.substitute_generics_with_self(
+        let return_type = self.substitute_generics_and_consts_with_self(
             candidate.signature.return_type,
             &substitutions,
+            &const_substitutions,
             target_ty,
         );
         let return_type = self.normalize_projection(return_type);

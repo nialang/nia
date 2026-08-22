@@ -249,10 +249,12 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::Method {
                 def_id,
                 args,
+                const_args,
                 receiver_kind: _,
             } => {
                 let signature = self.resolved_function_signature(def_id)?.signature;
-                let mut substitutions = self.method_substitutions(def_id, &signature, &args);
+                let (mut substitutions, const_substitutions) =
+                    self.method_substitutions(def_id, &signature, &args, &const_args);
                 let receiver_ty = signature
                     .params
                     .first()
@@ -266,7 +268,7 @@ impl<'a> BodyChecker<'a> {
                 Some(self.substituted_call_param_tys(
                     &signature.params,
                     &mut substitutions,
-                    &SymbolMap::default(),
+                    &const_substitutions,
                     receiver_ty,
                     receiver_ty,
                 ))
@@ -279,16 +281,18 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
                 receiver_kind,
             } => {
                 let signature = self.trait_method_signature(trait_id, &method_name)?;
                 let (mut substitutions, const_substitutions) = self
                     .generic_substitutions_for_trait_call(
                         trait_id,
-                        &signature.generics,
+                        &signature,
                         &trait_args,
                         &trait_const_args,
                         &args,
+                        &const_args,
                     );
                 let receiver_ty = signature
                     .params
@@ -318,15 +322,17 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
             } => {
                 let signature = self.trait_method_signature(trait_id, &method_name)?;
                 let (mut substitutions, const_substitutions) = self
                     .generic_substitutions_for_trait_call(
                         trait_id,
-                        &signature.generics,
+                        &signature,
                         &trait_args,
                         &trait_const_args,
                         &args,
+                        &const_args,
                     );
                 Some(self.substituted_call_param_tys(
                     &signature.params,
@@ -346,17 +352,24 @@ impl<'a> BodyChecker<'a> {
         def_id: nia_ids::GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
         args: &[nia_ids::InternedTyId],
-    ) -> SymbolMap<nia_ids::InternedTyId> {
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> (
+        SymbolMap<nia_ids::InternedTyId>,
+        SymbolMap<nia_ty::ConstGenericArg>,
+    ) {
+        let mut result = self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
         let generics = self.effective_generics_for_def(def_id);
-        let mut substitutions = self.generic_substitutions(&generics, args);
-        for (generic, arg) in signature
-            .generics
-            .iter()
-            .zip(args.iter().skip(generics.len()))
-        {
-            substitutions.entry(*generic).or_insert(*arg);
+        if result.0.len() < args.len() {
+            result.0 = self.generic_substitutions(&generics, args);
+            for (generic, arg) in signature
+                .generics
+                .iter()
+                .zip(args.iter().skip(generics.len()))
+            {
+                result.0.entry(*generic).or_insert(*arg);
+            }
         }
-        substitutions
+        result
     }
 
     fn method_self_target_ty(
@@ -379,10 +392,11 @@ impl<'a> BodyChecker<'a> {
     fn generic_substitutions_for_trait_call(
         &mut self,
         trait_id: nia_ids::GlobalDefId,
-        method_generics: &[SymbolId],
+        method_signature: &nia_item_signatures::FunctionSignature,
         trait_args: &[nia_ids::InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
         method_args: &[nia_ids::InternedTyId],
+        method_const_args: &[nia_ty::ConstGenericArg],
     ) -> (
         SymbolMap<nia_ids::InternedTyId>,
         SymbolMap<nia_ty::ConstGenericArg>,
@@ -393,9 +407,37 @@ impl<'a> BodyChecker<'a> {
             .map(|signature| signature.generics.clone())
             .unwrap_or_default();
         let mut substitutions = self.generic_substitutions(&trait_generics, trait_args);
-        substitutions.extend(self.generic_substitutions(method_generics, method_args));
+        for (name, arg) in method_signature
+            .generic_params
+            .iter()
+            .filter_map(|param| {
+                matches!(
+                    param.kind,
+                    nia_item_signatures::GenericParamSignatureKind::Type
+                )
+                .then_some(param.name)
+            })
+            .zip(method_args.iter().copied())
+        {
+            substitutions.insert(name, arg);
+        }
         let (_, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args);
+        let mut const_substitutions = const_substitutions;
+        for (name, arg) in method_signature
+            .generic_params
+            .iter()
+            .filter_map(|param| {
+                matches!(
+                    param.kind,
+                    nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                )
+                .then_some(param.name)
+            })
+            .zip(method_const_args.iter().cloned())
+        {
+            const_substitutions.insert(name, arg);
+        }
         (substitutions, const_substitutions)
     }
 
@@ -483,18 +525,21 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::Method {
                 def_id,
                 args,
+                const_args,
                 receiver_kind,
             } => {
                 let receiver_ty = self
                     .lowered_call_param_tys(ResolvedCall::Method {
                         def_id,
                         args: args.clone(),
+                        const_args: const_args.clone(),
                         receiver_kind,
                     })
                     .and_then(|tys| tys.first().copied());
                 TypedCallee::Method {
                     def_id,
                     args,
+                    const_args,
                     receiver_kind,
                     receiver: Box::new(self.lower_method_receiver_expr(
                         callee,
@@ -512,6 +557,7 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
                 receiver_kind,
             } => {
                 let receiver_ty = self
@@ -523,6 +569,7 @@ impl<'a> BodyChecker<'a> {
                         trait_args: trait_args.clone(),
                         trait_const_args: trait_const_args.clone(),
                         args: args.clone(),
+                        const_args: const_args.clone(),
                         receiver_kind,
                     })
                     .and_then(|tys| tys.first().copied());
@@ -534,6 +581,7 @@ impl<'a> BodyChecker<'a> {
                     trait_args,
                     trait_const_args,
                     args,
+                    const_args,
                     receiver_kind,
                     receiver: Box::new(self.lower_method_receiver_expr(
                         callee,
@@ -551,6 +599,7 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
             } => TypedCallee::TraitAssociatedFunction {
                 trait_id,
                 method_id,
@@ -559,6 +608,7 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 trait_const_args,
                 args,
+                const_args,
             },
             ResolvedCall::DynamicTraitMethod {
                 object_ty,

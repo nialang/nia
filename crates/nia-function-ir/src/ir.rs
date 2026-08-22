@@ -1026,6 +1026,8 @@ pub enum FunctionCallee {
         trait_const_args: Vec<ConstGenericArg>,
         /// Method type arguments.
         args: Vec<InternedTyId>,
+        /// Const arguments for the concrete method instance.
+        const_args: Vec<ConstGenericArg>,
         /// Receiver passing mode.
         receiver_kind: ReceiverKind,
         /// Receiver expression.
@@ -1047,6 +1049,8 @@ pub enum FunctionCallee {
         trait_const_args: Vec<ConstGenericArg>,
         /// Method type arguments.
         args: Vec<InternedTyId>,
+        /// Const arguments for the concrete function instance.
+        const_args: Vec<ConstGenericArg>,
     },
     /// Dynamic dispatch through a trait-object vtable slot.
     DynamicTraitMethod {
