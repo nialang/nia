@@ -19,6 +19,10 @@ The library follows a small set of ownership rules:
   allocation whose release fails. A partially completed collection `deinit` is
   cleanup-only state: retry `deinit` with the same allocator rather than using
   the value again.
+- Hash-map capacity counts logical entries, including slots made reusable by
+  deletion. `insertAssumeCapacity` therefore requires `len < capacity`, not an
+  unused physical empty-slot budget; it may reuse either an empty or deleted
+  control slot without allocating.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

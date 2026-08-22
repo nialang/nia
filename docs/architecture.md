@@ -1830,6 +1830,11 @@ attempts its control, key, and value releases independently, detaches only the
 successfully freed allocation slots, and retains failed slots for a later retry
 with the same allocator. After a cleanup error the map is cleanup-only state;
 ordinary lookup or mutation is not supported until ownership is fully retired.
+Hash-map capacity is a logical entry bound rather than a count of untouched
+control bytes. Removing an entry makes one assume-capacity insertion legal even
+when the empty-slot growth budget is exhausted; insertion may land in an empty
+or deleted slot while the budget remains saturated until a reserve-triggered
+rehash restores the normal empty-slot ratio.
 
 ### 9.5 `nia-function-lower`
 
