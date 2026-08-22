@@ -656,8 +656,25 @@ fn collect_typed_expr_refs(
     refs: &mut ExecutableItemRefs,
 ) {
     match &expr.kind {
-        TypedExprKind::Function(def_id) | TypedExprKind::FunctionInstance { def_id, .. } => {
+        TypedExprKind::Function(def_id) => {
             refs.functions.insert(*def_id);
+        }
+        TypedExprKind::FunctionInstance {
+            def_id,
+            args,
+            const_args,
+            ..
+        } => {
+            refs.functions.insert(*def_id);
+            refs.generic_instantiations.push(GenericInstantiation {
+                def_id: *def_id,
+                self_arg: None,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                generics: Vec::new(),
+                span: nia_span::Span::default(),
+                source_def_id: None,
+            });
         }
         TypedExprKind::Field { lhs, .. } => {
             collect_typed_expr_refs(module, lhs, refs);
@@ -1291,6 +1308,82 @@ mod tests {
         collect_typed_stmt_refs(&module, &stmt, &mut refs);
 
         assert!(refs.functions.contains(&referenced));
+    }
+
+    #[test]
+    fn typed_function_instance_values_retain_generic_identity() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = nia_ty::TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::I32);
+        let function = GlobalDefId {
+            module_id,
+            def_id: DefId(8),
+        };
+        let const_arg = nia_ty::ConstGenericArg {
+            ty,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4_u8.into())),
+        };
+        let defs = nia_defs::DefCollection {
+            module_id,
+            defs: Default::default(),
+            module_scope: Default::default(),
+            scopes: nia_defs::DefScopes {
+                struct_members: HashMap::new(),
+                union_members: HashMap::new(),
+                enum_members: HashMap::new(),
+            },
+            def_nodes: Default::default(),
+            module_usings: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let body_ir = BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        };
+        let executable_refs = ExecutableModuleRefs::default();
+        let semantic_facts = nia_sema_ir::SemanticFacts::default();
+        let module = ReachableModuleInput {
+            module_id,
+            defs: &defs,
+            type_store: &types,
+            body_ir: &body_ir,
+            executable_refs: &executable_refs,
+            semantic_facts: &semantic_facts,
+        };
+        let span = Span::new(3, 9);
+        let stmt = TypedStmt {
+            span,
+            kind: TypedStmtKind::Expr(TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::FunctionInstance {
+                    def_id: function,
+                    arg_module_id: module_id,
+                    args: vec![ty],
+                    const_args: vec![const_arg.clone()],
+                },
+            }),
+        };
+        let mut refs = ExecutableItemRefs::default();
+
+        collect_typed_stmt_refs(&module, &stmt, &mut refs);
+
+        assert!(refs.functions.contains(&function));
+        assert_eq!(
+            refs.generic_instantiations,
+            vec![GenericInstantiation {
+                def_id: function,
+                self_arg: None,
+                args: vec![ty],
+                const_args: vec![const_arg],
+                generics: Vec::new(),
+                span: Span::default(),
+                source_def_id: None,
+            }]
+        );
     }
 
     #[test]

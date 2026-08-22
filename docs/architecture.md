@@ -2065,7 +2065,23 @@ this crate as an adapter boundary: it provides layout facts, records backend
 optimization report entries, and keeps module-level backend transforms separate
 from function-local optimization.
 
-### 9.7 `nia-executable-reachability`
+### 9.7 `nia-executable-facts`
+
+Extracts executable dependency edges from typed bodies and retained semantic
+facts. Typed IR is authoritative after body checking; semantic facts provide
+the equivalent owner-indexed view for query paths that have not materialized a
+typed body. The product records functions, globals, trait/vtable references,
+and concrete generic instantiations without retaining complete body payloads.
+
+Monomorphic function values contribute only their definition identity. A
+`TypedExprKind::FunctionInstance` value contributes both that definition and
+one `GenericInstantiation` containing its complete type and const arguments,
+the same identity contract used by a direct generic callee. This applies to
+function-pointer values and other expression containers, so taking a function
+address cannot silently downgrade a concrete instance into a generic
+definition-only dependency before reachability or backend planning.
+
+### 9.8 `nia-executable-reachability`
 
 Computes the module and function set required for freestanding executable
 codegen. It starts from the root `main` and freestanding `_start` runtime roots,

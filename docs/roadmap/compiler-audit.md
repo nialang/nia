@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 312 completed entries in this ledger.
+- Implementation batches: 313 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1819,6 +1819,12 @@ acceptance item only when its phase-wide evidence is complete.
       function remains checked. The owner suite (20 tests), strict Rustdoc, and
       strict Clippy pass; architecture records eager/short-circuit, loop, defer,
       and closure control-flow conservatism.
+- [x] Phase C executable-facts collection now preserves concrete generic and
+      const arguments when a `TypedExprKind::FunctionInstance` is used as a
+      value, matching the direct generic-callee path. The owner regression checks
+      the exact `GenericInstantiation`; a compiler-query backend regression
+      proves `&identity[i32]` reaches the concrete function-instance plan and
+      final Backend IR.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
