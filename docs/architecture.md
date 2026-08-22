@@ -1036,6 +1036,9 @@ trait goals and projection keys compare normalized type and const arguments
 through the solver's equivalence rules, so equivalent handles from different
 module appenders or signed/unsigned integer spellings cannot reopen a cycle.
 Each key is removed on every return path, including missing associated items.
+Body-check projection normalization applies the same path-local semantic key
+rule before asking the solver to resolve a projection, so frontend normalization
+cannot reopen a recursive associated-type path through a rebuilt handle.
 
 ## 7. Name Resolution
 
