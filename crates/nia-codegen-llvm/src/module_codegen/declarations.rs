@@ -350,9 +350,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         let definition = &self.source.function_instances[index];
                         definition.def_id == instance.def_id
                             && definition.arg_module_id == instance.arg_module_id
-                            && definition.self_arg == instance.self_arg
-                            && definition.args == instance.args
-                            && definition.const_args == instance.const_args
+                            && self.same_optional_type(definition.self_arg, instance.self_arg)
+                            && self.same_type_args(&definition.args, &instance.args)
+                            && self.same_const_args(&definition.const_args, &instance.const_args)
                     });
             let value = self
                 .module
@@ -479,8 +479,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     let definition = &self.source.global_instances[index];
                     definition.def_id == global.def_id
                         && definition.arg_module_id == global.arg_module_id
-                        && definition.args == global.args
-                        && definition.const_args == global.const_args
+                        && self.same_type_args(&definition.args, &global.args)
+                        && self.same_const_args(&definition.const_args, &global.const_args)
                 });
             if !is_definition {
                 value.set_linkage(Linkage::External);

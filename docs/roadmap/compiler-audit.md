@@ -1983,6 +1983,12 @@ acceptance item only when its phase-wide evidence is complete.
       and integer const values by bits. Function/module, method/slot, and
       unresolved const-expression identities remain exact; a focused owner
       regression covers signed/unsigned equivalent payload spellings.
+- [x] Batch 344 closes the LLVM declaration-membership const identity bypass.
+      Function and global instance definition detection now reuses module-codegen
+      semantic type/const matching for receiver and generic payloads, while
+      exact definition and argument-module identities remain unchanged. This
+      prevents semantically equivalent const spellings from becoming false
+      external declarations; the full LLVM unit suite and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

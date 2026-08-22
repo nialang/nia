@@ -2636,6 +2636,13 @@ retain their exact identity. Exact map keys, declaration ownership, and output
 identity remain byte-for-byte exact; semantic matching is limited to fallback
 resolution and validation so caches and ABI owners do not acquire aliases.
 
+Declaration linkage membership uses that same semantic relation when deciding
+whether a function or global instance in the current partition is its concrete
+definition. Definition and argument-module identities remain exact, while
+receiver/type/const payload spelling can vary across equivalent lowering
+products without incorrectly downgrading the definition to an external
+declaration.
+
 LLVM entry points receive the compiler-owned `Arc<BackendLowering>` and
 `Arc<TypeStore>` together with the producing compiler's `QuerySession`.
 The whole-program index owns those two shared roots, so validation and emission
