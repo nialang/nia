@@ -1941,6 +1941,11 @@ acceptance item only when its phase-wide evidence is complete.
       because this phase has no evaluator. A reachability regression accepts
       equivalent signed/unsigned integer spellings but still rejects conflicting
       repeated values.
+- [x] Batch 337 closes the LLVM vtable validation const identity bypass. Vtable
+      payload validation now reuses the backend semantic const-argument helper
+      instead of raw value equality. The malformed-IR regression uses equivalent
+      signed/unsigned integer payload spellings and still reports independent
+      slot and missing-function errors without a false trait-argument mismatch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

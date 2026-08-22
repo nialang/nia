@@ -3907,7 +3907,10 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
             def_id: DefId(0),
         }),
         trait_args: Vec::new(),
-        trait_const_args: Vec::new(),
+        trait_const_args: vec![ConstGenericArg {
+            ty: i32_ty,
+            value: ConstGenericValue::Int(IntConst::unsigned(3)),
+        }],
         associated_type_bindings: Vec::new(),
     });
     let span = Span::default();
@@ -3949,8 +3952,11 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
                     module_id,
                     def_id: DefId(0),
                 }),
-                trait_args: vec![i32_ty],
-                trait_const_args: Vec::new(),
+                trait_args: Vec::new(),
+                trait_const_args: vec![ConstGenericArg {
+                    ty: i32_ty,
+                    value: ConstGenericValue::Int(IntConst::signed(3)),
+                }],
                 entries: vec![BackendTraitObjectVtableEntry {
                     trait_id: TraitId::Source(GlobalDefId {
                         module_id,
@@ -3975,7 +3981,7 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
 
     assert!(output.modules.is_empty());
     assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
+        !output.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
             .contains("vtable trait arguments do not match its object type")),
         "{:?}",

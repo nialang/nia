@@ -594,13 +594,7 @@ impl BackendValidator<'_> {
                 ..
             }) if trait_id == vtable.trait_id
                 && self.same_type_args(&trait_args, &vtable.trait_args)
-                && trait_const_args.len() == vtable.trait_const_args.len()
-                && trait_const_args.iter().zip(&vtable.trait_const_args).all(
-                    |(object_arg, payload_arg)| {
-                        object_arg.value == payload_arg.value
-                            && self.same_type(object_arg.ty, payload_arg.ty)
-                    }
-                )
+                && self.same_const_args(&trait_const_args, &vtable.trait_const_args)
         );
         if !payload_matches_object {
             self.diagnostics.push(Diagnostic::internal_error_at(
