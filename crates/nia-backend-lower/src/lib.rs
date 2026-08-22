@@ -62,7 +62,7 @@ use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
 use nia_symbol::{SymbolId, SymbolText, known, stable_hash, symbol_text_or_unresolved};
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, ConstGenericValue, TyKind, TypeEquivalence};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -747,7 +747,7 @@ pub fn plan_backend_program_with_timings(
         }
     });
     assign_unique_aggregate_instance_owners(&mut lowered_modules);
-    assign_unique_vtable_owners(&mut lowered_modules);
+    assign_unique_vtable_owners(&mut lowered_modules, type_store);
 
     BackendItemPlan {
         modules: lowered_modules
@@ -843,7 +843,46 @@ fn assign_unique_aggregate_instance_owners(modules: &mut [BackendModule]) {
     }
 }
 
-fn assign_unique_vtable_owners(modules: &mut [BackendModule]) {
+struct BackendVtableTypeEquivalence<'a> {
+    type_store: &'a nia_ty::TypeStore,
+}
+
+impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.type_store.get(ty)
+    }
+
+    fn same_array_len_for_equiv(
+        &self,
+        left: &nia_ty::ArrayLenTy,
+        right: &nia_ty::ArrayLenTy,
+    ) -> bool {
+        left == right
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        left == right || self.compute_same_type_for_equiv(left, right)
+    }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[ConstGenericArg],
+        right: &[ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type_for_equiv(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                            left.bits() == right.bits()
+                        }
+                        (left, right) => left == right,
+                    }
+            })
+    }
+}
+
+fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_ty::TypeStore) {
     let mut owners = HashMap::<BackendTraitObjectVtableKey, (usize, usize)>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
@@ -854,9 +893,7 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule]) {
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.trait_object_vtables[owner_vtable_index];
             assert!(
-                owner.trait_id == vtable.trait_id
-                    && owner.trait_args == vtable.trait_args
-                    && owner.entries == vtable.entries,
+                backend_vtable_payloads_match(type_store, owner, vtable),
                 "Nia ICE: trait-object vtable {:?} has conflicting definitions in modules {:?} and {:?}: owner={owner:?}, duplicate={vtable:?}",
                 vtable.key,
                 owner_module.id,
@@ -875,6 +912,75 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule]) {
                 .get(&vtable.key)
                 .is_some_and(|(owner, _)| *owner == module_index)
         });
+    }
+}
+
+fn backend_vtable_payloads_match(
+    type_store: &nia_ty::TypeStore,
+    left: &BackendTraitObjectVtable,
+    right: &BackendTraitObjectVtable,
+) -> bool {
+    let equivalence = BackendVtableTypeEquivalence { type_store };
+    left.trait_id == right.trait_id
+        && equivalence.same_type_args_for_equiv(&left.trait_args, &right.trait_args)
+        && equivalence
+            .same_const_generic_args_for_equiv(&left.trait_const_args, &right.trait_const_args)
+        && left.entries.len() == right.entries.len()
+        && left
+            .entries
+            .iter()
+            .zip(&right.entries)
+            .all(|(left, right)| {
+                left.trait_id == right.trait_id
+                    && equivalence.same_type_args_for_equiv(&left.trait_args, &right.trait_args)
+                    && equivalence.same_const_generic_args_for_equiv(
+                        &left.trait_const_args,
+                        &right.trait_const_args,
+                    )
+                    && left.method_id == right.method_id
+                    && left.method_name == right.method_name
+                    && left.slot == right.slot
+                    && backend_vtable_functions_match(&equivalence, &left.function, &right.function)
+            })
+}
+
+fn backend_vtable_functions_match(
+    equivalence: &impl TypeEquivalence,
+    left: &BackendTraitObjectVtableFunction,
+    right: &BackendTraitObjectVtableFunction,
+) -> bool {
+    match (left, right) {
+        (
+            BackendTraitObjectVtableFunction::Function(left),
+            BackendTraitObjectVtableFunction::Function(right),
+        ) => left == right,
+        (
+            BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id: left_def,
+                arg_module_id: left_module,
+                self_arg: left_self,
+                args: left_args,
+                const_args: left_const_args,
+            },
+            BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id: right_def,
+                arg_module_id: right_module,
+                self_arg: right_self,
+                args: right_args,
+                const_args: right_const_args,
+            },
+        ) => {
+            left_def == right_def
+                && left_module == right_module
+                && match (left_self, right_self) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => equivalence.same_type_for_equiv(*left, *right),
+                    _ => false,
+                }
+                && equivalence.same_type_args_for_equiv(left_args, right_args)
+                && equivalence.same_const_generic_args_for_equiv(left_const_args, right_const_args)
+        }
+        _ => false,
     }
 }
 
