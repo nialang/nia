@@ -1774,7 +1774,11 @@ Object-safety traversal keys that guard by the complete source trait instance,
 including type and const arguments, and rebuilds declaration-order substitutions
 before checking inherited methods. A separate expanded-instance set suppresses
 duplicate diagnostics and work when a diamond reaches the same parent through
-multiple siblings without weakening the path-local recursion guard.
+multiple siblings without weakening the path-local recursion guard. Vtable
+instantiation and dynamic-method traversal use the same semantic key comparison,
+so equivalent rebuilt handles or integer const spellings cannot reopen a cycle,
+duplicate an inherited method candidate, or materialize a second generic vtable
+instance.
 
 Where-bound candidate matching applies the same nominal identity rule during
 substitution: type arguments and const arguments remain separate, and each

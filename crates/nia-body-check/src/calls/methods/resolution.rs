@@ -13,6 +13,7 @@ struct DynamicTraitMethodSearch<'a> {
     // recorded.
     next_slot: &'a mut usize,
     visiting: &'a mut Vec<DynamicTraitInstanceKey>,
+    expanded: &'a mut Vec<DynamicTraitInstanceKey>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -20,6 +21,25 @@ struct DynamicTraitInstanceKey {
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<ConstGenericArg>,
+}
+
+impl<'a> BodyChecker<'a> {
+    fn dynamic_trait_instance_keys_equivalent(
+        &mut self,
+        left: &DynamicTraitInstanceKey,
+        right: &DynamicTraitInstanceKey,
+    ) -> bool {
+        left.trait_id == right.trait_id
+            && left.trait_args.len() == right.trait_args.len()
+            && left
+                .trait_args
+                .iter()
+                .zip(&right.trait_args)
+                .all(|(left, right)| {
+                    self.types_equivalent_without_projection_resolution(*left, *right)
+                })
+            && self.const_generic_arg_slices_match(&left.trait_const_args, &right.trait_const_args)
+    }
 }
 
 struct TraitMethodCandidateSource<'a> {
@@ -683,6 +703,7 @@ impl<'a> BodyChecker<'a> {
         let mut candidates = Vec::new();
         let mut next_slot = 0;
         let mut visiting = Vec::new();
+        let mut expanded = Vec::new();
         self.push_dynamic_trait_method_candidates(
             &mut DynamicTraitMethodSearch {
                 candidates: &mut candidates,
@@ -691,6 +712,7 @@ impl<'a> BodyChecker<'a> {
                 name,
                 next_slot: &mut next_slot,
                 visiting: &mut visiting,
+                expanded: &mut expanded,
             },
             trait_id,
             trait_args,
@@ -711,10 +733,26 @@ impl<'a> BodyChecker<'a> {
             trait_args: trait_args.clone(),
             trait_const_args: trait_const_args.clone(),
         };
-        if search.visiting.contains(&visit_key) {
+        if search
+            .visiting
+            .iter()
+            .any(|active| self.dynamic_trait_instance_keys_equivalent(active, &visit_key))
+        {
+            return;
+        }
+        if search
+            .expanded
+            .iter()
+            .any(|expanded| self.dynamic_trait_instance_keys_equivalent(expanded, &visit_key))
+        {
             return;
         }
         search.visiting.push(visit_key);
+        search.expanded.push(DynamicTraitInstanceKey {
+            trait_id,
+            trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
+        });
         let TraitId::Source(source_trait_id) = trait_id else {
             search.visiting.pop();
             return;

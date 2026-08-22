@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 331 completed entries in this ledger.
+- Implementation batches: 332 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1910,6 +1910,12 @@ acceptance item only when its phase-wide evidence is complete.
       and compares non-resolving structural shapes semantically, including const
       values. An owner regression covers equivalent rebuilt projection pairs and
       verifies the caller's active path remains balanced.
+- [x] Batch 332 closes the body-check trait-object traversal identity bypass.
+      Vtable and object-safety guards now compare complete trait instances by
+      structural type and semantic const identity, while dynamic method search
+      adds a semantic expanded set alongside its path-local guard. A diamond
+      regression with equivalent signed/unsigned const spellings proves dynamic
+      dispatch remains unambiguous and records one generic vtable instance.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
