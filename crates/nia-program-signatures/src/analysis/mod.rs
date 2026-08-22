@@ -198,7 +198,7 @@ pub fn collect_extension_method_diagnostics_for_module(
     input: ExtensionMethodValidationInput<'_>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    validate_supertraits(module, input.trait_defs, &mut diagnostics);
+    validate_supertraits(module, input, &mut diagnostics);
     for impl_signature in &module.signatures.trait_impls {
         if impl_signature.builtin.is_some() {
             continue;
@@ -584,18 +584,119 @@ fn trait_signature_ref(
 
 fn validate_supertraits(
     module: &ExtensionModuleInput<'_>,
-    trait_defs: &HashSet<GlobalDefId>,
+    input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    for trait_signature in module.signatures.traits.values() {
+    for (trait_def_id, trait_signature) in &module.signatures.traits {
         for supertrait in &trait_signature.supertraits {
             let _ = supertrait_id(
                 module,
                 supertrait.ty,
                 supertrait.span,
-                trait_defs,
+                input.trait_defs,
                 diagnostics,
             );
+        }
+        validate_supertrait_associated_binding_conflicts(
+            module,
+            input.trait_signatures,
+            input.symbols,
+            GlobalDefId {
+                module_id: module.module_id,
+                def_id: *trait_def_id,
+            },
+            trait_signature,
+            diagnostics,
+        );
+    }
+}
+
+fn validate_supertrait_associated_binding_conflicts(
+    module: &ExtensionModuleInput<'_>,
+    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
+    symbols: &SymbolTable,
+    trait_id: GlobalDefId,
+    trait_signature: &TraitSignature,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let append = module.type_store.append_for_module(module.module_id);
+    let mut trait_args = Vec::new();
+    let mut trait_const_args = Vec::new();
+    for parameter in &trait_signature.generic_params {
+        match parameter.kind {
+            GenericParamSignatureKind::Type => {
+                trait_args.push(append.intern(TyKind::GenericParam(parameter.name)));
+            }
+            GenericParamSignatureKind::Const { ty } => {
+                trait_const_args.push(nia_ty::ConstGenericArg {
+                    ty,
+                    value: nia_ty::ConstGenericValue::GenericParam(parameter.name),
+                });
+            }
+        }
+    }
+    let mut assumptions = Vec::new();
+    let mut bindings = Vec::new();
+    push_trait_goal_assumption_with_supertraits(
+        TraitGoalExpansionContext {
+            type_store: module.type_store,
+            module,
+            trait_signatures,
+        },
+        TraitGoal {
+            self_ty: append.intern(TyKind::SelfParam),
+            trait_id: TraitId::Source(trait_id),
+            trait_args,
+            trait_const_args,
+        },
+        &mut assumptions,
+        &mut bindings,
+    );
+    let mut checked = Vec::new();
+    for binding in &bindings {
+        let duplicate = checked
+            .iter()
+            .find(|existing: &&AssociatedTypeProjectionEq| {
+                existing.goal.trait_id == binding.goal.trait_id
+                    && existing.name == binding.name
+                    && existing.goal.trait_args.len() == binding.goal.trait_args.len()
+                    && existing.goal.trait_const_args.len() == binding.goal.trait_const_args.len()
+                    && existing
+                        .goal
+                        .trait_args
+                        .iter()
+                        .zip(&binding.goal.trait_args)
+                        .all(|(left, right)| {
+                            types_equivalent(module.type_store, module.lowering, *left, *right)
+                        })
+                    && existing
+                        .goal
+                        .trait_const_args
+                        .iter()
+                        .zip(&binding.goal.trait_const_args)
+                        .all(|(left, right)| {
+                            left.value == right.value
+                                && types_equivalent(
+                                    module.type_store,
+                                    module.lowering,
+                                    left.ty,
+                                    right.ty,
+                                )
+                        })
+            });
+        if let Some(existing) = duplicate {
+            if !types_equivalent(module.type_store, module.lowering, existing.ty, binding.ty) {
+                diagnostics.push(Diagnostic::user_error_at(
+                    codes::NAME_RESOLUTION,
+                    trait_signature.span,
+                    format!(
+                        "conflicting inherited associated type binding `{}`",
+                        symbol_name(symbols, binding.name)
+                    ),
+                ));
+            }
+        } else {
+            checked.push(binding.clone());
         }
     }
 }

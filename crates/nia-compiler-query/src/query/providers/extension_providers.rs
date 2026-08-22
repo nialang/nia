@@ -365,31 +365,27 @@ pub(super) fn provide_extension_provider_validation_facts(
             }
         };
         let query_failure = RefCell::new(None);
-        let diagnostics = if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id))? {
-            Vec::new()
-        } else {
-            let input = db.get(ExtensionSignatureModuleInputQuery(module_id))?;
-            let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
-            let trait_impls_for_trait = |trait_id| {
-                capture_query_failure(
-                    &query_failure,
-                    db.get(ExtensionTraitImplsForTraitQuery(trait_id)),
-                )
-                .map(|facts| facts.trait_impls.clone())
-                .unwrap_or_default()
-            };
-            let symbols = db.context().symbols();
-            collect_extension_method_diagnostics_for_module(
-                &input.module(&db.context().type_store),
-                ExtensionMethodValidationInput {
-                    type_store: &db.context().type_store,
-                    trait_defs: &trait_index.trait_defs,
-                    trait_signatures: &trait_index.trait_signatures,
-                    trait_impls_for_trait: &trait_impls_for_trait,
-                    symbols: &symbols,
-                },
+        let input = db.get(ExtensionSignatureModuleInputQuery(module_id))?;
+        let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
+        let trait_impls_for_trait = |trait_id| {
+            capture_query_failure(
+                &query_failure,
+                db.get(ExtensionTraitImplsForTraitQuery(trait_id)),
             )
+            .map(|facts| facts.trait_impls.clone())
+            .unwrap_or_default()
         };
+        let symbols = db.context().symbols();
+        let diagnostics = collect_extension_method_diagnostics_for_module(
+            &input.module(&db.context().type_store),
+            ExtensionMethodValidationInput {
+                type_store: &db.context().type_store,
+                trait_defs: &trait_index.trait_defs,
+                trait_signatures: &trait_index.trait_signatures,
+                trait_impls_for_trait: &trait_impls_for_trait,
+                symbols: &symbols,
+            },
+        );
         if let Some(error) = query_failure.into_inner() {
             return Err(error);
         }

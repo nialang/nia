@@ -205,6 +205,43 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn conflicting_supertrait_associated_bindings_are_rejected() {
+    let root = temp_dir("conflicting_supertrait_associated_bindings_are_rejected");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parent { type Item; }
+
+trait DirectConflict : Parent[Item = i32] + Parent[Item = bool] {}
+
+trait Left : Parent[Item = i32] {}
+trait RightConflict : Parent[Item = bool] {}
+trait DiamondConflict : Left + RightConflict {}
+
+trait RightCompatible : Parent[Item = i32] {}
+trait DiamondCompatible : Left + RightCompatible {}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("conflicting inherited associated type binding"))
+            .count(),
+        2,
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_supertraits_require_the_exact_parent_instance() {
     let root = temp_dir("const_generic_supertraits_require_the_exact_parent_instance");
     write(
