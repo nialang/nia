@@ -26,6 +26,44 @@ pub(super) fn types_equivalent_in_store(
     types_equivalent_with_const_exprs(type_store, &HashMap::new(), left, right)
 }
 
+pub(super) fn type_args_equivalent_in_store(
+    type_store: &TypeStore,
+    left: &[InternedTyId],
+    right: &[InternedTyId],
+) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| types_equivalent_in_store(type_store, *left, *right))
+}
+
+pub(super) fn const_args_equivalent_in_store(
+    type_store: &TypeStore,
+    left: &[nia_ty::ConstGenericArg],
+    right: &[nia_ty::ConstGenericArg],
+) -> bool {
+    SignatureTypeEquivalence {
+        type_store,
+        const_exprs: &HashMap::new(),
+    }
+    .same_const_generic_args_for_equiv(left, right)
+}
+
+pub(super) fn projection_context_matches(
+    type_store: &TypeStore,
+    self_ty: InternedTyId,
+    context_self_ty: InternedTyId,
+    trait_args: &[InternedTyId],
+    context_trait_args: &[InternedTyId],
+    trait_const_args: &[nia_ty::ConstGenericArg],
+    context_trait_const_args: &[nia_ty::ConstGenericArg],
+) -> bool {
+    types_equivalent_in_store(type_store, self_ty, context_self_ty)
+        && type_args_equivalent_in_store(type_store, trait_args, context_trait_args)
+        && const_args_equivalent_in_store(type_store, trait_const_args, context_trait_const_args)
+}
+
 fn types_equivalent_with_const_exprs(
     type_store: &TypeStore,
     const_exprs: &HashMap<nia_ids::GlobalConstExprId, ConstExprSummary>,
@@ -870,9 +908,15 @@ pub(super) fn substitute_type(
                 .collect::<Vec<_>>();
             if let Some(context) = projection_context
                 && *trait_id == TraitId::Source(context.trait_id)
-                && self_ty == context.self_ty
-                && trait_args == context.trait_args
-                && trait_const_args == context.trait_const_args
+                && projection_context_matches(
+                    type_store,
+                    self_ty,
+                    context.self_ty,
+                    &trait_args,
+                    context.trait_args,
+                    &trait_const_args,
+                    context.trait_const_args,
+                )
                 && let Some(associated_type) = context
                     .associated_types
                     .iter()

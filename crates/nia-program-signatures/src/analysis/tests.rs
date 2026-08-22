@@ -254,6 +254,36 @@ fn const_generic_supertrait_instances_require_exact_impl_arguments() {
 }
 
 #[test]
+fn projection_context_matching_uses_semantic_arguments() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let left = type_store.append_for_module(left_module);
+    let right = type_store.append_for_module(right_module);
+    let left_u32 = left.intern(TyKind::Primitive(PrimitiveTy::U32));
+    let right_u32 = right.intern(TyKind::Primitive(PrimitiveTy::U32));
+    let left_const = nia_ty::ConstGenericArg {
+        ty: left_u32,
+        value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(7)),
+    };
+    let right_const = nia_ty::ConstGenericArg {
+        ty: right_u32,
+        value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
+    };
+
+    assert!(types::projection_context_matches(
+        &type_store,
+        left_u32,
+        right_u32,
+        &[left_u32],
+        &[right_u32],
+        &[left_const],
+        &[right_const],
+    ));
+}
+
+#[test]
 fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let left_module = module_ids.allocate();

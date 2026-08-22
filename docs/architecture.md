@@ -1024,6 +1024,11 @@ const arguments. Assumption output deduplication uses the same equivalence rule;
 integer const spellings and module-owned interned handles therefore cannot hide
 an independent sibling or reopen a recursive path.
 
+Projection substitution in an impl context uses the same structural type and
+const-argument equivalence for its applicability check. Rebuilt handles and
+integer signedness are semantic aliases at this boundary; exact interner and
+declaration identities remain reserved for cache keys and ownership.
+
 ### 6.6 `nia-type-normalize`
 
 Expands type aliases and canonicalizes type forms where required. It detects
