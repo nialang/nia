@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-22):
 
-- Implementation batches: 281 completed entries in this ledger.
+- Implementation batches: 282 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -495,6 +495,11 @@ acceptance item only when its phase-wide evidence is complete.
       The budget remains saturated if probing reaches an empty slot before a
       tombstone; a full-table delete/insert/reserve executable regression proves
       the insertion does not trap or underflow later capacity accounting.
+- [x] Phase F build-plan encoding now checks aggregate and derived graph counts
+      before narrowing them to wire integers, and rejects oversized generated
+      payload lengths before writing their prefixes. Dependency validation also
+      guards its derived indegree and producer counts against host arithmetic
+      overflow.
 - [x] Phase B bulk-memory validation now checks mutable destination slices,
       element metadata, copy/move source slices, and byte-only set operations
       before LLVM extracts fat-pointer fields or computes byte counts. The

@@ -66,6 +66,14 @@ extend PlanEncoder {
         self.bytes.appendSlice(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
     }
 
+    fn writeBlob(&mut self, value: &[u8]) Error!() {
+        if value.len() > u32::MAX as usize {
+            return invalidPlan();
+        }
+        self.writeU32(value.len() as u32).?;
+        self.writeBytes(value)
+    }
+
     fn writeU8(&mut self, value: u8) Error!() {
         if self.bytes.len() == maxPlanBytes {
             return invalidPlan();
@@ -88,6 +96,20 @@ extend PlanEncoder {
             return invalidPlan();
         }
         self.writeU32(value as u32)
+    }
+
+    // Every protocol count is bounded before it is narrowed to u32. Keeping
+    // the addition checked also prevents a forged in-memory build from
+    // wrapping an aggregate count before writeCount can reject it.
+    fn addCount(left: usize, right: usize) Error!usize {
+        let value = match left.checked_add(right) {
+            ?value => value,
+            null => return invalidPlan(),
+        };
+        if value > maxItems {
+            return invalidPlan();
+        }
+        !value
     }
 
     fn writeString(&mut self, value: &[char]) Error!() {
@@ -278,8 +300,7 @@ extend PlanEncoder {
             StepKind::GeneratedFile => {
                 self.writeU8(3).?;
                 self.writeBuildPath(step.payload.generatedFile.output.text()).?;
-                self.writeU32(step.payload.generatedFile.contents.len() as u32).?;
-                self.writeBytes(step.payload.generatedFile.contents.asSlice())
+                self.writeBlob(step.payload.generatedFile.contents.asSlice())
             },
             StepKind::Uncacheable => {
                 self.writeU8(5).?;
@@ -432,7 +453,7 @@ extend PlanEncoder {
                         or argument.kind == CommandArgumentKind::ObjectInput
                         or argument.kind == CommandArgumentKind::StaticArchiveInput
                     {
-                        inputCount += 1;
+                        inputCount = PlanEncoder::addCount(inputCount, 1).?;
                     }
                 }
                 self.writeCount(inputCount).?;
@@ -455,7 +476,7 @@ extend PlanEncoder {
                 let mut outputCount: usize = 0;
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::BuildOutput {
-                        outputCount += 1;
+                        outputCount = PlanEncoder::addCount(outputCount, 1).?;
                     }
                 }
                 self.writeCount(outputCount).?;
@@ -476,7 +497,7 @@ extend PlanEncoder {
         let mut dependencyCount: usize = 0;
         for &edge in build.dependencies.iter() {
             if edge.step.index == step.index {
-                dependencyCount += 1;
+                dependencyCount = PlanEncoder::addCount(dependencyCount, 1).?;
             }
         }
         self.writeCount(dependencyCount).?;
@@ -503,7 +524,8 @@ extend PlanEncoder {
         self.writeBytes(&b"NIA-PLN\0"[..]).?;
         self.writeU32(build.planSchemaVersion).?;
         self.writeRootPackage().?;
-        self.writeCount(build.packages.len() + 1).?;
+        let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;
+        self.writeCount(packageCount).?;
         self.writeRootPackage().?;
         self.writeString(&"").?;
         for &package in build.packages.iter() {
@@ -516,7 +538,9 @@ extend PlanEncoder {
         for &moduleRecord in build.modules.iter() {
             self.writeModule(moduleRecord, build.packages.asSlice()).?;
         }
-        self.writeCount(build.executables.len() + build.objects.len() + build.staticArchives.len()).?;
+        let executableCount = PlanEncoder::addCount(build.executables.len(), build.objects.len()).?;
+        let artifactCount = PlanEncoder::addCount(executableCount, build.staticArchives.len()).?;
+        self.writeCount(artifactCount).?;
         for &target in build.executables.iter() {
             self.writeArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
         }
