@@ -19,12 +19,13 @@ use llvm_sys::core::{
     LLVMConstVector, LLVMCountParamTypes, LLVMCountParams, LLVMCountStructElementTypes,
     LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator,
     LLVMGetElementType, LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock,
-    LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock,
-    LLVMGetNextInstruction, LLVMGetParam, LLVMGetParamTypes, LLVMGetReturnType, LLVMGetTypeKind,
-    LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction,
-    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
-    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMSetWeak,
-    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetInstructionParent,
+    LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam,
+    LLVMGetParamTypes, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
+    LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct,
+    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
+    LLVMSetSection, LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
+    LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -1706,7 +1707,35 @@ impl<'ctx> PhiValue<'ctx> {
     }
 
     /// Adds value/block pairs to this phi instruction.
-    pub fn add_incoming(self, incoming: &[(&dyn BasicValue<'ctx>, BasicBlock<'ctx>)]) {
+    pub fn add_incoming(
+        self,
+        incoming: &[(&dyn BasicValue<'ctx>, BasicBlock<'ctx>)],
+    ) -> LlvmResult<()> {
+        let phi_block = unsafe { LLVMGetInstructionParent(self.raw) };
+        if phi_block.is_null() {
+            return Err(LlvmError::error("phi instruction has no parent block"));
+        }
+        let phi_block = BasicBlock::new(phi_block);
+        let phi_function = phi_block
+            .get_parent()
+            .ok_or_else(|| LlvmError::error("phi block has no parent function"))?;
+        let phi_type = BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?;
+        for (value, block) in incoming {
+            let value_type = BasicTypeEnum::new(unsafe { LLVMTypeOf(value.as_value_ref()) })?;
+            if value_type != phi_type {
+                return Err(LlvmError::error(
+                    "phi incoming value type does not match the phi type",
+                ));
+            }
+            let block_function = block
+                .get_parent()
+                .ok_or_else(|| LlvmError::error("phi incoming block has no parent function"))?;
+            if block_function != phi_function {
+                return Err(LlvmError::error(
+                    "phi incoming block must belong to the phi's function",
+                ));
+            }
+        }
         let mut values = incoming
             .iter()
             .map(|(value, _)| value.as_value_ref())
@@ -1723,6 +1752,7 @@ impl<'ctx> PhiValue<'ctx> {
                 incoming.len() as u32,
             )
         };
+        Ok(())
     }
 
     /// Converts the phi instruction to its first-class result value.

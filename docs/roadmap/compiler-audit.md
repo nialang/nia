@@ -2113,6 +2113,12 @@ acceptance item only when its phase-wide evidence is complete.
       the current insertion block's function before FFI entry. A cross-function
       target regression plus LLVM/codegen suites, workspace check, formatting,
       and strict Clippy pass.
+- [x] Batch 366 removes the unchecked LLVM phi-incoming API. `PhiValue::add_incoming`
+      is now fallible, requiring incoming values to match the phi type and
+      incoming blocks to belong to the phi's function; the logical-expression
+      codegen caller propagates failures. Type and cross-function block
+      regressions plus LLVM/codegen suites, workspace check, formatting, and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

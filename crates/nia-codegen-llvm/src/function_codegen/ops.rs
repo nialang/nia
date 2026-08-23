@@ -266,7 +266,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .context
             .bool_type()
             .const_int(u64::from(op == BinaryOp::Or), false);
-        phi.add_incoming(&[(&short_value, lhs_block), (&rhs_value, rhs_end)]);
+        phi.add_incoming(&[(&short_value, lhs_block), (&rhs_value, rhs_end)])
+            .map_err(|_| self.error(span, "failed to add logical phi incoming values"))?;
         Ok(phi.as_basic_value()?)
     }
 
