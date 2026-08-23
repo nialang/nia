@@ -316,6 +316,7 @@ impl<'ctx> Builder<'ctx> {
         &self,
         destination: BasicBlock<'ctx>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
+        validate_branch_targets(self.get_insert_block(), &[destination])?;
         let instruction = unsafe { LLVMBuildBr(self.raw, destination.raw) };
         Ok(InstructionValue::new(require_value(instruction, "branch")?))
     }
@@ -328,6 +329,7 @@ impl<'ctx> Builder<'ctx> {
         else_block: BasicBlock<'ctx>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
         validate_branch_condition(comparison.as_value_ref())?;
+        validate_branch_targets(self.get_insert_block(), &[then_block, else_block])?;
         let instruction = unsafe {
             LLVMBuildCondBr(
                 self.raw,
@@ -350,6 +352,10 @@ impl<'ctx> Builder<'ctx> {
         cases: &[(IntValue<'ctx>, BasicBlock<'ctx>)],
     ) -> LlvmResult<InstructionValue<'ctx>> {
         validate_switch_cases(value.as_value_ref(), cases)?;
+        let mut targets = Vec::with_capacity(cases.len() + 1);
+        targets.push(else_block);
+        targets.extend(cases.iter().map(|(_, block)| *block));
+        validate_branch_targets(self.get_insert_block(), &targets)?;
         let inst = unsafe {
             LLVMBuildSwitch(
                 self.raw,
@@ -1487,6 +1493,28 @@ fn validate_branch_condition(condition: LLVMValueRef) -> LlvmResult<()> {
         return Err(LlvmError::error(
             "LLVM conditional branch condition must have scalar i1 type",
         ));
+    }
+    Ok(())
+}
+
+fn validate_branch_targets(
+    insertion_block: Option<BasicBlock<'_>>,
+    targets: &[BasicBlock<'_>],
+) -> LlvmResult<()> {
+    let insertion_block =
+        insertion_block.ok_or_else(|| LlvmError::error("branch requires an insertion block"))?;
+    let function = insertion_block
+        .get_parent()
+        .ok_or_else(|| LlvmError::error("branch insertion block has no parent function"))?;
+    for target in targets {
+        let target_parent = target
+            .get_parent()
+            .ok_or_else(|| LlvmError::error("branch target has no parent function"))?;
+        if target_parent != function {
+            return Err(LlvmError::error(
+                "branch target must belong to the current function",
+            ));
+        }
     }
     Ok(())
 }
@@ -2884,6 +2912,30 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("identical types")
+        ));
+    }
+
+    #[test]
+    fn rejects_cross_function_branch_target_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("branch-target").unwrap();
+        let function = module
+            .add_function("source", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let other = module
+            .add_function("other", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let foreign = context.append_basic_block(other, "foreign").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_unconditional_branch(foreign)
+            .expect_err("cross-function branch target");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("must belong to the current function")
         ));
     }
 
