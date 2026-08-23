@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 442 completed entries in this ledger.
+- Implementation batches: 443 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2503,6 +2503,12 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Batch 442 hardens general-purpose allocator metadata growth. Small-slot
       size doubling and page used-count increments now use checked arithmetic
       and reject impossible transitions before mutating allocator state.
+- [x] Batch 443 preserves invalid-transfer error identity through generic I/O
+      adapters. `BufferedReader`, `BufferedWriter`, and `LimitedReader` now
+      forward the wrapped implementation's `invalidRead` or `invalidWrite`
+      classification while retaining the existing pre-mutation count checks;
+      the malicious transfer-count executable distinguishes these errors from
+      ordinary end-of-stream and short-write failures through every adapter.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

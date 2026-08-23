@@ -3336,9 +3336,13 @@ The public `std::io::Reader` and `Writer` contracts require every implementation
 to report no more bytes than the slice supplied to that call. Trait defaults and
 all standard adapters validate this boundary before advancing a cursor,
 buffer, or `LimitedReader` budget; an invalid count is converted to the
-adapter's end-of-stream or short-write error while preserving buffered state.
+adapter's invalid-transfer error while preserving buffered state.
 The OS file-handle and child-pipe facades enforce the same rule at their syscall
 boundary, so direct consumers cannot bypass the adapter invariant.
+Generic buffered and limited adapters also forward the wrapped implementation's
+`invalidRead` or `invalidWrite` classification. Nesting an adapter therefore
+preserves a domain-specific invalid-transfer error instead of collapsing it
+into the wrapped reader's ordinary end-of-stream or writer's short-write error.
 
 Formatting template width and precision fields use checked decimal
 accumulation. Values that do not fit target `usize` are invalid templates; they

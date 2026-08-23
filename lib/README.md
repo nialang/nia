@@ -34,6 +34,8 @@ The library follows a small set of ownership rules:
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.
+- Generic I/O adapters preserve the wrapped reader or writer's invalid-transfer
+  error identity while rejecting impossible byte counts before mutating state.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed

@@ -1594,6 +1594,8 @@ using std::process;
 enum TransferError {
     End,
     Short,
+    InvalidRead,
+    InvalidWrite,
 }
 
 struct BadReader {
@@ -1605,6 +1607,10 @@ extend BadReader : io::Reader {
 
     fn endOfStream(&self) Error {
         TransferError::End
+    }
+
+    fn invalidRead(&self) Error {
+        TransferError::InvalidRead
     }
 
     fn read(&mut self, bytes: &mut [u8]) Error!usize {
@@ -1623,6 +1629,10 @@ extend BadWriter : io::Writer {
         TransferError::Short
     }
 
+    fn invalidWrite(&self) Error {
+        TransferError::InvalidWrite
+    }
+
     fn write(&mut self, bytes: &[u8]) Error!usize {
         !(bytes.len() + 1usize)
     }
@@ -1635,8 +1645,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut destination: [u8; 2] = [0; 2];
     match reader.readExact(&mut destination[..]) {
         !ok => { _ = ok; return process::exit(1)!; },
-        TransferError::End! => {},
-        TransferError::Short! => { return process::exit(10)!; },
+        TransferError::InvalidRead! => {},
+        error! => { _ = error; return process::exit(10)!; },
     }
 
     let mut bufferedStorage: [u8; 4] = [0; 4];
@@ -1646,8 +1656,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match bufferedReader.read(&mut destination[..]) {
         !ok => { _ = ok; return process::exit(2)!; },
-        TransferError::End! => {},
-        TransferError::Short! => { return process::exit(11)!; },
+        TransferError::InvalidRead! => {},
+        error! => { _ = error; return process::exit(11)!; },
     }
     if bufferedReader.len() != 0 {
         return process::exit(3)!;
@@ -1659,8 +1669,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match limitedReader.read(&mut destination[..]) {
         !ok => { _ = ok; return process::exit(4)!; },
-        TransferError::End! => {},
-        TransferError::Short! => { return process::exit(12)!; },
+        TransferError::InvalidRead! => {},
+        error! => { _ = error; return process::exit(12)!; },
     }
     match limitedReader.remaining() {
         ?remaining => {
@@ -1676,8 +1686,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut writer = BadWriter { marker: false };
     match writer.writeAll(&b"ab") {
         !ok => { _ = ok; return process::exit(7)!; },
-        TransferError::Short! => {},
-        TransferError::End! => { return process::exit(13)!; },
+        TransferError::InvalidWrite! => {},
+        error! => { _ = error; return process::exit(13)!; },
     }
 
     let mut directBacking = BadWriter { marker: false };
@@ -1688,8 +1698,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match direct.write(&b"ab") {
         !ok => { _ = ok; return process::exit(18)!; },
-        TransferError::End! => { return process::exit(19)!; },
-        TransferError::Short! => {},
+        TransferError::InvalidWrite! => {},
+        error! => { _ = error; return process::exit(19)!; },
     }
 
     let mut bufferedWriterStorage: [u8; 4] = [0; 4];
@@ -1699,13 +1709,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     );
     match bufferedWriter.writeAll(&b"ab") {
         !ok => { _ = ok; },
-        TransferError::End! => { return process::exit(15)!; },
-        TransferError::Short! => { return process::exit(16)!; },
+        error! => { _ = error; return process::exit(15)!; },
     }
     match bufferedWriter.flush() {
         !ok => { _ = ok; return process::exit(8)!; },
-        TransferError::Short! => {},
-        TransferError::End! => { return process::exit(17)!; },
+        TransferError::InvalidWrite! => {},
+        error! => { _ = error; return process::exit(17)!; },
     }
     if bufferedWriter.len() != 2usize {
         return process::exit(9)!;
