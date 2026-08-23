@@ -300,7 +300,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 };
                 values.push(field_ty?.const_zero()?);
             }
-            return Ok(struct_ty.const_named_struct(&values).into());
+            return struct_ty
+                .const_named_struct(&values)
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error);
         }
         let struct_fields = self.physical_struct_fields(*def_id, args, const_args, span)?;
         let values = struct_fields
@@ -313,7 +316,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.static_init_value_in(field.ty, &init.value, field.span)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(struct_ty.const_named_struct(&values).into())
+        struct_ty
+            .const_named_struct(&values)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     pub(super) fn const_array_from_values_in(

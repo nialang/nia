@@ -2135,6 +2135,12 @@ acceptance item only when its phase-wide evidence is complete.
       byte alignment and return `LlvmResult`; codegen propagates setter failures.
       Regressions cover invalid global and load alignments, with LLVM/codegen
       suites, workspace check, formatting, and strict Clippy passing.
+- [x] Batch 370 closes the LLVM named-struct constant boundary.
+      `StructType::const_named_struct` is now fallible and validates physical
+      field count plus every value's LLVM type before `LLVMConstNamedStruct`;
+      all codegen callers propagate wrapper diagnostics. Wrapper regressions
+      cover count and field-type mismatches, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

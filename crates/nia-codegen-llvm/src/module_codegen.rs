@@ -221,6 +221,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             (
                 storage_ty
                     .const_named_struct(&[byte_ty.const_zero().into()])
+                    .map_err(Self::diagnostic_from_llvm_error)?
                     .into(),
                 storage_ty.into(),
             )

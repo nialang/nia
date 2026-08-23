@@ -504,7 +504,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .llvm_basic_type(expr.ty, expr.span)?
             .into_struct_type()?;
         Ok(PromotedConstValue::native(
-            struct_ty.const_named_struct(&native_values).into(),
+            struct_ty
+                .const_named_struct(&native_values)
+                .map_err(|error| error.diagnostic())?
+                .into(),
         ))
     }
 
@@ -625,7 +628,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .collect::<Result<Vec<BasicTypeEnum<'ctx>>, _>>()?;
         let ty = self.module.context.struct_type(&types, true);
         Ok(PromotedConstValue::packed(
-            ty.const_named_struct(&values).into(),
+            ty.const_named_struct(&values)
+                .map_err(|error| error.diagnostic())?
+                .into(),
         ))
     }
 
