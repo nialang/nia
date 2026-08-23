@@ -633,14 +633,35 @@ impl<'ctx> StructType<'ctx> {
     }
 
     /// Creates a constant using this named struct's physical field order.
-    pub fn const_named_struct(self, values: &[BasicValueEnum<'ctx>]) -> StructValue<'ctx> {
+    pub fn const_named_struct(
+        self,
+        values: &[BasicValueEnum<'ctx>],
+    ) -> LlvmResult<StructValue<'ctx>> {
+        let field_count = self.count_fields() as usize;
+        if values.len() != field_count {
+            return Err(LlvmError::error(format!(
+                "struct constant has {} values, expected {field_count}",
+                values.len()
+            )));
+        }
+        for (index, value) in values.iter().enumerate() {
+            let field_ty = self
+                .get_field_type_at_index(index as u32)
+                .ok_or_else(|| LlvmError::error("struct field disappeared during inspection"))??;
+            let value_ty = value.get_type()?;
+            if value_ty != field_ty {
+                return Err(LlvmError::error(format!(
+                    "struct constant field {index} type does not match struct field type"
+                )));
+            }
+        }
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        StructValue::new(unsafe {
+        Ok(StructValue::new(unsafe {
             LLVMConstNamedStruct(self.as_type_ref(), values.as_mut_ptr(), values.len() as u32)
-        })
+        }))
     }
 
     /// Creates a recursively zero-initialized struct constant.
@@ -1346,6 +1367,36 @@ mod tests {
             error,
             LlvmError::Error("LLVM returned a null basic value".to_string())
         );
+    }
+
+    #[test]
+    fn rejects_struct_constant_field_count_mismatch() {
+        let context = Context::create();
+        let struct_ty = context.struct_type(&[context.i32_type().into()], false);
+
+        let error = struct_ty
+            .const_named_struct(&[])
+            .expect_err("struct constant field count mismatch");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("struct constant has 0 values, expected 1")
+        ));
+    }
+
+    #[test]
+    fn rejects_struct_constant_field_type_mismatch() {
+        let context = Context::create();
+        let struct_ty = context.struct_type(&[context.i32_type().into()], false);
+
+        let error = struct_ty
+            .const_named_struct(&[context.i64_type().const_zero().into()])
+            .expect_err("struct constant field type mismatch");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("struct constant field 0 type does not match")
+        ));
     }
 
     #[test]
