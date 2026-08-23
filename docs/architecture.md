@@ -2201,8 +2201,11 @@ the complete `Block` alongside its logical length, while `asSlice` and
 `asMutSlice` expose only borrowed views. `ArrayList::toOwnedSlice`/
 `intoOwnedSlice` and `String::intoOwnedSlice` transfer that owner directly;
 there is no raw-slice adoption path that would require reconstructing release
-metadata from an address and logical length. Replacement and alias-copy
-rollback owners retain their original `Block` until a retrying `free` succeeds.
+metadata from an address and logical length. `SliceAllocation::deinit` always
+releases its Block, including a zero-length view whose allocator may still carry
+a non-empty release range, and clears the owner only after that release
+succeeds. Replacement and alias-copy rollback owners retain their original
+`Block` until a retrying `free` succeeds.
 Rehash applies the same transaction rule to replacement storage: the old
 storage block becomes a retired owner on the map before the new table is
 published. If its release fails, the active table remains usable while the

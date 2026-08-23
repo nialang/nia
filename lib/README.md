@@ -72,7 +72,8 @@ The library follows a small set of ownership rules:
   arena backing-chunk resizes.
 - `Allocator::allocSlice` returns a `SliceAllocation[T]` owner instead of a raw
   slice. `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
-  `Block`, and `ArrayList`/`String` owner-transfer APIs consume that typed owner.
+  `Block` even for a zero-length view, and `ArrayList`/`String` owner-transfer
+  APIs consume that typed owner.
   Raw-slice ownership constructors are intentionally absent.
 - Staged string formatting preserves format and UTF-8 errors over temporary
   writer cleanup failures; cleanup allocation errors are reported only when

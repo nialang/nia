@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 462 completed entries in this ledger.
+- Implementation batches: 463 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2623,6 +2623,11 @@ acceptance item only when its phase-wide evidence is complete.
       rejection helper unmaps the full release range before returning
       `OutOfRange`; a `munmap` failure is propagated rather than swallowed.
       Prefix/suffix trimming remains absent, so the mapping still has one owner.
+- [x] Batch 463 makes typed slice cleanup owner-driven. `SliceAllocation::deinit`
+      now frees its complete `Block` even when the logical view length is zero,
+      then clears the owner only after successful release. A custom allocator
+      regression covers a non-empty release range attached to a zero-length
+      slice.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

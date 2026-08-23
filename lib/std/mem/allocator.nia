@@ -121,11 +121,9 @@ where T: Sized
     }
 
     pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
-        if self.len == 0 {
-            return !();
-        }
         let block = self.block;
         allocator.free(block).?;
+        self.block = Block::empty(Layout::array[T](0).?);
         self.len = 0;
         !()
     }
