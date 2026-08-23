@@ -2177,6 +2177,12 @@ attempts its control, key, and value releases independently, detaches only the
 successfully freed allocation slots, and retains failed slots for a later retry
 with the same allocator. After a cleanup error the map is cleanup-only state;
 ordinary lookup or mutation is not supported until ownership is fully retired.
+Rehash applies the same transaction rule to replacement storage: the old
+control, key, and value allocations become retired owners on the map before
+the new table is published. If any retired release fails, the active table
+remains usable while the residual retired slices stay attached; a later
+rehash must retire those slices successfully first, and `deinit` attempts both
+active and retired groups while retaining whichever individual owners fail.
 Hash-map capacity is a logical entry bound rather than a count of untouched
 control bytes. Removing an entry makes one assume-capacity insertion legal even
 when the empty-slot growth budget is exhausted; insertion may land in an empty

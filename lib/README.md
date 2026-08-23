@@ -19,6 +19,10 @@ The library follows a small set of ownership rules:
   allocation whose release fails. A partially completed collection `deinit` is
   cleanup-only state: retry `deinit` with the same allocator rather than using
   the value again.
+- Hash-map rehash keeps the replaced control, key, and value storage as
+  map-owned retired allocations until each release succeeds. A failed retired
+  release leaves the active table usable but requires cleanup retry before a
+  later rehash or final `deinit`.
 - Hash-map capacity counts logical entries, including slots made reusable by
   deletion. `insertAssumeCapacity` therefore requires `len < capacity`, not an
   unused physical empty-slot budget; it may reuse either an empty or deleted

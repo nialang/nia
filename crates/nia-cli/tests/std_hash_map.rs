@@ -1096,6 +1096,8 @@ fn run(init: process::Init) mem::Error!() {
         key += 1;
     }
     freeFailAllocator.clearFailures();
+    freeFail.compact(&mut freeFailAllocator).?;
+    freeFailAllocator.clearFailures();
     freeFailAllocator.failNextFree();
     match freeFail.shrinkToFit(&mut freeFailAllocator) {
         !ok => { return mem::Error::Invalid!; },
@@ -1126,6 +1128,43 @@ fn run(init: process::Init) mem::Error!() {
                 return mem::Error::Invalid!;
             } },
         null => { return mem::Error::Invalid!; },
+    }
+
+    let mut rehashFreeCountStorage: [u8; 8192] = [0; 8192];
+    let mut rehashFreeCountAllocator = FailAllocator::init(&mut rehashFreeCountStorage);
+    let mut rehashFreeCountMap = std::HashMap[i32, i32]::initSeed(562u64);
+    rehashFreeCountMap.reserve(&mut rehashFreeCountAllocator, 14).?;
+    key = 0;
+    while key < 14 {
+        _ = rehashFreeCountMap.insert(&mut rehashFreeCountAllocator, key, key + 11).?;
+        key += 1;
+    }
+    let rehashFreeCountBefore = rehashFreeCountAllocator.freeCount;
+    rehashFreeCountAllocator.failNextFree();
+    match rehashFreeCountMap.reserve(&mut rehashFreeCountAllocator, 64) {
+        !ok => { return mem::Error::Invalid!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return err!;
+            } },
+    }
+    let rehashFreeCountAfterFailure = rehashFreeCountAllocator.freeCount;
+    if rehashFreeCountAfterFailure != rehashFreeCountBefore + 3 {
+        return mem::Error::Invalid!;
+    }
+    key = 0;
+    while key < 14 {
+        match rehashFreeCountMap.get(&key) {
+            ?value => { if value.* != key + 11 {
+                    return mem::Error::Invalid!;
+                } },
+            null => { return mem::Error::Invalid!; },
+        }
+        key += 1;
+    }
+    rehashFreeCountAllocator.clearFailures();
+    rehashFreeCountMap.deinit(&mut rehashFreeCountAllocator).?;
+    if rehashFreeCountAllocator.freeCount != rehashFreeCountAfterFailure + 4 {
+        return mem::Error::Invalid!;
     }
 
     let mut deinitStorage: [u8; 8192] = [0; 8192];
