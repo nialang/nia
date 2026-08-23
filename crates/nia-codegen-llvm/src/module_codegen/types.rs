@@ -99,13 +99,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         }
         match self.classify_return_in(signature.return_type) {
-            AbiReturn::Direct(ty) => Ok(self
+            AbiReturn::Direct(ty) => self
                 .llvm_basic_type_in(ty, signature.span)?
-                .fn_type(&llvm_params, signature.is_variadic)),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => Ok(self
+                .fn_type(&llvm_params, signature.is_variadic)
+                .map_err(Self::diagnostic_from_llvm_error),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
                 .context
                 .void_type()
-                .fn_type(&llvm_params, signature.is_variadic)),
+                .fn_type(&llvm_params, signature.is_variadic)
+                .map_err(Self::diagnostic_from_llvm_error),
         }
     }
 
@@ -121,12 +123,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             llvm_params.push(self.llvm_basic_type_in(param_ty, param_span)?);
         }
         match self.ty_kind(return_type) {
-            Some(kind) if kind.is_unit() => {
-                Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
-            }
-            _ => Ok(self
+            Some(kind) if kind.is_unit() => self
+                .context
+                .void_type()
+                .fn_type(&llvm_params, is_variadic)
+                .map_err(Self::diagnostic_from_llvm_error),
+            _ => self
                 .llvm_basic_type_in(return_type, span)?
-                .fn_type(&llvm_params, is_variadic)),
+                .fn_type(&llvm_params, is_variadic)
+                .map_err(Self::diagnostic_from_llvm_error),
         }
     }
 
@@ -153,12 +158,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         }
         match self.classify_return_in(return_type) {
-            AbiReturn::Direct(ty) => Ok(self
+            AbiReturn::Direct(ty) => self
                 .llvm_basic_type_in(ty, span)?
-                .fn_type(&llvm_params, is_variadic)),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
-                Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
-            }
+                .fn_type(&llvm_params, is_variadic)
+                .map_err(Self::diagnostic_from_llvm_error),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+                .context
+                .void_type()
+                .fn_type(&llvm_params, is_variadic)
+                .map_err(Self::diagnostic_from_llvm_error),
         }
     }
 
@@ -185,12 +193,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         }
         match self.classify_return_in(return_type) {
-            AbiReturn::Direct(ty) => Ok(self
+            AbiReturn::Direct(ty) => self
                 .llvm_basic_type_in(ty, span)?
-                .fn_type(&llvm_params, false)),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
-                Ok(self.context.void_type().fn_type(&llvm_params, false))
-            }
+                .fn_type(&llvm_params, false)
+                .map_err(Self::diagnostic_from_llvm_error),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+                .context
+                .void_type()
+                .fn_type(&llvm_params, false)
+                .map_err(Self::diagnostic_from_llvm_error),
         }
     }
 
@@ -218,12 +229,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         }
         match self.classify_function_return(return_type) {
-            AbiReturn::Direct(ty) => {
-                Ok(self.llvm_basic_type(ty, span)?.fn_type(&llvm_params, false))
-            }
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
-                Ok(self.context.void_type().fn_type(&llvm_params, false))
-            }
+            AbiReturn::Direct(ty) => self
+                .llvm_basic_type(ty, span)?
+                .fn_type(&llvm_params, false)
+                .map_err(Self::diagnostic_from_llvm_error),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => self
+                .context
+                .void_type()
+                .fn_type(&llvm_params, false)
+                .map_err(Self::diagnostic_from_llvm_error),
         }
     }
 

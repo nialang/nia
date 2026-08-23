@@ -2213,6 +2213,12 @@ acceptance item only when its phase-wide evidence is complete.
       reject null results and static-initializer callers propagate failures.
       Wrapper regressions cover both mismatches, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 383 closes the LLVM function-type construction boundary.
+      All `fn_type` constructors now return `LlvmResult`, check parameter-count
+      conversion to LLVM's `u32` width, and reject null LLVM handles. ABI,
+      inline-assembly, compiler-builtin, and wrapper-test callers propagate or
+      explicitly unwrap construction results. A parameter-count regression plus
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
