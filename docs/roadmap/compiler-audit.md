@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 414 completed entries in this ledger.
+- Implementation batches: 415 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2389,6 +2389,10 @@ acceptance item only when its phase-wide evidence is complete.
       view raw getters are deleted; `Command` is now the sole maintained public
       spawn path, with process tests covering the same success, exit, and error
       behavior through its checked ownership boundary.
+- [x] Batch 415 records the startup environment-vector length once when the
+      package-owned `Env` view is created. `len`, lookup, and iteration now use
+      that stable count instead of repeatedly traversing the raw `envp` array;
+      process executable coverage and workspace/strict-Clippy checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -123,6 +123,7 @@ pub struct Arg {
 
 pub struct Env {
     ptr: &&u8,
+    len: usize,
 }
 
 pub struct EnvIter {
