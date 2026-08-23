@@ -468,7 +468,9 @@ fn simplify_static_init(init: StaticInit) -> (StaticInit, bool) {
             } else if let Some(first) = elems.first()
                 && elems.iter().all(|elem| elem == first)
             {
-                let count = elems.len() as u64;
+                let Some(count) = u64::try_from(elems.len()).ok() else {
+                    return (StaticInit::Array(elems), changed);
+                };
                 let first = elems
                     .into_iter()
                     .next()
@@ -572,9 +574,12 @@ where
         return Err(elems);
     };
     if elems.iter().all(|elem| *elem == first) {
+        let Some(count) = u64::try_from(elems.len()).ok() else {
+            return Err(elems);
+        };
         Ok(StaticInit::Repeat {
             value: Box::new(init(first)),
-            count: elems.len() as u64,
+            count,
         })
     } else {
         Err(elems)

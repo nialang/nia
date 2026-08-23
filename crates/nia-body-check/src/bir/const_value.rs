@@ -521,8 +521,9 @@ impl<'a> BodyChecker<'a> {
         value: &nia_const_check::ConstValue,
     ) -> Option<nia_ids::InternedTyId> {
         let values = const_array_values(value)?;
+        let value_len = u64::try_from(values.len()).ok()?;
         Some(self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstValue(values.len() as u64),
+            len: ArrayLenTy::ConstValue(value_len),
             elem,
         }))
     }
@@ -539,20 +540,21 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let values = const_array_values(value)?;
+        let value_len = u64::try_from(values.len()).ok()?;
         let ty = match len {
             ArrayLenTy::ConstValue(expected_len) => {
-                if expected_len != values.len() as u64 {
+                if expected_len != value_len {
                     return None;
                 }
                 ty
             }
             ArrayLenTy::Infer => self.interner.intern(TyKind::Array {
-                len: ArrayLenTy::ConstValue(values.len() as u64),
+                len: ArrayLenTy::ConstValue(value_len),
                 elem,
             }),
             ArrayLenTy::GenericParam(_) => return None,
             ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => {
-                if self.array_len_value(span, &len).ok()? != values.len() as u64 {
+                if self.array_len_value(span, &len).ok()? != value_len {
                     return None;
                 }
                 ty

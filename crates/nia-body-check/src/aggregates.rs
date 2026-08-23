@@ -157,26 +157,24 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         match len {
             ArrayLenTy::Infer => {
-                let inferred = match elems {
-                    nia_ast::ArrayElements::List(elems) => elems.len() as u64,
-                    nia_ast::ArrayElements::Repeat { count, .. } => {
-                        match self.eval_array_repeat_count(count) {
-                            Ok(value) => {
-                                self.record_array_repeat_count(count, value);
-                                value
-                            }
-                            Err(err) => {
-                                self.diagnostics.push(Diagnostic::user_error_at(
-                                    codes::TYPE_CHECK,
-                                    err.span,
-                                    format!(
-                                        "array repeat count is not a valid constant: {}",
-                                        err.message
-                                    ),
-                                ));
-                                0
-                            }
+                let inferred = match explicit_array_literal_len(self, span, elems) {
+                    Ok(Some(value)) => {
+                        if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
+                            self.record_array_repeat_count(count, value);
                         }
+                        value
+                    }
+                    Ok(None) => 0,
+                    Err(err) => {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            err.span,
+                            format!(
+                                "array literal length is not a valid constant: {}",
+                                err.message
+                            ),
+                        ));
+                        0
                     }
                 };
                 self.interner.intern(TyKind::Array {
@@ -200,7 +198,7 @@ impl<'a> BodyChecker<'a> {
             expected @ (ArrayLenTy::ConstValue(_)
             | ArrayLenTy::ConstExpr(_)
             | ArrayLenTy::Builtin { .. }) => {
-                match explicit_array_literal_len(self, elems) {
+                match explicit_array_literal_len(self, span, elems) {
                     Ok(Some(actual)) => {
                         if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
                             self.record_array_repeat_count(count, actual);
@@ -1897,10 +1895,16 @@ fn array_literal_elem_requires_expected(elem: &Expr) -> bool {
 
 fn explicit_array_literal_len(
     checker: &mut BodyChecker<'_>,
+    span: Span,
     elems: &nia_ast::ArrayElements,
 ) -> Result<Option<u64>, ConstError> {
     Ok(match elems {
-        nia_ast::ArrayElements::List(elems) => Some(elems.len() as u64),
+        nia_ast::ArrayElements::List(elems) => {
+            Some(u64::try_from(elems.len()).map_err(|_| ConstError {
+                span,
+                message: "array literal length exceeds the semantic limit".to_string(),
+            })?)
+        }
         nia_ast::ArrayElements::Repeat { count, .. } => {
             Some(checker.eval_array_repeat_count(count)?)
         }

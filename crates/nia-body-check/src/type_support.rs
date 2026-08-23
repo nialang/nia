@@ -2187,12 +2187,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         literal: &nia_ast::StringLiteral,
     ) -> InternedTyId {
-        let len = string_literal_char_len(literal).unwrap_or(0);
+        let len = string_literal_char_len(literal)
+            .map(|len| {
+                u64::try_from(len)
+                    .map(ArrayLenTy::ConstValue)
+                    .unwrap_or(ArrayLenTy::Infer)
+            })
+            .unwrap_or(ArrayLenTy::ConstValue(0));
         let elem = self.primitive(PrimitiveTy::Char);
-        self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstValue(len as u64),
-            elem,
-        })
+        self.interner.intern(TyKind::Array { len, elem })
     }
 
     pub(crate) fn byte_string_literal_type(
@@ -2206,12 +2209,15 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         literal: &nia_ast::StringLiteral,
     ) -> InternedTyId {
-        let len = byte_string_literal_len(literal).unwrap_or(0);
+        let len = byte_string_literal_len(literal)
+            .map(|len| {
+                u64::try_from(len)
+                    .map(ArrayLenTy::ConstValue)
+                    .unwrap_or(ArrayLenTy::Infer)
+            })
+            .unwrap_or(ArrayLenTy::ConstValue(0));
         let elem = self.primitive(PrimitiveTy::U8);
-        self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstValue(len as u64),
-            elem,
-        })
+        self.interner.intern(TyKind::Array { len, elem })
     }
 
     pub(crate) fn unit(&self) -> InternedTyId {
