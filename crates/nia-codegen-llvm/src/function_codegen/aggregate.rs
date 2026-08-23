@@ -366,6 +366,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .llvm_basic_type(value.ty, value.span)?
                 .into_pointer_type()?
                 .const_null()
+                .map_err(|error| {
+                    self.error(
+                        value.span,
+                        format!("failed to create null pointer: {error:?}"),
+                    )
+                })?
                 .into(),
             FunctionExprKind::String(scalars) => {
                 self.emit_string_literal(value.ty, value.span, scalars)?

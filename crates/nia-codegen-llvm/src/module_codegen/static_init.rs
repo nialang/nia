@@ -57,7 +57,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             StaticInit::Struct(fields) => self.static_struct_init_value_in(ty, fields, span),
             StaticInit::NullPtr => match self.llvm_basic_type_in(ty, span)? {
-                BasicTypeEnum::PointerType(ptr_ty) => Ok(ptr_ty.const_null().into()),
+                BasicTypeEnum::PointerType(ptr_ty) => Ok(ptr_ty
+                    .const_null()
+                    .map_err(Self::diagnostic_from_llvm_error)?
+                    .into()),
                 _ => Err(self.error(
                     span,
                     "null pointer static initializer target is not pointer",

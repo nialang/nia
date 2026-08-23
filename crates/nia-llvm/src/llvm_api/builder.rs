@@ -2432,7 +2432,7 @@ mod tests {
         let error = builder
             .build_insert_value(
                 aggregate_ty.const_zero().unwrap(),
-                context.i64_type().const_zero(),
+                context.i64_type().const_zero().unwrap(),
                 0,
                 "invalid",
             )
@@ -2460,9 +2460,9 @@ mod tests {
 
         let error = builder
             .build_select(
-                context.bool_type().const_zero().into(),
-                context.i32_type().const_zero().into(),
-                context.i64_type().const_zero().into(),
+                context.bool_type().const_zero().unwrap().into(),
+                context.i32_type().const_zero().unwrap().into(),
+                context.i64_type().const_zero().unwrap().into(),
                 "invalid",
             )
             .expect_err("select arm type mismatch");
@@ -2494,7 +2494,7 @@ mod tests {
 
         let value = builder
             .build_select(
-                context.bool_type().const_zero().into(),
+                context.bool_type().const_zero().unwrap().into(),
                 vector,
                 vector,
                 "valid",
@@ -2524,12 +2524,12 @@ mod tests {
             .unwrap()
             .into_vector_value()
             .unwrap();
-        let index = context.i32_type().const_zero();
+        let index = context.i32_type().const_zero().unwrap();
 
         let error = builder
             .build_insert_element(
                 vector,
-                context.i64_type().const_zero().into(),
+                context.i64_type().const_zero().unwrap().into(),
                 index,
                 "invalid",
             )
@@ -2595,7 +2595,7 @@ mod tests {
 
         let error = builder
             .build_int_z_extend(
-                context.i32_type().const_zero(),
+                context.i32_type().const_zero().unwrap(),
                 context.i32_type(),
                 "invalid",
             )
@@ -2623,7 +2623,7 @@ mod tests {
 
         let error = builder
             .build_int_truncate(
-                context.i32_type().const_zero(),
+                context.i32_type().const_zero().unwrap(),
                 context.i64_type(),
                 "invalid",
             )
@@ -2653,9 +2653,9 @@ mod tests {
 
         let error = builder
             .build_switch(
-                context.i32_type().const_zero(),
+                context.i32_type().const_zero().unwrap(),
                 default,
-                &[(context.i64_type().const_zero(), case_block)],
+                &[(context.i64_type().const_zero().unwrap(), case_block)],
             )
             .expect_err("switch case type mismatch");
         assert!(matches!(
@@ -2692,7 +2692,7 @@ mod tests {
 
         let error = builder
             .build_switch(
-                context.i32_type().const_zero(),
+                context.i32_type().const_zero().unwrap(),
                 default,
                 &[(nonconstant, case_block)],
             )
@@ -2717,13 +2717,13 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
-        let ptr = context.ptr_type(Default::default()).const_null();
+        let ptr = context.ptr_type(Default::default()).const_null().unwrap();
 
         let error = builder
             .build_atomicrmw(
                 AtomicRMWBinOp::Add,
                 ptr,
-                context.f32_type().const_zero(),
+                context.f32_type().const_zero().unwrap(),
                 AtomicOrdering::Monotonic,
             )
             .expect_err("floating atomic RMW operand");
@@ -2747,8 +2747,8 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
-        let ptr = context.ptr_type(Default::default()).const_null();
-        let value = context.i32_type().const_zero();
+        let ptr = context.ptr_type(Default::default()).const_null().unwrap();
+        let value = context.i32_type().const_zero().unwrap();
 
         let error = builder
             .build_cmpxchg(
@@ -2782,8 +2782,8 @@ mod tests {
         builder.position_at_end(entry);
         let store = builder
             .build_store(
-                context.ptr_type(Default::default()).const_null(),
-                context.i32_type().const_zero(),
+                context.ptr_type(Default::default()).const_null().unwrap(),
+                context.i32_type().const_zero().unwrap(),
             )
             .unwrap();
 
@@ -2810,8 +2810,8 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
-        let ptr = context.ptr_type(Default::default()).const_null();
-        let value = context.i32_type().const_zero();
+        let ptr = context.ptr_type(Default::default()).const_null().unwrap();
+        let value = context.i32_type().const_zero().unwrap();
         let cmpxchg = builder
             .build_cmpxchg(
                 ptr,
@@ -2897,7 +2897,7 @@ mod tests {
         let error = builder
             .build_call(
                 function,
-                &[context.i64_type().const_zero().into()],
+                &[context.i64_type().const_zero().unwrap().into()],
                 "invalid",
             )
             .expect_err("fixed-arity call with mismatched argument type");
@@ -2946,7 +2946,7 @@ mod tests {
 
         let error = builder
             .build_bit_cast(
-                context.i32_type().const_zero(),
+                context.i32_type().const_zero().unwrap(),
                 context.i64_type(),
                 "invalid",
             )
@@ -2975,7 +2975,11 @@ mod tests {
         builder.position_at_end(entry);
 
         let error = builder
-            .build_conditional_branch(context.i32_type().const_zero(), then_block, else_block)
+            .build_conditional_branch(
+                context.i32_type().const_zero().unwrap(),
+                then_block,
+                else_block,
+            )
             .expect_err("non-boolean conditional branch");
         assert!(matches!(
             error,
@@ -2998,7 +3002,7 @@ mod tests {
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
-        let value = context.i64_type().const_zero();
+        let value = context.i64_type().const_zero().unwrap();
         let error = builder
             .build_return(Some(&value))
             .expect_err("mismatched return value type");
@@ -3047,7 +3051,7 @@ mod tests {
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
-        let value = context.i32_type().const_zero();
+        let value = context.i32_type().const_zero().unwrap();
         let error = builder
             .build_return(Some(&value))
             .expect_err("value return from void function");
@@ -3074,8 +3078,8 @@ mod tests {
 
         let error = builder
             .build_int_add(
-                context.i32_type().const_zero(),
-                context.i64_type().const_zero(),
+                context.i32_type().const_zero().unwrap(),
+                context.i64_type().const_zero().unwrap(),
                 "invalid",
             )
             .expect_err("integer binary type mismatch");
@@ -3100,8 +3104,8 @@ mod tests {
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
-        let lhs: BasicValueEnum<'_> = context.i32_type().const_zero().into();
-        let rhs: BasicValueEnum<'_> = context.i32_type().const_zero().into();
+        let lhs: BasicValueEnum<'_> = context.i32_type().const_zero().unwrap().into();
+        let rhs: BasicValueEnum<'_> = context.i32_type().const_zero().unwrap().into();
         let error = builder
             .build_basic_float_add(lhs, rhs, "invalid")
             .expect_err("floating binary with integer operands");
@@ -3130,8 +3134,8 @@ mod tests {
         let value = builder
             .build_basic_int_compare(
                 IntPredicate::EQ,
-                pointer_ty.const_null().into(),
-                pointer_ty.const_null().into(),
+                pointer_ty.const_null().unwrap().into(),
+                pointer_ty.const_null().unwrap().into(),
                 "valid",
             )
             .unwrap();
@@ -3154,7 +3158,7 @@ mod tests {
         builder.position_at_end(entry);
 
         let error = builder
-            .build_basic_not(context.f32_type().const_zero().into(), "invalid")
+            .build_basic_not(context.f32_type().const_zero().unwrap().into(), "invalid")
             .expect_err("integer unary operation with float value");
         assert!(matches!(
             error,
@@ -3178,7 +3182,7 @@ mod tests {
         builder.position_at_end(entry);
 
         let error = builder
-            .build_basic_float_neg(context.i32_type().const_zero().into(), "invalid")
+            .build_basic_float_neg(context.i32_type().const_zero().unwrap().into(), "invalid")
             .expect_err("floating unary operation with integer value");
         assert!(matches!(
             error,
@@ -3204,8 +3208,8 @@ mod tests {
         let error = builder
             .build_float_compare(
                 FloatPredicate::OEQ,
-                context.f32_type().const_zero(),
-                context.f64_type().const_zero(),
+                context.f32_type().const_zero().unwrap(),
+                context.f64_type().const_zero().unwrap(),
                 "invalid",
             )
             .expect_err("floating comparison type mismatch");
@@ -3263,7 +3267,7 @@ mod tests {
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let phi = builder.build_phi(context.i32_type(), "phi").unwrap();
-        let value = context.i64_type().const_zero();
+        let value = context.i64_type().const_zero().unwrap();
 
         let error = phi
             .add_incoming(&[(&value, incoming)])
@@ -3297,7 +3301,7 @@ mod tests {
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let phi = builder.build_phi(context.i32_type(), "phi").unwrap();
-        let value = context.i32_type().const_zero();
+        let value = context.i32_type().const_zero().unwrap();
 
         let error = phi
             .add_incoming(&[(&value, foreign)])
@@ -3322,7 +3326,7 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
-        let pointer = context.ptr_type(Default::default()).const_null();
+        let pointer = context.ptr_type(Default::default()).const_null().unwrap();
 
         let error = builder
             .build_aligned_load(context.i32_type(), pointer, 3, "invalid")

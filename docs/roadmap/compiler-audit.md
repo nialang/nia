@@ -2300,6 +2300,12 @@ acceptance item only when its phase-wide evidence is complete.
       `LLVMGetUndef` through the shared null-result guard and return
       `LlvmResult`; a wrapper regression covers all three scalar categories,
       with workspace check, formatting, and strict Clippy passing.
+- [x] Batch 398 closes scalar zero/null constructors.
+      Integer and floating-point `const_zero`, plus pointer `const_zero` and
+      `const_null`, now validate LLVM result handles and return `LlvmResult`;
+      compiler builtins, function lowering, static initialization, and wrapper
+      tests propagate or explicitly unwrap valid values. LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

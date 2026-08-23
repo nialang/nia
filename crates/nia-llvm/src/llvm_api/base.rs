@@ -650,8 +650,11 @@ impl<'ctx> IntType<'ctx> {
     }
 
     /// Creates the zero constant.
-    pub fn const_zero(self) -> IntValue<'ctx> {
-        self.const_int(0, false)
+    pub fn const_zero(self) -> LlvmResult<IntValue<'ctx>> {
+        Ok(IntValue::new(require_value(
+            unsafe { LLVMConstInt(self.as_type_ref(), 0, 0) },
+            "integer zero constant",
+        )?))
     }
 
     /// Creates an undefined value of this type.
@@ -702,8 +705,11 @@ impl<'ctx> FloatType<'ctx> {
     }
 
     /// Creates positive floating-point zero.
-    pub fn const_zero(self) -> FloatValue<'ctx> {
-        self.const_float(0.0)
+    pub fn const_zero(self) -> LlvmResult<FloatValue<'ctx>> {
+        Ok(FloatValue::new(require_value(
+            unsafe { LLVMConstReal(self.as_type_ref(), 0.0) },
+            "floating-point zero constant",
+        )?))
     }
 
     /// Creates an undefined value of this type.
@@ -722,13 +728,16 @@ impl<'ctx> PointerType<'ctx> {
     }
 
     /// Creates a null pointer constant.
-    pub fn const_zero(self) -> PointerValue<'ctx> {
+    pub fn const_zero(self) -> LlvmResult<PointerValue<'ctx>> {
         self.const_null()
     }
 
     /// Creates a null pointer constant.
-    pub fn const_null(self) -> PointerValue<'ctx> {
-        PointerValue::new(unsafe { LLVMConstPointerNull(self.as_type_ref()) })
+    pub fn const_null(self) -> LlvmResult<PointerValue<'ctx>> {
+        Ok(PointerValue::new(require_value(
+            unsafe { LLVMConstPointerNull(self.as_type_ref()) },
+            "null pointer constant",
+        )?))
     }
 
     /// Constant-folds an integer-to-pointer conversion.
@@ -1081,9 +1090,9 @@ impl<'ctx> BasicTypeEnum<'ctx> {
     pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         Ok(match self {
             Self::ArrayType(t) => BasicValueEnum::new(unsafe { LLVMConstNull(t.as_type_ref()) })?,
-            Self::FloatType(t) => t.const_zero().into(),
-            Self::IntType(t) => t.const_zero().into(),
-            Self::PointerType(t) => t.const_zero().into(),
+            Self::FloatType(t) => t.const_zero()?.into(),
+            Self::IntType(t) => t.const_zero()?.into(),
+            Self::PointerType(t) => t.const_zero()?.into(),
             Self::StructType(t) => BasicValueEnum::new(unsafe { LLVMConstNull(t.as_type_ref()) })?,
             Self::VectorType(t) => t.const_zero()?,
             Self::ScalableVectorType(t) => t.const_zero()?,
@@ -1663,7 +1672,7 @@ mod tests {
             .unwrap();
 
         let error = struct_ty
-            .const_named_struct(&[context.i64_type().const_zero().into()])
+            .const_named_struct(&[context.i64_type().const_zero().unwrap().into()])
             .expect_err("struct constant field type mismatch");
 
         assert!(matches!(
@@ -1678,7 +1687,7 @@ mod tests {
 
         let error = context
             .i32_type()
-            .const_array(&[context.i64_type().const_zero()])
+            .const_array(&[context.i64_type().const_zero().unwrap()])
             .expect_err("constant array element type mismatch");
 
         assert!(matches!(
@@ -1728,7 +1737,7 @@ mod tests {
             .unwrap();
 
         let error = vector_ty
-            .const_vector(&[context.i32_type().const_zero().into()])
+            .const_vector(&[context.i32_type().const_zero().unwrap().into()])
             .expect_err("constant vector lane count mismatch");
 
         assert!(matches!(
@@ -1745,7 +1754,7 @@ mod tests {
             .unwrap();
 
         let error = vector_ty
-            .const_vector(&[context.i64_type().const_zero().into()])
+            .const_vector(&[context.i64_type().const_zero().unwrap().into()])
             .expect_err("constant vector lane type mismatch");
 
         assert!(matches!(
@@ -1776,7 +1785,7 @@ mod tests {
             .array_type(0)
             .expect("zero-length LLVM arrays are valid");
 
-        let _ = array.const_zero();
+        let _ = array.const_zero().unwrap();
     }
 
     #[test]
@@ -1800,17 +1809,18 @@ mod tests {
         let array_ty = context.i8_type().array_type(0).unwrap();
 
         assert_eq!(
-            context.i32_type().const_zero().get_type().unwrap(),
+            context.i32_type().const_zero().unwrap().get_type().unwrap(),
             context.i32_type()
         );
         assert_eq!(
-            context.f32_type().const_zero().get_type().unwrap(),
+            context.f32_type().const_zero().unwrap().get_type().unwrap(),
             context.f32_type()
         );
         assert_eq!(
             context
                 .ptr_type(AddressSpace(2))
                 .const_null()
+                .unwrap()
                 .get_type()
                 .unwrap(),
             context.ptr_type(AddressSpace(2))
@@ -1832,12 +1842,22 @@ mod tests {
     }
 
     #[test]
+    fn typed_scalar_zero_queries_use_checked_conversion() {
+        let context = Context::create().unwrap();
+
+        assert!(context.i32_type().const_zero().is_ok());
+        assert!(context.f32_type().const_zero().is_ok());
+        assert!(context.ptr_type(AddressSpace(3)).const_null().is_ok());
+    }
+
+    #[test]
     fn rejects_integer_constant_bitcast_width_mismatch() {
         let context = Context::create().unwrap();
 
         let error = context
             .i32_type()
             .const_zero()
+            .unwrap()
             .const_bitcast(context.i64_type())
             .expect_err("integer bitcast width mismatch");
 
@@ -1852,7 +1872,7 @@ mod tests {
     #[test]
     fn rejects_pointer_constant_bitcast_address_space_mismatch() {
         let context = Context::create().unwrap();
-        let source = context.ptr_type(AddressSpace(1)).const_null();
+        let source = context.ptr_type(AddressSpace(1)).const_null().unwrap();
 
         let error = source
             .const_bitcast(context.ptr_type(AddressSpace(0)))

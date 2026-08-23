@@ -73,7 +73,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         let int_ty = value.into_int_value()?.get_type()?;
                         self.emit_checked_int_arithmetic(
                             span,
-                            int_ty.const_zero().into(),
+                            int_ty.const_zero()?.into(),
                             BinaryOp::Sub,
                             value,
                             self.is_signed_integer(ty),
@@ -562,7 +562,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_int_compare(
                     IntPredicate::SLT,
                     rhs,
-                    rhs.get_type()?.const_zero(),
+                    rhs.get_type()?.const_zero()?,
                     "shift.count.negative",
                 )
                 .map_err(|_| self.error(span, "failed to validate signed shift count"))?;
@@ -783,7 +783,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .const_zero()
             .map_err(|_| self.error(span, "failed to create zero vector"))?
             .into_vector_value()?;
-        let index = self.module.context.i32_type().const_zero();
+        let index = self.module.context.i32_type().const_zero()?;
         let inserted = self
             .builder
             .build_insert_element(zero, lane.into(), index, "vector.splat.insert")
@@ -890,7 +890,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to pack vector condition mask"))?
             .into_int_value()?;
         self.builder
-            .build_int_compare(IntPredicate::NE, packed, packed_ty.const_zero(), name)
+            .build_int_compare(IntPredicate::NE, packed, packed_ty.const_zero()?, name)
             .map_err(|_| self.error(span, "failed to reduce vector condition mask"))
     }
 
