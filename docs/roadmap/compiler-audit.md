@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 432 completed entries in this ledger.
+- Implementation batches: 433 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2466,6 +2466,10 @@ acceptance item only when its phase-wide evidence is complete.
       return counts and results lacking the promised trailing NUL now return
       `Io` before an unterminated path slice can reach filesystem consumers.
       Filesystem executable coverage remains green.
+- [x] Batch 433 validates Linux `wait4` identities. Blocking and non-blocking
+      waits now require a positive return matching the requested child pid
+      before publishing `WaitStatus`; mismatched success is reported as `Io`.
+      Process spawn/wait executable coverage remains green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

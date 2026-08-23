@@ -3290,6 +3290,9 @@ Linux `getcwd` validates the successful return contract before exposing a path:
 the returned count must be non-zero, fit the caller buffer, and include the
 terminating NUL that the kernel promises. A malformed result returns `Io`
 instead of publishing an unterminated slice.
+Linux process waits validate the positive `wait4` return against the requested
+child pid before publishing a `WaitStatus`; a mismatched successful return is
+treated as `Io` rather than attaching another process's status to the child.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
