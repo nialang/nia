@@ -259,21 +259,31 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             };
             let offset = u64::try_from(offset)
                 .map_err(|_| self.error(expr.span, "union storage offset is not representable"))?;
-            let offset = self.module.context.i64_type().const_int(offset, false);
+            let offset = self.module.context.i64_type().const_int(offset, false)?;
             let byte_ptr = unsafe {
                 self.builder
                     .build_gep(byte_ty, ptr, &[offset], "union.byte.ptr")
                     .map_err(|_| self.error(expr.span, "failed to address union storage byte"))?
             };
             self.builder
-                .build_store(byte_ptr, byte_ty.const_int(u64::from(*byte), false))
+                .build_store(
+                    byte_ptr,
+                    byte_ty
+                        .const_int(u64::from(*byte), false)
+                        .map_err(|error| {
+                            self.error(
+                                expr.span,
+                                format!("failed to create union byte constant: {error:?}"),
+                            )
+                        })?,
+                )
                 .map_err(|_| self.error(expr.span, "failed to store union storage byte"))?;
         }
         for relocation in relocations {
             let offset = u64::try_from(relocation.offset).map_err(|_| {
                 self.error(expr.span, "union relocation offset is not representable")
             })?;
-            let offset = self.module.context.i64_type().const_int(offset, false);
+            let offset = self.module.context.i64_type().const_int(offset, false)?;
             let relocation_ptr = unsafe {
                 self.builder
                     .build_gep(byte_ty, ptr, &[offset], "union.relocation.ptr")
@@ -359,7 +369,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .module
                 .context
                 .bool_type()
-                .const_int(u64::from(*boolean), false)
+                .const_int(u64::from(*boolean), false)?
                 .into(),
             FunctionExprKind::Null => self
                 .module
@@ -781,7 +791,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, "tagptr") }
             .map_err(|_| self.error(expr.span, "failed to build tagged union tag address"))?;
-        let tag_value = self.module.context.i8_type().const_int(tag.into(), false);
+        let tag_value = self.module.context.i8_type().const_int(tag.into(), false)?;
         self.builder
             .build_store(tag_ptr, tag_value)
             .map_err(|_| self.error(expr.span, "failed to store tagged union tag"))?;
@@ -956,7 +966,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         offset: u64,
         span: Span,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        let offset = self.module.context.i64_type().const_int(offset, false);
+        let offset = self.module.context.i64_type().const_int(offset, false)?;
         unsafe {
             self.builder
                 .build_gep(
@@ -977,8 +987,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         index: u64,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let array_ty = self.module.llvm_basic_type(array_ty, span)?;
-        let zero = self.module.context.i64_type().const_int(0, false);
-        let index = self.module.context.i64_type().const_int(index, false);
+        let zero = self.module.context.i64_type().const_int(0, false)?;
+        let index = self.module.context.i64_type().const_int(index, false)?;
         unsafe {
             self.builder
                 .build_gep(array_ty, base_ptr, &[zero, index], "elemptr")

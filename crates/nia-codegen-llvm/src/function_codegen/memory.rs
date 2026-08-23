@@ -251,8 +251,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to create memory loop body"))?;
         let index_ptr = self.alloc_loop_index(span, "mem.i")?;
         let usize_ty = self.module.usize_llvm_type(span)?;
-        let zero = usize_ty.const_int(0, false);
-        let one = usize_ty.const_int(1, false);
+        let zero = usize_ty.const_int(0, false)?;
+        let one = usize_ty.const_int(1, false)?;
         self.builder
             .build_store(index_ptr, zero)
             .map_err(|_| self.error(span, "failed to initialize memory loop index"))?;
@@ -304,8 +304,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to create reverse memory loop body"))?;
         let index_ptr = self.alloc_loop_index(span, "mem.rev.i")?;
         let usize_ty = self.module.usize_llvm_type(span)?;
-        let zero = usize_ty.const_int(0, false);
-        let one = usize_ty.const_int(1, false);
+        let zero = usize_ty.const_int(0, false)?;
+        let one = usize_ty.const_int(1, false)?;
         self.builder
             .build_store(index_ptr, size)
             .map_err(|_| self.error(span, "failed to initialize reverse memory loop index"))?;
@@ -412,7 +412,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let size = self
             .module
             .usize_llvm_type(span)?
-            .const_int(elem_size, false);
+            .const_int(elem_size, false)?;
         self.builder
             .build_int_mul(len, size, "mem.bytes")
             .map_err(|_| self.error(span, "failed to compute memory intrinsic byte length"))

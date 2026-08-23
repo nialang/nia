@@ -286,7 +286,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .module
                 .context
                 .bool_type()
-                .const_int(u64::from(*value), false)
+                .const_int(u64::from(*value), false)?
                 .into()),
             FunctionExprKind::ConstGeneric(_) => {
                 Err(self.error(expr.span, "const generic value reached LLVM codegen"))
@@ -354,7 +354,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(value)) => Ok(self
                 .module
                 .usize_llvm_type(expr.span)?
-                .const_int(*value, false)
+                .const_int(*value, false)?
                 .into()),
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Layout { builtin, ty }) => {
                 let Some(layout) = self.module.layout_of(*ty) else {
@@ -367,7 +367,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(self
                     .module
                     .usize_llvm_type(expr.span)?
-                    .const_int(value, false)
+                    .const_int(value, false)?
                     .into())
             }
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::FieldOffset { ty, field }) => {
@@ -377,7 +377,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(self
                     .module
                     .usize_llvm_type(expr.span)?
-                    .const_int(offset, false)
+                    .const_int(offset, false)?
                     .into())
             }
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
@@ -561,7 +561,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "failed to create zero vector"))?
             .into_vector_value()?;
         let lane = self.emit_expr(value)?;
-        let index = self.module.context.i32_type().const_int(0, false);
+        let index = self.module.context.i32_type().const_int(0, false)?;
         let inserted = self
             .builder
             .build_insert_element(zero, lane, index, "splat.insert")
@@ -641,7 +641,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         lanes: u32,
         name: &str,
     ) -> Result<(), Diagnostic> {
-        let limit = index.get_type()?.const_int(u64::from(lanes), false);
+        let limit = index.get_type()?.const_int(u64::from(lanes), false)?;
         let in_bounds = self
             .builder
             .build_basic_int_compare(
@@ -736,7 +736,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .ok_or_else(|| self.error(expr.span, "failed to declare bit intrinsic"))?;
         let call = match op {
             FunctionBitIntrinsicOp::Ctz | FunctionBitIntrinsicOp::Clz => {
-                let zero_is_poison = self.module.context.bool_type().const_int(0, false);
+                let zero_is_poison = self.module.context.bool_type().const_int(0, false)?;
                 self.builder
                     .build_call(intrinsic, &[value, zero_is_poison.into()], "bitintr")
             }
@@ -757,9 +757,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = self.emit_expr(value)?.into_int_value()?;
         let i32_ty = self.module.context.i32_type();
-        let max = i32_ty.const_int(0x10ffff, false);
-        let surrogate_start = i32_ty.const_int(0xd800, false);
-        let surrogate_end = i32_ty.const_int(0xdfff, false);
+        let max = i32_ty.const_int(0x10ffff, false)?;
+        let surrogate_start = i32_ty.const_int(0xd800, false)?;
+        let surrogate_end = i32_ty.const_int(0xdfff, false)?;
         let in_range = self
             .builder
             .build_int_compare(IntPredicate::ULE, value, max, "char.range")
@@ -812,7 +812,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             .discriminant()
                             .into(),
                         false,
-                    )
+                    )?
                     .into(),
                 self.module
                     .context
@@ -822,7 +822,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             .discriminant()
                             .into(),
                         false,
-                    )
+                    )?
                     .into(),
                 "char.optional.tag",
             )
@@ -968,12 +968,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 )
             })?;
             let ptr_ty = self.module.context.ptr_type(Default::default());
-            let zero = self.module.context.i64_type().const_int(0, false);
+            let zero = self.module.context.i64_type().const_int(0, false)?;
             let offset_index = self
                 .module
                 .context
                 .i64_type()
-                .const_int(offset_index, false);
+                .const_int(offset_index, false)?;
             metadata = unsafe {
                 self.builder
                     .build_gep(
