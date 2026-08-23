@@ -16,15 +16,15 @@ use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstBitCast,
     LLVMConstGEP2, LLVMConstInBoundsGEP2, LLVMConstInt, LLVMConstIntOfArbitraryPrecision,
     LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal,
-    LLVMConstVector, LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType,
-    LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
-    LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
-    LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
-    LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
-    LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct,
-    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
-    LLVMSetSection, LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
-    LLVMTypeOf, LLVMVectorType,
+    LLVMConstVector, LLVMCountParamTypes, LLVMCountParams, LLVMCountStructElementTypes,
+    LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator,
+    LLVMGetElementType, LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock,
+    LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock,
+    LLVMGetNextInstruction, LLVMGetParam, LLVMGetParamTypes, LLVMGetReturnType, LLVMGetTypeKind,
+    LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction,
+    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMSetWeak,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -757,6 +757,19 @@ impl<'ctx> FunctionType<'ctx> {
     /// Returns `None` for void signatures or the typed return value type.
     pub fn get_return_type(self) -> LlvmResult<Option<BasicTypeEnum<'ctx>>> {
         classify_return_type(unsafe { LLVMGetReturnType(self.as_type_ref()) })
+    }
+
+    /// Returns the fixed parameters in this signature.
+    pub fn get_param_types(self) -> LlvmResult<Vec<BasicTypeEnum<'ctx>>> {
+        let count = unsafe { LLVMCountParamTypes(self.as_type_ref()) } as usize;
+        let mut raw_types = vec![std::ptr::null_mut(); count];
+        unsafe { LLVMGetParamTypes(self.as_type_ref(), raw_types.as_mut_ptr()) };
+        raw_types.into_iter().map(BasicTypeEnum::new).collect()
+    }
+
+    /// Reports whether this signature accepts arguments beyond its fixed list.
+    pub fn is_variadic(self) -> bool {
+        unsafe { llvm_sys::core::LLVMIsFunctionVarArg(self.as_type_ref()) != 0 }
     }
 }
 

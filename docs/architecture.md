@@ -2660,6 +2660,13 @@ Fence construction is checked separately: LLVM fences accept only acquire,
 release, acquire-release, or sequentially consistent ordering. The wrapper
 rejects unordered, monotonic, and non-atomic values before `LLVMBuildFence`.
 
+Call construction validates the function signature before `LLVMBuildCall2`:
+fixed calls require exactly the declared argument count and variadic calls
+require every fixed argument, with each fixed argument's LLVM type matching
+the signature. Opaque function-pointer provenance for indirect calls remains a
+backend validation responsibility because the LLVM type handle cannot expose
+the pointee identity.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
