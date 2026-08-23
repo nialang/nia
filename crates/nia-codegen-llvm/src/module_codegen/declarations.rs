@@ -518,7 +518,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ),
                 ));
             }
-            value.set_initializer(&init);
+            value
+                .set_initializer(&init)
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         for &index in self.partition.global_instance_definitions() {
             let global = &self.source.global_instances[index];
@@ -549,7 +551,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ),
                 ));
             }
-            value.set_initializer(&init);
+            value
+                .set_initializer(&init)
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         Ok(())
     }
@@ -596,7 +600,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         .as_pointer_value();
                     values.push(value);
                 }
-                global.set_initializer(&ptr_ty.const_array(&values));
+                global
+                    .set_initializer(&ptr_ty.const_array(&values))
+                    .map_err(Self::diagnostic_from_llvm_error)?;
                 global.set_constant(true);
             } else {
                 global.set_linkage(Linkage::External);
