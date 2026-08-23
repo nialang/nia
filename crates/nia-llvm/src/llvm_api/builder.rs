@@ -20,8 +20,9 @@ use llvm_sys::core::{
     LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor,
     LLVMBuildZExt, LLVMClearInsertionPosition, LLVMCountStructElementTypes, LLVMDisposeBuilder,
     LLVMGetArrayLength2, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetIntTypeWidth,
-    LLVMGetTypeKind, LLVMGetVectorSize, LLVMIsAConstantInt, LLVMPositionBuilderAtEnd,
-    LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMGetPointerAddressSpace, LLVMGetTypeKind, LLVMGetVectorSize, LLVMIsAConstantInt,
+    LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2,
+    LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -1062,6 +1063,7 @@ impl<'ctx> Builder<'ctx> {
         target: T,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_bit_cast(value.as_value_ref(), target.as_type_ref())?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildBitCast(
@@ -1317,6 +1319,86 @@ fn validate_call_arguments(
         }
     }
     Ok(())
+}
+
+fn validate_bit_cast(value: LLVMValueRef, target: LLVMTypeRef) -> LlvmResult<()> {
+    let source = require_type(unsafe { LLVMTypeOf(value) }, "bitcast source")?;
+    let target = require_type(target, "bitcast target")?;
+    let source_kind = unsafe { LLVMGetTypeKind(source) };
+    let target_kind = unsafe { LLVMGetTypeKind(target) };
+    let first_class = |kind| {
+        matches!(
+            kind,
+            LLVMTypeKind::LLVMIntegerTypeKind
+                | LLVMTypeKind::LLVMFloatTypeKind
+                | LLVMTypeKind::LLVMDoubleTypeKind
+                | LLVMTypeKind::LLVMPointerTypeKind
+                | LLVMTypeKind::LLVMVectorTypeKind
+                | LLVMTypeKind::LLVMScalableVectorTypeKind
+        )
+    };
+    if !first_class(source_kind) || !first_class(target_kind) {
+        return Err(LlvmError::error(
+            "LLVM bitcast requires first-class source and target types",
+        ));
+    }
+    if source_kind == LLVMTypeKind::LLVMPointerTypeKind
+        && target_kind == LLVMTypeKind::LLVMPointerTypeKind
+        && unsafe { LLVMGetPointerAddressSpace(source) }
+            != unsafe { LLVMGetPointerAddressSpace(target) }
+    {
+        return Err(LlvmError::error(
+            "LLVM bitcast pointer address spaces must match",
+        ));
+    }
+    let source_scalable = source_kind == LLVMTypeKind::LLVMScalableVectorTypeKind;
+    let target_scalable = target_kind == LLVMTypeKind::LLVMScalableVectorTypeKind;
+    if source_scalable != target_scalable {
+        return Err(LlvmError::error(
+            "LLVM bitcast cannot mix scalable and fixed-width vectors",
+        ));
+    }
+    let source_bits = bitcast_width(source)?;
+    let target_bits = bitcast_width(target)?;
+    if let (Some(source_bits), Some(target_bits)) = (source_bits, target_bits) {
+        if source_bits != target_bits {
+            return Err(LlvmError::error(format!(
+                "LLVM bitcast source and target must have equal bit widths ({} and {})",
+                source_bits, target_bits
+            )));
+        }
+    } else if source_bits.is_some() != target_bits.is_some() {
+        return Err(LlvmError::error(
+            "LLVM bitcast source and target widths cannot be compared",
+        ));
+    }
+    Ok(())
+}
+
+fn bitcast_width(ty: LLVMTypeRef) -> LlvmResult<Option<u64>> {
+    match unsafe { LLVMGetTypeKind(ty) } {
+        LLVMTypeKind::LLVMIntegerTypeKind => {
+            Ok(Some(u64::from(unsafe { LLVMGetIntTypeWidth(ty) })))
+        }
+        LLVMTypeKind::LLVMFloatTypeKind => Ok(Some(32)),
+        LLVMTypeKind::LLVMDoubleTypeKind => Ok(Some(64)),
+        LLVMTypeKind::LLVMPointerTypeKind => Ok(None),
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind => {
+            let element =
+                require_type(unsafe { LLVMGetElementType(ty) }, "bitcast vector element")?;
+            let element_bits = bitcast_width(element)?.ok_or_else(|| {
+                LlvmError::error("LLVM bitcast vector element must have a fixed bit width")
+            })?;
+            let lanes = u64::from(unsafe { LLVMGetVectorSize(ty) });
+            element_bits
+                .checked_mul(lanes)
+                .ok_or_else(|| {
+                    LlvmError::error("LLVM bitcast vector width overflows host arithmetic")
+                })
+                .map(Some)
+        }
+        _ => Ok(None),
+    }
 }
 
 impl<'ctx> Drop for Builder<'ctx> {
@@ -2257,5 +2339,50 @@ mod tests {
             error,
             LlvmError::Error(message) if message.contains("variadic call expects at least 1 arguments")
         ));
+    }
+
+    #[test]
+    fn rejects_bitcast_with_different_widths_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("bitcast-width").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_bit_cast(
+                context.i32_type().const_zero(),
+                context.i64_type(),
+                "invalid",
+            )
+            .expect_err("bitcast with mismatched widths");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("equal bit widths")
+        ));
+    }
+
+    #[test]
+    fn accepts_equal_width_vector_to_integer_bitcast() {
+        let context = Context::create();
+        let module = context.create_module("bitcast-vector").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let vector = BasicTypeEnum::from(context.bool_type())
+            .vector_type(4)
+            .const_zero()
+            .unwrap();
+
+        let value = builder
+            .build_bit_cast(vector, context.custom_width_int_type(4), "valid")
+            .unwrap();
+        assert!(value.is_int_value());
     }
 }

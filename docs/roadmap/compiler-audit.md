@@ -2065,6 +2065,13 @@ acceptance item only when its phase-wide evidence is complete.
       backend validation. Wrapper regressions cover fixed-arity, fixed-type,
       and variadic-underflow failures, with LLVM/codegen suites, workspace
       check, formatting, and strict Clippy passing.
+- [x] Batch 358 closes the LLVM bitcast type boundary. `build_bit_cast` now
+      requires first-class source/target types, equal known widths, matching
+      fixed/scalable vector classes, and matching pointer address spaces before
+      `LLVMBuildBitCast`; target-dependent pointer widths remain outside this
+      wrapper. Regressions cover a mismatched-width cast and the SIMD bool-mask
+      packing path, with LLVM/codegen suites, workspace check, formatting, and
+      strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

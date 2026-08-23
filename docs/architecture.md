@@ -2667,6 +2667,12 @@ the signature. Opaque function-pointer provenance for indirect calls remains a
 backend validation responsibility because the LLVM type handle cannot expose
 the pointee identity.
 
+Bitcast construction validates first-class source and target kinds, equal
+known bit widths, matching fixed/scalable vector shape classes, and matching
+pointer address spaces. Pointer width itself remains target-data dependent;
+pointer-to-integer and integer-to-pointer operations therefore use their
+dedicated typed builders.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
