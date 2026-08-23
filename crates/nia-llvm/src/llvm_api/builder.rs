@@ -1198,7 +1198,14 @@ impl<'ctx> Builder<'ctx> {
         target: IntType<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        cast_int(self.raw, LLVMBuildZExt, value, target, name)
+        cast_int(
+            self.raw,
+            LLVMBuildZExt,
+            value,
+            target,
+            IntegerCastKind::Extend,
+            name,
+        )
     }
 
     /// Sign-extends a scalar integer.
@@ -1208,7 +1215,14 @@ impl<'ctx> Builder<'ctx> {
         target: IntType<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        cast_int(self.raw, LLVMBuildSExt, value, target, name)
+        cast_int(
+            self.raw,
+            LLVMBuildSExt,
+            value,
+            target,
+            IntegerCastKind::Extend,
+            name,
+        )
     }
 
     /// Truncates a scalar integer to a narrower width.
@@ -1218,7 +1232,14 @@ impl<'ctx> Builder<'ctx> {
         target: IntType<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        cast_int(self.raw, LLVMBuildTrunc, value, target, name)
+        cast_int(
+            self.raw,
+            LLVMBuildTrunc,
+            value,
+            target,
+            IntegerCastKind::Truncate,
+            name,
+        )
     }
 
     /// Zero-extends integer scalars or vectors.
@@ -1228,7 +1249,14 @@ impl<'ctx> Builder<'ctx> {
         target: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        cast_basic(self.raw, LLVMBuildZExt, value, target, name)
+        cast_basic(
+            self.raw,
+            LLVMBuildZExt,
+            value,
+            target,
+            IntegerCastKind::Extend,
+            name,
+        )
     }
 
     /// Sign-extends integer scalars or vectors.
@@ -1238,7 +1266,14 @@ impl<'ctx> Builder<'ctx> {
         target: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        cast_basic(self.raw, LLVMBuildSExt, value, target, name)
+        cast_basic(
+            self.raw,
+            LLVMBuildSExt,
+            value,
+            target,
+            IntegerCastKind::Extend,
+            name,
+        )
     }
 
     /// Truncates integer scalars or vectors.
@@ -1248,7 +1283,14 @@ impl<'ctx> Builder<'ctx> {
         target: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        cast_basic(self.raw, LLVMBuildTrunc, value, target, name)
+        cast_basic(
+            self.raw,
+            LLVMBuildTrunc,
+            value,
+            target,
+            IntegerCastKind::Truncate,
+            name,
+        )
     }
 
     /// Converts a signed scalar integer to floating point.
@@ -1494,6 +1536,76 @@ fn build_int_bin<'ctx>(
     Ok(IntValue::new(require_value(value, "integer operation")?))
 }
 
+#[derive(Clone, Copy)]
+enum IntegerCastKind {
+    Extend,
+    Truncate,
+}
+
+fn validate_integer_cast(
+    value_ty: LLVMTypeRef,
+    target_ty: LLVMTypeRef,
+    kind: IntegerCastKind,
+) -> LlvmResult<()> {
+    let value_ty = require_type(value_ty, "integer cast source")?;
+    let target_ty = require_type(target_ty, "integer cast target")?;
+    let value_kind = unsafe { LLVMGetTypeKind(value_ty) };
+    let target_kind = unsafe { LLVMGetTypeKind(target_ty) };
+    let is_integer = |kind| {
+        matches!(
+            kind,
+            LLVMTypeKind::LLVMIntegerTypeKind
+                | LLVMTypeKind::LLVMVectorTypeKind
+                | LLVMTypeKind::LLVMScalableVectorTypeKind
+        )
+    };
+    if !is_integer(value_kind) || !is_integer(target_kind) {
+        return Err(LlvmError::error(
+            "LLVM integer cast requires integer scalar or vector types",
+        ));
+    }
+    let source_bits = integer_cast_shape(value_ty)?;
+    let target_bits = integer_cast_shape(target_ty)?;
+    if source_bits.0 != target_bits.0 || source_bits.1 != target_bits.1 {
+        return Err(LlvmError::error(
+            "LLVM integer cast source and target must have matching vector shape",
+        ));
+    }
+    match kind {
+        IntegerCastKind::Extend if target_bits.2 <= source_bits.2 => Err(LlvmError::error(
+            "LLVM integer extension target must be wider than its source",
+        )),
+        IntegerCastKind::Truncate if target_bits.2 >= source_bits.2 => Err(LlvmError::error(
+            "LLVM integer truncation target must be narrower than its source",
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Returns `(kind, lane count, lane width)` for an integer scalar/vector.
+fn integer_cast_shape(ty: LLVMTypeRef) -> LlvmResult<(LLVMTypeKind, u32, u32)> {
+    match unsafe { LLVMGetTypeKind(ty) } {
+        LLVMTypeKind::LLVMIntegerTypeKind => Ok((LLVMTypeKind::LLVMIntegerTypeKind, 1, unsafe {
+            LLVMGetIntTypeWidth(ty)
+        })),
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind => {
+            let element =
+                require_type(unsafe { LLVMGetElementType(ty) }, "integer vector element")?;
+            if unsafe { LLVMGetTypeKind(element) } != LLVMTypeKind::LLVMIntegerTypeKind {
+                return Err(LlvmError::error(
+                    "LLVM integer vector cast requires integer lanes",
+                ));
+            }
+            Ok((
+                unsafe { LLVMGetTypeKind(ty) },
+                unsafe { LLVMGetVectorSize(ty) },
+                unsafe { LLVMGetIntTypeWidth(element) },
+            ))
+        }
+        _ => Err(LlvmError::error("LLVM value is not an integer type")),
+    }
+}
+
 fn build_float_bin<'ctx>(
     builder: LLVMBuilderRef,
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
@@ -1536,8 +1648,14 @@ fn cast_int<'ctx>(
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
     value: IntValue<'ctx>,
     target: IntType<'ctx>,
+    kind: IntegerCastKind,
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
+    validate_integer_cast(
+        unsafe { LLVMTypeOf(value.as_value_ref()) },
+        target.as_type_ref(),
+        kind,
+    )?;
     let name = to_c_string(name)?;
     let value = unsafe {
         f(
@@ -1555,8 +1673,14 @@ fn cast_basic<'ctx>(
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMTypeRef, *const i8) -> LLVMValueRef,
     value: BasicValueEnum<'ctx>,
     target: BasicTypeEnum<'ctx>,
+    kind: IntegerCastKind,
     name: &str,
 ) -> LlvmResult<BasicValueEnum<'ctx>> {
+    validate_integer_cast(
+        unsafe { LLVMTypeOf(value.as_value_ref()) },
+        target.as_type_ref(),
+        kind,
+    )?;
     let name = to_c_string(name)?;
     BasicValueEnum::new(unsafe {
         f(
@@ -1785,6 +1909,54 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("shuffle mask lanes must have i32 type")
+        ));
+    }
+
+    #[test]
+    fn rejects_integer_extension_without_a_wider_target() {
+        let context = Context::create();
+        let module = context.create_module("integer-extend").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+
+        let error = builder
+            .build_int_z_extend(
+                context.i32_type().const_zero(),
+                context.i32_type(),
+                "invalid",
+            )
+            .expect_err("same-width integer extension");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("extension target must be wider")
+        ));
+    }
+
+    #[test]
+    fn rejects_integer_truncation_to_a_wider_target() {
+        let context = Context::create();
+        let module = context.create_module("integer-truncate").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+
+        let error = builder
+            .build_int_truncate(
+                context.i32_type().const_zero(),
+                context.i64_type(),
+                "invalid",
+            )
+            .expect_err("wider integer truncation target");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("truncation target must be narrower")
         ));
     }
 }
