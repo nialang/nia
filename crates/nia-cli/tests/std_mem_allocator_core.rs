@@ -108,6 +108,48 @@ fn check_allocator_can_allocate_typed_slices() process::ExitCode!() {
     !()
 }
 
+struct NonEmptyZeroAllocator {
+    backing: mem::PageAllocator,
+    freeCount: usize,
+}
+
+extend NonEmptyZeroAllocator {
+    fn init() NonEmptyZeroAllocator {
+        Self { backing: mem::PageAllocator::init(), freeCount: 0 }
+    }
+}
+
+extend NonEmptyZeroAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if layout.isEmpty() {
+            self.backing.alloc(mem::Layout::init(1, layout.align()).?)
+        } else {
+            self.backing.alloc(layout)
+        }
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if not block.isEmpty() {
+            self.freeCount += 1;
+        }
+        self.backing.free(block)
+    }
+}
+
+fn check_zero_length_slice_releases_block_owner() process::ExitCode!() {
+    let mut allocator = NonEmptyZeroAllocator::init();
+    let mut allocation = allocator.allocSlice[u8](0).exit().?;
+    allocation.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 1 {
+        return process::exit(1)!;
+    }
+    allocation.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 1 {
+        return process::exit(2)!;
+    }
+    !()
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     check_page_allocator_allocates().?;
@@ -115,6 +157,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     check_layout_rejects_invalid_alignment().?;
     check_layout_rejects_array_size_overflow().?;
     check_allocator_can_allocate_typed_slices().?;
+    check_zero_length_slice_releases_block_owner().?;
     !()
 }
 "#,

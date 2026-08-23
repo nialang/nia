@@ -473,6 +473,8 @@ signals, not architecture goals.
   slice. Transfer APIs consume `SliceAllocation[T]`; cleanup failure leaves the
   owner and its release range attached for retry. Do not add raw-slice ownership
   constructors or reconstruct a release block from pointer plus logical length.
+  `deinit` releases the Block even when the logical length is zero, because a
+  custom allocator may attach a non-empty release range to an empty view.
 - Treat successful allocator resize/remap as a logical-layout transition on the
   existing `Block`. Use the canonical layout-preserving helper so the release
   pointer and length survive default remap, concrete wrappers, and resized arena
