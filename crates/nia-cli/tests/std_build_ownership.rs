@@ -609,6 +609,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     allocator.disableFailure();
     let beforeDependency = allocator.activeAllocations;
     allocator.failAfter(4usize);
+    allocator.failNextRetainedFrees(3usize);
     match api.addRunExecutableStep(
         &"run",
         build::RunOptions::init(executable).withArguments(&runArguments[..]),
@@ -623,10 +624,12 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
             }
         },
     }
-    if allocator.activeAllocations != beforeDependency {
+    if allocator.activeAllocations != beforeDependency + 4usize {
         return process::exit(35)!;
     }
     allocator.disableFailure();
+    _ = api.addAggregateStep(&"rollback-cleanup").exit().?;
+    _ = api.addAggregateStep(&"capacity").exit().?;
     let beforeGenerated = allocator.activeAllocations;
     allocator.failAfter(2usize);
     allocator.failNextRetainedFrees(2usize);
@@ -679,7 +682,6 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         return process::exit(38)!;
     }
     allocator.disableFailure();
-    _ = api.addAggregateStep(&"capacity").exit().?;
     let beforeUncacheable = allocator.activeAllocations;
     allocator.failAfter(1usize);
     allocator.failNextRetainedFree();

@@ -33,6 +33,9 @@
 // levels, so nested import name/path cleanup remains reachable from Build.
 // Generated-file and uncacheable steps use a kind-correct pending Step whose
 // name and payload owners transfer only after post-reserve initialization.
+// Run/test steps keep argument strings in that pending owner. Dependency-edge
+// failure preserves the primary error while moving the popped step back to the
+// pending slot for cleanup retry.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 

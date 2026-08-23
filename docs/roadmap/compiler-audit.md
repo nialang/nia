@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 479 completed entries in this ledger.
+- Implementation batches: 480 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2728,6 +2728,13 @@ acceptance item only when its phase-wide evidence is complete.
       record. Fault injection preserves simultaneous generated name/output
       owners and an uncacheable name owner across failed cleanup, proves every
       injected release is attempted, and retries both insertions successfully.
+- [x] Batch 480 makes run/test payload construction and dependency rollback
+      owner-driven. Argument slots are attached to a reserved nested list before
+      string initialization; `rollbackLastStep` moves a popped committed step
+      into `Build.pendingStep` before cleanup. Explicit operation/cleanup
+      composition preserves dependency OOM over three simultaneous release
+      failures, retains two arguments plus their list and step name, and proves
+      the next insertion can recursively retire them.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
