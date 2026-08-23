@@ -663,7 +663,8 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         build::CommandArgument::buildOutput(build::BuildPathView::init(&"output.txt")),
     ];
     let beforeCommand = allocator.activeAllocations;
-    allocator.failAfter(3usize);
+    allocator.failAfter(5usize);
+    allocator.failNextRetainedFrees(3usize);
     match api.addExternalCommandStep(
         &"tool",
         build::ExternalCommandOptions::search(&"tool").withArguments(&commandArguments),
@@ -678,12 +679,38 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
             }
         },
     }
-    if allocator.activeAllocations != beforeCommand {
+    if allocator.activeAllocations != beforeCommand + 4usize {
         return process::exit(38)!;
     }
     allocator.disableFailure();
-    let beforeUncacheable = allocator.activeAllocations;
-    allocator.failAfter(1usize);
+    cleaned = true;
+    api.deinit().exit().?;
+    if allocator.activeAllocations != 0usize {
+        return process::exit(10)!;
+    }
+    !()
+}
+
+fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut allocator = FaultAllocator::init();
+    let emptyPath = fs::PathView::init(&"");
+    let target = testTarget(&"");
+    let mut initialization = build::Build::init(
+        &mut allocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        build::OptimizationMode::O0,
+        1u32,
+        null,
+    );
+    let mut api = initialization.finish().exit().?;
+    allocator.failAfter(2usize);
     allocator.failNextRetainedFree();
     match api.addUncacheableStep(&"uncacheable", &"description") {
         !handle => {
@@ -694,12 +721,40 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
             return process::exit(73)!;
         },
     }
-    if allocator.activeAllocations != beforeUncacheable + 1usize {
+    if allocator.activeAllocations != 2usize {
         return process::exit(74)!;
     }
     allocator.disableFailure();
     _ = api.addUncacheableStep(&"uncacheable", &"description").exit().?;
-    _ = api.addAggregateStep(&"install-capacity").exit().?;
+    api.deinit().exit().?;
+    if allocator.activeAllocations != 0usize {
+        return process::exit(78)!;
+    }
+    !()
+}
+
+fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut allocator = FaultAllocator::init();
+    let emptyPath = fs::PathView::init(&"");
+    let target = testTarget(&"");
+    let mut initialization = build::Build::init(
+        &mut allocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        build::OptimizationMode::O0,
+        1u32,
+        null,
+    );
+    let mut api = initialization.finish().exit().?;
+    let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).exit().?;
+    let executable = api.addExecutable(build::ExecutableOptions::init(&"app", moduleHandle)).exit().?;
+    _ = api.addEmitExecutableStep(&"emit", executable).exit().?;
     let beforeInstall = allocator.activeAllocations;
     allocator.failAfter(2usize);
     allocator.failNextRetainedFrees(2usize);
@@ -725,10 +780,54 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         executable,
         build::BuildPathView::init(&"install/app"),
     ).exit().?;
-    cleaned = true;
     api.deinit().exit().?;
     if allocator.activeAllocations != 0usize {
-        return process::exit(10)!;
+        return process::exit(79)!;
+    }
+    !()
+}
+
+fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut allocator = FaultAllocator::init();
+    let emptyPath = fs::PathView::init(&"");
+    let target = testTarget(&"");
+    let mut initialization = build::Build::init(
+        &mut allocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        build::OptimizationMode::O0,
+        1u32,
+        null,
+    );
+    let mut api = initialization.finish().exit().?;
+    let environment = [build::CommandEnvironmentInput::init(&"NAME", &"value")];
+    let options = build::ExternalCommandOptions::search(&"tool")
+        .withEnvironment(&environment[..]);
+    allocator.failAfter(5usize);
+    allocator.failNextRetainedFrees(3usize);
+    match api.addExternalCommandStep(&"environment", options) {
+        !handle => {
+            _ = handle;
+            return process::exit(80)!;
+        },
+        err! => if not isExternalCommandRetainOom(err) {
+            return process::exit(81)!;
+        },
+    }
+    if allocator.activeAllocations != 5usize {
+        return process::exit(82)!;
+    }
+    allocator.disableFailure();
+    _ = api.addExternalCommandStep(&"environment", options).exit().?;
+    api.deinit().exit().?;
+    if allocator.activeAllocations != 0usize {
+        return process::exit(83)!;
     }
     !()
 }
@@ -968,6 +1067,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     checkTargetInitRollback(init, 13usize).?;
     checkInitCleanupRetry(init).?;
     checkRecordRollback(init).?;
+    checkPendingUncacheableStep(init).?;
+    checkPendingInstallStep(init).?;
+    checkPendingExternalEnvironment(init).?;
     checkArgAssemblyRollback(init).?;
     checkCleanupRetryRetainsNestedOwners(init).?;
     checkValidationScratchCleanupRetry(init).?;

@@ -431,6 +431,10 @@ signals, not architecture goals.
   actions. Executable and static-archive destination strings must not have a
   separate fallible defer or a cleanup error that replaces producer-edge
   failure.
+- External-command argument and environment records must be appended in their
+  active union/struct form before nested strings are retained. On any producer
+  edge failure, remove the complete newly added dependency suffix and transfer
+  the popped command step to pending ownership before recursive cleanup.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a

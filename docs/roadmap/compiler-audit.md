@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 481 completed entries in this ledger.
+- Implementation batches: 482 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2741,6 +2741,14 @@ acceptance item only when its phase-wide evidence is complete.
       completion path preserves edge errors over rollback cleanup. Fault
       injection covers dependency OOM plus two simultaneous string-release
       failures, retry, and final cleanup; the target suite covers both kinds.
+- [x] Batch 482 makes external-command steps recursively owner-driven. Program,
+      working directory, argument and environment lists, and their nested
+      records are attached before string retention; the three detached rollback
+      defer layers are removed. Multi-producer edge insertion is an explicit
+      suffix transaction preserving its primary error. Fault injection covers
+      argument-value and environment-value allocation failures, multiple
+      simultaneous nested releases, containing-list retention, retry, and
+      complete final cleanup.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -704,27 +704,37 @@ extend Build {
             self.allocator,
             artifactInputCount,
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        let mut payload = ExternalCommandStep::init(self.allocator, options, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            payload.deinit(self.allocator, handle.index()).?;
-        };
-        let result = self.addStepRecord(
-            name,
-            StepKind::ExternalCommand,
-            StepPayload { externalCommand: payload },
-        ).?;
-        transferred = true;
+        self.prepareExternalCommandStep(name, options).?;
+        match self.pendingStep.initializeExternalCommand(self.allocator, name, options) {
+            !ok => _ = ok,
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
+        }
+        let result = self.commitPendingStep().?;
         let dependencyStart = self.dependencies.len();
-        let mut committed = false;
-        defer if not committed {
-            while self.dependencies.len() > dependencyStart {
-                _ = self.dependencies.pop();
-            }
-            self.rollbackLastStep().?;
-        };
-        match options.arguments {
+        match self.addExternalCommandDependencies(result, options.arguments) {
+            !ok => {
+                _ = ok;
+                !result
+            },
+            primary! => {
+                while self.dependencies.len() > dependencyStart {
+                    _ = self.dependencies.pop();
+                }
+                _ = self.rollbackLastStep();
+                primary!
+            },
+        }
+    }
+
+    fn addExternalCommandDependencies(
+        &mut self,
+        step: StepHandle,
+        arguments: ?&[CommandArgument],
+    ) Error!() {
+        match arguments {
             ?arguments => {
                 for &argument in arguments.iter() {
                     if argument.kind == CommandArgumentKind::ArtifactInput {
@@ -732,35 +742,34 @@ extend Build {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
-                                subject: Subject::Step(handle.index()),
+                                subject: Subject::Step(step.index()),
                             }!,
                         };
-                        self.dependOn(result, producer).?;
+                        self.dependOn(step, producer).?;
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let producer = match self.findEmitObjectStep(argument.payload.object) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
-                                subject: Subject::Step(handle.index()),
+                                subject: Subject::Step(step.index()),
                             }!,
                         };
-                        self.dependOn(result, producer).?;
+                        self.dependOn(step, producer).?;
                     } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let producer = match self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
                             ?producer => producer,
                             null => return Error::Invalid {
                                 operation: Operation::Validate,
-                                subject: Subject::Step(handle.index()),
+                                subject: Subject::Step(step.index()),
                             }!,
                         };
-                        self.dependOn(result, producer).?;
+                        self.dependOn(step, producer).?;
                     }
                 }
             },
             null => {},
         }
-        committed = true;
-        !result
+        !()
     }
 
     pub fn dependOn(&mut self, step: StepHandle, dependency: StepHandle) Error!() {
@@ -1749,6 +1758,17 @@ extend Build {
         !()
     }
 
+    fn prepareExternalCommandStep(
+        &mut self,
+        name: &[char],
+        options: ExternalCommandOptions,
+    ) Error!() {
+        self.prepareStepSlot(name).?;
+        self.pendingStep = Step::initExternalCommand(self.steps.len(), options);
+        self.hasPendingStep = true;
+        !()
+    }
+
     fn prepareStepSlot(&mut self, name: &[char]) Error!() {
         self.cleanupPendingStep().?;
         if not isValidStableName(name) {
@@ -2243,41 +2263,46 @@ extend CommandEnvironmentInput {
 }
 
 extend OwnedCommandArgument {
-    fn init(
-        allocator: &mut mem::Allocator,
-        argument: CommandArgument,
-        index: usize,
-    ) Error!OwnedCommandArgument {
+    fn init(argument: CommandArgument) OwnedCommandArgument {
         if argument.kind == CommandArgumentKind::ArtifactInput {
-            return !Self {
+            return Self {
                 kind: argument.kind,
                 payload: OwnedCommandArgumentPayload { artifact: argument.payload.artifact },
                 package: argument.package,
             };
         }
         if argument.kind == CommandArgumentKind::ObjectInput {
-            return !Self {
+            return Self {
                 kind: argument.kind,
                 payload: OwnedCommandArgumentPayload { object: argument.payload.object },
                 package: argument.package,
             };
         }
         if argument.kind == CommandArgumentKind::StaticArchiveInput {
-            return !Self {
+            return Self {
                 kind: argument.kind,
                 payload: OwnedCommandArgumentPayload { staticArchive: argument.payload.staticArchive },
                 package: argument.package,
             };
         }
-        let value = string::String::fromSlice(
-            allocator,
-            argument.payload.value,
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !Self {
+        Self {
             kind: argument.kind,
-            payload: OwnedCommandArgumentPayload { value },
+            payload: OwnedCommandArgumentPayload { value: string::String::init() },
             package: argument.package,
         }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        value: &[char],
+        index: usize,
+    ) Error!() {
+        self.payload.value = string::String::fromSlice(
+            allocator,
+            value,
+        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -2292,25 +2317,25 @@ extend OwnedCommandArgument {
 }
 
 extend OwnedCommandEnvironmentInput {
-    fn init(
+    fn init() OwnedCommandEnvironmentInput {
+        Self { name: string::String::init(), value: string::String::init() }
+    }
+
+    fn initialize(
+        &mut self,
         allocator: &mut mem::Allocator,
         input: CommandEnvironmentInput,
         index: usize,
-    ) Error!OwnedCommandEnvironmentInput {
-        let mut name = string::String::fromSlice(
+    ) Error!() {
+        self.name = string::String::fromSlice(
             allocator,
             input.name,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        let mut nameTransferred = false;
-        defer if not nameTransferred {
-            name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)).?;
-        };
-        let value = string::String::fromSlice(
+        self.value = string::String::fromSlice(
             allocator,
             input.value,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        nameTransferred = true;
-        !Self { name: name, value: value }
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -2328,12 +2353,8 @@ extend OwnedCommandEnvironmentInput {
 }
 
 extend ExternalCommandStep {
-    fn init(
-        allocator: &mut mem::Allocator,
-        options: ExternalCommandOptions,
-        index: usize,
-    ) Error!ExternalCommandStep {
-        let mut command: ExternalCommandStep = ExternalCommandStep {
+    fn init(options: ExternalCommandOptions) ExternalCommandStep {
+        ExternalCommandStep {
             program: string::String::init(),
             arguments: collections::ArrayList[OwnedCommandArgument]::init(),
             workingDirectory: fs::Path::init(),
@@ -2341,57 +2362,55 @@ extend ExternalCommandStep {
             environmentPolicy: options.environmentPolicy,
             cachePolicy: options.cachePolicy,
             environment: collections::ArrayList[OwnedCommandEnvironmentInput]::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            command.deinit(allocator, index).?;
-        };
-        command.program = string::String::fromSlice(
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        options: ExternalCommandOptions,
+        index: usize,
+    ) Error!() {
+        self.program = string::String::fromSlice(
             allocator,
             options.program,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        command.workingDirectory = fs::Path::fromView(
+        self.workingDirectory = fs::Path::fromView(
             allocator,
             options.workingDirectory,
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
         match options.arguments {
             ?arguments => {
-                command.arguments = collections::ArrayList[OwnedCommandArgument]::initCapacity(
-                    allocator,
-                    arguments.len(),
-                ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                self.arguments.reserve(allocator, arguments.len()).asBuildError(Operation::Retain, Subject::Step(index)).?;
                 for &argument in arguments.iter() {
-                    let mut owned = OwnedCommandArgument::init(allocator, argument, index).?;
-                    let mut argumentTransferred = false;
-                    defer if not argumentTransferred {
-                        owned.deinit(allocator, index).?;
-                    };
-                    command.arguments.push(allocator, owned).asBuildError(Operation::Retain, Subject::Step(index)).?;
-                    argumentTransferred = true;
+                    self.arguments.appendAssumeCapacity(OwnedCommandArgument::init(argument));
+                    if argument.kind != CommandArgumentKind::ArtifactInput
+                        and argument.kind != CommandArgumentKind::ObjectInput
+                        and argument.kind != CommandArgumentKind::StaticArchiveInput
+                    {
+                        let argumentIndex = self.arguments.len() - 1usize;
+                        self.arguments.asMutSlice()[argumentIndex].initialize(
+                            allocator,
+                            argument.payload.value,
+                            index,
+                        ).?;
+                    }
                 }
             },
             null => {},
         }
         match options.environment {
             ?environment => {
-                command.environment = collections::ArrayList[OwnedCommandEnvironmentInput]::initCapacity(
-                    allocator,
-                    environment.len(),
-                ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                self.environment.reserve(allocator, environment.len()).asBuildError(Operation::Retain, Subject::Step(index)).?;
                 for &input in environment.iter() {
-                    let mut owned = OwnedCommandEnvironmentInput::init(allocator, input, index).?;
-                    let mut inputTransferred = false;
-                    defer if not inputTransferred {
-                        owned.deinit(allocator, index).?;
-                    };
-                    command.environment.push(allocator, owned).asBuildError(Operation::Retain, Subject::Step(index)).?;
-                    inputTransferred = true;
+                    self.environment.appendAssumeCapacity(OwnedCommandEnvironmentInput::init());
+                    let inputIndex = self.environment.len() - 1usize;
+                    self.environment.asMutSlice()[inputIndex].initialize(allocator, input, index).?;
                 }
             },
             null => {},
         }
-        transferred = true;
-        !command
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -2501,6 +2520,15 @@ extend Step {
         }
     }
 
+    fn initExternalCommand(index: usize, options: ExternalCommandOptions) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: StepKind::ExternalCommand,
+            payload: StepPayload { externalCommand: ExternalCommandStep::init(options) },
+        }
+    }
+
     fn initializeGeneratedFile(
         &mut self,
         allocator: &mut mem::Allocator,
@@ -2550,6 +2578,16 @@ extend Step {
     ) Error!() {
         self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.installStaticArchive.initialize(allocator, destination, self.index)
+    }
+
+    fn initializeExternalCommand(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        options: ExternalCommandOptions,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.payload.externalCommand.initialize(allocator, options, self.index)
     }
 
     fn init(

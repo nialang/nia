@@ -38,6 +38,8 @@
 // pending slot for cleanup retry.
 // Executable and static-archive install steps apply the same transaction to
 // their destination strings and producer dependency edge.
+// External-command steps attach argument and environment slots before retaining
+// their nested strings, and roll back all producer edges as one transaction.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 
