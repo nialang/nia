@@ -2980,6 +2980,9 @@ modules below eight definitions remain one ordinal-zero unit. Larger modules
 use at most four fixed buckets: ordinary globals/functions use their stable
 source-local `DefId`, concrete instances use their stable mangled symbol, and
 vtables remain in bucket zero rather than hashing session-local type handles.
+Bucket selection reduces each stable numeric definition id or symbol hash in
+its fixed `u64` domain before converting to a host indexing type, so 32-bit and
+64-bit hosts produce identical partition and cache identities.
 Only non-empty buckets become units; once the split threshold is active, adding
 an item does not shift all later ordinals. Units are ordered by stable key rather than `ModuleId` or
 `BackendProgram.modules` position. Each plan entry keeps one module index plus
