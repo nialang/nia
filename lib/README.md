@@ -88,9 +88,10 @@ The library follows a small set of ownership rules:
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed
-  typed owners. `Allocated` and `CallableAllocation` retain the complete
-  allocator release range across callable transfer; successful deinit and
-  transfer clear that range so cleanup is single-shot. Implementation modules
+  typed owners. `Allocated` and `CallableAllocation` retain the returned Block
+  layout and complete allocator release range across callable transfer,
+  including non-empty Blocks for zero-sized values; successful deinit and
+  transfer clear that state so cleanup is single-shot. Implementation modules
   do not hide the only entry point.
 
 The source files are the API reference: facades state their boundaries and the

@@ -367,10 +367,11 @@ signals, not architecture goals.
   a map-owned retired state; a failed retired free remains attached, blocks
   later rehash until cleanup succeeds, and is retried by `deinit`.
 - Apply the same transaction rule to single allocation owners. `Allocated` and
-  `CallableAllocation` must retain the complete allocator release pointer and
-  length, and clear their owner fields only after `free` returns success; a
-  release error must leave the original block retryable. Never rebuild a
-  release block from only the typed value pointer and logical layout. A
+  `CallableAllocation` must retain the allocator-returned Block layout plus the
+  complete release pointer and length, and clear their owner fields only after
+  `free` returns success; a release error must leave the original block
+  retryable. Never rebuild a release block from only the typed value pointer and
+  `Layout::of[T]`: a zero-sized value may still have a non-empty Block. A
   successful deinit or owner transfer must clear the release metadata as well
   as the logical size, so repeated cleanup cannot double-free the old block.
 - Allocator rollback paths must retain child blocks when a validation failure is

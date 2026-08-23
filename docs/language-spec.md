@@ -1340,8 +1340,10 @@ the restriction begins when the address becomes part of closure state.
 The standard library provides an explicit owner for callers that need a
 callable view to outlive the lexical scope of its closure state. `mem::Allocator`
 allocates raw storage, while `Allocator::allocValue[T](value)` constructs an
-`mem::Allocated[T]` handle containing the typed storage pointer, its logical
-layout, and the allocator release range required to free the original block.
+`mem::Allocated[T]` handle containing the typed storage pointer plus the
+returned allocator Block layout and release range required to free the original
+block. The Block layout remains distinct from `Layout::of[T]`: a custom
+allocator may attach real storage to a zero-sized typed value.
 The operation is library code: the compiler does not select an allocator,
 insert heap operations, or attach an implicit destructor to `T`. A caller may
 obtain `valueMut()`, create the explicit callable view, and move that view into

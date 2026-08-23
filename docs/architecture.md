@@ -2167,7 +2167,9 @@ payload provenance are tracked separately so an error-only stack address cannot
 contaminate a successfully allocated value. A successful owner transfer or
 `deinit` clears both the logical size and the stored release range; a failed
 release leaves all metadata intact for retry and a completed owner cannot be
-freed again through its former pointer.
+freed again through its former pointer. These owners retain the layout of the
+Block returned by the allocator rather than rebuilding it from `Layout::of[T]`,
+because even a zero-sized typed value may have a non-empty allocation Block.
 
 The allocator protocol keeps non-empty ownership transitions explicit. A
 successful resize to an empty layout must itself retire all ownership state;

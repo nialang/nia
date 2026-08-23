@@ -4,14 +4,15 @@ using pkg::mem::types;
 using allocator::Allocator;
 using types::{Block, Error, Layout};
 
-// The value pointer may be an aligned interior address. Keep the allocator's
-// original release range separately instead of reconstructing it during free.
+// The value pointer may be an aligned interior address, and an allocator may
+// attach real storage to a zero-sized value. Keep the returned Block layout and
+// release range instead of reconstructing either from the typed value layout.
 pub struct Allocated[T]
 where T: Sized
 {
     valuePtr: &mut T,
-    size: usize,
-    align: usize,
+    blockSize: usize,
+    blockAlign: usize,
     releasePtr: usize,
     releaseSize: usize,
 }
@@ -21,8 +22,8 @@ where V: Sized
 {
     callback: V,
     allocationPtr: &mut u8,
-    size: usize,
-    align: usize,
+    blockSize: usize,
+    blockAlign: usize,
     releasePtr: usize,
     releaseSize: usize,
 }
@@ -37,8 +38,8 @@ where T: Sized
     valuePtr.* = value;
     !Allocated[T] {
         valuePtr,
-        size: layout.size(),
-        align: layout.align(),
+        blockSize: block.size(),
+        blockAlign: block.align(),
         releasePtr: block.releasePtr() as usize,
         releaseSize: block.releaseSize(),
     }
@@ -62,29 +63,29 @@ where T: Sized
     where V: Sized
     {
         let allocationPtr = self.valuePtr as &mut u8;
-        let size = self.size;
-        let align = self.align;
+        let blockSize = self.blockSize;
+        let blockAlign = self.blockAlign;
         let releasePtr = self.releasePtr;
         let releaseSize = self.releaseSize;
-        self.valuePtr = align as &mut T;
-        self.size = 0;
+        self.valuePtr = blockAlign as &mut T;
+        self.blockSize = 0;
         self.releasePtr = 0;
         self.releaseSize = 0;
-        CallableAllocation[V] { callback, allocationPtr, size, align, releasePtr, releaseSize }
+        CallableAllocation[V] { callback, allocationPtr, blockSize, blockAlign, releasePtr, releaseSize }
     }
 
     pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
         let address = self.valuePtr as usize;
         let allocationPtr = address as &mut u8;
-        let layout = Layout::init(self.size, self.align).?;
+        let layout = Layout::init(self.blockSize, self.blockAlign).?;
         allocator.free(Block::initWithRelease(
             allocationPtr,
             layout,
             self.releasePtr as &mut u8,
             self.releaseSize,
         )).?;
-        self.valuePtr = self.align as &mut T;
-        self.size = 0;
+        self.valuePtr = self.blockAlign as &mut T;
+        self.blockSize = 0;
         self.releasePtr = 0;
         self.releaseSize = 0;
         !()
@@ -101,14 +102,14 @@ where V: Sized
     pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
         let address = self.allocationPtr as usize;
         let allocationPtr = address as &mut u8;
-        let layout = Layout::init(self.size, self.align).?;
+        let layout = Layout::init(self.blockSize, self.blockAlign).?;
         allocator.free(Block::initWithRelease(
             allocationPtr,
             layout,
             self.releasePtr as &mut u8,
             self.releaseSize,
         )).?;
-        self.size = 0;
+        self.blockSize = 0;
         self.releasePtr = 0;
         self.releaseSize = 0;
         !()
