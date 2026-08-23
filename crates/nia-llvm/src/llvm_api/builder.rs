@@ -179,6 +179,7 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
+        let index_count = checked_llvm_count(indexes.len(), "GEP index")?;
         let mut indexes = indexes
             .iter()
             .map(|idx| idx.as_value_ref())
@@ -192,7 +193,7 @@ impl<'ctx> Builder<'ctx> {
                 pointee_ty.as_type_ref(),
                 ptr.as_value_ref(),
                 indexes.as_mut_ptr(),
-                indexes.len() as u32,
+                index_count,
                 name.as_ptr(),
             )
         };
@@ -265,6 +266,7 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<CallSiteValue<'ctx>> {
         validate_call_arguments(function_type, args)?;
+        let arg_count = checked_llvm_count(args.len(), "call argument")?;
         let name = if function_type.get_return_type()?.is_none() {
             ""
         } else {
@@ -281,7 +283,7 @@ impl<'ctx> Builder<'ctx> {
                 function_type.as_type_ref(),
                 callee,
                 args.as_mut_ptr(),
-                args.len() as u32,
+                arg_count,
                 name.as_ptr(),
             )
         };
@@ -353,18 +355,13 @@ impl<'ctx> Builder<'ctx> {
         cases: &[(IntValue<'ctx>, BasicBlock<'ctx>)],
     ) -> LlvmResult<InstructionValue<'ctx>> {
         validate_switch_cases(value.as_value_ref(), cases)?;
-        let mut targets = Vec::with_capacity(cases.len() + 1);
-        targets.push(else_block);
+        let case_count = checked_llvm_count(cases.len(), "switch case")?;
+        validate_branch_targets(self.get_insert_block(), &[else_block])?;
+        let mut targets = Vec::with_capacity(cases.len());
         targets.extend(cases.iter().map(|(_, block)| *block));
         validate_branch_targets(self.get_insert_block(), &targets)?;
-        let inst = unsafe {
-            LLVMBuildSwitch(
-                self.raw,
-                value.as_value_ref(),
-                else_block.raw,
-                cases.len() as u32,
-            )
-        };
+        let inst =
+            unsafe { LLVMBuildSwitch(self.raw, value.as_value_ref(), else_block.raw, case_count) };
         let inst = require_value(inst, "switch")?;
         for (case_value, block) in cases {
             unsafe { LLVMAddCase(inst, case_value.as_value_ref(), block.raw) };
@@ -1651,6 +1648,11 @@ fn require_value(raw: LLVMValueRef, operation: &str) -> LlvmResult<LLVMValueRef>
     }
 }
 
+fn checked_llvm_count(count: usize, operation: &str) -> LlvmResult<u32> {
+    u32::try_from(count)
+        .map_err(|_| LlvmError::error(format!("LLVM {operation} count exceeds u32")))
+}
+
 fn require_type(raw: LLVMTypeRef, operation: &str) -> LlvmResult<LLVMTypeRef> {
     if raw.is_null() {
         Err(LlvmError::error(format!(
@@ -2256,6 +2258,20 @@ mod tests {
                 "LLVM returned a null value while building test instruction".to_string()
             )
         );
+    }
+
+    #[test]
+    fn rejects_builder_operand_count_width_overflow() {
+        let count = u32::MAX as usize;
+        assert_eq!(checked_llvm_count(count, "test operand").unwrap(), u32::MAX);
+        if usize::BITS > u32::BITS {
+            let error = checked_llvm_count(count + 1, "test operand")
+                .expect_err("builder operand count overflow");
+            assert_eq!(
+                error,
+                LlvmError::Error("LLVM test operand count exceeds u32".to_string())
+            );
+        }
     }
 
     #[test]
