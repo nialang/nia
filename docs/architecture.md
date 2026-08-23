@@ -2833,6 +2833,11 @@ The context lifetime root is fallible too. `Context::create` checks the
 object path propagates that allocation diagnostic rather than treating a null
 root as an unrecoverable typed-wrapper assertion.
 
+The shared `BasicTypeEnum::const_zero` path also preserves the fallible value
+boundary for aggregate types. Array and struct zero constants enter through
+`BasicValueEnum::new`, so a null `LLVMConstNull` result cannot reach a typed
+wrapper assertion through the public result-returning API.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted
