@@ -161,7 +161,7 @@ fn isExecutableRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
-            subject: build::ErrorSubject::Executable(0usize),
+            subject: build::ErrorSubject::Executable(_),
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
@@ -536,7 +536,28 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         return process::exit(66)!;
     }
     allocator.disableFailure();
-    _ = api.addStaticArchive(archiveOptions).exit().?;
+    let archive = api.addStaticArchive(archiveOptions).exit().?;
+    let linkedArchives = [archive];
+    let linkedOptions = build::ExecutableOptions::init(&"linked", moduleHandle)
+        .withOutputName(&"linked-output")
+        .withStaticArchives(&linkedArchives[..]);
+    let beforeLinked = allocator.activeAllocations;
+    allocator.failAfter(3usize);
+    allocator.failNextRetainedFrees(2usize);
+    match api.addExecutable(linkedOptions) {
+        !handle => {
+            _ = handle;
+            return process::exit(67)!;
+        },
+        err! => if not isExecutableRetainOom(err) {
+            return process::exit(68)!;
+        },
+    }
+    if allocator.activeAllocations != beforeLinked + 3usize {
+        return process::exit(69)!;
+    }
+    allocator.disableFailure();
+    _ = api.addExecutable(linkedOptions).exit().?;
     let beforeTarget = allocator.activeAllocations;
     let targetName = "app";
     let outputName = "output";

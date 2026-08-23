@@ -155,6 +155,12 @@ extend Build {
             hasPendingPackage: false,
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
+            pendingExecutable: ExecutableTarget::init(
+                0usize,
+                ModuleHandle::init(ownerId, 0usize),
+                TargetRole::Artifact,
+            ),
+            hasPendingExecutable: false,
             objects: collections::ArrayList[ObjectTarget]::init(),
             pendingObject: ObjectTarget::init(
                 0usize,
@@ -232,6 +238,7 @@ extend Build {
         rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
         rememberCleanupError(&mut firstError, self.cleanupPendingObject());
         rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
+        rememberCleanupError(&mut firstError, self.cleanupPendingExecutable());
         let mut elementError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
@@ -855,6 +862,7 @@ extend Build {
     }
 
     pub fn addExecutable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
+        self.cleanupPendingExecutable().?;
         let handle = ExecutableHandle::init(self.ownerId, self.executables.len());
         if not isValidStableName(options.name) {
             return Error::Invalid {
@@ -928,15 +936,40 @@ extend Build {
             },
             null => {},
         }
-        let mut target = ExecutableTarget::init(self.allocator, options, outputName, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            target.deinit(self.allocator).?;
-        };
-        self.executables.push(self.allocator, target).asBuildError(Operation::Retain, Subject::Executables).?;
-        transferred = true;
+        self.executables.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Executables).?;
+        self.pendingExecutable = ExecutableTarget::init(
+            handle.index(),
+            options.rootModule,
+            options.targetRole,
+        );
+        self.hasPendingExecutable = true;
+        match self.pendingExecutable.initialize(
+            self.allocator,
+            options.name,
+            outputName,
+            options.staticArchives,
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingExecutable();
+                return primary!;
+            },
+        }
+        self.executables.appendAssumeCapacity(self.pendingExecutable);
+        self.hasPendingExecutable = false;
         self.planValidated = false;
         !handle
+    }
+
+    fn cleanupPendingExecutable(&mut self) Error!() {
+        if not self.hasPendingExecutable {
+            return !();
+        }
+        self.pendingExecutable.deinit(self.allocator).?;
+        self.hasPendingExecutable = false;
+        !()
     }
 
     pub fn addObject(&mut self, options: ObjectOptions) Error!ObjectHandle {
@@ -2712,43 +2745,43 @@ extend OwnedModuleImport {
 }
 
 extend ExecutableTarget {
-    pub fn init(
-        allocator: &mut mem::Allocator,
-        options: ExecutableOptions,
-        outputName: &[char],
+    fn init(
         index: usize,
-    ) Error!ExecutableTarget {
-        let mut target: ExecutableTarget = ExecutableTarget {
+        rootModule: ModuleHandle,
+        targetRole: TargetRole,
+    ) ExecutableTarget {
+        ExecutableTarget {
             index: index,
             name: string::String::init(),
-            rootModule: options.rootModule,
+            rootModule: rootModule,
             outputName: string::String::init(),
-            targetRole: options.targetRole,
+            targetRole: targetRole,
             staticArchives: collections::ArrayList[StaticArchiveHandle]::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            target.deinit(allocator).?;
-        };
-        target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Executable(index)).?;
-        target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(index)).?;
-        match options.staticArchives {
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        outputName: &[char],
+        staticArchives: ?&[StaticArchiveHandle],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Executable(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(self.index)).?;
+        match staticArchives {
             ?archives => {
-                target.staticArchives.reserve(
+                self.staticArchives.reserve(
                     allocator,
                     archives.len(),
-                ).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+                ).asBuildError(Operation::Retain, Subject::Executable(self.index)).?;
                 for &archive in archives.iter() {
-                    target.staticArchives.push(
-                        allocator,
-                        archive,
-                    ).asBuildError(Operation::Retain, Subject::Executable(index)).?;
+                    self.staticArchives.appendAssumeCapacity(archive);
                 }
             },
             null => {},
         }
-        transferred = true;
-        !target
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {

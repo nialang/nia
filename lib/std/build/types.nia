@@ -402,6 +402,8 @@ pub struct Build {
     hasPendingPackage: bool,
     modules: collections::ArrayList[Module],
     executables: collections::ArrayList[ExecutableTarget],
+    pendingExecutable: ExecutableTarget,
+    hasPendingExecutable: bool,
     objects: collections::ArrayList[ObjectTarget],
     pendingObject: ObjectTarget,
     hasPendingObject: bool,
