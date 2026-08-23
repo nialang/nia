@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 453 completed entries in this ledger.
+- Implementation batches: 454 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2566,6 +2566,13 @@ acceptance item only when its phase-wide evidence is complete.
       `deinit` attempts both text and pending bytes while retaining the first
       error. The executable regression allocator fails before release and covers
       retry by a later format plus final cleanup of an invalid-UTF8 primary path.
+- [x] Batch 454 makes default allocator reallocation rollback explicit.
+      `Allocator::realloc` now returns `ReallocError`; a double-free failure
+      retains the replacement `Block` and both error identities instead of
+      dropping that owner, while the public `mem` facade and process exit
+      conversion preserve the new contract. The allocator executable matrix
+      covers both a recoverable old-free failure and a two-owner rollback whose
+      replacement and original blocks are subsequently released.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

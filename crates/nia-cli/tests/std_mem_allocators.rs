@@ -591,11 +591,21 @@ struct CountingAllocator {
     buffer: &mut [u8],
     end_index: usize,
     free_count: usize,
+    fail_free_count: usize,
 }
 
 extend CountingAllocator {
     fn init(buffer: &mut [u8]) CountingAllocator {
-        Self { buffer, end_index: 0, free_count: 0 }
+        Self {
+            buffer,
+            end_index: 0,
+            free_count: 0,
+            fail_free_count: 0,
+        }
+    }
+
+    fn failNextFrees(&mut self, count: usize) () {
+        self.fail_free_count = count;
     }
 }
 
@@ -627,7 +637,8 @@ extend CountingAllocator : mem::Allocator {
             return !();
         }
         self.free_count += 1;
-        if self.free_count == 1 {
+        if self.fail_free_count != 0 {
+            self.fail_free_count -= 1;
             return mem::Error::Invalid!;
         }
         !()
@@ -645,17 +656,51 @@ pub fn main(init: process::Init) process::ExitCode!() {
     bytes[0] = 10;
     bytes[1] = 20;
 
+    allocator.failNextFrees(1);
     match allocator.realloc(block, new_layout) {
         !new_block => { _ = new_block;
                 return process::exit(1)!; },
-        err! => { if err as i32 != mem::Error::Invalid as i32 {
-                    return process::exit(2)!;
-                } },
+        mem::ReallocError::OldFree(cause)! => {
+            if cause as i32 != mem::Error::Invalid as i32 {
+                return process::exit(2)!;
+            }
+        },
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
     }
 
     if allocator.free_count != 2 {
         return process::exit(3)!;
     }
+
+    let second_block = allocator.alloc(old_layout).exit().?;
+    allocator.failNextFrees(2);
+    match allocator.realloc(second_block, new_layout) {
+        !new_block => {
+            _ = new_block;
+            return process::exit(4)!;
+        },
+        mem::ReallocError::Rollback {
+            primary,
+            replacement,
+            replacementError,
+        }! => {
+            if primary as i32 != mem::Error::Invalid as i32
+                or replacementError as i32 != mem::Error::Invalid as i32
+                or replacement.size() != new_layout.size()
+            {
+                return process::exit(5)!;
+            }
+            allocator.free(replacement).exit().?;
+        },
+        error! => {
+            _ = error;
+            return process::exit(6)!;
+        },
+    }
+    allocator.free(second_block).exit().?;
     !()
 }
 "#,

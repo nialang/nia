@@ -2172,6 +2172,12 @@ otherwise it must return `false` so the default `realloc` creates an empty block
 and frees the old owner through the allocator's fallible release channel. This
 prevents allocator-specific tracking headers from becoming unreachable through
 a zero-sized `Block` whose later `free` operation is intentionally a no-op.
+The default `Allocator::realloc` returns a typed `ReallocError` rather than
+discarding rollback state. A failed old-owner release is reported as the
+primary cause; if releasing the replacement also fails, `Rollback` carries that
+replacement `Block` and its cleanup error so callers can retry both owners
+explicitly. The allocator receives the original block by value, so the caller
+retains that original owner while handling the error.
 Collection cleanup follows the same explicit-owner rule. `HashMap::deinit`
 attempts its control, key, and value releases independently, detaches only the
 successfully freed allocation slots, and retains failed slots for a later retry
