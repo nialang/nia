@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-22):
+Current snapshot (2026-08-23):
 
-- Implementation batches: 332 completed entries in this ledger.
+- Implementation batches: 410 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
