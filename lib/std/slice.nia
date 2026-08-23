@@ -6,6 +6,7 @@
 using pkg::cmp;
 using pkg::iter;
 using pkg::iter::range;
+using pkg::math;
 
 pub struct SliceIter[T]
 where T: Sized
@@ -80,7 +81,15 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &T;
+            let offset = match self.index.checked_mul(std::builtin::size[T]()) {
+                ?value => value,
+                null => return null,
+            };
+            let address = match (self.ptr as usize).checked_add(offset) {
+                ?value => value,
+                null => return null,
+            };
+            let item = address as &T;
             self.index += 1;
             ?item
         }
@@ -95,7 +104,15 @@ where T: Sized
             null
         } else {
             self.len -= 1;
-            ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &T)
+            let offset = match self.len.checked_mul(std::builtin::size[T]()) {
+                ?value => value,
+                null => return null,
+            };
+            let address = match (self.ptr as usize).checked_add(offset) {
+                ?value => value,
+                null => return null,
+            };
+            ?(address as &T)
         }
     }
 }
@@ -109,7 +126,15 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let item = (self.ptr as usize + self.index * std::builtin::size[T]()) as &mut T;
+            let offset = match self.index.checked_mul(std::builtin::size[T]()) {
+                ?value => value,
+                null => return null,
+            };
+            let address = match (self.ptr as usize).checked_add(offset) {
+                ?value => value,
+                null => return null,
+            };
+            let item = address as &mut T;
             self.index += 1;
             ?item
         }
@@ -124,7 +149,15 @@ where T: Sized
             null
         } else {
             self.len -= 1;
-            ?((self.ptr as usize + self.len * std::builtin::size[T]()) as &mut T)
+            let offset = match self.len.checked_mul(std::builtin::size[T]()) {
+                ?value => value,
+                null => return null,
+            };
+            let address = match (self.ptr as usize).checked_add(offset) {
+                ?value => value,
+                null => return null,
+            };
+            ?(address as &mut T)
         }
     }
 }
