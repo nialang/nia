@@ -559,6 +559,10 @@ signals, not architecture goals.
   existing `Block`. Use the canonical layout-preserving helper so the release
   pointer and length survive default remap, concrete wrappers, and resized arena
   backing chunks; never replace the owner with `Block::init(block.ptr(), ...)`.
+- Arena cleanup must detach and walk both used and free chunk lists, attempt all
+  child releases, and link every failed chunk back into owned state before
+  returning the first error. Retained capacity must expose those residual
+  owners, and retry must not revisit chunks whose releases already succeeded.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

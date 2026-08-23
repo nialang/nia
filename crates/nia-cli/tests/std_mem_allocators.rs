@@ -226,6 +226,115 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_mem_arena_deinit_retries_all_failed_chunks() {
+    let root = temp_dir("emit_exe_std_mem_arena_deinit_retries_all_failed_chunks");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::mem;
+using std::process;
+
+struct RejectFreeAllocator {
+    backing: mem::PageAllocator,
+    rejectedFrees: usize,
+    liveBlocks: usize,
+}
+
+extend RejectFreeAllocator {
+    fn init() RejectFreeAllocator {
+        Self {
+            backing: mem::PageAllocator::init(),
+            rejectedFrees: 0,
+            liveBlocks: 0,
+        }
+    }
+
+    fn rejectNext(&mut self, count: usize) () {
+        self.rejectedFrees = count;
+    }
+}
+
+extend RejectFreeAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        let block = self.backing.alloc(layout).?;
+        if not block.isEmpty() {
+            self.liveBlocks += 1;
+        }
+        !block
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if self.rejectedFrees != 0usize and not block.isEmpty() {
+            self.rejectedFrees -= 1;
+            return mem::Error::Invalid!;
+        }
+        self.backing.free(block).?;
+        if not block.isEmpty() {
+            self.liveBlocks -= 1;
+        }
+        !()
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut child = RejectFreeAllocator::init();
+    let mut arena = mem::ArenaAllocator::init(&mut child);
+
+    _ = arena.allocBytes(64usize, 8usize).exit().?;
+    _ = arena.allocBytes(1024usize * 1024usize, 8usize).exit().?;
+    if child.liveBlocks != 2usize {
+        return process::exit(1)!;
+    }
+    arena.reset().exit().?;
+    _ = arena.allocBytes(32usize, 8usize).exit().?;
+    if arena.used() == 0usize or arena.capacity() == 0usize {
+        return process::exit(2)!;
+    }
+
+    child.rejectNext(2usize);
+    match arena.deinit() {
+        !ok => { _ = ok; return process::exit(3)!; },
+        mem::Error::Invalid! => {},
+        error! => { _ = error; return process::exit(4)!; },
+    }
+    if child.rejectedFrees != 0usize or child.liveBlocks != 2usize {
+        return process::exit(5)!;
+    }
+    if arena.capacity() == 0usize or arena.used() != 0usize {
+        return process::exit(6)!;
+    }
+
+    arena.deinit().exit().?;
+    if child.liveBlocks != 0usize or arena.capacity() != 0usize or arena.used() != 0usize {
+        return process::exit(7)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write arena cleanup retry source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile arena cleanup retry fixture");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run arena cleanup retry executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list() {
     let root = temp_dir(
         "emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list",

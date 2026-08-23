@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 485 completed entries in this ledger.
+- Implementation batches: 486 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2769,6 +2769,12 @@ acceptance item only when its phase-wide evidence is complete.
       explicit no-owner terminal state. A seccomp regression rejects real
       `wait4` calls and proves two retries retain the same positive pid; all 46
       process executable cases pass.
+- [x] Batch 486 proves arena multi-list cleanup retains every failed chunk
+      owner. A fault-injected child allocator creates independent used and free
+      chunks, rejects both releases, and verifies the first `deinit` attempts
+      both while retained capacity remains visible; the retry releases only the
+      two residual chunks and clears the arena. All 13 allocator executable
+      cases pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
