@@ -302,6 +302,7 @@ where T: Sized + core::Format
     }
 
     fn format_spec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
+        spec.validate().?;
         if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.has_precision() or spec.sign_plus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }

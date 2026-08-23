@@ -486,6 +486,10 @@ signals, not architecture goals.
   and 16; radix zero must not divide by zero, radix one must not loop forever,
   and every unsupported radix must leave the writer unchanged. Public spec
   constructors must have all parameter/result enums exported from the facade.
+- Treat every open-enum field in a public formatting spec as untrusted input.
+  Reject unnamed presentation and alignment discriminants before any writer
+  mutation; wildcard matching must not turn an unknown alignment into a
+  successful default behavior.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.
