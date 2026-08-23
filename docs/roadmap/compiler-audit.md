@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 422 completed entries in this ledger.
+- Implementation batches: 423 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2420,6 +2420,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Batch 422 hardens the unbounded `DiscardingWriter` byte counter. Accepted
       writes still report their exact slice length, while cumulative `len()`
       now saturates on host overflow rather than wrapping to a smaller value.
+- [x] Batch 423 hardens build package-handle allocation. The root-reserved
+      `packages.len() + 1` index now uses checked host arithmetic and reports a
+      structured build memory failure instead of wrapping into an existing
+      package identity.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

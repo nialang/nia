@@ -4,6 +4,7 @@ using pkg::collections;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
+using pkg::math;
 using pkg::mem;
 using pkg::os;
 using pkg::slice;
@@ -303,7 +304,15 @@ extend Build {
     }
 
     pub fn addPackage(&mut self, options: PackageOptions) Error!PackageHandle {
-        let handle = PackageHandle::init(self.ownerId, self.packages.len() + 1);
+        let packageIndex = match self.packages.len().checked_add(1) {
+            ?value => value,
+            null => return Error::Failure {
+                operation: Operation::Retain,
+                subject: Subject::Packages,
+                cause: error::ErrorCause::Memory(mem::Error::OutOfMemory),
+            }!,
+        };
+        let handle = PackageHandle::init(self.ownerId, packageIndex);
         if options.name.equals(&"root")
             or not isValidStableName(options.name)
             or not isValidPackagePath(options.root.text(), false)
