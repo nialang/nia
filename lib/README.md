@@ -58,6 +58,9 @@ The library follows a small set of ownership rules:
 - General-purpose allocator rollback retains a pending child block if malformed
   metadata is rejected but its release fails; later allocation or `deinit`
   retries that owner and keeps it visible in capacity/emptiness accounting.
+- Staged string formatting preserves format and UTF-8 errors over temporary
+  writer cleanup failures; cleanup allocation errors are reported only when
+  formatting itself succeeds.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed

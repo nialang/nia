@@ -3291,6 +3291,11 @@ cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
 the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.
 
+String formatting uses an analogous staged-output transaction. A temporary
+byte writer is always released, but a format or UTF-8 error remains primary when
+that release reports an allocation error; the cleanup error is surfaced only
+when the staged formatting operation itself succeeded.
+
 `std::CStringView` stores its validated byte length alongside the borrowed
 pointer. Bounded byte slices are admitted only through `fromBytes`, while an
 owned `CString` constructs its view from its already-owned length. The process
