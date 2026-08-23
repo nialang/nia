@@ -364,6 +364,10 @@ signals, not architecture goals.
 - Keep hash-table probe cursors closed over their allocated table shape. Validate
   the power-of-two/group-width precondition before deriving a mask, and perform
   probe-step modulo arithmetic without an overflowing host-width intermediate.
+- Treat freestanding startup metadata as an untrusted raw ABI boundary. Check
+  word-count, byte-offset, and stack-base arithmetic before turning the initial
+  stack into `argv`/`envp` pointers; fail closed before publishing malformed
+  process views.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
