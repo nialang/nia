@@ -396,7 +396,8 @@ signals, not architecture goals.
   boundary.
 - For syscalls whose ABI promises zero on success, require exactly zero before
   publishing success. Identity-returning calls such as `dup2` must also match
-  the requested destination rather than merely being non-negative.
+  the requested destination rather than merely being non-negative. Validate
+  output buffers such as `pipe2` descriptors only after that zero result check.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

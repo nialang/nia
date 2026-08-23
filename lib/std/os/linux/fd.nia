@@ -129,13 +129,10 @@ pub fn pipe_close_on_exec() Errno!Pipe {
         &mut fds[0] as usize,
         types::close_on_exec as usize,
     );
-    if ret < 0 {
-        ret.syscall_error()!
-    } else {
-        let read = FileDescriptor::from_kernel(fds[0]).?;
-        let write = FileDescriptor::from_kernel(fds[1]).?;
-        !Pipe::init(read, write)
-    }
+    ret.syscall_success().?;
+    let read = FileDescriptor::from_kernel(fds[0]).?;
+    let write = FileDescriptor::from_kernel(fds[1]).?;
+    !Pipe::init(read, write)
 }
 
 pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {

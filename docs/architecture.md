@@ -3302,7 +3302,8 @@ child pid must be positive and fit `i32`. Malformed results fail before a typed
 handle or child identity is published.
 Void-returning Linux syscalls use one `syscall_success` gate: only an exact zero
 is success, and positive anomalies are rejected as `Io`. `dup2` additionally
-requires its returned descriptor to equal the requested destination.
+requires its returned descriptor to equal the requested destination; `pipe2`
+uses the same exact-zero rule before consuming its output descriptor pair.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
