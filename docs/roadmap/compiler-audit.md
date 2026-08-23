@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 489 completed entries in this ledger.
+- Implementation batches: 490 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2797,6 +2797,12 @@ acceptance item only when its phase-wide evidence is complete.
       once the complete length is reserved. No temporary allocation owner or
       owner-dropping cleanup path is introduced. An executable forces allocator
       relocation while joining `path.text()` and verifies `base/base`.
+- [x] Batch 490 makes scalar path encoding an output transaction. A validation
+      pass checks embedded NULs, total UTF-8 byte arithmetic, and trailing-NUL
+      capacity before caller storage is mutated; only a valid complete path
+      reaches the write pass. Sentinel-backed executable cases prove both a
+      mid-path NUL and a buffer lacking only terminator space leave every output
+      byte unchanged.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

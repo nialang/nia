@@ -27,30 +27,35 @@ extend PathView {
     }
 
     pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
+        let byteLen = encodedPathByteLen(self.text()).?;
+        if byteLen >= storage.len() {
+            return PathError::TooLong!;
+        }
         let mut out: usize = 0;
         for &ch in self.text() {
-            if ch.codepoint() == 0 {
-                return PathError::ContainsNul!;
-            }
             let encoded = ch.encodeUtf8();
-            let next = match out.checked_add(encoded.byteLen()) {
-                ?value => value,
-                null => return PathError::TooLong!,
-            };
-            if next >= storage.len() {
-                return PathError::TooLong!;
-            }
             for &byte in encoded.bytes() {
                 storage[out] = byte;
                 out += 1;
             }
         }
-        if out >= storage.len() {
-            return PathError::TooLong!;
-        }
         storage[out] = 0;
         !NativePathView::init(storage.ptr(), out)
     }
+}
+
+fn encodedPathByteLen(text: &[char]) PathError!usize {
+    let mut len = 0usize;
+    for &ch in text {
+        if ch.codepoint() == 0 {
+            return PathError::ContainsNul!;
+        }
+        len = match len.checked_add(ch.encodeUtf8().byteLen()) {
+            ?value => value,
+            null => return PathError::TooLong!,
+        };
+    }
+    !len
 }
 
 extend RelativePathView {
