@@ -590,7 +590,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    pub(super) fn build_place_load<T: nia_llvm::types::AsTypeRef>(
+    pub(super) fn build_place_load<T: nia_llvm::types::BasicType<'ctx>>(
         &self,
         ty: T,
         ptr: PointerValue<'ctx>,
