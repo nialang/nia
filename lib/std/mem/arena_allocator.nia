@@ -497,7 +497,10 @@ extend ArenaAllocator {
 }
 
 fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
-    let payloadBase = chunkPayloadBase(chunk);
+    let payloadBase = match chunkPayloadBase(chunk) {
+        ?value => value,
+        null => return null,
+    };
     let current = match payloadBase.checked_add(chunk.endIndex) {
         ?value => {
             value
@@ -532,7 +535,10 @@ fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
 }
 
 fn chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
-    let payloadBase = chunkPayloadBase(chunk);
+    let payloadBase = match chunkPayloadBase(chunk) {
+        ?value => value,
+        null => return null,
+    };
     let aligned = match payloadBase.align_forward(layout.align()) {
         ?value => {
             value
@@ -546,7 +552,10 @@ fn chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
 }
 
 fn isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
-    let payloadBase = chunkPayloadBase(chunk);
+    let payloadBase = match chunkPayloadBase(chunk) {
+        ?value => value,
+        null => return false,
+    };
     let cursor = match payloadBase.checked_add(chunk.endIndex) {
         ?value => {
             value
@@ -570,7 +579,10 @@ fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
     if block.isEmpty() {
         return true;
     }
-    let base = chunkPayloadBase(chunk);
+    let base = match chunkPayloadBase(chunk) {
+        ?value => value,
+        null => return false,
+    };
     let limit = match base.checked_add(chunkPayloadCapacity(chunk)) {
         ?value => {
             value
@@ -594,8 +606,8 @@ fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
     end <= limit
 }
 
-fn chunkPayloadBase(chunk: &mut ArenaChunk) usize {
-    chunk.block.ptr() as usize + std::builtin::size[ArenaChunk]()
+fn chunkPayloadBase(chunk: &mut ArenaChunk) ?usize {
+    (chunk.block.ptr() as usize).checked_add(std::builtin::size[ArenaChunk]())
 }
 
 fn chunkPayloadCapacity(chunk: &mut ArenaChunk) usize {

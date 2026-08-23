@@ -3286,6 +3286,11 @@ pointer-address addition before yielding an item. A malformed or impossible
 layout therefore ends iteration instead of wrapping an address into unrelated
 storage.
 
+Arena chunks derive their payload base through checked pointer-address
+addition. Allocation, growth, last-allocation, and ownership checks all fail
+closed if the chunk header offset cannot be represented by the host address
+width.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
