@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 447 completed entries in this ledger.
+- Implementation batches: 448 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2530,6 +2530,11 @@ acceptance item only when its phase-wide evidence is complete.
       owner release fails and the replacement release also fails; `deinit`
       attempts active and retired slices independently. An allocator regression
       proves both allocations remain reachable and are eventually released.
+- [x] Batch 448 gives ArrayList self-alias copies a distinct cleanup owner.
+      `appendSlice`, `insertSlice`, and `replaceRange` now retain failed
+      temporary copies separately from replacement storage, and cleanup attempts
+      both owner classes. Self-alias and overlapping free-failure executable
+      regressions prove no temporary allocation is lost.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
