@@ -407,6 +407,10 @@ signals, not architecture goals.
   fallible owned fields. For package records, keep the partial record in the
   `Build` pending slot and retry its cleanup before the next insertion or from
   `deinit`; never return through a local rollback defer that loses the record.
+- Apply the pending-record protocol independently to each artifact target kind.
+  Object and static-archive name/output owners remain on `Build` until an
+  infallible post-reserve append transfers them; failed cleanup blocks the next
+  matching insertion until retry succeeds.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a
