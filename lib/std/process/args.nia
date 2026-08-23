@@ -75,7 +75,7 @@ where T: parse::FromRadix[cstring::CStringView]
 }
 
 extend Args {
-    pub fn init(len: usize, ptr: &&u8) Args {
+    pub(pkg) fn init(len: usize, ptr: &&u8) Args {
         Self { len: len, ptr: ptr }
     }
 

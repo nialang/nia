@@ -3254,6 +3254,9 @@ freestanding argv/envp ABI, whose contract supplies a NUL terminator; the old
 public `fromPtrUnchecked` constructor and its unbounded public view path are
 removed. Consequently normal consumers cannot manufacture a C-string view
 without either a bounded validation or an explicit runtime-owned boundary.
+The corresponding `Init`, `Args`, and `Env` raw-pointer constructors are also
+package-private; user code receives these values only from the injected startup
+`Init`, not by fabricating an arbitrary process ABI record.
 
 The public `std::io::Reader` and `Writer` contracts require every implementation
 to report no more bytes than the slice supplied to that call. Trait defaults and
