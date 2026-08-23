@@ -633,8 +633,17 @@ impl<'ctx> IntType<'ctx> {
 
 impl<'ctx> IntValue<'ctx> {
     /// Constant-folds a bitcast to another integer type.
-    pub fn const_bitcast(self, target_ty: IntType<'ctx>) -> IntValue<'ctx> {
-        IntValue::new(unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) })
+    pub fn const_bitcast(self, target_ty: IntType<'ctx>) -> LlvmResult<IntValue<'ctx>> {
+        if self.get_type().bit_width() != target_ty.bit_width() {
+            return Err(LlvmError::error(
+                "integer constant bitcast requires equal source and target widths",
+            ));
+        }
+        let raw = unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null integer bitcast"));
+        }
+        Ok(IntValue::new(raw))
     }
 }
 
@@ -1267,8 +1276,17 @@ impl<'ctx> PointerValue<'ctx> {
     }
 
     /// Constant-folds a pointer bitcast.
-    pub fn const_bitcast(self, target_ty: PointerType<'ctx>) -> PointerValue<'ctx> {
-        PointerValue::new(unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) })
+    pub fn const_bitcast(self, target_ty: PointerType<'ctx>) -> LlvmResult<PointerValue<'ctx>> {
+        if self.get_type().address_space() != target_ty.address_space() {
+            return Err(LlvmError::error(
+                "pointer constant bitcast requires equal address spaces",
+            ));
+        }
+        let raw = unsafe { LLVMConstBitCast(self.as_value_ref(), target_ty.as_type_ref()) };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null pointer bitcast"));
+        }
+        Ok(PointerValue::new(raw))
     }
 
     /// Builds a constant GEP expression for this pointer.
@@ -1647,6 +1665,39 @@ mod tests {
             .expect("zero-length LLVM arrays are valid");
 
         let _ = array.const_zero();
+    }
+
+    #[test]
+    fn rejects_integer_constant_bitcast_width_mismatch() {
+        let context = Context::create();
+
+        let error = context
+            .i32_type()
+            .const_zero()
+            .const_bitcast(context.i64_type())
+            .expect_err("integer bitcast width mismatch");
+
+        assert_eq!(
+            error,
+            LlvmError::Error(
+                "integer constant bitcast requires equal source and target widths".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_pointer_constant_bitcast_address_space_mismatch() {
+        let context = Context::create();
+        let source = context.ptr_type(AddressSpace(1)).const_null();
+
+        let error = source
+            .const_bitcast(context.ptr_type(AddressSpace(0)))
+            .expect_err("pointer bitcast address-space mismatch");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("pointer constant bitcast requires equal address spaces".to_string())
+        );
     }
 
     #[test]

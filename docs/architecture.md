@@ -2784,6 +2784,11 @@ explicit `u32` check before `LLVMBuildExtractValue`; place projections use the
 same checked conversion, so malformed backend indices cannot wrap at the LLVM
 boundary.
 
+Constant integer bitcasts now require equal source and target widths, while
+constant pointer bitcasts require equal address spaces; both constructors
+check LLVM's result before exposing the typed value. Static initializer lowering
+propagates these failures rather than relying on LLVM assertions.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
