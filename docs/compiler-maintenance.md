@@ -387,6 +387,9 @@ signals, not architecture goals.
 - For wait-like syscalls, validate the returned identity before publishing
   status. `wait4` must return the exact requested child pid for both blocking
   and non-blocking paths; any other successful identity is malformed `Io`.
+- Treat raw syscall error returns as untrusted signed ABI data. Require a
+  negative value within Linux's errno range before negating and narrowing it;
+  reject sign, minimum-integer, and width-overflow cases as `Io`.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
