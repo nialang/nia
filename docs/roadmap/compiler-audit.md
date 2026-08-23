@@ -2160,6 +2160,12 @@ acceptance item only when its phase-wide evidence is complete.
       atomic codegen callers propagate failures. Wrapper regressions cover an
       acquire store and an incompatible compare-exchange update, with
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 374 closes the LLVM named-struct body boundary.
+      `StructType::set_body` is now fallible and checks LLVM opaque/literal
+      state, allowing only one definition of a named opaque struct before
+      `LLVMStructSetBody`; declaration lowering propagates failures. Wrapper
+      regressions cover literal and redefinition attempts, with LLVM/codegen
+      suites, workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
