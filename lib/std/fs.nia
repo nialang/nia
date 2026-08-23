@@ -1,8 +1,9 @@
 // Scalar paths, validated native path views, and filesystem handles.
 //
 // `Path` owns allocator-backed scalar text and `PathView` borrows it. Native
-// and relative views are validated capabilities. Contextual operations retain
-// both the attempted operation and their allocation, path, or system cause.
+// and relative views are validated capabilities. Scalar syscall paths encode
+// into bounded stack storage; contextual operations retain both the attempted
+// operation and their path or system cause.
 
 pub(pkg) module convert;
 pub(pkg) module file;

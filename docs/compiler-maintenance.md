@@ -353,6 +353,10 @@ signals, not architecture goals.
 - Keep hand-written tests for dynamic repository/toolchain contracts and for
   process, filesystem, I/O, allocator, container, startup, runtime, and standard
   library semantics when those behaviors are the subject of the test.
+- Lower bounded filesystem syscall paths into caller-stack storage. Do not add
+  allocator-backed path convenience APIs whose internal fallible release can
+  replace a primary filesystem error or discard an opened handle; paths beyond
+  the platform bound must fail before the syscall with their path-domain cause.
 - Treat public reader/writer byte counts as untrusted implementation output:
   validate `n <= requested.len()` before changing any cursor, buffered length, or
   limit, and retain pending bytes when reporting an invalid transfer. Generic

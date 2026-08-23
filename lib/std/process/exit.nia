@@ -85,9 +85,6 @@ extend fs::PathError {
 extend fs::OperationError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            fs::OperationError::Allocation { operation: _, cause } => {
-                cause.asExitCode()
-            },
             fs::OperationError::Path { operation: _, cause } => {
                 cause.asExitCode()
             },
