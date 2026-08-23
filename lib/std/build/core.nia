@@ -2970,8 +2970,8 @@ fn isValidBuildPath(text: &[char]) bool {
     }
     let mut componentStart: usize = 0;
     let mut index: usize = 0;
-    while index <= text.len() {
-        if index == text.len() or text[index] == '/' {
+    while index < text.len() {
+        if text[index] == '/' {
             let componentLen = index - componentStart;
             if componentLen == 0
                 or (componentLen == 1 and text[componentStart] == '.')
@@ -2987,7 +2987,12 @@ fn isValidBuildPath(text: &[char]) bool {
         }
         index += 1;
     }
-    true
+    let componentLen = text.len() - componentStart;
+    componentLen != 0
+        and not (componentLen == 1 and text[componentStart] == '.')
+        and not (componentLen == 2
+            and text[componentStart] == '.'
+            and text[componentStart + 1] == '.')
 }
 
 fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
