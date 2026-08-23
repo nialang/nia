@@ -2403,7 +2403,7 @@ mod tests {
             .unwrap();
 
         let error = builder
-            .build_extract_value(aggregate_ty.const_zero(), 1, "invalid")
+            .build_extract_value(aggregate_ty.const_zero().unwrap(), 1, "invalid")
             .expect_err("out-of-bounds aggregate index");
         assert!(matches!(
             error,
@@ -2431,7 +2431,7 @@ mod tests {
 
         let error = builder
             .build_insert_value(
-                aggregate_ty.const_zero(),
+                aggregate_ty.const_zero().unwrap(),
                 context.i64_type().const_zero(),
                 0,
                 "invalid",

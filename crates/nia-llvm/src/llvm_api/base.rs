@@ -848,13 +848,19 @@ impl<'ctx> StructType<'ctx> {
     }
 
     /// Creates a recursively zero-initialized struct constant.
-    pub fn const_zero(self) -> StructValue<'ctx> {
-        StructValue::new(unsafe { LLVMConstNull(self.as_type_ref()) })
+    pub fn const_zero(self) -> LlvmResult<StructValue<'ctx>> {
+        Ok(StructValue::new(require_value(
+            unsafe { LLVMConstNull(self.as_type_ref()) },
+            "struct zero constant",
+        )?))
     }
 
     /// Creates an undefined struct value.
-    pub fn get_undef(self) -> StructValue<'ctx> {
-        StructValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
+    pub fn get_undef(self) -> LlvmResult<StructValue<'ctx>> {
+        Ok(StructValue::new(require_value(
+            unsafe { LLVMGetUndef(self.as_type_ref()) },
+            "undefined struct value",
+        )?))
     }
 
     /// Creates an array constant from struct elements of this type.
@@ -891,13 +897,19 @@ impl<'ctx> ArrayType<'ctx> {
     }
 
     /// Creates a recursively zero-initialized array constant.
-    pub fn const_zero(self) -> ArrayValue<'ctx> {
-        ArrayValue::new(unsafe { LLVMConstNull(self.as_type_ref()) })
+    pub fn const_zero(self) -> LlvmResult<ArrayValue<'ctx>> {
+        Ok(ArrayValue::new(require_value(
+            unsafe { LLVMConstNull(self.as_type_ref()) },
+            "array zero constant",
+        )?))
     }
 
     /// Creates an undefined array value.
-    pub fn get_undef(self) -> ArrayValue<'ctx> {
-        ArrayValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
+    pub fn get_undef(self) -> LlvmResult<ArrayValue<'ctx>> {
+        Ok(ArrayValue::new(require_value(
+            unsafe { LLVMGetUndef(self.as_type_ref()) },
+            "undefined array value",
+        )?))
     }
 
     /// Creates a nested array constant from elements of this array type.
@@ -1766,6 +1778,10 @@ mod tests {
 
         assert!(BasicTypeEnum::ArrayType(array).const_zero().is_ok());
         assert!(BasicTypeEnum::StructType(struct_ty).const_zero().is_ok());
+        assert!(array.const_zero().is_ok());
+        assert!(array.get_undef().is_ok());
+        assert!(struct_ty.const_zero().is_ok());
+        assert!(struct_ty.get_undef().is_ok());
     }
 
     #[test]
@@ -1790,8 +1806,11 @@ mod tests {
                 .unwrap(),
             context.ptr_type(AddressSpace(2))
         );
-        assert_eq!(struct_ty.const_zero().get_type().unwrap(), struct_ty);
-        assert_eq!(array_ty.const_zero().get_type().unwrap(), array_ty);
+        assert_eq!(
+            struct_ty.const_zero().unwrap().get_type().unwrap(),
+            struct_ty
+        );
+        assert_eq!(array_ty.const_zero().unwrap().get_type().unwrap(), array_ty);
     }
 
     #[test]

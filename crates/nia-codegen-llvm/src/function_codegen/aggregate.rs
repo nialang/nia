@@ -618,7 +618,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     format!("failed to create promoted byte array type: {error:?}"),
                 )
             })?
-            .get_undef()
+            .get_undef()?
             .into())
     }
 

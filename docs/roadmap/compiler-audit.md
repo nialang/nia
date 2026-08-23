@@ -2289,6 +2289,12 @@ acceptance item only when its phase-wide evidence is complete.
       diagnostic. A typed-query regression covers all five value categories,
       with LLVM/codegen suites, workspace check, formatting, and strict Clippy
       passing.
+- [x] Batch 396 closes typed aggregate zero/undefined values.
+      Struct and array `const_zero`/`get_undef` methods now validate LLVM
+      results through `require_value`; aggregate function lowering and promoted
+      storage propagate the diagnostic, while wrapper tests explicitly cover
+      both aggregate categories. LLVM/codegen suites, workspace check,
+      formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

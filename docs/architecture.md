@@ -2843,6 +2843,11 @@ and array `get_type` methods validate `LLVMTypeOf` through `BasicTypeEnum` and
 return `LlvmResult`; bitcast checks and backend lowering propagate the query
 diagnostic instead of constructing an assertion-backed type handle.
 
+Typed aggregate value constructors follow the same result-handle rule. Struct
+and array `const_zero`/`get_undef` methods validate `LLVMConstNull` and
+`LLVMGetUndef` before wrapping values; aggregate codegen propagates those
+diagnostics rather than relying on assertion-backed compatibility paths.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

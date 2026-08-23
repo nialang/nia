@@ -866,7 +866,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         let metadata = vtable.as_pointer_value();
         let trait_object_ty = self.module.trait_object_type()?;
-        let result = trait_object_ty.get_undef();
+        let result = trait_object_ty.get_undef()?;
         let result = self
             .builder
             .build_insert_value(result, object_ptr, 0, "traitobj.ptr")
@@ -894,7 +894,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "missing generated closure entry function"));
         };
         let state = self.emit_expr(state)?.into_pointer_value()?;
-        let result = self.module.callable_type()?.get_undef();
+        let result = self.module.callable_type()?.get_undef()?;
         let result = self
             .builder
             .build_insert_value(result, state, 0, "callable.state")
@@ -991,7 +991,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .into()
             };
         }
-        let result = trait_object_ty.get_undef();
+        let result = trait_object_ty.get_undef()?;
         let result = self
             .builder
             .build_insert_value(result, object_ptr, 0, "traitobj.upcast.ptr")
@@ -1025,7 +1025,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .range_type(*kind, Some(*bound), span)?
             .into_struct_type()?
-            .get_undef();
+            .get_undef()?;
         let mut index = 0u32;
         if let Some(start) = &range.start {
             let start_span = start.span;
