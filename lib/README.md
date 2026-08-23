@@ -72,6 +72,10 @@ The library follows a small set of ownership rules:
 - Executable and static-archive install steps retain their step name and
   destination in kind-specific pending payloads. Producer-edge failure remains
   primary while rollback keeps both strings reachable for retry.
+- External-command insertion reserves both nested lists and appends kind-correct
+  argument/environment owners before string retention. Multi-producer edge
+  failure removes all newly added edges, preserves the primary error, and moves
+  the command step into pending ownership for recursive cleanup retry.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

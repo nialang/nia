@@ -3328,6 +3328,11 @@ Install steps for executables and static archives share the same dependency
 commit helper. Their name and destination are initialized on the pending step;
 producer-edge failure pops the committed record back into pending ownership and
 preserves the edge error over cleanup failures.
+External-command steps recursively attach program, working directory, argument
+list and values, environment list and name/value pairs before allocation can
+fail. Producer edges are committed as one suffix transaction; failure removes
+that suffix and moves the whole command step into pending ownership without
+letting cleanup replace the primary error.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while
