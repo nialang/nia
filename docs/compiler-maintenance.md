@@ -199,6 +199,9 @@ it does not make a reset implicit.
 - A close-on-exec spawn error pipe is a protocol, not an ordinary best-effort
   write. Retry interrupted fixed-record reads/writes, distinguish EOF only
   after zero record bytes, and reap every failed child with an EINTR-safe wait.
+  The parent must close the consumed handshake read descriptor exactly once
+  after producing the primary handshake result: a successful EOF exposes a
+  close failure as setup error, while a protocol/read failure remains primary.
   Public child cleanup must attempt all owned pipe closes before returning the
   first error, especially after exited status has been cached.
 - LLVM declaration readiness must retain const-expression ownership as well as

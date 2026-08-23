@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 449 completed entries in this ledger.
+- Implementation batches: 450 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2542,6 +2542,12 @@ acceptance item only when its phase-wide evidence is complete.
       returns the first close error while still attempting later closes; the
       rename second-parent-open failure also retains its old-parent cleanup.
       The complete 23-case filesystem executable matrix remains green.
+- [x] Batch 450 preserves Linux spawn-handshake close errors. The parent now
+      closes the consumed error-pipe read descriptor exactly once after the
+      handshake result is known. EOF plus close failure is surfaced as setup
+      error, while an incomplete/read/child-reported error remains primary;
+      child reaping stays owned by the outer spawn path. The complete 43-case
+      process executable matrix remains green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
