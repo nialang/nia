@@ -2732,6 +2732,11 @@ requires every value's LLVM type to match its corresponding field before
 calling `LLVMConstNamedStruct`; codegen propagates these failures rather than
 retaining an unchecked compatibility path.
 
+Typed constant-array constructors apply the same element-type check to every
+element before `LLVMConstArray2`. Their results are fallible, so static and
+vtable initialization propagates malformed element handles instead of relying
+on LLVM verifier diagnostics.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

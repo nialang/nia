@@ -2141,6 +2141,12 @@ acceptance item only when its phase-wide evidence is complete.
       all codegen callers propagate wrapper diagnostics. Wrapper regressions
       cover count and field-type mismatches, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 371 closes the LLVM typed constant-array boundary.
+      Integer, floating, pointer, struct, and nested-array constructors now
+      validate every element's LLVM type before `LLVMConstArray2` and return
+      `LlvmResult`; static and vtable initialization propagate failures.
+      Wrapper regressions cover an element-type mismatch, with LLVM/codegen
+      suites, workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

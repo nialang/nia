@@ -601,7 +601,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     values.push(value);
                 }
                 global
-                    .set_initializer(&ptr_ty.const_array(&values))
+                    .set_initializer(
+                        &ptr_ty
+                            .const_array(&values)
+                            .map_err(Self::diagnostic_from_llvm_error)?,
+                    )
                     .map_err(Self::diagnostic_from_llvm_error)?;
                 global.set_constant(true);
             } else {

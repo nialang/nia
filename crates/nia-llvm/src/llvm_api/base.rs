@@ -122,6 +122,31 @@ pub trait BasicValue<'ctx>: AsValueRef {
     fn as_basic_value_enum(&self) -> BasicValueEnum<'ctx>;
 }
 
+fn validate_constant_elements<T: AsValueRef>(
+    values: &[T],
+    element_type: LLVMTypeRef,
+) -> LlvmResult<()> {
+    if element_type.is_null() {
+        return Err(LlvmError::error(
+            "LLVM returned a null constant array element type",
+        ));
+    }
+    for (index, value) in values.iter().enumerate() {
+        let value_type = unsafe { LLVMTypeOf(value.as_value_ref()) };
+        if value_type.is_null() {
+            return Err(LlvmError::error(format!(
+                "LLVM returned a null type for constant array element {index}"
+            )));
+        }
+        if value_type != element_type {
+            return Err(LlvmError::error(format!(
+                "constant array element {index} type does not match the element type"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Marker for LLVM aggregate values accepted by extract/insert operations.
 pub trait AggregateValue<'ctx>: BasicValue<'ctx> {}
 
@@ -495,14 +520,15 @@ impl<'ctx> IntType<'ctx> {
     }
 
     /// Creates an array constant from integer elements of this type.
-    pub fn const_array(self, values: &[IntValue<'ctx>]) -> ArrayValue<'ctx> {
+    pub fn const_array(self, values: &[IntValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
+        validate_constant_elements(values, self.as_type_ref())?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        ArrayValue::new(unsafe {
+        Ok(ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        })
+        }))
     }
 
     /// Creates the zero constant.
@@ -530,14 +556,15 @@ impl<'ctx> FloatType<'ctx> {
     }
 
     /// Creates an array constant from floating-point elements of this type.
-    pub fn const_array(self, values: &[FloatValue<'ctx>]) -> ArrayValue<'ctx> {
+    pub fn const_array(self, values: &[FloatValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
+        validate_constant_elements(values, self.as_type_ref())?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        ArrayValue::new(unsafe {
+        Ok(ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        })
+        }))
     }
 
     /// Creates positive floating-point zero.
@@ -578,14 +605,15 @@ impl<'ctx> PointerType<'ctx> {
     }
 
     /// Creates an array constant from pointer elements of this type.
-    pub fn const_array(self, values: &[PointerValue<'ctx>]) -> ArrayValue<'ctx> {
+    pub fn const_array(self, values: &[PointerValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
+        validate_constant_elements(values, self.as_type_ref())?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        ArrayValue::new(unsafe {
+        Ok(ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        })
+        }))
     }
 }
 
@@ -675,14 +703,15 @@ impl<'ctx> StructType<'ctx> {
     }
 
     /// Creates an array constant from struct elements of this type.
-    pub fn const_array(self, values: &[StructValue<'ctx>]) -> ArrayValue<'ctx> {
+    pub fn const_array(self, values: &[StructValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
+        validate_constant_elements(values, self.as_type_ref())?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        ArrayValue::new(unsafe {
+        Ok(ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        })
+        }))
     }
 }
 
@@ -713,15 +742,16 @@ impl<'ctx> ArrayType<'ctx> {
     }
 
     /// Creates a nested array constant from elements of this array type.
-    pub fn const_array(self, values: &[ArrayValue<'ctx>]) -> ArrayValue<'ctx> {
+    pub fn const_array(self, values: &[ArrayValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
         let elem_ty = unsafe { LLVMGetElementType(self.as_type_ref()) };
+        validate_constant_elements(values, elem_ty)?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        ArrayValue::new(unsafe {
+        Ok(ArrayValue::new(unsafe {
             LLVMConstArray2(elem_ty, values.as_mut_ptr(), values.len() as u64)
-        })
+        }))
     }
 }
 
@@ -1396,6 +1426,21 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("struct constant field 0 type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_constant_array_element_type_mismatch() {
+        let context = Context::create();
+
+        let error = context
+            .i32_type()
+            .const_array(&[context.i64_type().const_zero()])
+            .expect_err("constant array element type mismatch");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("constant array element 0 type does not match")
         ));
     }
 
