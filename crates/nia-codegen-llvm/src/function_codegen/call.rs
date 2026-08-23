@@ -636,7 +636,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let entry_ptr = unsafe {
             self.builder
                 .build_gep(
-                    ptr_ty.array_type(array_len),
+                    ptr_ty.array_type(array_len).map_err(|error| {
+                        self.error(
+                            call.expr.span,
+                            format!("failed to create vtable array type: {error:?}"),
+                        )
+                    })?,
                     metadata,
                     &[zero, slot_index],
                     "vtable.slot",

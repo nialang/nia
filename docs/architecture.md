@@ -2771,6 +2771,11 @@ Fixed-vector type construction likewise rejects zero lane counts before
 propagate the constructor result rather than relying only on source-level lane
 validation.
 
+Fixed-array construction now checks the `LLVMArrayType2` result and returns
+`LlvmResult` as well. Zero-length arrays remain supported because LLVM defines
+them as valid types; codegen propagates construction failures instead of
+letting the typed wrapper assert on a null handle.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
