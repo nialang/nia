@@ -497,16 +497,27 @@ fn emit_u128_div_rem<'ctx>(
         .build_alloca(i128_ty, "shift")
         .map_err(diagnostic_from_llvm_error)?;
     builder
-        .build_store(quotient, i128_ty.const_zero())
+        .build_store(
+            quotient,
+            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+        )
         .map_err(diagnostic_from_llvm_error)?;
     builder
-        .build_store(remainder, i128_ty.const_zero())
+        .build_store(
+            remainder,
+            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+        )
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_store(shift, i128_ty.const_int(128, false))
         .map_err(diagnostic_from_llvm_error)?;
     let div_by_zero = builder
-        .build_int_compare(IntPredicate::EQ, b, i128_ty.const_zero(), "divzero")
+        .build_int_compare(
+            IntPredicate::EQ,
+            b,
+            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+            "divzero",
+        )
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_conditional_branch(div_by_zero, trap_block, loop_block)
@@ -523,7 +534,7 @@ fn emit_u128_div_rem<'ctx>(
         .build_int_compare(
             IntPredicate::UGT,
             current_shift,
-            i128_ty.const_zero(),
+            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
             "keepgoing",
         )
         .map_err(diagnostic_from_llvm_error)?;
@@ -682,7 +693,7 @@ fn emit_i128_builtin_wrapper<'ctx>(
         .map_err(diagnostic_from_llvm_error)?
         .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
-    let zero = i128_ty.const_zero();
+    let zero = i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?;
     let a_neg = builder
         .build_int_compare(IntPredicate::SLT, a, zero, "a.neg")
         .map_err(diagnostic_from_llvm_error)?;

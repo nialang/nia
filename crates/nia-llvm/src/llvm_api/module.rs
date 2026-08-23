@@ -381,7 +381,7 @@ mod tests {
         let global = module
             .add_global(context.i32_type().into(), None, "value")
             .unwrap();
-        let initializer = context.i64_type().const_zero();
+        let initializer = context.i64_type().const_zero().unwrap();
 
         let error = global
             .set_initializer(&initializer)

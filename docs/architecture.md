@@ -2852,6 +2852,11 @@ Scalar integer, floating-point, and pointer `get_undef` constructors likewise
 validate `LLVMGetUndef` and return `LlvmResult`; no public typed undefined-value
 constructor remains an assertion-only wrapper around a nullable LLVM result.
 
+Scalar zero and null constructors use the same checked boundary. Integer and
+floating-point `const_zero`, plus pointer `const_zero`/`const_null`, validate
+their LLVM results before returning typed values; codegen propagates failures
+through its existing diagnostic conversion.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted
