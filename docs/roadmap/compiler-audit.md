@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 424 completed entries in this ledger.
+- Implementation batches: 425 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2428,6 +2428,10 @@ acceptance item only when its phase-wide evidence is complete.
       counter now has a process-wide exhaustion latch; once the `usize` identity
       space reaches its boundary, new Build initialization returns an internal
       initialization error instead of reusing a prior owner identity.
+- [x] Batch 425 hardens Linux page-mapping range trimming. Mapped-range ends
+      and aligned suffix addresses now use checked host pointer arithmetic;
+      unrepresentable virtual ranges unmap the complete allocation and return
+      `OutOfRange` before partial trimming.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
