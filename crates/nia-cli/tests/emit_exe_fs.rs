@@ -1846,6 +1846,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
     {
         return process::exit(13)!;
     }
+
+    let mut aliased = fs::Path::fromView(&mut page, fs::PathView::init(&"base")).exit().?;
+    defer aliased.deinit(&mut page).exit().?;
+    let aliasedComponent = aliased.text();
+    aliased.joinComponent(&mut page, aliasedComponent).exit().?;
+    let aliasedExpected: &[char] = &"base/base";
+    if aliased.text().len() != aliasedExpected.len() {
+        return process::exit(14)!;
+    }
+    let mut aliasIndex = 0usize;
+    while aliasIndex < aliasedExpected.len() {
+        if aliased.text()[aliasIndex] != aliasedExpected[aliasIndex] {
+            return process::exit(15)!;
+        }
+        aliasIndex += 1usize;
+    }
     !()
 }
 "#,

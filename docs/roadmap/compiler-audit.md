@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 488 completed entries in this ledger.
+- Implementation batches: 489 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2790,6 +2790,13 @@ acceptance item only when its phase-wide evidence is complete.
       batch on retry. A real descriptor-reuse executable verifies writer
       buffering, reader state, directory iteration, and both replacement
       objects; all 25 filesystem executable cases pass.
+- [x] Batch 489 makes owned-path component joins self-alias safe. A component
+      borrowed from the destination text is recorded as a logical offset before
+      capacity growth and reconstructed from replacement storage afterward;
+      separator and component commit only through assume-capacity operations
+      once the complete length is reserved. No temporary allocation owner or
+      owner-dropping cleanup path is introduced. An executable forces allocator
+      relocation while joining `path.text()` and verifies `base/base`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

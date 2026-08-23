@@ -174,12 +174,54 @@ fn appendComponentToString(
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
+        let sourceOffset = textSliceOffset(out, appended).?;
         out.ensureTotalCapacity(allocator, needed).?;
+        let stableAppended: &[char] = match sourceOffset {
+            ?offset => &out.text()[offset..(offset + appended.len())],
+            null => appended,
+        };
         if needsSeparator {
-            out.push(allocator, '/').?;
+            out.pushAssumeCapacity('/');
         }
-        out.append(allocator, appended)
+        out.appendAssumeCapacity(stableAppended);
+        !()
     }
+}
+
+fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
+    if text.len() == 0 or out.len() == 0 {
+        return !null;
+    }
+    let itemSize = std::builtin::size[char]();
+    let base = out.text().ptr() as usize;
+    let source = text.ptr() as usize;
+    if source < base {
+        return !null;
+    }
+    let outBytes = match out.len().checked_mul(itemSize) {
+        ?value => value,
+        null => return mem::Error::Invalid!,
+    };
+    let outEnd = match base.checked_add(outBytes) {
+        ?value => value,
+        null => return mem::Error::Invalid!,
+    };
+    let sourceBytes = match text.len().checked_mul(itemSize) {
+        ?value => value,
+        null => return mem::Error::Invalid!,
+    };
+    let sourceEnd = match source.checked_add(sourceBytes) {
+        ?value => value,
+        null => return mem::Error::Invalid!,
+    };
+    if sourceEnd > outEnd {
+        return !null;
+    }
+    let byteOffset = source - base;
+    if byteOffset % itemSize != 0usize {
+        return mem::Error::Invalid!;
+    }
+    !?(byteOffset / itemSize)
 }
 
 fn isSeparator(ch: char) bool {
