@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 423 completed entries in this ledger.
+- Implementation batches: 424 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2424,6 +2424,10 @@ acceptance item only when its phase-wide evidence is complete.
       `packages.len() + 1` index now uses checked host arithmetic and reports a
       structured build memory failure instead of wrapping into an existing
       package identity.
+- [x] Batch 424 closes build owner-ID wraparound. The monotonic atomic owner
+      counter now has a process-wide exhaustion latch; once the `usize` identity
+      space reaches its boundary, new Build initialization returns an internal
+      initialization error instead of reusing a prior owner identity.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
