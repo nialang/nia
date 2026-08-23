@@ -2679,6 +2679,11 @@ handles therefore cannot reach these LLVM instructions through a safe API;
 GEP remains explicitly unsafe because its pointee/provenance contract is
 address-specific rather than a first-class value-type constraint.
 
+Conditional branches additionally require a scalar `i1` condition at the LLVM
+wrapper boundary. The `IntValue` handle alone is intentionally not treated as
+proof of boolean width, so integer values such as `i32` cannot enter
+`LLVMBuildCondBr` and rely on a later verifier failure.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
