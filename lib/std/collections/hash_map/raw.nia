@@ -38,6 +38,14 @@ extend ProbeGroup {
 
 extend ProbeCursor {
     pub fn init(valueHash: u64, capacity: usize) ProbeCursor {
+        if capacity < groupWidth or not capacity.is_power_of_two() {
+            return Self {
+                pos: 0,
+                stride: 0,
+                visited: 0,
+                capacity: 0,
+            };
+        }
         let mask = capacity - 1;
         Self {
             pos: (valueHash as usize) & mask,
@@ -52,13 +60,40 @@ extend ProbeCursor {
     }
 
     pub fn index(&self, offset: usize) usize {
-        (self.pos + offset) & (self.capacity - 1)
+        if self.capacity == 0 {
+            std::builtin::trap()
+        }
+        addMod(self.pos, offset, self.capacity)
     }
 
     pub fn advanceGroup(&mut self) () {
-        self.stride += groupWidth;
-        self.pos = (self.pos + self.stride) & (self.capacity - 1);
-        self.visited += groupWidth;
+        if self.capacity == 0 or self.visited >= self.capacity {
+            return;
+        }
+        self.stride = addMod(self.stride, groupWidth, self.capacity);
+        self.pos = addMod(self.pos, self.stride, self.capacity);
+        self.visited = match self.visited.checked_add(groupWidth) {
+            ?value => {
+                if value > self.capacity { self.capacity } else { value }
+            },
+            null => {
+                self.capacity
+            },
+        };
+    }
+}
+
+// Probe capacities are powers of two. This computes `(value + offset) %
+// capacity` without forming an overflowing host-width sum before masking.
+fn addMod(value: usize, offset: usize, capacity: usize) usize {
+    let mask = capacity - 1;
+    let left = value & mask;
+    let right = offset & mask;
+    let complement = capacity - right;
+    if left >= complement {
+        left - complement
+    } else {
+        left + right
     }
 }
 

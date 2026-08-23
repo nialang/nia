@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 425 completed entries in this ledger.
+- Implementation batches: 426 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2432,6 +2432,11 @@ acceptance item only when its phase-wide evidence is complete.
       and aligned suffix addresses now use checked host pointer arithmetic;
       unrepresentable virtual ranges unmap the complete allocation and return
       `OutOfRange` before partial trimming.
+- [x] Batch 426 hardens hash-map probing at the raw cursor boundary. Invalid
+      bucket shapes no longer derive a wrapped mask, and valid quadratic group
+      steps use explicit modulo addition so host-width overflow cannot alter a
+      control-group index. Existing collision, tombstone, rehash, clone, and
+      assume-capacity executable coverage remains green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

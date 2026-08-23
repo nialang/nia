@@ -361,6 +361,9 @@ signals, not architecture goals.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.
+- Keep hash-table probe cursors closed over their allocated table shape. Validate
+  the power-of-two/group-width precondition before deriving a mask, and perform
+  probe-step modulo arithmetic without an overflowing host-width intermediate.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
