@@ -2437,6 +2437,12 @@ acceptance item only when its phase-wide evidence is complete.
       steps use explicit modulo addition so host-width overflow cannot alter a
       control-group index. Existing collision, tombstone, rehash, clone, and
       assume-capacity executable coverage remains green.
+- [x] Batch 427 hardens freestanding Linux x86_64 startup address derivation.
+      `argc + 2`, word-size multiplication, and initial-stack address additions
+      are checked before constructing `argv`/`envp`; an unrepresentable startup
+      layout exits with status 127 instead of publishing wrapped raw pointers.
+      Freestanding loader/codegen coverage and the process executable matrix
+      remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -3266,6 +3266,11 @@ Process execution likewise has one maintained `Command` lowering path. The
 former public `process::spawnRaw` escape hatch and process-view raw pointer
 getters are removed, so callers cannot bypass argument/environment encoding or
 the spawn error-handshake and ownership rules.
+The freestanding Linux x86_64 entry point derives `argv` and `envp` from the
+initial stack through checked word-count, byte-offset, and base-address
+arithmetic. An unrepresentable startup layout exits with status 127 before a
+raw pointer is published to `Init`; the ordinary kernel-provided layout remains
+unchanged.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
