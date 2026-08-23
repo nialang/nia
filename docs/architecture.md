@@ -2817,6 +2817,11 @@ Struct-body and phi-incoming validation use that helper directly rather than
 maintaining duplicate `u32::try_from` error paths, keeping LLVM count guards
 centralized as new wrapper operations are audited.
 
+Codegen array-literal element indices and promoted byte-segment lengths also
+checked-convert host `usize` values to the LLVM `i64` index/length constants;
+these paths no longer silently truncate if a future host uses a wider index
+type.
+
 Context-local struct type construction follows the same fallible boundary:
 `Context::struct_type` checks the field count against LLVM's `u32` ABI width
 and validates the `LLVMStructTypeInContext` result before exposing a typed

@@ -102,8 +102,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match elems {
             FunctionArrayElements::List(values) => {
                 for (index, value) in values.iter().enumerate() {
-                    let elem_ptr =
-                        self.emit_const_index_addr(expr.span, expr.ty, ptr, index as u64)?;
+                    let index = u64::try_from(index)
+                        .map_err(|_| self.error(expr.span, "array element index is too large"))?;
+                    let elem_ptr = self.emit_const_index_addr(expr.span, expr.ty, ptr, index)?;
                     let value = self.emit_expr(value)?;
                     self.builder
                         .build_store(elem_ptr, value)
@@ -609,7 +610,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .into(),
                 );
             } else {
-                values.push(self.promoted_undef_bytes((end - start) as u64, span)?);
+                let length = u64::try_from(end - start)
+                    .map_err(|_| self.error(span, "promoted byte segment is too large"))?;
+                values.push(self.promoted_undef_bytes(length, span)?);
             }
             start = end;
         }
