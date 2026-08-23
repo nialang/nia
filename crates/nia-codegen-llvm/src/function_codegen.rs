@@ -421,8 +421,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let value = self.emit_expr(value)?.into_struct_value().map_err(|_| {
                     self.error(expr.span, "tuple projection target is not a struct")
                 })?;
+                let index = checked_tuple_field_index(*index).ok_or_else(|| {
+                    self.error(expr.span, "tuple field index is too large for LLVM")
+                })?;
                 self.builder
-                    .build_extract_value(value, *index as u32, "tuple.field")
+                    .build_extract_value(value, index, "tuple.field")
                     .map_err(|_| self.error(expr.span, "failed to extract tuple field"))
             }
             FunctionExprKind::StructLiteral { def_id, fields } => {
@@ -1428,6 +1431,10 @@ pub(super) fn method_requires_instance_metadata(
     self_arg.is_some() || !args.is_empty() || !const_args.is_empty()
 }
 
+fn checked_tuple_field_index(index: usize) -> Option<u32> {
+    u32::try_from(index).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1448,5 +1455,14 @@ mod tests {
 
         assert!(method_requires_instance_metadata(None, &[], &[const_arg]));
         assert!(!method_requires_instance_metadata(None, &[], &[]));
+    }
+
+    #[test]
+    fn tuple_field_index_conversion_rejects_llvm_width_overflow() {
+        let max = u32::MAX as usize;
+        assert_eq!(checked_tuple_field_index(max), Some(u32::MAX));
+        if usize::BITS > u32::BITS {
+            assert_eq!(checked_tuple_field_index(max + 1), None);
+        }
     }
 }

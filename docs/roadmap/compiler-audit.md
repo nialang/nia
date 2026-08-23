@@ -2201,6 +2201,12 @@ acceptance item only when its phase-wide evidence is complete.
       `LLVMGetArrayLength2`; source-level codegen retains its explicit `u32`
       conversion checks. Wrapper and codegen suites, workspace check,
       formatting, and strict Clippy pass.
+- [x] Batch 381 closes the LLVM tuple-projection index boundary.
+      Value projections now checked-convert their source `usize` index to
+      LLVM's `u32` width before `LLVMBuildExtractValue`, matching the existing
+      place-projection guard. A conversion regression covers the representable
+      and overflow cases, with LLVM/codegen suites, workspace check, formatting,
+      and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
