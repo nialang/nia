@@ -258,6 +258,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .const_zero()
                 .map_err(Self::diagnostic_from_llvm_error);
         }
+        let count = checked_repeat_count(count)
+            .ok_or_else(|| self.error(span, "repeat static initializer count is too large"))?;
         if let StaticInit::Byte(byte) = value
             && let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty)
             && matches!(
@@ -267,12 +269,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return self
                 .context
-                .const_string(&vec![*byte; count as usize], true)
+                .const_string(&vec![*byte; count], true)
                 .map(Into::into)
                 .map_err(Self::diagnostic_from_llvm_error);
         }
         let value = self.static_init_value_in(*elem, value, span)?;
-        let values = std::iter::repeat_n(value, count as usize).collect::<Vec<_>>();
+        let values = std::iter::repeat_n(value, count).collect::<Vec<_>>();
         self.const_array_from_values_in(*elem, &values, span)
     }
 
@@ -398,6 +400,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 }
 
+fn checked_repeat_count(count: u64) -> Option<usize> {
+    usize::try_from(count).ok()
+}
+
 fn is_zero_static_init(init: &StaticInit) -> bool {
     match init {
         StaticInit::Int(value) if value.bits() == 0 => true,
@@ -416,5 +422,18 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
         StaticInit::AddrOfGlobal { .. } | StaticInit::AddrOfFunction { .. } => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::checked_repeat_count;
+
+    #[test]
+    fn repeat_count_conversion_preserves_host_width_boundary() {
+        assert_eq!(checked_repeat_count(usize::MAX as u64), Some(usize::MAX));
+        if usize::BITS < u64::BITS {
+            assert_eq!(checked_repeat_count(u64::from(u32::MAX) + 1), None);
+        }
     }
 }
