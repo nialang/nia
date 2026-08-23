@@ -51,12 +51,8 @@ extend PlanEncoder {
         }
     }
 
-    fn deinit(&mut self) Error!() {
-        self.bytes.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan)
-    }
-
-    fn data(&self) &[u8] {
-        self.bytes.asSlice()
+    fn intoBytes(self) collections::ArrayList[u8] {
+        self.bytes
     }
 
     fn writeBytes(&mut self, value: &[u8]) Error!() {
@@ -585,28 +581,48 @@ fn targetForRole(
 }
 
 extend Build {
+    fn cleanupPlanEncoding(&mut self) Error!() {
+        self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan)
+    }
+
     pub fn writePlanDraft(&mut self, path: fs::PathView) Error!() {
         self.validatePlan().?;
+        self.cleanupPlanEncoding().?;
         let mut encoder = PlanEncoder::init(self.allocator);
-        defer encoder.deinit().?;
-        encoder.writeBuild(self).?;
+        let operation = encoder.writeBuild(self);
+        self.planEncoding = encoder.intoBytes();
+        match operation {
+            !ok => {
+                _ = ok;
+            },
+            primary! => return primary!,
+        }
 
         let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
-        let mut fileOpen = true;
-        defer if fileOpen {
-            file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
-        };
+        let mut primary: ?Error = null;
         let mut buffer: [u8; 4096] = [0; 4096];
-        let mut writer = file.writer(&mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan).?;
-        writer.writeAll(encoder.data()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
-        writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan).?;
-        file.sync().asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        let mut writer = match file.writer(&mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan) {
+            !value => value,
+            error! => {
+                _ = file.close().asBuildError(Operation::Release, Subject::BuildPlan);
+                return error!;
+            },
+        };
+        rememberPrimary(
+            &mut primary,
+            writer.writeAll(self.planEncoding.asSlice()).asBuildError(Operation::Publish, Subject::BuildPlan),
+        );
+        rememberPrimary(&mut primary, writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan));
+        rememberPrimary(&mut primary, file.sync().asBuildError(Operation::Publish, Subject::BuildPlan));
         // File::close consumes its handle before the syscall, even when the
         // syscall reports an error. Disable the fallback before calling it so
         // defer cannot turn the original close failure into a second BadFd.
-        fileOpen = false;
-        file.close().asBuildError(Operation::Release, Subject::BuildPlan).?;
-        !()
+        rememberPrimary(&mut primary, file.close().asBuildError(Operation::Release, Subject::BuildPlan));
+        match primary {
+            ?error => return error!,
+            null => {},
+        }
+        return self.cleanupPlanEncoding();
     }
 }
 
@@ -682,4 +698,17 @@ fn invalidPlan[T]() Error!T {
         operation: Operation::Validate,
         subject: Subject::BuildPlan,
     }!
+}
+
+fn rememberPrimary(firstError: &mut ?Error, result: Error!()) () {
+    match result {
+        !ok => {
+            _ = ok;
+        },
+        err! => {
+            if firstError.* is null {
+                firstError.* = ?err;
+            }
+        },
+    }
 }

@@ -3300,6 +3300,11 @@ owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while
 failed scratch releases stay attached for the next validation or final
 `Build::deinit` retry.
+Plan draft encoding follows the same owner boundary: its byte backing is held
+by `Build` across encoding and publication. Encoding, writer, flush, sync, and
+close failures preserve the first operation error; a failed backing release is
+left for the next draft attempt or `Build::deinit` instead of escaping through
+an owner-discarding defer.
 On the receiving side, list counts are validated but never used to reserve
 typed Rust capacity before item bytes are parsed. This prevents malformed
 truncated drafts from turning a small count prefix into a large host allocation.

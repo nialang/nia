@@ -399,6 +399,10 @@ signals, not architecture goals.
   Keep indegree and ready-list owners on `Build`, attempt both releases after
   every pass, preserve a cycle or validation error over cleanup failures, and
   retry any failed release before the next pass or final deinitialization.
+- Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
+  its release in a fallible defer; retain it through encoding and file
+  publication, preserve the first writer/flush/sync/close error, and retry a
+  failed backing release on the next draft or final deinitialization.
 - Replacement-based collections must retain a temporary new backing if the
   old-owner release fails and cleanup of that new backing also fails. Keep both
   owners reachable for `deinit`; never assume a best-effort rollback freed the

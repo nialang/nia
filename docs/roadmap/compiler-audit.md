@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 472 completed entries in this ledger.
+- Implementation batches: 473 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2685,6 +2685,11 @@ acceptance item only when its phase-wide evidence is complete.
       cleanup errors, and retries failed scratch frees on the next pass or
       `Build::deinit`. A fault-injected cycle regression covers two simultaneous
       scratch free failures and complete eventual release.
+- [x] Batch 473 makes plan-draft encoding and publication owner-driven.
+      The encoded byte backing remains attached to `Build` across encoder
+      failures and file publication. Writer, flush, sync, and close stages keep
+      the first operation error while still attempting later cleanup; failed
+      encoding cleanup remains retryable on the next draft or `Build::deinit`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

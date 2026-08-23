@@ -216,6 +216,7 @@ extend Build {
             staticArchives: collections::ArrayList[StaticArchiveTarget]::init(),
             validationIndegree: collections::ArrayList[usize]::init(),
             validationReady: collections::ArrayList[usize]::init(),
+            planEncoding: collections::ArrayList[u8]::init(),
         }
     }
 
@@ -223,6 +224,7 @@ extend Build {
         let mut firstError: ?Error = null;
         rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
+        rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan));
         let mut elementError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
