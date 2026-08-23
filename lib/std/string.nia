@@ -28,6 +28,7 @@ pub enum TextFormatError {
 
 pub struct String {
     text: collections::ArrayList[char],
+    formatBytes: collections::ArrayList[u8],
 }
 
 struct TextFormatWriter {
@@ -38,16 +39,25 @@ struct TextFormatWriter {
 
 extend String {
     pub fn init() String {
-        Self { text: collections::ArrayList[char]::init() }
+        Self {
+            text: collections::ArrayList[char]::init(),
+            formatBytes: collections::ArrayList[u8]::init(),
+        }
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!String {
         let mut text = collections::ArrayList[char]::initCapacity(allocator, capacity).?;
-        !String { text: text }
+        !String {
+            text: text,
+            formatBytes: collections::ArrayList[u8]::init(),
+        }
     }
 
     pub fn fromOwnedSlice(text: &mut [char]) String {
-        Self { text: collections::ArrayList[char]::fromOwnedSlice(text) }
+        Self {
+            text: collections::ArrayList[char]::fromOwnedSlice(text),
+            formatBytes: collections::ArrayList[u8]::init(),
+        }
     }
 
     pub fn fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
@@ -99,6 +109,10 @@ extend String {
         template: &[char],
         args: &[&fmt::Format],
     ) TextFormatError!() {
+        match self.releaseFormatBytes(allocator) {
+            !ok => { _ = ok; },
+            error! => return TextFormatError::Allocation(error)!,
+        }
         let oldLen = self.len();
         let mut committed = false;
         defer if not committed {
@@ -110,20 +124,41 @@ extend String {
             !ok => { _ = ok; },
             error! => {
                 let primary = writer.textError(error);
-                return writer.finish(?primary);
+                return writer.finish(self, ?primary);
             },
         }
         match writer.appendTo(self) {
             !ok => { _ = ok; },
-            error! => return writer.finish(?error),
+            error! => return writer.finish(self, ?error),
         }
-        writer.finish(null).?;
+        writer.finish(self, null).?;
         committed = true;
         !()
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        self.text.deinit(allocator)
+        let mut firstError: ?mem::Error = null;
+        match self.text.deinit(allocator) {
+            !ok => { _ = ok; },
+            error! => { firstError = ?error; },
+        }
+        match self.formatBytes.deinit(allocator) {
+            !ok => { _ = ok; },
+            error! => {
+                match firstError {
+                    ?value => { _ = value; },
+                    null => { firstError = ?error; },
+                }
+            },
+        }
+        match firstError {
+            ?error => error!,
+            null => !(),
+        }
+    }
+
+    fn releaseFormatBytes(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        self.formatBytes.deinit(allocator)
     }
 
     pub fn text(&self) &[char] {
@@ -308,7 +343,7 @@ extend TextFormatWriter {
         self.bytes.deinit(self.allocator)
     }
 
-    fn finish(&mut self, primary: ?TextFormatError) TextFormatError!() {
+    fn finish(&mut self, out: &mut String, primary: ?TextFormatError) TextFormatError!() {
         match self.deinit() {
             !ok => {
                 _ = ok;
@@ -318,6 +353,8 @@ extend TextFormatWriter {
                 }
             },
             error! => {
+                out.formatBytes = self.bytes;
+                self.bytes = collections::ArrayList[u8]::init();
                 match primary {
                     ?cause => cause!,
                     null => TextFormatError::Allocation(error)!,

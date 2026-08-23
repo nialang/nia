@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 452 completed entries in this ledger.
+- Implementation batches: 453 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2560,6 +2560,12 @@ acceptance item only when its phase-wide evidence is complete.
       allocation errors after successful formatting. The process executable
       string matrix covers overlapping invalid-UTF8 plus cleanup failure and
       rollback of the destination text.
+- [x] Batch 453 retains failed string-format staging owners. `String` now keeps
+      a pending byte-buffer owner when `free` fails before releasing the writer
+      backing; `appendFormat` retries that owner before staging new output and
+      `deinit` attempts both text and pending bytes while retaining the first
+      error. The executable regression allocator fails before release and covers
+      retry by a later format plus final cleanup of an invalid-UTF8 primary path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

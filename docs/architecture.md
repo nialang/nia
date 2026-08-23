@@ -3292,9 +3292,13 @@ the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.
 
 String formatting uses an analogous staged-output transaction. A temporary
-byte writer is always released, but a format or UTF-8 error remains primary when
-that release reports an allocation error; the cleanup error is surfaced only
-when the staged formatting operation itself succeeded.
+byte writer cleanup is always attempted. A format or UTF-8 error remains primary
+when that cleanup reports an allocation error; the cleanup error is surfaced only
+when the staged formatting operation itself succeeded. If the allocator reports
+failure before releasing the byte backing, the destination `String` retains that
+pending `ArrayList[u8]` owner, retries it before the next `appendFormat`, and
+retries it again from `deinit`; the writer is cleared after the transfer so the
+backing has exactly one reachable owner.
 
 `std::CStringView` stores its validated byte length alongside the borrowed
 pointer. Bounded byte slices are admitted only through `fromBytes`, while an
