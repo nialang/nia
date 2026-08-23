@@ -16,7 +16,8 @@ fn main(init: process::Init, allocator: &mut mem::Allocator) build::Error!build:
 let path = fs::PathView::init(&"");
 let text: &[char] = &"";
 let target = build::TargetView::init(text, text, text, text, text, text, 64u32);
-build::Build::init(allocator, path, path, path, path, path, target, target, build::OptimizationMode::O0, 1u32, null)
+let mut initialization = build::Build::init(allocator, path, path, path, path, path, target, target, build::OptimizationMode::O0, 1u32, null);
+initialization.finish()
 }
 "#,
     );

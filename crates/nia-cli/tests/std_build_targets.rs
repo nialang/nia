@@ -53,7 +53,7 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
     let artifactEnv = "artifact-env";
     let artifactAbi = "artifact-abi";
     let artifactEndian = "big";
-    build::Build::init(
+    let mut initialization = build::Build::init(
         allocator,
         fs::PathView::init(&pathText),
         fs::PathView::init(&pathText),
@@ -73,7 +73,8 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
         build::OptimizationMode::O0,
         10u32,
         null,
-    )
+    );
+    initialization.finish()
 }
 
 fn textIs(actual: &[char], expected: &[char]) bool {

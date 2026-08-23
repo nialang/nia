@@ -399,6 +399,10 @@ signals, not architecture goals.
   Keep indegree and ready-list owners on `Build`, attempt both releases after
   every pass, preserve a cycle or validation error over cleanup failures, and
   retry any failed release before the next pass or final deinitialization.
+- Public allocator-backed construction must retain partial owners when rollback
+  can fail. `Build::init` therefore returns a retryable `BuildInitAttempt`;
+  direct `Error!Build` construction and fallible local rollback defers are not
+  valid because neither can carry unreleased paths or target strings.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a

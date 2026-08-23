@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 473 completed entries in this ledger.
+- Implementation batches: 474 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2690,6 +2690,13 @@ acceptance item only when its phase-wide evidence is complete.
       failures and file publication. Writer, flush, sync, and close stages keep
       the first operation error while still attempting later cleanup; failed
       encoding cleanup remains retryable on the next draft or `Build::deinit`.
+- [x] Batch 474 makes build initialization a retryable owner transaction.
+      `Build::init` returns `BuildInitAttempt`, which retains every partial path,
+      target component, requested step, primary error, and allocator reference
+      until `finish` can complete cleanup or transfer the initialized graph.
+      The former fallible rollback defers and direct `Error!Build` surface are
+      removed; fault injection proves a retained-free failure can be retried
+      before the original allocation error is published.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -32,7 +32,7 @@ fn initBuild(
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
     let currentTarget = target();
-    build::Build::init(
+    let mut initialization = build::Build::init(
         allocator,
         emptyPath,
         emptyPath,
@@ -44,7 +44,8 @@ fn initBuild(
         build::OptimizationMode::O0,
         1u32,
         null,
-    )
+    );
+    initialization.finish()
 }
 
 fn addCheck(api: &mut build::Build, source: fs::PathView) build::Error!() {

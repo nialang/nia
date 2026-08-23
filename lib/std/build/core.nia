@@ -17,6 +17,7 @@ using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
 using types::{
     Build,
+    BuildInitAttempt,
     Step,
     StepHandle,
     StepDependency,
@@ -92,32 +93,14 @@ fn allocateBuildOwnerId() ?usize {
 }
 
 extend BuildPaths {
-    fn init(
-        allocator: &mut mem::Allocator,
-        packageRoot: fs::PathView,
-        buildDir: fs::PathView,
-        cacheDir: fs::PathView,
-        toolchainExecutable: fs::PathView,
-        toolchainResourceRoot: fs::PathView,
-    ) Error!BuildPaths {
-        let mut paths: BuildPaths = BuildPaths {
+    fn init() BuildPaths {
+        BuildPaths {
             packageRoot: fs::Path::init(),
             buildDir: fs::Path::init(),
             cacheDir: fs::Path::init(),
             toolchainExecutable: fs::Path::init(),
             toolchainResourceRoot: fs::Path::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            paths.deinit(allocator).?;
-        };
-        paths.packageRoot = fs::Path::fromView(allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
-        paths.buildDir = fs::Path::fromView(allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
-        paths.cacheDir = fs::Path::fromView(allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
-        paths.toolchainExecutable = fs::Path::fromView(allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
-        paths.toolchainResourceRoot = fs::Path::fromView(allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
-        transferred = true;
-        !paths
+        }
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
@@ -147,63 +130,21 @@ extend Build {
         defaultOptimization: OptimizationMode,
         planSchemaVersion: u32,
         requestedStep: ?&[char],
-    ) Error!Build {
-        let mut paths = BuildPaths::init(
-            allocator,
-            packageRoot,
-            buildDir,
-            cacheDir,
-            toolchainExecutable,
-            toolchainResourceRoot,
-        ).?;
-        let mut pathsTransferred = false;
-        defer if not pathsTransferred {
-            paths.deinit(allocator).?;
-        };
-        let mut ownedHostTarget = TargetStorage::init(allocator, hostTarget, Subject::HostTarget).?;
-        let mut hostTargetTransferred = false;
-        defer if not hostTargetTransferred {
-            ownedHostTarget.deinit(allocator, Subject::HostTarget).?;
-        };
-        let mut ownedArtifactTarget = TargetStorage::init(allocator, artifactTarget, Subject::ArtifactTarget).?;
-        let mut artifactTargetTransferred = false;
-        defer if not artifactTargetTransferred {
-            ownedArtifactTarget.deinit(allocator, Subject::ArtifactTarget).?;
-        };
-        let mut ownedRequestedStep = string::String::init();
-        let mut hasRequestedStep = false;
-        if requestedStep is ?step {
-            ownedRequestedStep = string::String::fromSlice(allocator, step).asBuildError(
-                Operation::Retain,
-                Subject::RequestedStep,
-            ).?;
-            hasRequestedStep = true;
-        }
-        let mut requestedStepTransferred = false;
-        defer if not requestedStepTransferred {
-            ownedRequestedStep.deinit(allocator).asBuildError(
-                Operation::Release,
-                Subject::RequestedStep,
-            ).?;
-        };
-        pathsTransferred = true;
-        hostTargetTransferred = true;
-        artifactTargetTransferred = true;
-        requestedStepTransferred = true;
+    ) BuildInitAttempt {
         let ownerId = match allocateBuildOwnerId() {
             ?value => value,
-            null => return Error::Internal(Operation::Initialize)!,
+            null => 0usize,
         };
-        !Self {
+        let build = Self {
             ownerId: ownerId,
             allocator: allocator,
-            paths: paths,
-            hostTarget: ownedHostTarget,
-            artifactTarget: ownedArtifactTarget,
+            paths: BuildPaths::init(),
+            hostTarget: TargetStorage::init(hostTarget.pointerWidth),
+            artifactTarget: TargetStorage::init(artifactTarget.pointerWidth),
             defaultOptimization: defaultOptimization,
             planSchemaVersion: planSchemaVersion,
-            requestedStep: ownedRequestedStep,
-            hasRequestedStep: hasRequestedStep,
+            requestedStep: string::String::init(),
+            hasRequestedStep: false,
             defaultStep: null,
             selectedStep: null,
             planValidated: false,
@@ -217,7 +158,56 @@ extend Build {
             validationIndegree: collections::ArrayList[usize]::init(),
             validationReady: collections::ArrayList[usize]::init(),
             planEncoding: collections::ArrayList[u8]::init(),
+        };
+        let mut attempt = BuildInitAttempt::init(build);
+        if ownerId == 0usize {
+            attempt.primary = ?Error::Internal(Operation::Initialize);
+            return attempt;
         }
+        match attempt.build.initialize(
+            packageRoot,
+            buildDir,
+            cacheDir,
+            toolchainExecutable,
+            toolchainResourceRoot,
+            hostTarget,
+            artifactTarget,
+            requestedStep,
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => attempt.primary = ?primary,
+        }
+        attempt
+    }
+
+    fn initialize(
+        &mut self,
+        packageRoot: fs::PathView,
+        buildDir: fs::PathView,
+        cacheDir: fs::PathView,
+        toolchainExecutable: fs::PathView,
+        toolchainResourceRoot: fs::PathView,
+        hostTarget: TargetView,
+        artifactTarget: TargetView,
+        requestedStep: ?&[char],
+    ) Error!() {
+        self.paths.packageRoot = fs::Path::fromView(self.allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
+        self.paths.buildDir = fs::Path::fromView(self.allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
+        self.paths.cacheDir = fs::Path::fromView(self.allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
+        self.paths.toolchainExecutable = fs::Path::fromView(self.allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
+        self.paths.toolchainResourceRoot = fs::Path::fromView(self.allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
+        self.hostTarget.initialize(self.allocator, hostTarget, Subject::HostTarget).?;
+        self.artifactTarget.initialize(self.allocator, artifactTarget, Subject::ArtifactTarget).?;
+        if requestedStep is ?step {
+            self.requestedStep = string::String::fromSlice(self.allocator, step).asBuildError(
+                Operation::Retain,
+                Subject::RequestedStep,
+            ).?;
+            self.hasRequestedStep = true;
+        }
+        !()
     }
 
     pub fn deinit(&mut self) Error!() {
@@ -1581,6 +1571,34 @@ extend Build {
     }
 }
 
+extend BuildInitAttempt {
+    fn init(build: Build) BuildInitAttempt {
+        Self { build: build, primary: null, active: true }
+    }
+
+    pub fn finish(&mut self) Error!Build {
+        if not self.active {
+            return Error::Internal(Operation::Initialize)!;
+        }
+        match self.primary {
+            ?primary => {
+                match self.build.deinit() {
+                    !ok => {
+                        _ = ok;
+                        self.active = false;
+                        primary!
+                    },
+                    cleanup! => cleanup!,
+                }
+            },
+            null => {
+                self.active = false;
+                !self.build
+            },
+        }
+    }
+}
+
 extend StepHandle {
     fn init(ownerId: usize, index: usize) StepHandle {
         Self { ownerId: ownerId, index: index }
@@ -2793,32 +2811,31 @@ extend TargetView {
 }
 
 extend TargetStorage {
-    fn init(
-        allocator: &mut mem::Allocator,
-        target: TargetView,
-        subject: Subject,
-    ) Error!TargetStorage {
-        let mut owned: TargetStorage = TargetStorage {
+    fn init(pointerWidth: u32) TargetStorage {
+        TargetStorage {
             arch: string::String::init(),
             vendor: string::String::init(),
             os: string::String::init(),
             env: string::String::init(),
             abi: string::String::init(),
             endian: string::String::init(),
-            pointerWidth: target.pointerWidth,
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            owned.deinit(allocator, subject).?;
-        };
-        owned.arch = string::String::fromSlice(allocator, target.arch).asBuildError(Operation::Retain, subject).?;
-        owned.vendor = string::String::fromSlice(allocator, target.vendor).asBuildError(Operation::Retain, subject).?;
-        owned.os = string::String::fromSlice(allocator, target.os).asBuildError(Operation::Retain, subject).?;
-        owned.env = string::String::fromSlice(allocator, target.env).asBuildError(Operation::Retain, subject).?;
-        owned.abi = string::String::fromSlice(allocator, target.abi).asBuildError(Operation::Retain, subject).?;
-        owned.endian = string::String::fromSlice(allocator, target.endian).asBuildError(Operation::Retain, subject).?;
-        transferred = true;
-        !owned
+            pointerWidth: pointerWidth,
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        target: TargetView,
+        subject: Subject,
+    ) Error!() {
+        self.arch = string::String::fromSlice(allocator, target.arch).asBuildError(Operation::Retain, subject).?;
+        self.vendor = string::String::fromSlice(allocator, target.vendor).asBuildError(Operation::Retain, subject).?;
+        self.os = string::String::fromSlice(allocator, target.os).asBuildError(Operation::Retain, subject).?;
+        self.env = string::String::fromSlice(allocator, target.env).asBuildError(Operation::Retain, subject).?;
+        self.abi = string::String::fromSlice(allocator, target.abi).asBuildError(Operation::Retain, subject).?;
+        self.endian = string::String::fromSlice(allocator, target.endian).asBuildError(Operation::Retain, subject).?;
+        !()
     }
 
     fn view(&self) TargetView {

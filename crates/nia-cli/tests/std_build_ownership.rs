@@ -25,7 +25,6 @@ struct FaultAllocator {
     allocationAttempts: usize,
     activeAllocations: usize,
     failAt: usize,
-    failFree: bool,
     retainedFreeFailures: usize,
 }
 
@@ -36,7 +35,6 @@ extend FaultAllocator {
             allocationAttempts: 0usize,
             activeAllocations: 0usize,
             failAt: 0usize,
-            failFree: false,
             retainedFreeFailures: 0usize,
         }
     }
@@ -47,10 +45,6 @@ extend FaultAllocator {
 
     fn disableFailure(&mut self) () {
         self.failAt = 0usize;
-    }
-
-    fn failNextFree(&mut self) () {
-        self.failFree = true;
     }
 
     fn failNextRetainedFree(&mut self) () {
@@ -88,10 +82,6 @@ extend FaultAllocator : mem::Allocator {
                 return mem::Error::Invalid!;
             }
             self.activeAllocations -= 1usize;
-            if self.failFree {
-                self.failFree = false;
-                return mem::Error::Invalid!;
-            }
         }
         !()
     }
@@ -280,7 +270,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
-    match build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         path,
         path,
@@ -292,7 +282,8 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
-    ) {
+    );
+    match initialization.finish() {
         !value => {
             let mut unexpected = value;
             unexpected.deinit().exit().?;
@@ -316,7 +307,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
-    match build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         path,
         path,
@@ -328,7 +319,8 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         build::OptimizationMode::O0,
         1u32,
         null,
-    ) {
+    );
+    match initialization.finish() {
         !value => {
             let mut unexpected = value;
             unexpected.deinit().exit().?;
@@ -347,14 +339,14 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
     !()
 }
 
-fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!() {
+fn checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
     let mut allocator = FaultAllocator::init();
     allocator.failAfter(1usize);
-    allocator.failNextFree();
+    allocator.failNextRetainedFree();
     let pathText: [char; 64] = ['p'; 64];
     let path = fs::PathView::init(&pathText);
     let target = testTarget(&pathText);
-    match build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         path,
         path,
@@ -366,7 +358,8 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
-    ) {
+    );
+    match initialization.finish() {
         !value => {
             let mut unexpected = value;
             unexpected.deinit().exit().?;
@@ -379,8 +372,21 @@ fn checkCleanupFailureOverridesExit(init: process::Init) process::ExitCode!() {
             }
         },
     }
-    if allocator.activeAllocations != 0usize {
+    if allocator.activeAllocations != 1usize {
         return process::exit(13)!;
+    }
+    match initialization.finish() {
+        !value => {
+            let mut unexpected = value;
+            unexpected.deinit().exit().?;
+            return process::exit(55)!;
+        },
+        err! => if not isBuildDirRetainOom(err) {
+            return process::exit(56)!;
+        },
+    }
+    if allocator.activeAllocations != 0usize {
+        return process::exit(57)!;
     }
     !()
 }
@@ -390,7 +396,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
     let target = testTarget(&empty);
-    let mut api = build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         emptyPath,
         emptyPath,
@@ -402,7 +408,8 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
-    ).exit().?;
+    );
+    let mut api = initialization.finish().exit().?;
     let mut cleaned = false;
     defer if not cleaned {
         api.deinit().exit().?;
@@ -562,7 +569,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
     let empty = "";
     let emptyPath = fs::PathView::init(&empty);
     let target = testTarget(&empty);
-    let mut api = build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         emptyPath,
         emptyPath,
@@ -574,7 +581,8 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
-    ).exit().?;
+    );
+    let mut api = initialization.finish().exit().?;
     let mut cleaned = false;
     defer if not cleaned {
         api.deinit().exit().?;
@@ -637,7 +645,7 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
     let target = testTarget(&"");
-    let mut api = build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         emptyPath,
         emptyPath,
@@ -649,7 +657,8 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         build::OptimizationMode::O0,
         1u32,
         null,
-    ).exit().?;
+    );
+    let mut api = initialization.finish().exit().?;
     let moduleHandle = api.addModule(
         build::ModuleOptions::init(&"root", fs::PathView::init(&"main.nia")),
     ).exit().?;
@@ -684,7 +693,7 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
     }
 
     let mut importAllocator = FaultAllocator::init();
-    let mut importApi = build::Build::init(
+    let mut importInitialization = build::Build::init(
         &mut importAllocator,
         emptyPath,
         emptyPath,
@@ -696,7 +705,8 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         build::OptimizationMode::O0,
         1u32,
         null,
-    ).exit().?;
+    );
+    let mut importApi = importInitialization.finish().exit().?;
     let imports = [
         build::ModuleImport::init(&"dependency", fs::PathView::init(&"dependency.nia")),
     ];
@@ -728,7 +738,7 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
     let mut allocator = FaultAllocator::init();
     let emptyPath = fs::PathView::init(&"");
     let target = testTarget(&"");
-    let mut api = build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
         emptyPath,
         emptyPath,
@@ -740,7 +750,8 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
         build::OptimizationMode::O0,
         1u32,
         null,
-    ).exit().?;
+    );
+    let mut api = initialization.finish().exit().?;
     let first = api.addAggregateStep(&"first").exit().?;
     let second = api.addAggregateStep(&"second").exit().?;
     api.setDefaultStep(first).exit().?;
@@ -786,7 +797,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
     checkTargetInitRollback(init, 7usize).?;
     checkTargetInitRollback(init, 13usize).?;
-    checkCleanupFailureOverridesExit(init).?;
+    checkInitCleanupRetry(init).?;
     checkRecordRollback(init).?;
     checkArgAssemblyRollback(init).?;
     checkCleanupRetryRetainsNestedOwners(init).?;

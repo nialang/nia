@@ -1025,7 +1025,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         }.asExitCode()!;
     }
 
-    let mut api = build::Build::init(
+    let mut initialization = build::Build::init(
         &mut allocator,
 "#,
     );
@@ -1043,7 +1043,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 "#,
     );
     source.push_str(
-        r#"    ).reportAndExit(init).?;
+        r#"    );
+    let mut api = initialization.finish().reportAndExit(init).?;
     defer api.deinit().reportAndExit(init).?;
 
     match buildScript::build(&mut api) {
@@ -1613,7 +1614,16 @@ mod tests {
         assert!(runner.source.contains("fn reportAndExit("));
         assert!(runner.source.contains("fs::Path::fromUtf8("));
         assert!(runner.source.contains("string::String::fromUtf8("));
-        assert!(runner.source.contains("let mut api = build::Build::init("));
+        assert!(
+            runner
+                .source
+                .contains("let mut initialization = build::Build::init(")
+        );
+        assert!(
+            runner
+                .source
+                .contains("initialization.finish().reportAndExit(init).?")
+        );
         assert!(runner.source.contains("readPath(&mut config"));
         assert!(runner.source.contains("readTarget(&mut config"));
         assert!(runner.source.contains("hostTarget,"));
