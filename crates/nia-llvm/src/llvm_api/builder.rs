@@ -292,6 +292,7 @@ impl<'ctx> Builder<'ctx> {
         &self,
         value: Option<&dyn BasicValue<'ctx>>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
+        validate_return(self.get_insert_block(), value)?;
         let instruction = unsafe {
             match value {
                 Some(value) => LLVMBuildRet(self.raw, value.as_value_ref()),
@@ -1293,6 +1294,35 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<FloatValue<'ctx>> {
         cast_float(self.raw, LLVMBuildFPCast, value, target, name)
+    }
+}
+
+fn validate_return(
+    block: Option<BasicBlock<'_>>,
+    value: Option<&dyn BasicValue<'_>>,
+) -> LlvmResult<()> {
+    let block = block.ok_or_else(|| LlvmError::error("return requires an insertion block"))?;
+    let function = block
+        .get_parent()
+        .ok_or_else(|| LlvmError::error("return insertion block has no parent function"))?;
+    let expected = function.get_type().get_return_type()?;
+    match (expected, value) {
+        (None, None) => Ok(()),
+        (None, Some(_)) => Err(LlvmError::error(
+            "void function return cannot carry a value",
+        )),
+        (Some(_), None) => Err(LlvmError::error(
+            "non-void function return requires a value",
+        )),
+        (Some(expected), Some(value)) => {
+            let actual = BasicTypeEnum::new(unsafe { LLVMTypeOf(value.as_value_ref()) })?;
+            if actual != expected {
+                return Err(LlvmError::error(
+                    "return value type does not match the function return type",
+                ));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -2404,6 +2434,68 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("must have scalar i1 type")
+        ));
+    }
+
+    #[test]
+    fn rejects_return_value_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("return-type").unwrap();
+        let function = module
+            .add_function("test", context.i32_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let value = context.i64_type().const_zero();
+        let error = builder
+            .build_return(Some(&value))
+            .expect_err("mismatched return value type");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("return value type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_missing_non_void_return_value_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("return-value").unwrap();
+        let function = module
+            .add_function("test", context.i32_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_return(None)
+            .expect_err("missing non-void return value");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("requires a value")
+        ));
+    }
+
+    #[test]
+    fn rejects_value_return_from_void_function_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("return-void").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let value = context.i32_type().const_zero();
+        let error = builder
+            .build_return(Some(&value))
+            .expect_err("value return from void function");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("cannot carry a value")
         ));
     }
 

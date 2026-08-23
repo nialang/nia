@@ -2083,6 +2083,12 @@ acceptance item only when its phase-wide evidence is complete.
       before `LLVMBuildCondBr`; the broad `IntValue` handle is no longer treated
       as boolean proof. A non-`i1` regression plus LLVM/codegen suites,
       workspace check, formatting, and strict Clippy pass.
+- [x] Batch 361 closes the LLVM return-shape boundary. `build_return` now
+      derives the enclosing function signature from the insertion block and
+      rejects void/value mismatches, missing non-void values, and mismatched
+      return LLVM types before `LLVMBuildRet` or `LLVMBuildRetVoid`. Wrapper
+      regressions cover all three malformed shapes, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
