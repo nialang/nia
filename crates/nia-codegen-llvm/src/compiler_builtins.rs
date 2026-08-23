@@ -509,7 +509,12 @@ fn emit_u128_div_rem<'ctx>(
         )
         .map_err(diagnostic_from_llvm_error)?;
     builder
-        .build_store(shift, i128_ty.const_int(128, false))
+        .build_store(
+            shift,
+            i128_ty
+                .const_int(128, false)
+                .map_err(diagnostic_from_llvm_error)?,
+        )
         .map_err(diagnostic_from_llvm_error)?;
     let div_by_zero = builder
         .build_int_compare(
@@ -544,18 +549,33 @@ fn emit_u128_div_rem<'ctx>(
 
     builder.position_at_end(body_block);
     let next_shift = builder
-        .build_int_sub(current_shift, i128_ty.const_int(1, false), "nextshift")
+        .build_int_sub(
+            current_shift,
+            i128_ty
+                .const_int(1, false)
+                .map_err(diagnostic_from_llvm_error)?,
+            "nextshift",
+        )
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_store(shift, next_shift)
         .map_err(diagnostic_from_llvm_error)?;
     let rem_value = load_i128(&builder, i128_ty, remainder, "rem.load")?;
     let rem_shifted = builder
-        .build_left_shift(rem_value, i128_ty.const_int(1, false), "rem.shift")
+        .build_left_shift(
+            rem_value,
+            i128_ty
+                .const_int(1, false)
+                .map_err(diagnostic_from_llvm_error)?,
+            "rem.shift",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let one = i128_ty
+        .const_int(1, false)
         .map_err(diagnostic_from_llvm_error)?;
     let bit = builder
         .build_right_shift(a, next_shift, false, "bit.shift")
-        .and_then(|value| builder.build_and(value, i128_ty.const_int(1, false), "bit"))
+        .and_then(|value| builder.build_and(value, one, "bit"))
         .map_err(diagnostic_from_llvm_error)?;
     let rem_next = builder
         .build_or(rem_shifted, bit, "rem.next")
@@ -579,7 +599,13 @@ fn emit_u128_div_rem<'ctx>(
         .map_err(diagnostic_from_llvm_error)?;
     let quotient_value = load_i128(&builder, i128_ty, quotient, "quo.load")?;
     let quotient_bit = builder
-        .build_left_shift(i128_ty.const_int(1, false), next_shift, "quo.bit")
+        .build_left_shift(
+            i128_ty
+                .const_int(1, false)
+                .map_err(diagnostic_from_llvm_error)?,
+            next_shift,
+            "quo.bit",
+        )
         .map_err(diagnostic_from_llvm_error)?;
     let quotient_next = builder
         .build_or(quotient_value, quotient_bit, "quo.next")
@@ -652,7 +678,10 @@ fn emit_u128_builtin_wrapper<'ctx>(
     let args: [BasicMetadataValueEnum<'ctx>; 3] = [
         a.into(),
         b.into(),
-        i1_ty.const_int(want_rem as u64, false).into(),
+        i1_ty
+            .const_int(want_rem as u64, false)
+            .map_err(diagnostic_from_llvm_error)?
+            .into(),
     ];
     let result = builder
         .build_call(divmod, &args, "builtin")
@@ -719,7 +748,10 @@ fn emit_i128_builtin_wrapper<'ctx>(
     let args: [BasicMetadataValueEnum<'ctx>; 3] = [
         abs_a.into(),
         abs_b.into(),
-        i1_ty.const_int(want_rem as u64, false).into(),
+        i1_ty
+            .const_int(want_rem as u64, false)
+            .map_err(diagnostic_from_llvm_error)?
+            .into(),
     ];
     let unsigned = builder
         .build_call(divmod, &args, "unsigned")

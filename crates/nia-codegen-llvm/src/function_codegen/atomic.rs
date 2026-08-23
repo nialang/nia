@@ -259,7 +259,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_struct_gep(optional_ty, ptr, 0, "optional.tag")
         }
         .map_err(|_| self.error(span, "failed to build optional tag address"))?;
-        let tag = self.module.context.i8_type().const_int(tag.into(), false);
+        let tag = self.module.context.i8_type().const_int(tag.into(), false)?;
         self.builder
             .build_store(tag_ptr, tag)
             .map_err(|_| self.error(span, "failed to store optional tag"))?;

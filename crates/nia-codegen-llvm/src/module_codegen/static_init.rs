@@ -29,12 +29,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::Bool(value) => Ok(self
                 .context
                 .bool_type()
-                .const_int(u64::from(*value), false)
+                .const_int(u64::from(*value), false)?
                 .into()),
             StaticInit::Byte(value) => Ok(self
                 .context
                 .i8_type()
-                .const_int(*value as u64, false)
+                .const_int(*value as u64, false)?
                 .into()),
             StaticInit::Chars(scalars) => self.static_chars_init_value_in(ty, scalars, span),
             StaticInit::Bytes(bytes) => {
@@ -102,20 +102,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let mut ptr = global_value.as_pointer_value();
         let mut current_ty = global_ty;
         if !path.is_empty() {
-            let mut indices = vec![self.context.i64_type().const_int(0, false)];
+            let mut indices = vec![self.context.i64_type().const_int(0, false)?];
             for elem in path {
                 match elem {
                     StaticAddressElem::Field(field) => {
-                        indices.push(
-                            self.context.i32_type().const_int(
-                                self.field_index(current_ty, *field, span)? as u64,
-                                false,
-                            ),
-                        );
+                        indices.push(self.context.i32_type().const_int(
+                            self.field_index(current_ty, *field, span)? as u64,
+                            false,
+                        )?);
                         current_ty = self.field_ty(current_ty, *field, span)?;
                     }
                     StaticAddressElem::Index(index) => {
-                        indices.push(self.context.i64_type().const_int(*index, false));
+                        indices.push(self.context.i64_type().const_int(*index, false)?);
                         current_ty = self.array_elem_ty(current_ty, span)?;
                     }
                     StaticAddressElem::Error => {

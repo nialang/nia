@@ -2866,6 +2866,11 @@ handles. `IntType::const_u128` checks both native-width and arbitrary-precision
 paths, while `FloatType::const_float` checks `LLVMConstReal`; literal and static
 initialization lowering propagates those diagnostics.
 
+The ordinary integer constant constructor follows the same checked boundary:
+`IntType::const_int` validates `LLVMConstInt` and returns `LlvmResult`. All
+backend integer constants now propagate that result rather than relying on an
+assertion-backed typed wrapper.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

@@ -2317,6 +2317,12 @@ acceptance item only when its phase-wide evidence is complete.
       literal/static-init lowering propagates the result and a wrapper regression
       covers both constructors. LLVM/codegen suites, workspace check, formatting,
       and strict Clippy pass.
+- [x] Batch 401 closes ordinary integer constant construction.
+      `IntType::const_int` now validates `LLVMConstInt` and returns `LlvmResult`;
+      function, aggregate, memory, atomic, call, static-init, and builtin
+      lowering propagate the checked result. A wrapper regression covers native
+      and wide integer types, with LLVM/codegen suites, workspace check,
+      formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

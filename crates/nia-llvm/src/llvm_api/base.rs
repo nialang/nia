@@ -617,8 +617,11 @@ impl<'ctx> IntType<'ctx> {
     }
 
     /// Creates an integer constant from its low 64 bits.
-    pub fn const_int(self, value: u64, sign_extend: bool) -> IntValue<'ctx> {
-        IntValue::new(unsafe { LLVMConstInt(self.as_type_ref(), value, bool_to_llvm(sign_extend)) })
+    pub fn const_int(self, value: u64, sign_extend: bool) -> LlvmResult<IntValue<'ctx>> {
+        Ok(IntValue::new(require_value(
+            unsafe { LLVMConstInt(self.as_type_ref(), value, bool_to_llvm(sign_extend)) },
+            "integer constant",
+        )?))
     }
 
     /// Creates an unsigned integer constant up to 128 bits wide.
@@ -1882,6 +1885,14 @@ mod tests {
 
         assert!(context.i128_type().const_u128(1).is_ok());
         assert!(context.f64_type().const_float(1.5).is_ok());
+    }
+
+    #[test]
+    fn typed_integer_constants_use_checked_conversion() {
+        let context = Context::create().unwrap();
+
+        assert!(context.i8_type().const_int(7, false).is_ok());
+        assert!(context.i128_type().const_int(7, false).is_ok());
     }
 
     #[test]

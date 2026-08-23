@@ -458,7 +458,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .context
             .i8_type()
-            .const_int(failure_tag.into(), false);
+            .const_int(failure_tag.into(), false)?;
         let is_failure = self
             .builder
             .build_int_compare(IntPredicate::EQ, tag, failure_tag, "defer.try.failed")
@@ -542,7 +542,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .context
             .i8_type()
-            .const_int(failure_tag.into(), false);
+            .const_int(failure_tag.into(), false)?;
         let is_failure = self
             .builder
             .build_int_compare(IntPredicate::EQ, tag, failure_tag, "try.failed")
@@ -710,7 +710,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .module
                     .context
                     .i8_type()
-                    .const_int(FunctionErrorUnionTag::Err.discriminant().into(), false);
+                    .const_int(FunctionErrorUnionTag::Err.discriminant().into(), false)?;
                 self.builder
                     .build_store(tag_ptr, tag)
                     .map_err(|_| self.error(span, "failed to store propagation return tag"))?;
@@ -1066,28 +1066,28 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .module
                     .context
                     .i8_type()
-                    .const_int(FunctionOptionalTag::Null.discriminant().into(), false));
+                    .const_int(FunctionOptionalTag::Null.discriminant().into(), false)?);
             }
             FunctionExprKind::OptionalSome { .. } => {
                 return Ok(self
                     .module
                     .context
                     .i8_type()
-                    .const_int(FunctionOptionalTag::Some.discriminant().into(), false));
+                    .const_int(FunctionOptionalTag::Some.discriminant().into(), false)?);
             }
             FunctionExprKind::ErrorOk { .. } => {
                 return Ok(self
                     .module
                     .context
                     .i8_type()
-                    .const_int(FunctionErrorUnionTag::Ok.discriminant().into(), false));
+                    .const_int(FunctionErrorUnionTag::Ok.discriminant().into(), false)?);
             }
             FunctionExprKind::ErrorErr { .. } => {
                 return Ok(self
                     .module
                     .context
                     .i8_type()
-                    .const_int(FunctionErrorUnionTag::Err.discriminant().into(), false));
+                    .const_int(FunctionErrorUnionTag::Err.discriminant().into(), false)?);
             }
             _ => {}
         }

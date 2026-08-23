@@ -265,7 +265,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .context
             .bool_type()
-            .const_int(u64::from(op == BinaryOp::Or), false);
+            .const_int(u64::from(op == BinaryOp::Or), false)?;
         phi.add_incoming(&[(&short_value, lhs_block), (&rhs_value, rhs_end)])
             .map_err(|_| self.error(span, "failed to add logical phi incoming values"))?;
         Ok(phi.as_basic_value()?)
@@ -400,7 +400,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             span,
             vector_ty,
             lanes,
-            lane_ty.const_int(u64::from(lane_bits), false),
+            lane_ty.const_int(u64::from(lane_bits), false)?,
             "shift.count.limit",
         )?;
         let out_of_range = self
@@ -552,7 +552,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_int_compare(
                 IntPredicate::UGE,
                 checked_rhs,
-                check_ty.const_int(u64::from(lhs_bits), false),
+                check_ty.const_int(u64::from(lhs_bits), false)?,
                 "shift.count.out_of_range",
             )
             .map_err(|_| self.error(span, "failed to validate shift count range"))?;

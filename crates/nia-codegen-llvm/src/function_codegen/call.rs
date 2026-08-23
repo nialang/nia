@@ -184,7 +184,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(self
                     .module
                     .usize_llvm_type(span)?
-                    .const_int(len, false)
+                    .const_int(len, false)?
                     .into())
             }
             Some(TyKind::Slice { .. }) => {
@@ -631,8 +631,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             )
         })?;
         let ptr_ty = self.module.context.ptr_type(Default::default());
-        let zero = self.module.context.i64_type().const_int(0, false);
-        let slot_index = self.module.context.i64_type().const_int(slot_index, false);
+        let zero = self.module.context.i64_type().const_int(0, false)?;
+        let slot_index = self
+            .module
+            .context
+            .i64_type()
+            .const_int(slot_index, false)?;
         let entry_ptr = unsafe {
             self.builder
                 .build_gep(

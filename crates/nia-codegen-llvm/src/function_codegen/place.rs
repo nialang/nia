@@ -136,7 +136,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(TyKind::Array { .. }) => {
                 let base_ptr = self.emit_array_base_addr(lhs)?;
                 let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
-                let zero = self.module.context.i64_type().const_int(0, false);
+                let zero = self.module.context.i64_type().const_int(0, false)?;
                 unsafe {
                     self.builder
                         .build_gep(array_ty, base_ptr, &[zero, index_value], "elemptr")
@@ -175,16 +175,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         lhs: &FunctionExpr,
     ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, InternedTyId), Diagnostic> {
         let usize_ty = self.module.usize_llvm_type(span)?;
-        let one = usize_ty.const_int(1, false);
+        let one = usize_ty.const_int(1, false)?;
         match self.module.ty_kind(lhs.ty) {
             Some(TyKind::Array { len, elem }) => {
                 let base_ptr = self.emit_array_base_addr(lhs)?;
                 let array_len = self.module.array_len(len, span)?;
-                let len = usize_ty.const_int(array_len, false);
+                let len = usize_ty.const_int(array_len, false)?;
                 if self.is_zero_sized(lhs.ty) {
                     return Ok((base_ptr, len, *elem));
                 }
-                let zero = self.module.context.i64_type().const_int(0, false);
+                let zero = self.module.context.i64_type().const_int(0, false)?;
                 let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
                 let ptr = unsafe {
                     self.builder
@@ -201,11 +201,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }) = self.module.ty_kind(*elem)
                 {
                     let array_len = self.module.array_len(len, span)?;
-                    let len = usize_ty.const_int(array_len, false);
+                    let len = usize_ty.const_int(array_len, false)?;
                     if self.is_zero_sized(*elem) {
                         return Ok((ptr, len, *array_elem));
                     }
-                    let zero = self.module.context.i64_type().const_int(0, false);
+                    let zero = self.module.context.i64_type().const_int(0, false)?;
                     let array_ty = self.module.llvm_basic_type(*elem, span)?;
                     let elem_ptr = unsafe {
                         self.builder
@@ -292,7 +292,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Ok(self
                 .module
                 .usize_llvm_type(Span::default())?
-                .const_int(0, false))
+                .const_int(0, false)?)
         }
     }
 
@@ -312,7 +312,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     end,
                     self.module
                         .usize_llvm_type(Span::default())?
-                        .const_int(1, false),
+                        .const_int(1, false)?,
                     "sliceend",
                 )
                 .map_err(|_| self.error(Span::default(), "failed to compute inclusive slice end"))
@@ -633,7 +633,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match self.module.ty_kind(base_ty) {
             Some(TyKind::Array { .. }) => {
                 let array_ty = self.module.llvm_basic_type(base_ty, span)?;
-                let zero = self.module.context.i64_type().const_int(0, false);
+                let zero = self.module.context.i64_type().const_int(0, false)?;
                 unsafe {
                     self.builder
                         .build_gep(array_ty, base_ptr, &[zero, index_value], "elemptr")
