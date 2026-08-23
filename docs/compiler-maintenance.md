@@ -423,6 +423,10 @@ signals, not architecture goals.
   owners. Generated-file and uncacheable steps use distinct empty constructors,
   reserve the steps list first, and initialize name/payload in place so cleanup
   always reads the active union member and can retry every failed owner.
+- A committed record that must be rolled back cannot return to a local owner.
+  `rollbackLastStep` moves it into `Build.pendingStep` before cleanup. Run/test
+  dependency errors stay primary over rollback failures, while argument list,
+  argument strings, and step name remain reachable for the next operation.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a

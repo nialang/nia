@@ -3320,6 +3320,10 @@ Owning step payloads enter the graph through a kind-correct pending `Step`.
 Generated-file and uncacheable steps reserve the step list before retaining the
 step name and payload fields, then transfer through an infallible append. The
 active union kind always matches pending cleanup.
+Run and test steps extend this transaction through dependency insertion. Their
+argument slots are attached before string allocation, and a failed dependency
+push moves the popped complete step back into the pending slot. The dependency
+error remains primary even when recursive step cleanup fails.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while

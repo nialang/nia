@@ -65,6 +65,10 @@ The library follows a small set of ownership rules:
 - Generated-file and uncacheable insertion keep a kind-correct pending `Step`
   on `Build`. The steps list reserves first; step name, output/contents, or
   description owners remain reachable across failed rollback cleanup.
+- Run/test insertion appends empty argument string owners to a reserved nested
+  list before initialization. If dependency insertion fails after step commit,
+  rollback moves the popped step into the pending slot; cleanup failure cannot
+  replace the dependency error or discard its name/arguments.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on
