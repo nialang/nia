@@ -2035,6 +2035,12 @@ acceptance item only when its phase-wide evidence is complete.
       LLVM receives the operation. Regression tests cover invalid same-width
       extension and widening truncation; LLVM/codegen suites, workspace check,
       formatting, and strict Clippy pass.
+- [x] Batch 353 removes three unused LLVM memory intrinsic wrappers. The dead
+      `build_memcpy`, `build_memmove`, and `build_memset` APIs and their FFI
+      imports were deleted rather than retaining unchecked alignment,
+      provenance, and size preconditions. Codegen continues through its
+      validated byte-loop implementation; LLVM/codegen suites, workspace
+      check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

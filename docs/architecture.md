@@ -2642,6 +2642,12 @@ truncations a narrower target; this makes the checked wrapper the single place
 that guards LLVM's width-sensitive cast contracts while higher-level lowering
 continues to choose signedness.
 
+The LLVM memory intrinsic wrappers for `memcpy`, `memmove`, and `memset` were
+removed because they had no consumers and exposed unchecked alignment,
+allocation provenance, and size contracts. Code generation uses its validated
+byte-loop lowering for these operations, so retaining dead FFI entry points
+would only preserve an unverifiable historical API.
+
 ### 12.2 `nia-codegen-llvm`
 
 Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
