@@ -156,7 +156,19 @@ extend Build {
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
             objects: collections::ArrayList[ObjectTarget]::init(),
+            pendingObject: ObjectTarget::init(
+                0usize,
+                ModuleHandle::init(ownerId, 0usize),
+                TargetRole::Artifact,
+            ),
+            hasPendingObject: false,
             staticArchives: collections::ArrayList[StaticArchiveTarget]::init(),
+            pendingStaticArchive: StaticArchiveTarget::init(
+                0usize,
+                ModuleHandle::init(ownerId, 0usize),
+                TargetRole::Artifact,
+            ),
+            hasPendingStaticArchive: false,
             validationIndegree: collections::ArrayList[usize]::init(),
             validationReady: collections::ArrayList[usize]::init(),
             planEncoding: collections::ArrayList[u8]::init(),
@@ -218,6 +230,8 @@ extend Build {
         rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan));
         rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
+        rememberCleanupError(&mut firstError, self.cleanupPendingObject());
+        rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
         let mut elementError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
@@ -926,6 +940,7 @@ extend Build {
     }
 
     pub fn addObject(&mut self, options: ObjectOptions) Error!ObjectHandle {
+        self.cleanupPendingObject().?;
         let handle = ObjectHandle::init(self.ownerId, self.objects.len());
         if not isValidStableName(options.name) {
             return Error::Invalid {
@@ -971,18 +986,39 @@ extend Build {
             },
             null => {},
         }
-        let mut target = ObjectTarget::init(self.allocator, options, outputName, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            target.deinit(self.allocator).?;
-        };
-        self.objects.push(self.allocator, target).asBuildError(Operation::Retain, Subject::Objects).?;
-        transferred = true;
+        self.objects.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Objects).?;
+        self.pendingObject = ObjectTarget::init(
+            handle.index(),
+            options.rootModule,
+            options.targetRole,
+        );
+        self.hasPendingObject = true;
+        match self.pendingObject.initialize(self.allocator, options.name, outputName) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingObject();
+                return primary!;
+            },
+        }
+        self.objects.appendAssumeCapacity(self.pendingObject);
+        self.hasPendingObject = false;
         self.planValidated = false;
         !handle
     }
 
+    fn cleanupPendingObject(&mut self) Error!() {
+        if not self.hasPendingObject {
+            return !();
+        }
+        self.pendingObject.deinit(self.allocator).?;
+        self.hasPendingObject = false;
+        !()
+    }
+
     pub fn addStaticArchive(&mut self, options: StaticArchiveOptions) Error!StaticArchiveHandle {
+        self.cleanupPendingStaticArchive().?;
         let handle = StaticArchiveHandle::init(self.ownerId, self.staticArchives.len());
         if not isValidStableName(options.name) {
             return Error::Invalid {
@@ -1028,15 +1064,35 @@ extend Build {
             },
             null => {},
         }
-        let mut target = StaticArchiveTarget::init(self.allocator, options, outputName, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            target.deinit(self.allocator).?;
-        };
-        self.staticArchives.push(self.allocator, target).asBuildError(Operation::Retain, Subject::StaticArchives).?;
-        transferred = true;
+        self.staticArchives.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::StaticArchives).?;
+        self.pendingStaticArchive = StaticArchiveTarget::init(
+            handle.index(),
+            options.rootModule,
+            options.targetRole,
+        );
+        self.hasPendingStaticArchive = true;
+        match self.pendingStaticArchive.initialize(self.allocator, options.name, outputName) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStaticArchive();
+                return primary!;
+            },
+        }
+        self.staticArchives.appendAssumeCapacity(self.pendingStaticArchive);
+        self.hasPendingStaticArchive = false;
         self.planValidated = false;
         !handle
+    }
+
+    fn cleanupPendingStaticArchive(&mut self) Error!() {
+        if not self.hasPendingStaticArchive {
+            return !();
+        }
+        self.pendingStaticArchive.deinit(self.allocator).?;
+        self.hasPendingStaticArchive = false;
+        !()
     }
 
     pub fn requestedStep(&self) ?&[char] {
@@ -2705,27 +2761,29 @@ extend ExecutableTarget {
 }
 
 extend ObjectTarget {
-    pub fn init(
-        allocator: &mut mem::Allocator,
-        options: ObjectOptions,
-        outputName: &[char],
+    fn init(
         index: usize,
-    ) Error!ObjectTarget {
-        let mut target: ObjectTarget = ObjectTarget {
+        rootModule: ModuleHandle,
+        targetRole: TargetRole,
+    ) ObjectTarget {
+        ObjectTarget {
             index: index,
             name: string::String::init(),
-            rootModule: options.rootModule,
+            rootModule: rootModule,
             outputName: string::String::init(),
-            targetRole: options.targetRole,
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            target.deinit(allocator).?;
-        };
-        target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Object(index)).?;
-        target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Object(index)).?;
-        transferred = true;
-        !target
+            targetRole: targetRole,
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        outputName: &[char],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Object(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Object(self.index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
@@ -2737,27 +2795,29 @@ extend ObjectTarget {
 }
 
 extend StaticArchiveTarget {
-    pub fn init(
-        allocator: &mut mem::Allocator,
-        options: StaticArchiveOptions,
-        outputName: &[char],
+    fn init(
         index: usize,
-    ) Error!StaticArchiveTarget {
-        let mut target: StaticArchiveTarget = StaticArchiveTarget {
+        rootModule: ModuleHandle,
+        targetRole: TargetRole,
+    ) StaticArchiveTarget {
+        StaticArchiveTarget {
             index: index,
             name: string::String::init(),
-            rootModule: options.rootModule,
+            rootModule: rootModule,
             outputName: string::String::init(),
-            targetRole: options.targetRole,
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            target.deinit(allocator).?;
-        };
-        target.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::StaticArchive(index)).?;
-        target.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::StaticArchive(index)).?;
-        transferred = true;
-        !target
+            targetRole: targetRole,
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        outputName: &[char],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::StaticArchive(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::StaticArchive(self.index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {

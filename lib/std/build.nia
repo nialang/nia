@@ -25,6 +25,8 @@
 // Package insertion reserves its owning list before retaining fields. A
 // partially initialized package stays in a Build-owned pending slot when
 // rollback cleanup fails and is retried by the next insertion or `deinit()`.
+// Object and static-archive targets use the same pending-record transaction for
+// their retained names and output names.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 

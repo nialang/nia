@@ -3304,6 +3304,10 @@ Package insertion extends that transaction boundary into graph mutation. The
 package list reserves its slot before field retention, while `Build` owns the
 pending package until both name and root are initialized. Failed rollback keeps
 that pending record reachable for the next insertion or final deinitialization.
+Object and static-archive targets follow the same protocol: reserve the owning
+target list, initialize the `Build`-owned pending record, then transfer it with
+an infallible append. Their name and output-name owners therefore survive a
+failed rollback release.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while

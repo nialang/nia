@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 475 completed entries in this ledger.
+- Implementation batches: 476 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2703,6 +2703,12 @@ acceptance item only when its phase-wide evidence is complete.
       it or cleanup succeeds. Fault injection covers root allocation failure,
       simultaneous name-release failure, retry through the next insertion, and
       complete final graph cleanup.
+- [x] Batch 476 makes simple artifact-target insertion owner-driven. Object and
+      static-archive lists reserve before retention, while dedicated `Build`
+      pending records own partially initialized names and output names until an
+      infallible append transfers them. Fault injection covers allocation plus
+      retained-free failure, retry through each matching insertion, and final
+      graph cleanup for both target kinds.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

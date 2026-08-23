@@ -168,6 +168,28 @@ fn isExecutableRetainOom(error: build::Error) bool {
     }
 }
 
+fn isObjectRetainOom(error: build::Error) bool {
+    match error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Object(0usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
+fn isStaticArchiveRetainOom(error: build::Error) bool {
+    match error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::StaticArchive(0usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
 fn isGeneratedFileRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
@@ -477,6 +499,44 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
 
     allocator.disableFailure();
     let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).exit().?;
+    let objectOptions = build::ObjectOptions::init(&"object", moduleHandle)
+        .withOutputName(&"object-output");
+    let beforeObject = allocator.activeAllocations;
+    allocator.failAfter(2usize);
+    allocator.failNextRetainedFree();
+    match api.addObject(objectOptions) {
+        !handle => {
+            _ = handle;
+            return process::exit(61)!;
+        },
+        err! => if not isObjectRetainOom(err) {
+            return process::exit(62)!;
+        },
+    }
+    if allocator.activeAllocations != beforeObject + 2usize {
+        return process::exit(63)!;
+    }
+    allocator.disableFailure();
+    _ = api.addObject(objectOptions).exit().?;
+    let archiveOptions = build::StaticArchiveOptions::init(&"archive", moduleHandle)
+        .withOutputName(&"archive-output");
+    let beforeArchive = allocator.activeAllocations;
+    allocator.failAfter(2usize);
+    allocator.failNextRetainedFree();
+    match api.addStaticArchive(archiveOptions) {
+        !handle => {
+            _ = handle;
+            return process::exit(64)!;
+        },
+        err! => if not isStaticArchiveRetainOom(err) {
+            return process::exit(65)!;
+        },
+    }
+    if allocator.activeAllocations != beforeArchive + 2usize {
+        return process::exit(66)!;
+    }
+    allocator.disableFailure();
+    _ = api.addStaticArchive(archiveOptions).exit().?;
     let beforeTarget = allocator.activeAllocations;
     let targetName = "app";
     let outputName = "output";
