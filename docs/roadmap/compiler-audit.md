@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 421 completed entries in this ledger.
+- Implementation batches: 422 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2417,6 +2417,9 @@ acceptance item only when its phase-wide evidence is complete.
       now saturates on host overflow and 48-byte chunk boundaries use checked
       index addition before slicing; hash vectors, hash-map, and string runtime
       suites remain green.
+- [x] Batch 422 hardens the unbounded `DiscardingWriter` byte counter. Accepted
+      writes still report their exact slice length, while cumulative `len()`
+      now saturates on host overflow rather than wrapping to a smaller value.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

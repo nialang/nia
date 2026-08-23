@@ -3301,6 +3301,10 @@ accumulation. Length overflow saturates the informational length field, while a
 non-representable chunk boundary stops chunk processing instead of wrapping a
 slice range.
 
+`DiscardingWriter` similarly saturates its informational byte counter while
+continuing to honor the writer contract for each input slice. Long-running
+discard sinks cannot wrap `len()` back to a smaller value.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
