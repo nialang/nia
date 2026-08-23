@@ -3308,6 +3308,10 @@ Object and static-archive targets follow the same protocol: reserve the owning
 target list, initialize the `Build`-owned pending record, then transfer it with
 an infallible append. Their name and output-name owners therefore survive a
 failed rollback release.
+Executable targets add one nested owner to this protocol: the retained static-
+archive handle list. Its list backing and both target strings remain in the
+pending executable until cleanup succeeds or an infallible append transfers
+the complete record.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while

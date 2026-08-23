@@ -55,6 +55,9 @@ The library follows a small set of ownership rules:
 - Object and static-archive insertion likewise reserve their target list and
   retain partial name/output-name owners in dedicated `Build` pending slots.
   Failed releases are retried before the next matching insertion or deinit.
+- Executable insertion extends the pending target to cover its static-archive
+  handle-list backing. Cleanup attempts the list and both strings, retains every
+  failed owner, and blocks the next executable insertion until retry succeeds.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

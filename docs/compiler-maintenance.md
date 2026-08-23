@@ -411,6 +411,10 @@ signals, not architecture goals.
   Object and static-archive name/output owners remain on `Build` until an
   infallible post-reserve append transfers them; failed cleanup blocks the next
   matching insertion until retry succeeds.
+- A pending executable includes its static-archive handle-list backing, not just
+  its strings. Cleanup must attempt the list, output name, and name even when an
+  earlier release fails, retaining all failed owners for the next insertion or
+  final graph cleanup.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a

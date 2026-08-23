@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 476 completed entries in this ledger.
+- Implementation batches: 477 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2709,6 +2709,12 @@ acceptance item only when its phase-wide evidence is complete.
       infallible append transfers them. Fault injection covers allocation plus
       retained-free failure, retry through each matching insertion, and final
       graph cleanup for both target kinds.
+- [x] Batch 477 makes executable-target insertion owner-driven. Its `Build`
+      pending record retains name, output-name, and static-archive handle-list
+      backing until an infallible post-reserve append transfers the complete
+      target. Fault injection fails the nested list allocation, rejects both
+      string releases, verifies neither cleanup is skipped, then retries the
+      insertion and final graph cleanup successfully.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

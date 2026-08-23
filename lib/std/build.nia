@@ -27,6 +27,8 @@
 // rollback cleanup fails and is retried by the next insertion or `deinit()`.
 // Object and static-archive targets use the same pending-record transaction for
 // their retained names and output names.
+// Executable targets additionally keep their static-archive handle-list backing
+// in the pending record until every owned field is ready for transfer.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 
