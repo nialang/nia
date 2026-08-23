@@ -100,6 +100,11 @@ The library follows a small set of ownership rules:
 - Spawn handshake descriptors are consumed and closed exactly once after the
   handshake result is known. EOF plus close failure is reported as setup error;
   an earlier handshake/read error remains the primary cause.
+- Linux spawn setup keeps all four pipe pairs in one resource transaction.
+  Every return path closes all untransferred ends; successful child identity
+  and public stdin/stdout/stderr ends transfer out before that cleanup. Because
+  close consumes a descriptor, a close error must not replace the primary spawn
+  error or turn a successfully executed but now unowned child into an error.
 - `Command::spawn` returns a `SpawnAttempt` owner. Its `finish` operation tries
   every argv/envp/path staging release and returns a cleanup error while keeping
   the pending `Child` or spawn error attached for retry; only complete cleanup

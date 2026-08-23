@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 483 completed entries in this ledger.
+- Implementation batches: 484 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2756,6 +2756,12 @@ acceptance item only when its phase-wide evidence is complete.
       precedence. The obsolete generic local `Step::init` transaction and final
       two fallible cleanup defers are removed; `lib/std/build` now contains no
       `defer`, while ownership and target suites retain full coverage.
+- [x] Batch 484 makes Linux spawn-pipe cleanup one explicit resource
+      transaction. All four pipe pairs remain attached to `SpawnResources`
+      until successful child/public ends transfer or an error path consumes
+      every untransferred end. Spawn and handshake errors remain primary, while
+      post-exec cleanup cannot manufacture a plain error that loses the live
+      child owner. The complete 45-case process executable suite remains green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
