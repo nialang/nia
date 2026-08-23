@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 450 completed entries in this ledger.
+- Implementation batches: 451 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2548,6 +2548,12 @@ acceptance item only when its phase-wide evidence is complete.
       error, while an incomplete/read/child-reported error remains primary;
       child reaping stays owned by the outer spawn path. The complete 43-case
       process executable matrix remains green.
+- [x] Batch 451 retains general-purpose allocator rollback owners. Malformed
+      small/large backing metadata no longer drops a child block when its
+      fallible cleanup fails; a pending owner is visible to capacity/emptiness,
+      retried before later allocation, and retried by `deinit`. The malformed
+      large-header executable now injects a first-free failure and proves the
+      pending block is released by cleanup retry.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -55,6 +55,9 @@ The library follows a small set of ownership rules:
   consuming the pending element.
 - General-purpose large allocations validate the backing base plus header offset
   before publishing allocator metadata, rejecting malformed child addresses.
+- General-purpose allocator rollback retains a pending child block if malformed
+  metadata is rejected but its release fails; later allocation or `deinit`
+  retries that owner and keeps it visible in capacity/emptiness accounting.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed

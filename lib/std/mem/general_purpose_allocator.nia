@@ -70,11 +70,12 @@ pub struct GeneralPurposeAllocator {
     child: &mut Allocator,
     smallPages: ?&mut SmallPage,
     largeAllocations: ?&mut LargeHeader,
+    pendingFree: ?Block,
 }
 
 extend GeneralPurposeAllocator {
     pub fn init(child: &mut Allocator) GeneralPurposeAllocator {
-        Self { child, smallPages: null, largeAllocations: null }
+        Self { child, smallPages: null, largeAllocations: null, pendingFree: null }
     }
 
     pub fn deinit(&mut self) Error!DeinitStatus {
@@ -90,9 +91,11 @@ extend GeneralPurposeAllocator {
     pub fn deinitWithoutLeakCheck(&mut self) Error!() {
         let small = self.smallPages;
         let large = self.largeAllocations;
+        let pending = self.pendingFree;
         self.smallPages = null;
         self.largeAllocations = null;
-        self.freeDetachedLists(small, large)
+        self.pendingFree = null;
+        self.freeDetachedLists(small, large, pending)
     }
 
     pub fn capacity(&self) usize {
@@ -118,7 +121,14 @@ extend GeneralPurposeAllocator {
                     large = item.next;
                 },
                 null => {
-                    return total;
+                    match self.pendingFree {
+                        ?block => {
+                            return saturatingAdd(total, block.size());
+                        },
+                        null => {
+                            return total;
+                        },
+                    }
                 },
             }
         }
@@ -156,12 +166,28 @@ extend GeneralPurposeAllocator {
     }
 
     pub fn isEmpty(&self) bool {
-        isNullSmallPage(self.smallPages) and isNullLargeHeader(self.largeAllocations)
+        isNullSmallPage(self.smallPages)
+            and isNullLargeHeader(self.largeAllocations)
+            and isNullBlock(self.pendingFree)
     }
 }
 
 extend GeneralPurposeAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
+        match self.pendingFree {
+            ?block => {
+                match self.child.free(block) {
+                    !ok => {
+                        _ = ok;
+                        self.pendingFree = null;
+                    },
+                    error! => {
+                        return error!;
+                    },
+                }
+            },
+            null => {},
+        }
         if layout.isEmpty() {
             return !Block::empty(layout);
         }
@@ -385,36 +411,21 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-                match self.child.free(block) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {},
-                }
+                self.releaseOrRetain(block);
                 return Error::OutOfMemory!;
             },
         };
         let base = block.ptr() as usize;
         let payloadOffset = payloadBase - base;
         if payloadOffset >= block.size() {
-            match self.child.free(block) {
-                !ok => {
-                    _ = ok;
-                },
-                error! => {},
-            }
+            self.releaseOrRetain(block);
             return Error::OutOfMemory!;
         }
 
         let capacity = block.size() - payloadOffset;
         let slotCount = capacity / slotSize;
         if slotCount == 0 {
-            match self.child.free(block) {
-                !ok => {
-                    _ = ok;
-                },
-                error! => {},
-            }
+            self.releaseOrRetain(block);
             return Error::OutOfMemory!;
         }
 
@@ -499,12 +510,7 @@ extend GeneralPurposeAllocator {
         let afterHeader = match base.checked_add(headerSize) {
             ?value => value,
             null => {
-                match self.child.free(backing) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {},
-                }
+                self.releaseOrRetain(backing);
                 return Error::OutOfMemory!;
             },
         };
@@ -513,12 +519,7 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-                match self.child.free(backing) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {},
-                }
+                self.releaseOrRetain(backing);
                 return Error::OutOfMemory!;
             },
         };
@@ -652,7 +653,23 @@ extend GeneralPurposeAllocator {
         null
     }
 
-    fn freeDetachedLists(&mut self, small: ?&mut SmallPage, large: ?&mut LargeHeader) Error!() {
+    fn releaseOrRetain(&mut self, block: Block) () {
+        match self.child.free(block) {
+            !ok => {
+                _ = ok;
+            },
+            error! => {
+                self.pendingFree = ?block;
+            },
+        }
+    }
+
+    fn freeDetachedLists(
+        &mut self,
+        small: ?&mut SmallPage,
+        large: ?&mut LargeHeader,
+        pending: ?Block,
+    ) Error!() {
         let mut failed = false;
         let mut firstError = Error::Invalid;
 
@@ -705,6 +722,23 @@ extend GeneralPurposeAllocator {
                     header = next;
                 },
                 null => {
+                    match pending {
+                        ?block => {
+                            match self.child.free(block) {
+                                !ok => {
+                                    _ = ok;
+                                },
+                                err! => {
+                                    self.pendingFree = ?block;
+                                    if not failed {
+                                        firstError = err;
+                                        failed = true;
+                                    }
+                                },
+                            }
+                        },
+                        null => {},
+                    }
                     if failed {
                         return firstError!;
                     }
@@ -879,6 +913,18 @@ fn isNullLargeHeader(header: ?&mut LargeHeader) bool {
     match header {
         ?item => {
             _ = item;
+            false
+        },
+        null => {
+            true
+        },
+    }
+}
+
+fn isNullBlock(block: ?Block) bool {
+    match block {
+        ?value => {
+            _ = value;
             false
         },
         null => {
