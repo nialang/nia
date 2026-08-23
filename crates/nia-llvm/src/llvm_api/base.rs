@@ -98,6 +98,10 @@ fn function_param_count(params: usize) -> LlvmResult<u32> {
         .map_err(|_| LlvmError::error("LLVM function type has too many parameters"))
 }
 
+fn gep_index_count(indices: usize) -> LlvmResult<u32> {
+    u32::try_from(indices).map_err(|_| LlvmError::error("LLVM GEP has too many indices"))
+}
+
 pub(super) fn validate_alignment(bytes: u32) -> LlvmResult<()> {
     if bytes == 0 || !bytes.is_power_of_two() {
         return Err(LlvmError::error(
@@ -1320,19 +1324,24 @@ impl<'ctx> PointerValue<'ctx> {
         self,
         pointee_ty: T,
         indices: &[IntValue<'ctx>],
-    ) -> PointerValue<'ctx> {
+    ) -> LlvmResult<PointerValue<'ctx>> {
+        let index_count = gep_index_count(indices.len())?;
         let mut indices = indices
             .iter()
             .map(|index| index.as_value_ref())
             .collect::<Vec<_>>();
-        PointerValue::new(unsafe {
+        let raw = unsafe {
             LLVMConstGEP2(
                 pointee_ty.as_type_ref(),
                 self.as_value_ref(),
                 indices.as_mut_ptr(),
-                indices.len() as u32,
+                index_count,
             )
-        })
+        };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null constant GEP"));
+        }
+        Ok(PointerValue::new(raw))
     }
 
     /// Builds a constant in-bounds GEP expression for this pointer.
@@ -1346,19 +1355,26 @@ impl<'ctx> PointerValue<'ctx> {
         self,
         pointee_ty: T,
         indices: &[IntValue<'ctx>],
-    ) -> PointerValue<'ctx> {
+    ) -> LlvmResult<PointerValue<'ctx>> {
+        let index_count = gep_index_count(indices.len())?;
         let mut indices = indices
             .iter()
             .map(|index| index.as_value_ref())
             .collect::<Vec<_>>();
-        PointerValue::new(unsafe {
+        let raw = unsafe {
             LLVMConstInBoundsGEP2(
                 pointee_ty.as_type_ref(),
                 self.as_value_ref(),
                 indices.as_mut_ptr(),
-                indices.len() as u32,
+                index_count,
             )
-        })
+        };
+        if raw.is_null() {
+            return Err(LlvmError::error(
+                "LLVM returned a null constant in-bounds GEP",
+            ));
+        }
+        Ok(PointerValue::new(raw))
     }
 }
 
@@ -1729,6 +1745,19 @@ mod tests {
             assert_eq!(
                 error,
                 LlvmError::Error("LLVM function type has too many parameters".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_gep_index_count_width_overflow() {
+        let count = u32::MAX as usize;
+        assert_eq!(gep_index_count(count).unwrap(), u32::MAX);
+        if usize::BITS > u32::BITS {
+            let error = gep_index_count(count + 1).expect_err("GEP index count overflow");
+            assert_eq!(
+                error,
+                LlvmError::Error("LLVM GEP has too many indices".to_string())
             );
         }
     }

@@ -118,9 +118,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
             }
             let pointee_ty = self.llvm_basic_type_in(global_ty, span)?;
-            unsafe {
-                ptr = ptr.const_in_bounds_gep(pointee_ty, &indices);
-            }
+            ptr = unsafe { ptr.const_in_bounds_gep(pointee_ty, &indices) }
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
         ptr.const_bitcast(target_ptr_ty)
