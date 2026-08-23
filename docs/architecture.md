@@ -2189,6 +2189,11 @@ the new table is published. If any retired release fails, the active table
 remains usable while the residual retired slices stay attached; a later
 rehash must retire those slices successfully first, and `deinit` attempts both
 active and retired groups while retaining whichever individual owners fail.
+General-purpose allocator rollback follows the same owner rule: when malformed
+small or large metadata requires abandoning a child allocation and that
+fallible release fails, the backing `Block` is retained as a pending owner.
+Capacity, emptiness, allocation, and `deinit` account for and retry that pending
+block rather than dropping the only cleanup handle.
 Hash-map capacity is a logical entry bound rather than a count of untouched
 control bytes. Removing an entry makes one assume-capacity insertion legal even
 when the empty-slot growth budget is exhausted; insertion may land in an empty

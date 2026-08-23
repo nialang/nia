@@ -365,6 +365,10 @@ signals, not architecture goals.
 - Apply the same transaction rule to single allocation owners. `Allocated` and
   `CallableAllocation` must clear their owner fields only after `free` returns
   success; a release error must leave the original block retryable.
+- Allocator rollback paths must retain child blocks when a validation failure is
+  followed by a failed release. Pending rollback owners belong to allocator
+  state and are retried before later allocation or during `deinit`; they must
+  contribute to `capacity`/emptiness so no failed cleanup becomes invisible.
 - Keep allocator page slot growth and live-count updates checked. Reject a
   doubling overflow or an impossible used-slot transition before mutating the
   page metadata.

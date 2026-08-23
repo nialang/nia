@@ -882,7 +882,15 @@ fn emit_exe_std_mem_general_allocator_rejects_wrapped_large_header_base() {
 using std::mem;
 using std::process;
 
-struct MalformedAllocator {}
+struct MalformedAllocator {
+    failNextFree: bool,
+}
+
+extend MalformedAllocator {
+    fn init() MalformedAllocator {
+        Self { failNextFree: true }
+    }
+}
 
 extend MalformedAllocator : mem::Allocator {
     fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
@@ -894,6 +902,10 @@ extend MalformedAllocator : mem::Allocator {
 
     fn free(&mut self, block: mem::Block) mem::Error!() {
         _ = block;
+        if self.failNextFree {
+            self.failNextFree = false;
+            return mem::Error::Invalid!;
+        }
         !()
     }
 
@@ -912,7 +924,7 @@ extend MalformedAllocator : mem::Allocator {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut child = MalformedAllocator {};
+    let mut child = MalformedAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
     let layout = mem::Layout::init(4096, 8).?;
     match allocator.alloc(layout) {
@@ -922,7 +934,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 return process::exit(2)!;
             } },
     }
+    if allocator.isEmpty() or allocator.capacity() == 0 {
+        return process::exit(3)!;
+    }
     allocator.deinitWithoutLeakCheck().?;
+    if not allocator.isEmpty() {
+        return process::exit(4)!;
+    }
     !()
 }
 "#,
