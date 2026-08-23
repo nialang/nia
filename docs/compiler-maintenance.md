@@ -377,6 +377,9 @@ signals, not architecture goals.
 - Parse variable-length syscall records once and share the validated bounds
   between payload construction and cursor advancement. Required terminators
   belong to that boundary; record padding is not payload.
+- Validate kernel timestamp subsecond fields before publishing domain metadata.
+  A raw nanosecond value must be within one second; do not defer this invariant
+  to formatting or later consumers.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
