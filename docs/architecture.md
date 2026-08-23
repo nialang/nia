@@ -2838,6 +2838,11 @@ boundary for aggregate types. Array and struct zero constants enter through
 `BasicValueEnum::new`, so a null `LLVMConstNull` result cannot reach a typed
 wrapper assertion through the public result-returning API.
 
+Typed value type queries follow the same rule. Integer, float, pointer, struct,
+and array `get_type` methods validate `LLVMTypeOf` through `BasicTypeEnum` and
+return `LlvmResult`; bitcast checks and backend lowering propagate the query
+diagnostic instead of constructing an assertion-backed type handle.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

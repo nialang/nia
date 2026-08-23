@@ -641,7 +641,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         lanes: u32,
         name: &str,
     ) -> Result<(), Diagnostic> {
-        let limit = index.get_type().const_int(u64::from(lanes), false);
+        let limit = index.get_type()?.const_int(u64::from(lanes), false);
         let in_bounds = self
             .builder
             .build_basic_int_compare(

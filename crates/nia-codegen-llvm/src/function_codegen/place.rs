@@ -324,7 +324,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_usize_value(&mut self, expr: &FunctionExpr) -> Result<IntValue<'ctx>, Diagnostic> {
         let value = self.emit_expr(expr)?.into_int_value()?;
         let target = self.module.usize_llvm_type(expr.span)?;
-        let bits = value.get_type().bit_width();
+        let bits = value.get_type()?.bit_width();
         if bits == 64 {
             Ok(value)
         } else if bits > 64 {

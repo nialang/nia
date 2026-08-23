@@ -70,7 +70,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             Some(lanes),
                         )
                     } else {
-                        let int_ty = value.into_int_value()?.get_type();
+                        let int_ty = value.into_int_value()?.get_type()?;
                         self.emit_checked_int_arithmetic(
                             span,
                             int_ty.const_zero().into(),
@@ -527,9 +527,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let lhs = lhs.into_int_value()?;
         let rhs = rhs.into_int_value()?;
-        let lhs_ty = lhs.get_type();
+        let lhs_ty = lhs.get_type()?;
         let lhs_bits = lhs_ty.bit_width();
-        let rhs_bits = rhs.get_type().bit_width();
+        let rhs_bits = rhs.get_type()?.bit_width();
         let check_ty = self
             .module
             .context
@@ -562,7 +562,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_int_compare(
                     IntPredicate::SLT,
                     rhs,
-                    rhs.get_type().const_zero(),
+                    rhs.get_type()?.const_zero(),
                     "shift.count.negative",
                 )
                 .map_err(|_| self.error(span, "failed to validate signed shift count"))?;
@@ -902,9 +902,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let lhs = lhs.into_int_value()?;
         let rhs = rhs.into_int_value()?;
-        let target = lhs.get_type();
+        let target = lhs.get_type()?;
         let target_bits = target.bit_width();
-        let rhs_bits = rhs.get_type().bit_width();
+        let rhs_bits = rhs.get_type()?.bit_width();
         if rhs_bits == target_bits {
             return Ok(rhs.into());
         }
