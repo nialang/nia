@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 484 completed entries in this ledger.
+- Implementation batches: 485 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2762,6 +2762,13 @@ acceptance item only when its phase-wide evidence is complete.
       every untransferred end. Spawn and handshake errors remain primary, while
       post-exec cleanup cannot manufacture a plain error that loses the live
       child owner. The complete 45-case process executable suite remains green.
+- [x] Batch 485 makes failed-child reaping a retryable spawn owner. A non-EINTR
+      `wait4` failure returns the primary stage/cause, reap cause, and pid while
+      retaining the native attempt for the next `finish`; the original spawn
+      error is published only after cleanup completes, and `ECHILD` is the
+      explicit no-owner terminal state. A seccomp regression rejects real
+      `wait4` calls and proves two retries retain the same positive pid; all 46
+      process executable cases pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

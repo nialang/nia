@@ -2,7 +2,7 @@ using pkg::os::linux::syscall;
 using pkg::os::linux::types;
 using pkg::os::linux::fd as linux_fd;
 
-using types::{Errno, OpenMode, Pipe, ProcessId, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
+using types::{Errno, OpenMode, Pipe, ProcessId, SpawnAttempt, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
 
 struct SpawnPipe {
     read: ?types::FileDescriptor,
@@ -21,7 +21,7 @@ struct SpawnErrorRecord {
     code: i32,
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     let mut resources = SpawnResources::init();
     let result = spawn_with_resources(path, argv, envp, options, &mut resources);
     resources.close_all();
@@ -34,20 +34,32 @@ fn spawn_with_resources(
     envp: &&u8,
     options: SpawnOptions,
     resources: &mut SpawnResources,
-) SpawnError!SpawnResult {
+) SpawnAttempt {
     if options.stdin() == StdIo::Pipe {
-        resources.stdin = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+        resources.stdin = match SpawnPipe::open_close_on_exec() {
+            !pipe => pipe,
+            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+        };
     }
     if options.stdout() == StdIo::Pipe {
-        resources.stdout = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+        resources.stdout = match SpawnPipe::open_close_on_exec() {
+            !pipe => pipe,
+            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+        };
     }
     if options.stderr() == StdIo::Pipe {
-        resources.stderr = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+        resources.stderr = match SpawnPipe::open_close_on_exec() {
+            !pipe => pipe,
+            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+        };
     }
-    resources.error = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+    resources.error = match SpawnPipe::open_close_on_exec() {
+        !pipe => pipe,
+        error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+    };
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
-        SpawnError::Setup(ret.syscall_error())!
+        SpawnAttempt::failure(SpawnError::Setup(ret.syscall_error()))
     } else if ret == 0 {
         resources.error.close_read();
         match apply_stdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) {
@@ -71,7 +83,7 @@ fn spawn_with_resources(
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
         report_spawn_error(&resources.error, SpawnStage::Exec, exec_ret.syscall_error());
         exit(127);
-        SpawnError::Setup(Errno::Io)!
+        SpawnAttempt::failure(SpawnError::Setup(Errno::Io))
     } else {
         resources.stdin.close_read();
         resources.stdout.close_write();
@@ -79,31 +91,44 @@ fn spawn_with_resources(
         resources.error.close_write();
         let pid = match ProcessId::from_syscall(ret) {
             !pid => pid,
-            error! => return SpawnError::Setup(error)!,
+            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
         };
         let error_read = match resources.error.take_read() {
             ?fd => {
                 fd
             },
             null => {
-                reap_spawn_failure(pid);
-                return SpawnError::Setup(Errno::Io)!;
+                return failed_spawn_attempt(pid, SpawnError::Setup(Errno::Io));
             },
         };
-        match read_spawn_error(error_read).? {
-            ?spawn_error => {
-                reap_spawn_failure(pid);
-                spawn_error!
+        match read_spawn_error(error_read) {
+            !(?spawn_error) => {
+                failed_spawn_attempt(pid, spawn_error)
             },
-            null => {
-                !SpawnResult::init(
+            !null => {
+                SpawnAttempt::success(SpawnResult::init(
                     pid,
                     resources.stdin.take_write(),
                     resources.stdout.take_read(),
                     resources.stderr.take_read(),
-                )
+                ))
+            },
+            error! => {
+                failed_spawn_attempt(pid, error)
             },
         }
+    }
+}
+
+fn failed_spawn_attempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
+    match reap_spawn_failure(pid) {
+        !ok => {
+            _ = ok;
+            SpawnAttempt::failure(error)
+        },
+        reap_error! => {
+            SpawnAttempt::reap_failure(error, pid, reap_error)
+        },
     }
 }
 
@@ -190,19 +215,76 @@ fn finish_spawn_error(
     }
 }
 
-fn reap_spawn_failure(pid: ProcessId) () {
+fn reap_spawn_failure(pid: ProcessId) Errno!() {
     // A failed handshake still owns the forked child until wait succeeds.
     while true {
         match wait(pid) {
             !status => {
                 _ = status;
-                return;
+                return !();
             },
             Errno::Interrupted! => {},
-            error! => {
-                _ = error;
-                return;
+            Errno::NoChild! => {
+                // The kernel confirms that no waitable child owner remains.
+                return !();
             },
+            error! => {
+                return error!;
+            },
+        }
+    }
+    !()
+}
+
+extend SpawnAttempt {
+    pub fn finish(&mut self) SpawnError!SpawnResult {
+        match self.pending_reap {
+            ?pid => {
+                match self.pending_reap_error {
+                    ?cause => {
+                        self.pending_reap_error = null;
+                        return self.reap_error(pid, cause)!;
+                    },
+                    null => {},
+                }
+                match reap_spawn_failure(pid) {
+                    !ok => {
+                        _ = ok;
+                        self.pending_reap = null;
+                    },
+                    cause! => {
+                        return self.reap_error(pid, cause)!;
+                    },
+                }
+            },
+            null => {},
+        }
+        match self.result {
+            ?result => {
+                self.result = null;
+                !result
+            },
+            null => {
+                let error = match self.error {
+                    ?cause => cause,
+                    null => SpawnError::Setup(Errno::Invalid),
+                };
+                self.error = null;
+                error!
+            },
+        }
+    }
+
+    fn reap_error(&self, pid: ProcessId, cause: Errno) SpawnError {
+        let primary = match self.error {
+            ?error => error,
+            null => SpawnError::Setup(Errno::Invalid),
+        };
+        SpawnError::Reap {
+            stage: primary.stage(),
+            primary: primary.primary(),
+            cause: cause,
+            pid: pid,
         }
     }
 }
@@ -455,16 +537,5 @@ extend SpawnResources {
         self.stdout.close_all();
         self.stderr.close_all();
         self.error.close_all();
-    }
-}
-
-extend[T] Errno!T {
-    fn as_spawn_setup_error(self) SpawnError!T {
-        match self {
-            !value => {
-                !value
-            },
-            error! => SpawnError::Setup(error)!,
-        }
     }
 }

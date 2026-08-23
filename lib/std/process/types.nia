@@ -55,6 +55,20 @@ pub enum SpawnError {
     Stdio(SystemError),
     Cwd(SystemError),
     Exec(SystemError),
+    Reap {
+        stage: SpawnStage,
+        primary: SystemError,
+        cause: SystemError,
+        pid: ProcessId,
+    },
+}
+
+pub enum SpawnStage: i32 {
+    Setup = 1,
+    Stdio = 2,
+    Cwd = 3,
+    Exec = 4,
+    _,
 }
 
 pub enum SystemError: i32 {
@@ -63,6 +77,7 @@ pub enum SystemError: i32 {
     Interrupted = 4,
     Io = 5,
     BadFd = 9,
+    NoChild = 10,
     Again = 11,
     OutOfMemory = 12,
     Access = 13,
@@ -119,6 +134,7 @@ pub(pkg) struct SpawnStorage {
     environmentBytes: collections::ArrayList[u8],
     environmentPointers: collections::ArrayList[&u8],
     cwdBytes: collections::ArrayList[u8],
+    nativeSpawn: ?os::SpawnAttempt,
     outcome: ?SpawnOutcome,
 }
 
@@ -231,6 +247,7 @@ extend SystemError {
             os::Error::Interrupted => SystemError::Interrupted,
             os::Error::Io => SystemError::Io,
             os::Error::BadFd => SystemError::BadFd,
+            os::Error::NoChild => SystemError::NoChild,
             os::Error::Again => SystemError::Again,
             os::Error::OutOfMemory => SystemError::OutOfMemory,
             os::Error::Access => SystemError::Access,

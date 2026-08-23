@@ -2,7 +2,8 @@
 //
 // Command configuration is borrowed until spawn lowers it into a SpawnAttempt.
 // Finish releases all native staging before returning the pending Child or
-// spawn error. Child streams and handles require explicit close or wait
+// spawn error. A failed-child reap keeps its pid and primary spawn error on the
+// attempt for retry. Child streams and handles require explicit close or wait
 // operations, and spawn failures retain their stage and underlying cause.
 
 pub(pkg) module args;
@@ -47,6 +48,7 @@ pub using types::{
     Signal,
     SpawnAttempt,
     SpawnError,
+    SpawnStage,
     StdIo,
     StdStream,
     SystemError,

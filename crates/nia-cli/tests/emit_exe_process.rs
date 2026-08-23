@@ -5,6 +5,60 @@ mod support;
 
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
+#[cfg(target_os = "linux")]
+fn deny_wait4(command: &mut Command) {
+    use std::os::unix::process::CommandExt as _;
+
+    // The generated executable inherits this filter. All syscalls except
+    // wait4 remain available, so spawn reaches its real failed-child reap path.
+    unsafe {
+        command.pre_exec(|| {
+            let mut filter = [
+                libc::sock_filter {
+                    code: (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16,
+                    jt: 0,
+                    jf: 0,
+                    k: 0,
+                },
+                libc::sock_filter {
+                    code: (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as u16,
+                    jt: 0,
+                    jf: 1,
+                    k: libc::SYS_wait4 as u32,
+                },
+                libc::sock_filter {
+                    code: (libc::BPF_RET | libc::BPF_K) as u16,
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+                },
+                libc::sock_filter {
+                    code: (libc::BPF_RET | libc::BPF_K) as u16,
+                    jt: 0,
+                    jf: 0,
+                    k: libc::SECCOMP_RET_ALLOW,
+                },
+            ];
+            let program = libc::sock_fprog {
+                len: filter.len() as u16,
+                filter: filter.as_mut_ptr(),
+            };
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::prctl(
+                libc::PR_SET_SECCOMP,
+                libc::SECCOMP_MODE_FILTER,
+                &program as *const libc::sock_fprog,
+            ) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
 #[test]
 fn emit_exe_std_process_command_spawn_and_wait() {
     let root = temp_dir("emit_exe_std_process_command_spawn_and_wait");
@@ -783,6 +837,76 @@ fn main() () {}
             "missing diagnostic for {name}:\n{stderr}"
         );
     }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn emit_exe_std_process_spawn_reap_failure_retains_pid_for_retry() {
+    let root = temp_dir("emit_exe_std_process_spawn_reap_failure_retains_pid_for_retry");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let command = process::Command::init(
+        std::PathView::init(&"/definitely/missing/nia-reap-owner"),
+        init.env(),
+    );
+    let mut attempt = command.spawn();
+    let firstPid = match attempt.finish() {
+        !child => { _ = child; return process::exit(1)!; },
+        process::Error::Spawn(process::SpawnError::Reap {
+            stage: process::SpawnStage::Exec,
+            primary: process::SystemError::NotFound,
+            cause: process::SystemError::PermissionDenied,
+            pid,
+        })! => pid.raw(),
+        error! => { _ = error; return process::exit(2)!; },
+    };
+    if firstPid <= 0 {
+        return process::exit(3)!;
+    }
+    match attempt.finish() {
+        !child => { _ = child; return process::exit(4)!; },
+        process::Error::Spawn(process::SpawnError::Reap {
+            stage: process::SpawnStage::Exec,
+            primary: process::SystemError::NotFound,
+            cause: process::SystemError::PermissionDenied,
+            pid,
+        })! => {
+            if pid.raw() != firstPid {
+                return process::exit(5)!;
+            }
+        },
+        error! => { _ = error; return process::exit(6)!; },
+    }
+    !()
+}
+"#,
+    )
+    .expect("write retryable spawn reap owner source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile retryable spawn reap owner fixture");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let mut command = Command::new(&exe);
+    deny_wait4(&mut command);
+    let status = command.status_timeout("run retryable spawn reap owner executable");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]

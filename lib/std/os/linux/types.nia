@@ -20,6 +20,7 @@ pub enum Errno: i32 {
     Interrupted = 4,
     Io = 5,
     BadFd = 9,
+    NoChild = 10,
     Again = 11,
     NoMemory = 12,
     Access = 13,
@@ -54,6 +55,12 @@ pub enum SpawnError {
     Stdio(Errno),
     Cwd(Errno),
     Exec(Errno),
+    Reap {
+        stage: SpawnStage,
+        primary: Errno,
+        cause: Errno,
+        pid: ProcessId,
+    },
 }
 
 pub enum OpenMode: i32 {
@@ -134,6 +141,13 @@ pub struct SpawnResult {
     stderr: ?FileDescriptor,
 }
 
+pub struct SpawnAttempt {
+    result: ?SpawnResult,
+    error: ?SpawnError,
+    pending_reap: ?ProcessId,
+    pending_reap_error: ?Errno,
+}
+
 pub struct SpawnOptions {
     stdin: StdIo,
     stdout: StdIo,
@@ -186,6 +200,40 @@ extend SpawnError {
             SpawnStage::Exec => SpawnError::Exec(errno),
             _ => SpawnError::Setup(errno),
         }
+    }
+
+    pub fn stage(&self) SpawnStage {
+        match self.* {
+            SpawnError::Setup(_) => SpawnStage::Setup,
+            SpawnError::Stdio(_) => SpawnStage::Stdio,
+            SpawnError::Cwd(_) => SpawnStage::Cwd,
+            SpawnError::Exec(_) => SpawnStage::Exec,
+            SpawnError::Reap { stage, primary: _, cause: _, pid: _ } => stage,
+        }
+    }
+
+    pub fn primary(&self) Errno {
+        match self.* {
+            SpawnError::Setup(cause) => cause,
+            SpawnError::Stdio(cause) => cause,
+            SpawnError::Cwd(cause) => cause,
+            SpawnError::Exec(cause) => cause,
+            SpawnError::Reap { stage: _, primary, cause: _, pid: _ } => primary,
+        }
+    }
+}
+
+extend SpawnAttempt {
+    pub fn success(result: SpawnResult) SpawnAttempt {
+        Self { result: ?result, error: null, pending_reap: null, pending_reap_error: null }
+    }
+
+    pub fn failure(error: SpawnError) SpawnAttempt {
+        Self { result: null, error: ?error, pending_reap: null, pending_reap_error: null }
+    }
+
+    pub fn reap_failure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
+        Self { result: null, error: ?error, pending_reap: ?pid, pending_reap_error: ?cause }
     }
 }
 

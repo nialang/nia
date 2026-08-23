@@ -12,6 +12,7 @@ pub(pkg) enum Error: i32 {
     Interrupted = 4,
     Io = 5,
     BadFd = 9,
+    NoChild = 10,
     Again = 11,
     OutOfMemory = 12,
     Access = 13,
@@ -39,6 +40,20 @@ pub(pkg) enum SpawnError {
     Stdio(Error),
     Cwd(Error),
     Exec(Error),
+    Reap {
+        stage: SpawnStage,
+        primary: Error,
+        cause: Error,
+        pid: ProcessId,
+    },
+}
+
+pub(pkg) enum SpawnStage: i32 {
+    Setup = 1,
+    Stdio = 2,
+    Cwd = 3,
+    Exec = 4,
+    _,
 }
 
 pub(pkg) enum OpenMode: i32 {
@@ -117,6 +132,10 @@ pub(pkg) struct WaitStatus {
 
 pub(pkg) struct SpawnResult {
     platform: platform::SpawnResult,
+}
+
+pub(pkg) struct SpawnAttempt {
+    platform: platform::SpawnAttempt,
 }
 
 pub(pkg) struct SpawnOptions {
@@ -244,9 +263,8 @@ pub(pkg) fn random(bytes: &mut [u8]) Error!() {
     platform::random(bytes).asOsError()
 }
 
-pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
-    let result = platform::spawn(path, argv, envp, options.platform()).?;
-    !SpawnResult::fromPlatform(result)
+pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
+    SpawnAttempt::fromPlatform(platform::spawn(path, argv, envp, options.platform()))
 }
 
 pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
@@ -282,6 +300,7 @@ extend platform::Errno : error::IntoError[Error] {
             platform::Errno::Interrupted => Error::Interrupted,
             platform::Errno::Io => Error::Io,
             platform::Errno::BadFd => Error::BadFd,
+            platform::Errno::NoChild => Error::NoChild,
             platform::Errno::Again => Error::Again,
             platform::Errno::NoMemory => Error::OutOfMemory,
             platform::Errno::Access => Error::Access,
@@ -318,6 +337,24 @@ extend platform::SpawnError : error::IntoError[SpawnError] {
             platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.asOsError()),
             platform::SpawnError::Cwd(cause) => SpawnError::Cwd(cause.asOsError()),
             platform::SpawnError::Exec(cause) => SpawnError::Exec(cause.asOsError()),
+            platform::SpawnError::Reap { stage, primary, cause, pid } => SpawnError::Reap {
+                stage: stage.asSpawnStage(),
+                primary: primary.asOsError(),
+                cause: cause.asOsError(),
+                pid: ProcessId::fromPlatform(pid),
+            },
+        }
+    }
+}
+
+extend platform::SpawnStage {
+    fn asSpawnStage(self) SpawnStage {
+        match self {
+            platform::SpawnStage::Setup => SpawnStage::Setup,
+            platform::SpawnStage::Stdio => SpawnStage::Stdio,
+            platform::SpawnStage::Cwd => SpawnStage::Cwd,
+            platform::SpawnStage::Exec => SpawnStage::Exec,
+            _ => SpawnStage::Setup,
         }
     }
 }
@@ -337,6 +374,17 @@ extend[T] platform::SpawnError!T {
 extend[T] platform::Errno!T {
     fn asOsError(self) Error!T {
         self.cast_error()
+    }
+}
+
+extend SpawnAttempt {
+    fn fromPlatform(platform: platform::SpawnAttempt) SpawnAttempt {
+        Self { platform: platform }
+    }
+
+    pub(pkg) fn finish(&mut self) SpawnError!SpawnResult {
+        let result = self.platform.finish().asSpawnError().?;
+        !SpawnResult::fromPlatform(result)
     }
 }
 

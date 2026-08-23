@@ -20,6 +20,7 @@ nia-timing.workspace = true
 nia-toolchain.workspace = true
 
 [dev-dependencies]
+libc.workspace = true
 nia-test-support.workspace = true
 
 [[bin]]

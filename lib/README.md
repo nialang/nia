@@ -105,6 +105,11 @@ The library follows a small set of ownership rules:
   and public stdin/stdout/stderr ends transfer out before that cleanup. Because
   close consumes a descriptor, a close error must not replace the primary spawn
   error or turn a successfully executed but now unowned child into an error.
+- Failed-child reaping is part of `SpawnAttempt` ownership. A non-interrupted
+  `wait4` failure returns the spawn stage, original cause, reap cause, and pid
+  while retaining that same native attempt for the next `finish`; the original
+  spawn error is exposed only after reaping completes. `ECHILD` confirms that
+  no waitable pid owner remains and therefore completes cleanup.
 - `Command::spawn` returns a `SpawnAttempt` owner. Its `finish` operation tries
   every argv/envp/path staging release and returns a cleanup error while keeping
   the pending `Child` or spawn error attached for retry; only complete cleanup

@@ -495,6 +495,7 @@ fn writeSystemCause(formatter: &mut fmt::Formatter, cause: process::SystemError)
         process::SystemError::Interrupted => &"interrupted",
         process::SystemError::Io => &"I/O",
         process::SystemError::BadFd => &"bad file descriptor",
+        process::SystemError::NoChild => &"no child process",
         process::SystemError::Again => &"try again",
         process::SystemError::OutOfMemory => &"out of memory",
         process::SystemError::Access => &"access denied",
@@ -566,6 +567,22 @@ fn writeSpawnCause(formatter: &mut fmt::Formatter, cause: process::SpawnError) f
         process::SpawnError::Exec(system) => {
             formatter.write_text(&"executable/").?;
             writeSystemCause(formatter, system)
+        },
+        process::SpawnError::Reap { stage, primary, cause, pid } => {
+            formatter.write_text(&"child reap pid ").?;
+            formatter.write_signed(pid.raw() as i128).?;
+            formatter.write_text(&" after ").?;
+            formatter.write_text(match stage {
+                process::SpawnStage::Setup => &"setup",
+                process::SpawnStage::Stdio => &"standard I/O",
+                process::SpawnStage::Cwd => &"working directory",
+                process::SpawnStage::Exec => &"executable",
+                _ => &"unknown stage",
+            }).?;
+            formatter.write_text(&"/").?;
+            writeSystemCause(formatter, primary).?;
+            formatter.write_text(&": ").?;
+            writeSystemCause(formatter, cause)
         },
     }
 }
