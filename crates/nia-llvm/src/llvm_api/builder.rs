@@ -2398,7 +2398,9 @@ mod tests {
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
         builder.position_at_end(block);
-        let aggregate_ty = context.struct_type(&[context.i32_type().into()], false);
+        let aggregate_ty = context
+            .struct_type(&[context.i32_type().into()], false)
+            .unwrap();
 
         let error = builder
             .build_extract_value(aggregate_ty.const_zero(), 1, "invalid")
@@ -2423,7 +2425,9 @@ mod tests {
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
         builder.position_at_end(block);
-        let aggregate_ty = context.struct_type(&[context.i32_type().into()], false);
+        let aggregate_ty = context
+            .struct_type(&[context.i32_type().into()], false)
+            .unwrap();
 
         let error = builder
             .build_insert_value(

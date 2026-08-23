@@ -2807,6 +2807,12 @@ byte lengths, so these paths cannot silently truncate host `usize` values.
 Debug-info struct and union element lists use the same checked conversion
 before DIBuilder calls.
 
+Context-local struct type construction follows the same fallible boundary:
+`Context::struct_type` checks the field count against LLVM's `u32` ABI width
+and validates the `LLVMStructTypeInContext` result before exposing a typed
+handle. Module and function lowering therefore propagate construction errors
+instead of retaining an unchecked null-handle path.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

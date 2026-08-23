@@ -217,7 +217,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let (value, storage_ty) = if layout.as_ref().is_some_and(|layout| layout.size == 0) {
             // A semantic allocation still needs a distinct runtime address when its pointee is a ZST.
             let byte_ty = self.context.i8_type();
-            let storage_ty = self.context.struct_type(&[byte_ty.into()], true);
+            let storage_ty = self
+                .context
+                .struct_type(&[byte_ty.into()], true)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             (
                 storage_ty
                     .const_named_struct(&[byte_ty.const_zero().into()])
