@@ -25,7 +25,8 @@ The library follows a small set of ownership rules:
   requires cleanup retry before a later rehash or final `deinit`.
 - ArrayList replacement growth and shrink retain a failed temporary replacement
   `Block` for `deinit` retry instead of dropping it after an old-owner failure;
-  the active allocation keeps its owner in `storageBlock`.
+  the active allocation keeps its owner in `storageBlock`, even when the
+  logical length or capacity is zero.
 - ArrayList self-aliasing append, insert, and replace operations retain failed
   temporary-copy `Block`s separately from replacement storage. Borrowed slice
   views and capacities are never used to recreate release ownership.

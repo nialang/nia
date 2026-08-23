@@ -450,6 +450,34 @@ using std;
 using std::mem;
 using std::process;
 
+struct NonEmptyZeroAllocator {
+    backing: mem::PageAllocator,
+    freeCount: usize,
+}
+
+extend NonEmptyZeroAllocator {
+    fn init() NonEmptyZeroAllocator {
+        Self { backing: mem::PageAllocator::init(), freeCount: 0 }
+    }
+}
+
+extend NonEmptyZeroAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if layout.isEmpty() {
+            self.backing.alloc(mem::Layout::init(1, layout.align()).?)
+        } else {
+            self.backing.alloc(layout)
+        }
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if not block.isEmpty() {
+            self.freeCount += 1;
+        }
+        self.backing.free(block)
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut sourcePage = mem::PageAllocator::init();
@@ -519,6 +547,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     cloned.deinit(sourceAllocator).exit().?;
     adopted.deinit(targetAllocator).exit().?;
+
+    let mut zeroAllocator = NonEmptyZeroAllocator::init();
+    let emptyAllocation = zeroAllocator.allocSlice[i32](0).exit().?;
+    let mut emptyList = std::ArrayList[i32]::fromOwnedAllocation(emptyAllocation);
+    emptyList.deinit(&mut zeroAllocator).exit().?;
+    if zeroAllocator.freeCount != 1 {
+        return process::exit(15)!;
+    }
+
+    let emptyForTransfer = zeroAllocator.allocSlice[i32](0).exit().?;
+    let mut transferList = std::ArrayList[i32]::fromOwnedAllocation(emptyForTransfer);
+    let mut transferred = transferList.intoOwnedSlice(&mut zeroAllocator).exit().?;
+    if zeroAllocator.freeCount != 2 or transferred.len() != 0 {
+        return process::exit(16)!;
+    }
+    transferred.deinit(&mut zeroAllocator).exit().?;
     !()
 }
 "#,

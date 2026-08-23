@@ -2197,8 +2197,11 @@ allocation is still active. Self-aliasing append/insert/replace operations use
 a separate alias-copy `Block` for the same reason. The list has exactly one
 active allocation owner (`storageBlock`) plus those two retry-only owner slots;
 borrowed slice pointers and logical capacities are never used to reconstruct a
-release block. `deinit` attempts all three owners independently, so overlapping
-failures cannot strand either allocation.
+release block. A present `storageBlock` remains a real owner even when the list
+is logically empty or its element type has zero size, so `deinit` and ownership
+transfer release that block before retiring the list state. `deinit` attempts
+all three owners independently, so overlapping failures cannot strand either
+allocation.
 Typed slice ownership follows the same boundary: `Allocator::allocSlice` keeps
 the complete `Block` alongside its logical length, while `asSlice` and
 `asMutSlice` expose only borrowed views. `ArrayList::toOwnedSlice`/
