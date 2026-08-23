@@ -58,6 +58,8 @@ The library follows a small set of ownership rules:
 - General-purpose allocator rollback retains a pending child block if malformed
   metadata is rejected but its release fails; later allocation or `deinit`
   retries that owner and keeps it visible in capacity/emptiness accounting.
+- Over-aligned page allocations may expose an interior aligned pointer, while
+  `mem::Block` retains the complete mmap release range for one exact `free`.
 - Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
   and replacement releases fail, its `Rollback` variant carries the replacement
   block and cleanup error so callers can retry the still-owned allocations.

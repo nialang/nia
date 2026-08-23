@@ -457,6 +457,10 @@ signals, not architecture goals.
 - For pointer-returning allocation syscalls, reject null success addresses
   before constructing references unless the call explicitly requested a null
   mapping. Keep the platform flags and pointer invariant documented together.
+- Over-aligned Linux page mappings may expose an aligned interior pointer, but
+  the complete mmap range remains the release owner. Keep that release range in
+  the allocator block and unmap it exactly once; do not trim prefix/suffix
+  pages through best-effort calls that can strand a residual mapping.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

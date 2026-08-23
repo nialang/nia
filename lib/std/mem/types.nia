@@ -16,6 +16,8 @@ pub struct Layout {
 pub struct Block {
     ptr: &mut u8,
     layout: Layout,
+    releasePtr: &mut u8,
+    releaseSize: usize,
 }
 
 extend Layout {
@@ -65,7 +67,21 @@ extend Layout {
 
 extend Block {
     pub fn init(ptr: &mut u8, layout: Layout) Block {
-        Self { ptr: ptr, layout: layout }
+        Self {
+            ptr: ptr,
+            layout: layout,
+            releasePtr: ptr,
+            releaseSize: layout.size(),
+        }
+    }
+
+    pub(pkg) fn initWithRelease(
+        ptr: &mut u8,
+        layout: Layout,
+        releasePtr: &mut u8,
+        releaseSize: usize,
+    ) Block {
+        Self { ptr, layout, releasePtr, releaseSize }
     }
 
     pub fn empty(layout: Layout) Block {
@@ -74,6 +90,14 @@ extend Block {
 
     pub fn ptr(&self) &mut u8 {
         self.ptr
+    }
+
+    pub(pkg) fn releasePtr(&self) &mut u8 {
+        self.releasePtr
+    }
+
+    pub(pkg) fn releaseSize(&self) usize {
+        self.releaseSize
     }
 
     pub fn layout(&self) Layout {
