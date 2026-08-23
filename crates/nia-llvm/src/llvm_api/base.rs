@@ -812,8 +812,7 @@ impl<'ctx> StructType<'ctx> {
                 "LLVM struct body can only be assigned once to an opaque struct",
             ));
         }
-        let field_count = u32::try_from(fields.len())
-            .map_err(|_| LlvmError::error("LLVM struct body has too many fields"))?;
+        let field_count = checked_u32_count(fields.len(), "LLVM struct body has too many fields")?;
         let mut fields = fields
             .iter()
             .map(|field| field.as_type_ref())
@@ -2452,8 +2451,8 @@ impl<'ctx> PhiValue<'ctx> {
             .iter()
             .map(|(_, block)| block.raw)
             .collect::<Vec<_>>();
-        let incoming_count = u32::try_from(incoming.len())
-            .map_err(|_| LlvmError::error("LLVM phi has too many incoming values"))?;
+        let incoming_count =
+            checked_u32_count(incoming.len(), "LLVM phi has too many incoming values")?;
         unsafe {
             LLVMAddIncoming(
                 self.raw,
