@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 418 completed entries in this ledger.
+- Implementation batches: 419 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2405,6 +2405,10 @@ acceptance item only when its phase-wide evidence is complete.
       arithmetic. `next` and `nextBack` now checked-multiply the index by the
       element size and checked-add the base pointer before yielding a reference;
       impossible arithmetic returns `null` instead of wrapping an address.
+- [x] Batch 419 hardens the shared `ArenaChunk` payload-base calculation.
+      Header-size pointer addition is now checked and all allocation/growth and
+      ownership consumers fail closed when the host address cannot represent
+      the derived payload base.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
