@@ -3258,6 +3258,13 @@ truncated drafts from turning a small count prefix into a large host allocation.
 The standard filesystem close API consumes its descriptor before issuing the OS
 close. Build-plan publication clears its fallback flag before the explicit
 close, preserving the first close error without a second `BadFd` attempt.
+Linux directory containment helpers follow the same rule for their temporary
+parent descriptors: the filesystem operation is evaluated before cleanup, all
+opened parents are closed exactly once, and a successful operation exposes the
+first close failure. If the operation itself fails, that primary error remains
+authoritative while cleanup is still attempted. The shared Linux `Errno!T`
+combiner keeps this ordering identical across create, delete, rename, and
+metadata paths.
 Allocator-owned `Allocated` and `CallableAllocation` values follow the inverse
 ordering: they retain their pointer, size, and alignment until `free` succeeds.
 A failed release therefore leaves a complete owner available for an explicit
