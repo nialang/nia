@@ -2189,11 +2189,13 @@ control bytes, keys, and values as aligned views into one allocation block;
 failure. After a cleanup error the map is cleanup-only state; ordinary lookup or
 mutation is not supported until ownership is fully retired.
 `ArrayList` replacement growth and shrink paths retain a newly allocated
-replacement slice if cleanup of that temporary owner fails after the original
+replacement `Block` if cleanup of that temporary owner fails after the original
 allocation is still active. Self-aliasing append/insert/replace operations use
-a separate alias-copy owner for the same reason. `deinit` attempts active,
-replacement, and alias-copy slices independently, so overlapping failures
-cannot strand either allocation.
+a separate alias-copy `Block` for the same reason. The list has exactly one
+active allocation owner (`storageBlock`) plus those two retry-only owner slots;
+borrowed slice pointers and logical capacities are never used to reconstruct a
+release block. `deinit` attempts all three owners independently, so overlapping
+failures cannot strand either allocation.
 Typed slice ownership follows the same boundary: `Allocator::allocSlice` keeps
 the complete `Block` alongside its logical length, while `asSlice` and
 `asMutSlice` expose only borrowed views. `ArrayList::toOwnedSlice`/

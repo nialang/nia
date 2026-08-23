@@ -388,6 +388,10 @@ signals, not architecture goals.
   old-owner release fails and cleanup of that new backing also fails. Keep both
   owners reachable for `deinit`; never assume a best-effort rollback freed the
   replacement.
+- `ArrayList` keeps allocation ownership in `storageBlock`, `replacementBlock`,
+  and `aliasBlock` only. The `items` view and logical capacity are borrowed
+  metadata, not release state; do not add a fallback that rebuilds a `Block`
+  from a raw slice pointer and length.
 - Self-aliasing collection operations need a distinct temporary-copy owner;
   do not reuse the replacement slot when a grow/shrink failure can already
   retain another allocation.
