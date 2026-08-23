@@ -2236,6 +2236,10 @@ acceptance item only when its phase-wide evidence is complete.
       lengths now use the shared checked `u32` conversion before FFI; existing
       width regressions cover the shared helper, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 387 closes debug-info composite element-count truncation.
+      DIBuilder struct and union metadata constructors now checked-convert
+      element counts to LLVM's `u32` width before FFI. LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

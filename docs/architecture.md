@@ -2804,6 +2804,8 @@ case blocks separate, avoiding an unchecked `case_count + 1` allocation.
 The shared `checked_u32_count` helper now covers all fallible wrapper slice
 counts, including struct-body fields, phi incoming edges, and string attribute
 byte lengths, so these paths cannot silently truncate host `usize` values.
+Debug-info struct and union element lists use the same checked conversion
+before DIBuilder calls.
 
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
