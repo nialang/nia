@@ -1,3 +1,4 @@
+using pkg::collections;
 using pkg::cstring;
 using pkg::fs;
 using pkg::io;
@@ -105,6 +106,33 @@ pub struct Command {
     stdout: StdIo,
     stderr: StdIo,
     cwd: ?fs::PathView,
+}
+
+pub(pkg) enum SpawnOutcome {
+    Success(Child),
+    Failure(Error),
+}
+
+pub(pkg) struct SpawnStorage {
+    argumentBytes: collections::ArrayList[u8],
+    argv: collections::ArrayList[&u8],
+    environmentBytes: collections::ArrayList[u8],
+    environmentPointers: collections::ArrayList[&u8],
+    cwdBytes: collections::ArrayList[u8],
+    outcome: ?SpawnOutcome,
+}
+
+// SpawnAttempt owns both default-allocator staging and the pending spawn
+// outcome until finish releases every staging allocation.
+pub struct SpawnAttempt {
+    allocator: mem::PageAllocator,
+    storage: SpawnStorage,
+}
+
+// AllocatorSpawnAttempt keeps custom-allocator staging reachable. Every finish
+// retry must receive the allocator that created the staging blocks.
+pub struct AllocatorSpawnAttempt {
+    storage: SpawnStorage,
 }
 
 pub struct Args {

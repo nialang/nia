@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 470 completed entries in this ledger.
+- Implementation batches: 471 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2671,6 +2671,14 @@ acceptance item only when its phase-wide evidence is complete.
       syscall as contextual `PathError::TooLong`; obsolete `*WithAllocator`
       entry points and the unreachable `OperationError::Allocation` arm are
       removed and locked out by compile-fail coverage.
+- [x] Batch 471 makes process command staging an explicit retryable owner.
+      `Command::spawn` now returns a `SpawnAttempt` that retains all five native
+      staging lists and its pending child or primary spawn error until `finish`
+      releases every allocation. Custom-allocator attempts take the allocator
+      again on retry; path and argument UTF-8 encode directly into final staging
+      without temporary C strings. Fault injection proves five simultaneous
+      free failures remain reachable and the original success/error outcome is
+      published only after cleanup; owner-discarding `run` shortcuts are removed.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

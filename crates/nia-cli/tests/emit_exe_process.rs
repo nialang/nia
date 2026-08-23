@@ -18,7 +18,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -88,7 +89,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/false"), init.env());
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -155,7 +157,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let invalidPath = process::Command::init(std::PathView::init(&"bad\0path"), init.env());
-    match invalidPath.spawn() {
+    let mut invalidPathSpawn = invalidPath.spawn();
+    match invalidPathSpawn.finish() {
         !child => {
             _ = child;
             return process::exit(7)!;
@@ -170,7 +173,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let invalidArguments: [&[char]; 2] = [&"valid", &"bad\0argument"];
     let invalid = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withArguments(&invalidArguments);
-    match invalid.spawn() {
+    let mut invalidSpawn = invalid.spawn();
+    match invalidSpawn.finish() {
         !child => {
             _ = child;
             return process::exit(1)!;
@@ -186,7 +190,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut fixed = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
     let allocator: &mut mem::Allocator = &mut fixed;
     let noMemory = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
-    match noMemory.spawnWithAllocator(allocator) {
+    let mut noMemorySpawn = noMemory.spawnWithAllocator(allocator);
+    match noMemorySpawn.finish(allocator) {
         !child => {
             _ = child;
             return process::exit(5)!;
@@ -201,7 +206,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 4] = [&"-c", &"test \"$1\" = \"λ\"", &"nia", &"λ"];
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments);
-    let term = match command.run() {
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = match child.wait() {
         !value => {
             value
         },
@@ -260,7 +267,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let executable = process::Command::init(longPath.view(), init.env());
-    match executable.spawnWithAllocator(allocator) {
+    let mut executableSpawn = executable.spawnWithAllocator(allocator);
+    match executableSpawn.finish(allocator) {
         !child => { _ = child; return process::exit(1)!; },
         process::Error::Spawn(
             process::SpawnError::Exec(process::SystemError::TooLong),
@@ -270,7 +278,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let cwd = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withCwd(longPath.view());
-    match cwd.spawnWithAllocator(allocator) {
+    let mut cwdSpawn = cwd.spawnWithAllocator(allocator);
+    match cwdSpawn.finish(allocator) {
         !child => { _ = child; return process::exit(3)!; },
         process::Error::Spawn(
             process::SpawnError::Cwd(process::SystemError::TooLong),
@@ -323,7 +332,8 @@ fn expectEnvironmentError(
 ) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withEnvironment(entries);
-    match command.spawn() {
+    let mut commandSpawn = command.spawn();
+    match commandSpawn.finish() {
         !child => {
             _ = child;
             return process::exit(20)!;
@@ -376,7 +386,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let exact = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&exactArguments)
         .withEnvironment(&exactEnvironment);
-    let exactTerm = exact.run().exit().?;
+    let mut exactSpawn = exact.spawn();
+    let mut exactChild = exactSpawn.finish().exit().?;
+    let exactTerm = exactChild.wait().exit().?;
     if not exactTerm.succeeded() {
         return process::exit(1)!;
     }
@@ -388,7 +400,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let empty = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&emptyArguments)
         .withoutEnvironment();
-    let emptyTerm = empty.run().exit().?;
+    let mut emptySpawn = empty.spawn();
+    let mut emptyChild = emptySpawn.finish().exit().?;
+    let emptyTerm = emptyChild.wait().exit().?;
     if not emptyTerm.succeeded() {
         return process::exit(2)!;
     }
@@ -418,7 +432,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let allocator: &mut mem::Allocator = &mut fixed;
     let noMemory = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withEnvironment(&largeEnvironment);
-    match noMemory.spawnWithAllocator(allocator) {
+    let mut noMemorySpawn = noMemory.spawnWithAllocator(allocator);
+    match noMemorySpawn.finish(allocator) {
         !child => {
             _ = child;
             return process::exit(3)!;
@@ -553,7 +568,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let dense = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withEnvironment(&environment);
-    let term = dense.run().exit().?;
+    let mut denseSpawn = dense.spawn();
+    let mut denseChild = denseSpawn.finish().exit().?;
+    let term = denseChild.wait().exit().?;
     if not term.succeeded() {
         return process::exit(3)!;
     }
@@ -561,7 +578,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut rejecting = RejectPointerAllocator::init();
     let allocator: &mut mem::Allocator = &mut rejecting;
     let noPointers = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
-    match noPointers.spawnWithAllocator(allocator) {
+    let mut noPointersSpawn = noPointers.spawnWithAllocator(allocator);
+    match noPointersSpawn.finish(allocator) {
         !child => {
             _ = child;
             return process::exit(4)!;
@@ -603,6 +621,171 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_process_spawn_attempt_retries_all_staging_owners() {
+    let root = temp_dir("emit_exe_std_process_spawn_attempt_retries_all_staging_owners");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+struct RejectFreeAllocator {
+    backing: mem::PageAllocator,
+    rejectedFrees: usize,
+    liveBlocks: usize,
+}
+
+extend RejectFreeAllocator {
+    fn init() RejectFreeAllocator {
+        Self {
+            backing: mem::PageAllocator::init(),
+            rejectedFrees: 0,
+            liveBlocks: 0,
+        }
+    }
+
+    fn rejectNext(&mut self, count: usize) () {
+        self.rejectedFrees = count;
+    }
+}
+
+extend RejectFreeAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        let block = self.backing.alloc(layout).?;
+        if not block.isEmpty() {
+            self.liveBlocks += 1;
+        }
+        !block
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if self.rejectedFrees != 0usize and not block.isEmpty() {
+            self.rejectedFrees -= 1;
+            return mem::Error::Invalid!;
+        }
+        self.backing.free(block).?;
+        if not block.isEmpty() {
+            self.liveBlocks -= 1;
+        }
+        !()
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 1] = [&"argument"];
+    let environment: [process::EnvEntry; 1] = [process::EnvEntry::init(&"NAME", &"value")];
+    let failed = process::Command::init(
+        std::PathView::init(&"/definitely/missing/nia-spawn-attempt"),
+        init.env(),
+    ).withArguments(&arguments)
+        .withEnvironment(&environment)
+        .withCwd(std::PathView::init(&"/"));
+    let mut allocator = RejectFreeAllocator::init();
+    let mut failedAttempt = failed.spawnWithAllocator(&mut allocator);
+    if allocator.liveBlocks != 5usize {
+        return process::exit(1)!;
+    }
+    allocator.rejectNext(5usize);
+    match failedAttempt.finish(&mut allocator) {
+        !child => { _ = child; return process::exit(2)!; },
+        process::Error::Allocation(mem::Error::Invalid)! => {},
+        error! => { _ = error; return process::exit(3)!; },
+    }
+    if allocator.rejectedFrees != 0usize or allocator.liveBlocks != 5usize {
+        return process::exit(4)!;
+    }
+    match failedAttempt.finish(&mut allocator) {
+        !child => { _ = child; return process::exit(5)!; },
+        process::Error::Spawn(
+            process::SpawnError::Exec(process::SystemError::NotFound),
+        )! => {},
+        error! => { _ = error; return process::exit(6)!; },
+    }
+    if allocator.liveBlocks != 0usize {
+        return process::exit(7)!;
+    }
+
+    let succeeded = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
+    let mut succeededAttempt = succeeded.spawnWithAllocator(&mut allocator);
+    allocator.rejectNext(2usize);
+    match succeededAttempt.finish(&mut allocator) {
+        !child => { _ = child; return process::exit(8)!; },
+        process::Error::Allocation(mem::Error::Invalid)! => {},
+        error! => { _ = error; return process::exit(9)!; },
+    }
+    if allocator.rejectedFrees != 0usize or allocator.liveBlocks != 2usize {
+        return process::exit(10)!;
+    }
+    let mut child = succeededAttempt.finish(&mut allocator).exit().?;
+    if allocator.liveBlocks != 0usize {
+        return process::exit(11)!;
+    }
+    if not child.wait().exit().?.succeeded() {
+        return process::exit(12)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write retryable spawn attempt source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile retryable spawn attempt fixture");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run retryable spawn attempt executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn check_std_process_owner_discarding_spawn_shortcuts_are_absent() {
+    let root = temp_dir("check_std_process_owner_discarding_spawn_shortcuts_are_absent");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+fn probe(command: &process::Command, allocator: &mut mem::Allocator) () {
+    _ = command.run();
+    _ = command.runWithAllocator(allocator);
+    _ = command.spawn().exit();
+    _ = command.spawnWithAllocator(allocator).exit();
+}
+
+fn main() () {}
+"#,
+    )
+    .expect("write obsolete process spawn shortcut source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check obsolete process spawn shortcuts");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for name in ["run", "runWithAllocator", "exit"] {
+        assert!(
+            stderr.contains(name),
+            "missing diagnostic for {name}:\n{stderr}"
+        );
+    }
+}
+
+#[test]
 fn emit_exe_std_process_command_can_ignore_stdout() {
     let root = temp_dir("emit_exe_std_process_command_can_ignore_stdout");
     let main = root.join("main.nia");
@@ -619,7 +802,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/echo"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore);
-    let term = match command.run() {
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = match child.wait() {
         !value => {
             value
         },
@@ -676,7 +861,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStderr(process::StdIo::Ignore);
-    let term = match command.run() {
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = match child.wait() {
         !value => {
             value
         },
@@ -736,7 +923,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withStdin(process::StdIo::Ignore)
         .withStdout(process::StdIo::Ignore)
         .withStderr(process::StdIo::Ignore);
-    let term = match command.run() {
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = match child.wait() {
         !value => {
             value
         },
@@ -793,7 +982,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         std::PathView::init(&"/definitely/not/a/nia/process-test-binary"),
         init.env(),
     );
-    let child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let child = match spawn.finish() {
         !value => {
             value
         },
@@ -847,7 +1037,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
             .withStdin(process::StdIo::Pipe)
             .withStdout(process::StdIo::Pipe)
             .withStderr(process::StdIo::Pipe);
-        let child = match bad.spawn() {
+        let mut spawn = bad.spawn();
+        let child = match spawn.finish() {
             !value => {
                 value
             },
@@ -868,7 +1059,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withStdin(process::StdIo::Ignore)
         .withStdout(process::StdIo::Ignore)
         .withStderr(process::StdIo::Ignore);
-    let term = match good.run() {
+    let mut goodSpawn = good.spawn();
+    let mut goodChild = goodSpawn.finish().exit().?;
+    let term = match goodChild.wait() {
         !value => {
             value
         },
@@ -920,7 +1113,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Pipe);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1016,7 +1210,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withStderr(process::StdIo::Pipe);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => value,
         error! => {
             _ = error;
@@ -1077,7 +1272,8 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withStdout(process::StdIo::Pipe);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1169,7 +1365,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
         .withStdin(process::StdIo::Pipe)
         .withStdout(process::StdIo::Pipe);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1265,7 +1462,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
         .withStdin(process::StdIo::Pipe)
         .withStdout(process::StdIo::Ignore);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1321,7 +1519,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1385,7 +1584,8 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1471,7 +1671,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/cat"), init.env())
         .withStdin(process::StdIo::Pipe)
         .withStdout(process::StdIo::Ignore);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1547,7 +1748,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore)
         .withStderr(process::StdIo::Ignore);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1634,7 +1836,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore)
         .withStderr(process::StdIo::Ignore);
-    let mut child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let mut child = match spawn.finish() {
         !value => {
             value
         },
@@ -1742,7 +1945,9 @@ pub fn main(init: process::Init) process::ExitCode!() {{
     let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withCwd(std::PathView::init(&"{cwd_literal}"));
-    let term = match command.run() {{
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = match child.wait() {{
         !value => {{
             value
         }},
@@ -1793,7 +1998,8 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env())
         .withCwd(std::PathView::init(&"/definitely/not/a/nia/process-test-cwd"));
-    let child = match command.spawn() {
+    let mut spawn = command.spawn();
+    let child = match spawn.finish() {
         !value => {
             value
         },

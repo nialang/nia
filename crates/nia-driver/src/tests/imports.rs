@@ -1039,7 +1039,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Ignore);
-    let term = command.run().exit().?;
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = child.wait().exit().?;
     if not term.succeeded() {
         return process::exit(2)!;
     }
@@ -1103,7 +1105,9 @@ pub fn main(init: Init) ExitCode!() {
     let command = Command::init(PathView::init(&"/bin/cat"), init.env())
         .withArguments(&arguments)
         .withStdout(StdIo::Ignore);
-    let term = command.run().exit().?;
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let term = child.wait().exit().?;
     if not term.succeeded() {
         return exit(2)!;
     }

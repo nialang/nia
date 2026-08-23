@@ -441,6 +441,11 @@ signals, not architecture goals.
   word-count, byte-offset, and stack-base arithmetic before turning the initial
   stack into `argv`/`envp` pointers; fail closed before publishing malformed
   process views.
+- Keep process command staging behind an explicit attempt owner. Path, argument,
+  argv, environment, envp, and cwd lowering must retain every allocation plus
+  the pending child or primary spawn error until all fallible releases succeed.
+  Retry every failed owner, attempt all later releases after an earlier failure,
+  and do not reintroduce a `run` shortcut that discards this state.
 - Materialize startup process views once. Long-lived `Init` values should store
   validated `Args`/`Env` records, not raw `argv`/`envp` pointers that force later
   rescans or recreate the ABI boundary on every accessor.

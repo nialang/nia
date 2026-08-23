@@ -675,9 +675,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         fs::PathView::init(&"/definitely/missing/nia-text-workflow"),
         init.env(),
     );
-    match missingCommand.run() {
-        !term => {
-            _ = term;
+    let mut missingSpawn = missingCommand.spawn();
+    match missingSpawn.finish() {
+        !child => {
+            _ = child;
             return process::exit(12)!;
         },
         process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound))! => {},
@@ -691,7 +692,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let command = process::Command::init(fs::PathView::init(&"/bin/cat"), init.env())
         .withArguments(&arguments)
         .withStdout(process::StdIo::Pipe);
-    let mut child = command.spawn().exit().?;
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
     let mut childLive = true;
     defer if childLive {
         let term = child.kill().exit().?;

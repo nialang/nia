@@ -1,5 +1,4 @@
 using pkg::collections;
-using pkg::cstring;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
@@ -8,7 +7,22 @@ using pkg::process::types;
 using pkg::slice;
 using pkg::unicode;
 
-using types::{Child, Command, CommandEnvironment, Env, EnvEntry, EnvEntryError, Error, SpawnError, StdIo, SystemError, Term};
+using types::{
+    AllocatorSpawnAttempt,
+    Child,
+    Command,
+    CommandEnvironment,
+    Env,
+    EnvEntry,
+    EnvEntryError,
+    Error,
+    SpawnAttempt,
+    SpawnError,
+    SpawnOutcome,
+    SpawnStorage,
+    StdIo,
+    SystemError,
+};
 
 extend Command {
     pub fn init(path: fs::PathView, env: Env) Command {
@@ -131,42 +145,40 @@ extend Command {
         }
     }
 
-    pub fn spawn(&self) Error!Child {
-        let mut pageAllocator = mem::PageAllocator::init();
-        let allocator: &mut mem::Allocator = &mut pageAllocator;
-        self.spawnWithAllocator(allocator)
+    pub fn spawn(&self) SpawnAttempt {
+        SpawnAttempt::start(self)
     }
 
-    pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) Error!Child {
+    pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
+        AllocatorSpawnAttempt::start(self, allocator)
+    }
+
+    fn executeSpawn(
+        &self,
+        allocator: &mut mem::Allocator,
+        storage: &mut SpawnStorage,
+    ) Error!Child {
         match self.environment {
             CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
             CommandEnvironment::Inherit(env) => { _ = env; },
             CommandEnvironment::Empty => {},
         }
 
-        let mut argumentBytes = collections::ArrayList[u8]::init();
-        defer argumentBytes.deinit(allocator).asProcessAllocationError().?;
-        appendPath(allocator, &mut argumentBytes, self.path).?;
+        appendPath(allocator, &mut storage.argumentBytes, self.path).?;
         match self.arguments {
             ?arguments => {
                 let mut argumentIndex: usize = 0;
                 for &argument in arguments {
-                    appendArgument(allocator, &mut argumentBytes, argument, argumentIndex).?;
+                    appendArgument(allocator, &mut storage.argumentBytes, argument, argumentIndex).?;
                     argumentIndex += 1;
                 }
             },
             null => {},
         }
 
-        let mut argv = collections::ArrayList[&u8]::init();
-        defer argv.deinit(allocator).asProcessAllocationError().?;
-        let bytes = argumentBytes.asSlice();
-        appendCStringPointers(allocator, bytes, &mut argv).?;
+        let bytes = storage.argumentBytes.asSlice();
+        appendCStringPointers(allocator, bytes, &mut storage.argv).?;
 
-        let mut environmentBytes = collections::ArrayList[u8]::init();
-        defer environmentBytes.deinit(allocator).asProcessAllocationError().?;
-        let mut environmentPointers = collections::ArrayList[&u8]::init();
-        defer environmentPointers.deinit(allocator).asProcessAllocationError().?;
         let emptyEnvp: [&u8; 1] = [0usize as &u8];
         let envp = match self.environment {
             CommandEnvironment::Inherit(env) => env.rawEnvp(),
@@ -175,14 +187,14 @@ extend Command {
                     &emptyEnvp[0]
                 } else {
                     for &entry in entries {
-                        appendEnvironmentEntry(allocator, &mut environmentBytes, entry).?;
+                        appendEnvironmentEntry(allocator, &mut storage.environmentBytes, entry).?;
                     }
                     appendCStringPointers(
                         allocator,
-                        environmentBytes.asSlice(),
-                        &mut environmentPointers,
+                        storage.environmentBytes.asSlice(),
+                        &mut storage.environmentPointers,
                     ).?;
-                    environmentPointers.asSlice().ptr()
+                    storage.environmentPointers.asSlice().ptr()
                 }
             },
             CommandEnvironment::Empty => &emptyEnvp[0],
@@ -192,26 +204,97 @@ extend Command {
         options.setStdin(self.stdin.asOsStdio()).asCommandSpawnSetupError().?;
         options.setStdout(self.stdout.asOsStdio()).asCommandSpawnSetupError().?;
         options.setStderr(self.stderr.asOsStdio()).asCommandSpawnSetupError().?;
-        let mut cwdBytes = collections::ArrayList[u8]::init();
-        defer cwdBytes.deinit(allocator).asProcessAllocationError().?;
         match self.cwd {
             ?cwd => {
-                appendPath(allocator, &mut cwdBytes, cwd).?;
-                options.setCwd(cwdBytes.asSlice().ptr());
+                appendPath(allocator, &mut storage.cwdBytes, cwd).?;
+                options.setCwd(storage.cwdBytes.asSlice().ptr());
             },
             null => {},
         }
-        spawnWithOptions(bytes.ptr(), argv.asSlice().ptr(), envp, options)
+        spawnWithOptions(bytes.ptr(), storage.argv.asSlice().ptr(), envp, options)
+    }
+}
+
+extend SpawnStorage {
+    fn init() SpawnStorage {
+        Self {
+            argumentBytes: collections::ArrayList[u8]::init(),
+            argv: collections::ArrayList[&u8]::init(),
+            environmentBytes: collections::ArrayList[u8]::init(),
+            environmentPointers: collections::ArrayList[&u8]::init(),
+            cwdBytes: collections::ArrayList[u8]::init(),
+            outcome: null,
+        }
     }
 
-    pub fn run(&self) Error!Term {
-        let mut child = self.spawn().?;
-        child.wait()
+    fn execute(&mut self, command: &Command, allocator: &mut mem::Allocator) () {
+        self.outcome = ?match command.executeSpawn(allocator, self) {
+            !child => SpawnOutcome::Success(child),
+            cause! => SpawnOutcome::Failure(cause),
+        };
     }
 
-    pub fn runWithAllocator(&self, allocator: &mut mem::Allocator) Error!Term {
-        let mut child = self.spawnWithAllocator(allocator).?;
-        child.wait()
+    fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
+        let mut firstError: ?mem::Error = null;
+        rememberSpawnCleanupError(&mut firstError, self.cwdBytes.deinit(allocator));
+        rememberSpawnCleanupError(&mut firstError, self.environmentPointers.deinit(allocator));
+        rememberSpawnCleanupError(&mut firstError, self.environmentBytes.deinit(allocator));
+        rememberSpawnCleanupError(&mut firstError, self.argv.deinit(allocator));
+        rememberSpawnCleanupError(&mut firstError, self.argumentBytes.deinit(allocator));
+        if firstError is ?cause {
+            return Error::Allocation(cause)!;
+        }
+        let outcome = match self.outcome {
+            ?value => value,
+            null => return Error::SpawnSetup(SystemError::Invalid)!,
+        };
+        self.outcome = null;
+        match outcome {
+            SpawnOutcome::Success(child) => !child,
+            SpawnOutcome::Failure(cause) => cause!,
+        }
+    }
+}
+
+extend SpawnAttempt {
+    fn start(command: &Command) SpawnAttempt {
+        let mut attempt = Self {
+            allocator: mem::PageAllocator::init(),
+            storage: SpawnStorage::init(),
+        };
+        let allocator: &mut mem::Allocator = &mut attempt.allocator;
+        attempt.storage.execute(command, allocator);
+        attempt
+    }
+
+    pub fn finish(&mut self) Error!Child {
+        let allocator: &mut mem::Allocator = &mut self.allocator;
+        self.storage.finish(allocator)
+    }
+}
+
+extend AllocatorSpawnAttempt {
+    fn start(command: &Command, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
+        let mut attempt = Self { storage: SpawnStorage::init() };
+        attempt.storage.execute(command, allocator);
+        attempt
+    }
+
+    pub fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
+        self.storage.finish(allocator)
+    }
+}
+
+fn rememberSpawnCleanupError(firstError: &mut ?mem::Error, result: mem::Error!()) () {
+    match result {
+        !ok => {
+            _ = ok;
+        },
+        cause! => {
+            if firstError.* is null {
+                firstError.* = ?cause;
+            }
+        },
     }
 }
 
@@ -239,16 +322,12 @@ fn appendArgument(
     argument: &[char],
     argumentIndex: usize,
 ) Error!() {
-    let mut owned = match cstring::CString::fromText(allocator, argument) {
-        !value => value,
-        cause! => match cause {
-            cstring::CStringBuildError::ContainsNul => return Error::ArgumentContainsNul(argumentIndex)!,
-            cstring::CStringBuildError::Allocation(error) => return Error::Allocation(error)!,
-        },
-    };
-    defer owned.deinit(allocator).asProcessAllocationError().?;
-    bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
-    !()
+    appendText(
+        allocator,
+        bytes,
+        argument,
+        Error::ArgumentContainsNul(argumentIndex),
+    )
 }
 
 fn appendPath(
@@ -256,13 +335,35 @@ fn appendPath(
     bytes: &mut collections::ArrayList[u8],
     path: fs::PathView,
 ) Error!() {
-    let mut owned = match cstring::CString::fromText(allocator, path.text()) {
-        !value => value,
-        cstring::CStringBuildError::ContainsNul! => return Error::Path(fs::PathError::ContainsNul)!,
-        cstring::CStringBuildError::Allocation(cause)! => return Error::Allocation(cause)!,
-    };
-    defer owned.deinit(allocator).asProcessAllocationError().?;
-    bytes.appendSlice(allocator, owned.nulTerminatedBytes()).asProcessAllocationError().?;
+    appendText(
+        allocator,
+        bytes,
+        path.text(),
+        Error::Path(fs::PathError::ContainsNul),
+    )
+}
+
+fn appendText(
+    allocator: &mut mem::Allocator,
+    bytes: &mut collections::ArrayList[u8],
+    text: &[char],
+    containsNul: Error,
+) Error!() {
+    let mut byteLen: usize = 1;
+    for &ch in text {
+        if ch.codepoint() == 0 {
+            return containsNul!;
+        }
+        byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+            ?value => value,
+            null => return Error::Allocation(mem::Error::OutOfMemory)!,
+        };
+    }
+    bytes.reserve(allocator, byteLen).asProcessAllocationError().?;
+    for &ch in text {
+        bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
+    }
+    bytes.appendAssumeCapacity(0);
     !()
 }
 

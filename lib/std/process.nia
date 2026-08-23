@@ -1,7 +1,8 @@
 // Process startup views, commands, child handles, environment, and exit codes.
 //
-// Command configuration is borrowed until spawn lowers it into invocation-owned
-// native storage. Child streams and handles require explicit close or wait
+// Command configuration is borrowed until spawn lowers it into a SpawnAttempt.
+// Finish releases all native staging before returning the pending Child or
+// spawn error. Child streams and handles require explicit close or wait
 // operations, and spawn failures retain their stage and underlying cause.
 
 pub(pkg) module args;
@@ -26,6 +27,7 @@ using pkg::process::term;
 pub using exit::exit;
 pub using types::{
     Arg,
+    AllocatorSpawnAttempt,
     Args,
     ArgsIter,
     Child,
@@ -43,6 +45,7 @@ pub using types::{
     Init,
     ProcessId,
     Signal,
+    SpawnAttempt,
     SpawnError,
     StdIo,
     StdStream,
