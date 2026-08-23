@@ -2684,6 +2684,11 @@ wrapper boundary. The `IntValue` handle alone is intentionally not treated as
 proof of boolean width, so integer values such as `i32` cannot enter
 `LLVMBuildCondBr` and rely on a later verifier failure.
 
+Return construction derives the enclosing function's signature from the
+current insertion block. It rejects missing values for non-void functions,
+values for void functions, and mismatched LLVM return types before
+`LLVMBuildRet`/`LLVMBuildRetVoid`.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
