@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 416 completed entries in this ledger.
+- Implementation batches: 417 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2397,6 +2397,10 @@ acceptance item only when its phase-wide evidence is complete.
       wrappers against successful return counts larger than the supplied slice.
       Such malformed ABI results now fail with `Errno::Io` before any caller
       cursor advances; workspace and strict Clippy checks pass.
+- [x] Batch 417 makes formatting width and precision parsing overflow-safe.
+      Decimal template fields now use checked target-`usize` accumulation and
+      reject overflow as `InvalidTemplate`; executable regressions cover both
+      width and precision overflow before writer dispatch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

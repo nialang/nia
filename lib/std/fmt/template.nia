@@ -1,5 +1,6 @@
 using pkg::fmt::core;
 using pkg::io;
+using pkg::math;
 
 struct ParsedSpec {
     spec: core::FormatSpec,
@@ -41,6 +42,17 @@ fn digit_value(ch: char) ?usize {
         ?((ch as u32 - '0' as u32) as usize)
     } else {
         null
+    }
+}
+
+fn append_decimal_digit(value: usize, digit: usize) core::Error!usize {
+    let scaled = match value.checked_mul(10usize) {
+        ?scaled => scaled,
+        null => return core::Error::InvalidTemplate!,
+    };
+    match scaled.checked_add(digit) {
+        ?next => !next,
+        null => core::Error::InvalidTemplate!,
     }
 }
 
@@ -124,7 +136,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
                     break;
                 },
             };
-            width = width * 10usize + digit;
+            width = append_decimal_digit(width, digit).?;
             index += 1usize;
         }
     }
@@ -148,7 +160,7 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
                         break;
                     },
                 };
-                parsed_precision = parsed_precision * 10usize + digit;
+                parsed_precision = append_decimal_digit(parsed_precision, digit).?;
                 has_digit = true;
                 index += 1usize;
             }

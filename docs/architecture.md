@@ -3277,6 +3277,10 @@ adapter's end-of-stream or short-write error while preserving buffered state.
 The OS file-handle and child-pipe facades enforce the same rule at their syscall
 boundary, so direct consumers cannot bypass the adapter invariant.
 
+Formatting template width and precision fields use checked decimal
+accumulation. Values that do not fit target `usize` are invalid templates; they
+cannot wrap to a smaller padding request or reach writer dispatch.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
