@@ -2196,6 +2196,11 @@ acceptance item only when its phase-wide evidence is complete.
       remain explicitly supported by LLVM and have a wrapper regression, with
       LLVM/codegen suites, workspace check, formatting, and strict Clippy
       passing.
+- [x] Batch 380 removes LLVM array-length truncation in the typed wrapper.
+      `ArrayType::len` now returns the full `u64` value from
+      `LLVMGetArrayLength2`; source-level codegen retains its explicit `u32`
+      conversion checks. Wrapper and codegen suites, workspace check,
+      formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

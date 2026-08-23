@@ -817,9 +817,9 @@ impl<'ctx> StructType<'ctx> {
 }
 
 impl<'ctx> ArrayType<'ctx> {
-    /// Returns the fixed array length used by Nia's 32-bit length model.
-    pub fn len(self) -> u32 {
-        unsafe { llvm_sys::core::LLVMGetArrayLength2(self.as_type_ref()) as u32 }
+    /// Returns the fixed array length reported by LLVM.
+    pub fn len(self) -> u64 {
+        unsafe { llvm_sys::core::LLVMGetArrayLength2(self.as_type_ref()) }
     }
 
     /// Returns the array element type.
