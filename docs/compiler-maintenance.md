@@ -398,6 +398,9 @@ signals, not architecture goals.
   publishing success. Identity-returning calls such as `dup2` must also match
   the requested destination rather than merely being non-negative. Validate
   output buffers such as `pipe2` descriptors only after that zero result check.
+- For pointer-returning allocation syscalls, reject null success addresses
+  before constructing references unless the call explicitly requested a null
+  mapping. Keep the platform flags and pointer invariant documented together.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

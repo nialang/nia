@@ -3304,6 +3304,9 @@ Void-returning Linux syscalls use one `syscall_success` gate: only an exact zero
 is success, and positive anomalies are rejected as `Io`. `dup2` additionally
 requires its returned descriptor to equal the requested destination; `pipe2`
 uses the same exact-zero rule before consuming its output descriptor pair.
+The anonymous Linux `mmap` wrapper rejects a zero success address before it is
+cast into a mutable reference; the active mapping flags do not request a null
+mapping, so a zero result is malformed ABI data.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
