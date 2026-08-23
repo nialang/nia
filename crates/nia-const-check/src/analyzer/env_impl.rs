@@ -1699,10 +1699,7 @@ impl Analyzer<'_> {
                     span,
                     message: "builtin `splat` lane count is too large for the host".to_string(),
                 })?;
-                Ok(Some(ConstValue::Vector(vec![
-                    args[0].clone();
-                    lane_count
-                ])))
+                Ok(Some(ConstValue::Vector(vec![args[0].clone(); lane_count])))
             }
             BuiltinFunction::Extract => {
                 if args.len() != 2 {
