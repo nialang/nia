@@ -3396,7 +3396,13 @@ Custom-allocator attempts take the same allocator again on every `finish` call.
 The owner-discarding `run` and `runWithAllocator` conveniences are removed.
 The parent then closes the consumed handshake read
 descriptor exactly once: EOF plus a close failure becomes a setup error, while
-an incomplete or malformed handshake retains its primary error. Once a public `Child` records an exited status, pipe
+an incomplete or malformed handshake retains its primary error. The four pipe
+pairs used during setup are held by one `SpawnResources` transaction. Every
+return path consumes all ends that have not transferred out; after successful
+exec, the child pid and public stdin/stdout/stderr ends transfer into
+`SpawnResult` before that cleanup. A close failure cannot replace an earlier
+spawn or handshake error, and it cannot convert successful exec into an error
+that no longer carries the live child. Once a public `Child` records an exited status, pipe
 cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
 the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.

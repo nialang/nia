@@ -9,40 +9,53 @@ struct SpawnPipe {
     write: ?types::FileDescriptor,
 }
 
+struct SpawnResources {
+    stdin: SpawnPipe,
+    stdout: SpawnPipe,
+    stderr: SpawnPipe,
+    error: SpawnPipe,
+}
+
 struct SpawnErrorRecord {
     stage: i32,
     code: i32,
 }
 
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
-    let mut stdin_pipe = SpawnPipe::closed();
-    let mut stdout_pipe = SpawnPipe::closed();
-    let mut stderr_pipe = SpawnPipe::closed();
-    defer stdin_pipe.close_all();
-    defer stdout_pipe.close_all();
-    defer stderr_pipe.close_all();
+    let mut resources = SpawnResources::init();
+    let result = spawn_with_resources(path, argv, envp, options, &mut resources);
+    resources.close_all();
+    result
+}
+
+fn spawn_with_resources(
+    path: &u8,
+    argv: &&u8,
+    envp: &&u8,
+    options: SpawnOptions,
+    resources: &mut SpawnResources,
+) SpawnError!SpawnResult {
     if options.stdin() == StdIo::Pipe {
-        stdin_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+        resources.stdin = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
     if options.stdout() == StdIo::Pipe {
-        stdout_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+        resources.stdout = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
     if options.stderr() == StdIo::Pipe {
-        stderr_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
+        resources.stderr = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     }
-    let mut error_pipe = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
-    defer error_pipe.close_all();
+    resources.error = SpawnPipe::open_close_on_exec().as_spawn_setup_error().?;
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
         SpawnError::Setup(ret.syscall_error())!
     } else if ret == 0 {
-        error_pipe.close_read();
-        match apply_stdio(options, &mut stdin_pipe, &mut stdout_pipe, &mut stderr_pipe) {
+        resources.error.close_read();
+        match apply_stdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) {
             !ok => {
                 _ = ok;
             },
             error! => {
-                report_spawn_error(&error_pipe, SpawnStage::Stdio, error);
+                report_spawn_error(&resources.error, SpawnStage::Stdio, error);
                 exit(127);
             },
         }
@@ -51,24 +64,24 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
                 _ = ok;
             },
             error! => {
-                report_spawn_error(&error_pipe, SpawnStage::Cwd, error);
+                report_spawn_error(&resources.error, SpawnStage::Cwd, error);
                 exit(127);
             },
         }
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
-        report_spawn_error(&error_pipe, SpawnStage::Exec, exec_ret.syscall_error());
+        report_spawn_error(&resources.error, SpawnStage::Exec, exec_ret.syscall_error());
         exit(127);
         SpawnError::Setup(Errno::Io)!
     } else {
-        stdin_pipe.close_read();
-        stdout_pipe.close_write();
-        stderr_pipe.close_write();
-        error_pipe.close_write();
+        resources.stdin.close_read();
+        resources.stdout.close_write();
+        resources.stderr.close_write();
+        resources.error.close_write();
         let pid = match ProcessId::from_syscall(ret) {
             !pid => pid,
             error! => return SpawnError::Setup(error)!,
         };
-        let error_read = match error_pipe.take_read() {
+        let error_read = match resources.error.take_read() {
             ?fd => {
                 fd
             },
@@ -85,9 +98,9 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
             null => {
                 !SpawnResult::init(
                     pid,
-                    stdin_pipe.take_write(),
-                    stdout_pipe.take_read(),
-                    stderr_pipe.take_read(),
+                    resources.stdin.take_write(),
+                    resources.stdout.take_read(),
+                    resources.stderr.take_read(),
                 )
             },
         }
@@ -424,6 +437,24 @@ extend SpawnPipe {
     fn close_all(&mut self) () {
         self.close_read();
         self.close_write();
+    }
+}
+
+extend SpawnResources {
+    fn init() SpawnResources {
+        Self {
+            stdin: SpawnPipe::closed(),
+            stdout: SpawnPipe::closed(),
+            stderr: SpawnPipe::closed(),
+            error: SpawnPipe::closed(),
+        }
+    }
+
+    fn close_all(&mut self) () {
+        self.stdin.close_all();
+        self.stdout.close_all();
+        self.stderr.close_all();
+        self.error.close_all();
     }
 }
 

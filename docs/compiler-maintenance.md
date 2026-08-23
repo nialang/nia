@@ -494,6 +494,12 @@ signals, not architecture goals.
   the pending child or primary spawn error until all fallible releases succeed.
   Retry every failed owner, attempt all later releases after an earlier failure,
   and do not reintroduce a `run` shortcut that discards this state.
+- Treat successful process creation as an owner-carrying boundary. Linux spawn
+  setup should retain every pipe pair in one resource transaction, transfer the
+  child pid and public pipe ends before consuming the remainder, and close every
+  untransferred end on every return path. Descriptor close errors must not
+  replace a primary spawn/handshake error; after exec succeeds, do not return a
+  plain cleanup error that cannot carry the still-live child owner.
 - Materialize startup process views once. Long-lived `Init` values should store
   validated `Args`/`Env` records, not raw `argv`/`envp` pointers that force later
   rescans or recreate the ABI boundary on every accessor.
