@@ -54,6 +54,7 @@ extend FaultAllocator {
     fn failNextRetainedFrees(&mut self, count: usize) () {
         self.retainedFreeFailures = count;
     }
+
 }
 
 extend FaultAllocator : mem::Allocator {
@@ -194,7 +195,7 @@ fn isGeneratedFileRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
-            subject: build::ErrorSubject::Step(1usize),
+            subject: build::ErrorSubject::Step(_),
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
@@ -216,7 +217,7 @@ fn isExternalCommandRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
-            subject: build::ErrorSubject::Step(1usize),
+            subject: build::ErrorSubject::Step(_),
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
@@ -447,7 +448,6 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     defer if not cleaned {
         api.deinit().exit().?;
     };
-
     let packageOptions = build::PackageOptions::init(
         &"dependency",
         fs::PathView::init(&"dependency"),
@@ -628,7 +628,8 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     }
     allocator.disableFailure();
     let beforeGenerated = allocator.activeAllocations;
-    allocator.failAfter(1usize);
+    allocator.failAfter(2usize);
+    allocator.failNextRetainedFrees(2usize);
     match api.addGeneratedFileStep(
         &"generate",
         build::BuildPathView::init(&"generated/source.nia"),
@@ -644,10 +645,15 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
             }
         },
     }
-    if allocator.activeAllocations != beforeGenerated {
+    if allocator.activeAllocations != beforeGenerated + 2usize {
         return process::exit(29)!;
     }
     allocator.disableFailure();
+    _ = api.addGeneratedFileStep(
+        &"generate",
+        build::BuildPathView::init(&"generated/source.nia"),
+        &b"contents"[..],
+    ).exit().?;
     let commandArguments = [
         build::CommandArgument::literal(&"first"),
         build::CommandArgument::packageInput(api.rootPackage(), fs::PathView::init(&"input.txt")),
@@ -673,6 +679,24 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         return process::exit(38)!;
     }
     allocator.disableFailure();
+    _ = api.addAggregateStep(&"capacity").exit().?;
+    let beforeUncacheable = allocator.activeAllocations;
+    allocator.failAfter(1usize);
+    allocator.failNextRetainedFree();
+    match api.addUncacheableStep(&"uncacheable", &"description") {
+        !handle => {
+            _ = handle;
+            return process::exit(72)!;
+        },
+        err! => if not isGeneratedFileRetainOom(err) {
+            return process::exit(73)!;
+        },
+    }
+    if allocator.activeAllocations != beforeUncacheable + 1usize {
+        return process::exit(74)!;
+    }
+    allocator.disableFailure();
+    _ = api.addUncacheableStep(&"uncacheable", &"description").exit().?;
     cleaned = true;
     api.deinit().exit().?;
     if allocator.activeAllocations != 0usize {

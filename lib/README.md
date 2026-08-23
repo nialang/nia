@@ -62,6 +62,9 @@ The library follows a small set of ownership rules:
   `Build`. The outer and nested lists reserve before initialization; failed
   import name/path cleanup retains both fields and the containing imports
   backing for recursive retry.
+- Generated-file and uncacheable insertion keep a kind-correct pending `Step`
+  on `Build`. The steps list reserves first; step name, output/contents, or
+  description owners remain reachable across failed rollback cleanup.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

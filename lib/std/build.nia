@@ -31,6 +31,8 @@
 // in the pending record until every owned field is ready for transfer.
 // Module insertion appends empty import records only after reserving both list
 // levels, so nested import name/path cleanup remains reachable from Build.
+// Generated-file and uncacheable steps use a kind-correct pending Step whose
+// name and payload owners transfer only after post-reserve initialization.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 

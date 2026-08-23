@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 478 completed entries in this ledger.
+- Implementation batches: 479 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2722,6 +2722,12 @@ acceptance item only when its phase-wide evidence is complete.
       chain is removed. Fault injection preserves outer and nested list backing
       plus two failed import field owners, then retries insertion and final
       cleanup successfully.
+- [x] Batch 479 introduces kind-correct Build-owned pending steps for generated
+      files and uncacheable actions. The step list reserves before step name and
+      payload initialization, and only an infallible append transfers the union
+      record. Fault injection preserves simultaneous generated name/output
+      owners and an uncacheable name owner across failed cleanup, proves every
+      injected release is attempted, and retries both insertions successfully.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
