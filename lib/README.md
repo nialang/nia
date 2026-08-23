@@ -144,6 +144,10 @@ The library follows a small set of ownership rules:
   release, and links each failed owner back into the arena free list. A later
   `deinit` retries only those residual chunks; one failed release must not hide
   a later chunk or erase retained capacity.
+- General-purpose allocator cleanup independently walks small pages and large
+  headers, then releases any pending rollback block. Each failed owner returns
+  to its matching state slot, so capacity/used/emptiness remain truthful and a
+  retry never revisits successfully released owner classes.
 - `Allocator::allocSlice` returns a `SliceAllocation[T]` owner instead of a raw
   slice. `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
   `Block` even for a zero-length view, and `ArrayList`/`String` owner-transfer

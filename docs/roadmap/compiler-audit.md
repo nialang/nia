@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 486 completed entries in this ledger.
+- Implementation batches: 487 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2775,6 +2775,12 @@ acceptance item only when its phase-wide evidence is complete.
       both while retained capacity remains visible; the retry releases only the
       two residual chunks and clears the arena. All 13 allocator executable
       cases pass.
+- [x] Batch 487 proves general-purpose allocator destruction covers all owner
+      classes. A mixed child allocator creates a small page, large header, and
+      malformed pending rollback block, rejects all three cleanup releases, and
+      verifies each remains reflected in capacity/used/emptiness. The retry
+      releases only those residual owners and reaches canonical empty state;
+      all 14 allocator executable cases pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

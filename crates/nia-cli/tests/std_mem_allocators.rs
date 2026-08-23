@@ -335,6 +335,154 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_mem_general_allocator_retries_all_owner_classes() {
+    let root = temp_dir("emit_exe_std_mem_general_allocator_retries_all_owner_classes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::mem;
+using std::process;
+
+struct MixedOwnerAllocator {
+    backing: mem::PageAllocator,
+    malformedNext: bool,
+    malformedLive: bool,
+    rejectedFrees: usize,
+    liveBlocks: usize,
+}
+
+extend MixedOwnerAllocator {
+    fn init() MixedOwnerAllocator {
+        Self {
+            backing: mem::PageAllocator::init(),
+            malformedNext: false,
+            malformedLive: false,
+            rejectedFrees: 0,
+            liveBlocks: 0,
+        }
+    }
+
+    fn rejectNext(&mut self, count: usize) () {
+        self.rejectedFrees = count;
+    }
+}
+
+extend MixedOwnerAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if self.malformedNext {
+            self.malformedNext = false;
+            self.malformedLive = true;
+            return !mem::Block::init((usize::MAX - 1usize) as &mut u8, layout);
+        }
+        let block = self.backing.alloc(layout).?;
+        if not block.isEmpty() {
+            self.liveBlocks += 1;
+        }
+        !block
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if self.rejectedFrees != 0usize and not block.isEmpty() {
+            self.rejectedFrees -= 1;
+            return mem::Error::Invalid!;
+        }
+        if block.ptr() as usize == usize::MAX - 1usize {
+            self.malformedLive = false;
+            return !();
+        }
+        self.backing.free(block).?;
+        if not block.isEmpty() {
+            self.liveBlocks -= 1;
+        }
+        !()
+    }
+
+    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+        _ = block;
+        _ = newLayout;
+        false
+    }
+
+    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+        _ = block;
+        _ = newLayout;
+        null
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut child = MixedOwnerAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
+
+    _ = allocator.alloc(mem::Layout::init(32usize, 8usize).exit().?).exit().?;
+    _ = allocator.alloc(mem::Layout::init(4096usize, 4096usize).exit().?).exit().?;
+    if child.liveBlocks != 2usize {
+        return process::exit(1)!;
+    }
+
+    child.malformedNext = true;
+    child.rejectNext(1usize);
+    match allocator.alloc(mem::Layout::init(4096usize, 8usize).exit().?) {
+        !block => { _ = block; return process::exit(2)!; },
+        mem::Error::OutOfMemory! => {},
+        error! => { _ = error; return process::exit(3)!; },
+    }
+    if not child.malformedLive or allocator.isEmpty() {
+        return process::exit(4)!;
+    }
+
+    child.rejectNext(3usize);
+    match allocator.deinitWithoutLeakCheck() {
+        !ok => { _ = ok; return process::exit(5)!; },
+        mem::Error::Invalid! => {},
+        error! => { _ = error; return process::exit(6)!; },
+    }
+    if child.rejectedFrees != 0usize
+        or child.liveBlocks != 2usize
+        or not child.malformedLive
+        or allocator.capacity() == 0usize
+        or allocator.used() == 0usize
+    {
+        return process::exit(7)!;
+    }
+
+    allocator.deinitWithoutLeakCheck().exit().?;
+    if child.liveBlocks != 0usize
+        or child.malformedLive
+        or not allocator.isEmpty()
+        or allocator.capacity() != 0usize
+        or allocator.used() != 0usize
+    {
+        return process::exit(8)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write general allocator owner cleanup source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile general allocator owner cleanup fixture");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status =
+        Command::new(&exe).status_timeout("run general allocator owner cleanup executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list() {
     let root = temp_dir(
         "emit_exe_std_mem_general_purpose_allocator_supports_small_allocations_and_array_list",

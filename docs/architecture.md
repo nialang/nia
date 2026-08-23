@@ -2236,7 +2236,11 @@ General-purpose allocator rollback follows the same owner rule: when malformed
 small or large metadata requires abandoning a child allocation and that
 fallible release fails, the backing `Block` is retained as a pending owner.
 Capacity, emptiness, allocation, and `deinit` account for and retry that pending
-block rather than dropping the only cleanup handle.
+block rather than dropping the only cleanup handle. Destruction detaches and
+walks the small-page list, large-header list, and pending rollback slot
+independently. Failed pages and headers are linked back into their original
+owner lists and a failed pending block returns to its slot; successful owner
+classes remain detached, so the retry touches only residual releases.
 Hash-map capacity is a logical entry bound rather than a count of untouched
 control bytes. Removing an entry makes one assume-capacity insertion legal even
 when the empty-slot growth budget is exhausted; insertion may land in an empty

@@ -563,6 +563,10 @@ signals, not architecture goals.
   child releases, and link every failed chunk back into owned state before
   returning the first error. Retained capacity must expose those residual
   owners, and retry must not revisit chunks whose releases already succeeded.
+- General-purpose allocator destruction must attempt small pages, large headers,
+  and pending rollback blocks independently. Restore each failed owner to its
+  matching list or slot, preserve the first release error, and keep capacity,
+  used bytes, and emptiness derived from that residual state for the next retry.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
