@@ -370,7 +370,9 @@ signals, not architecture goals.
   `CallableAllocation` must retain the complete allocator release pointer and
   length, and clear their owner fields only after `free` returns success; a
   release error must leave the original block retryable. Never rebuild a
-  release block from only the typed value pointer and logical layout.
+  release block from only the typed value pointer and logical layout. A
+  successful deinit or owner transfer must clear the release metadata as well
+  as the logical size, so repeated cleanup cannot double-free the old block.
 - Allocator rollback paths must retain child blocks when a validation failure is
   followed by a failed release. Pending rollback owners belong to allocator
   state and are retried before later allocation or during `deinit`; they must

@@ -68,6 +68,8 @@ where T: Sized
         let releaseSize = self.releaseSize;
         self.valuePtr = align as &mut T;
         self.size = 0;
+        self.releasePtr = 0;
+        self.releaseSize = 0;
         CallableAllocation[V] { callback, allocationPtr, size, align, releasePtr, releaseSize }
     }
 
@@ -83,6 +85,8 @@ where T: Sized
         )).?;
         self.valuePtr = self.align as &mut T;
         self.size = 0;
+        self.releasePtr = 0;
+        self.releaseSize = 0;
         !()
     }
 }
@@ -105,6 +109,8 @@ where V: Sized
             self.releaseSize,
         )).?;
         self.size = 0;
+        self.releasePtr = 0;
+        self.releaseSize = 0;
         !()
     }
 }

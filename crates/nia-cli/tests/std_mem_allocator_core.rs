@@ -317,6 +317,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
     owned.deinit(&mut allocator).exit().?;
+    owned.deinit(&mut allocator).exit().?;
 
     let base: i32 = 1;
     let mut callableStorage = mem::allocValue(
@@ -326,6 +327,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut callableState = callableStorage.valueMut();
     let callableView: &mut Fn(i32) i32 = &mut callableState.*;
     let mut callableOwner = callableStorage.intoCallable(callableView);
+    callableStorage.deinit(&mut allocator).exit().?;
     allocator.failNext();
     match callableOwner.deinit(&mut allocator) {
         !ok => {
