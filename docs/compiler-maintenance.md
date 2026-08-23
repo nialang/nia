@@ -355,6 +355,9 @@ signals, not architecture goals.
 - Apply the same transaction rule to single allocation owners. `Allocated` and
   `CallableAllocation` must clear their owner fields only after `free` returns
   success; a release error must leave the original block retryable.
+- Keep allocator page slot growth and live-count updates checked. Reject a
+  doubling overflow or an impossible used-slot transition before mutating the
+  page metadata.
 - Keep public allocation-owner constructors on the `std::mem` facade. Do not
   publish a type while leaving its only construction extension in a
   package-private implementation module.
