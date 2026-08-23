@@ -394,7 +394,11 @@ signals, not architecture goals.
   must still attempt later descriptors after an earlier close failure.
 - Formatting helpers that stage temporary output must apply the same precedence:
   preserve the primary format/encoding error when staging cleanup also fails,
-  and report the cleanup allocation error only when staging itself succeeded.
+  and report the cleanup allocation error only when staging itself succeeded. If
+  `free` fails before releasing the staging backing, transfer that owner to the
+  destination and retry it before the next formatting operation and during
+  destination cleanup; never leave the writer and destination as duplicate
+  owners.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.

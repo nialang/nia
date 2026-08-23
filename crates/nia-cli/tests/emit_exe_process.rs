@@ -1950,11 +1950,16 @@ using std::process;
 struct FailFreeAllocator {
     backing: mem::PageAllocator,
     failNextFree: bool,
+    liveBlocks: usize,
 }
 
 extend FailFreeAllocator {
     fn init() FailFreeAllocator {
-        Self { backing: mem::PageAllocator::init(), failNextFree: false }
+        Self {
+            backing: mem::PageAllocator::init(),
+            failNextFree: false,
+            liveBlocks: 0,
+        }
     }
 
     fn failNext(&mut self) () {
@@ -1964,14 +1969,21 @@ extend FailFreeAllocator {
 
 extend FailFreeAllocator : mem::Allocator {
     fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
-        self.backing.alloc(layout)
+        let block = self.backing.alloc(layout).?;
+        if not block.isEmpty() {
+            self.liveBlocks += 1;
+        }
+        !block
     }
 
     fn free(&mut self, block: mem::Block) mem::Error!() {
-        self.backing.free(block).?;
         if self.failNextFree and not block.isEmpty() {
             self.failNextFree = false;
             return mem::Error::Invalid!;
+        }
+        self.backing.free(block).?;
+        if not block.isEmpty() {
+            self.liveBlocks -= 1;
         }
         !()
     }
@@ -2337,7 +2349,6 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut cleanupAllocator = FailFreeAllocator::init();
     let mut cleanupText = std::String::initCapacity(&mut cleanupAllocator, 32usize).exit().?;
-    defer cleanupText.deinit(&mut cleanupAllocator).exit().?;
     cleanupText.append(&mut cleanupAllocator, &"base").exit().?;
     cleanupAllocator.failNext();
     let cleanupFormatArgs: [&fmt::Format; 1] = [&answer];
@@ -2356,20 +2367,52 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(50)!;
     }
 
-    cleanupAllocator.failNext();
-    match cleanupText.appendFormat(&mut cleanupAllocator, &"{}", &invalidFormatArgs) {
+    match cleanupText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
         !ok => {
             _ = ok;
-            return process::exit(51)!;
         },
-        std::TextFormatError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
         error! => {
             _ = error;
             return process::exit(52)!;
         },
     }
-    if not cleanupText.equals(&"base") {
+    if not cleanupText.equals(&"base 42") {
         return process::exit(53)!;
+    }
+
+    cleanupAllocator.failNext();
+    match cleanupText.appendFormat(&mut cleanupAllocator, &"{}", &invalidFormatArgs) {
+        !ok => {
+            _ = ok;
+            return process::exit(54)!;
+        },
+        std::TextFormatError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
+        error! => {
+            _ = error;
+            return process::exit(55)!;
+        },
+    }
+    if not cleanupText.equals(&"base 42") {
+        return process::exit(56)!;
+    }
+    cleanupAllocator.failNext();
+    match cleanupText.deinit(&mut cleanupAllocator) {
+        !ok => {
+            _ = ok;
+            return process::exit(57)!;
+        },
+        mem::Error::Invalid! => {},
+        error! => {
+            _ = error;
+            return process::exit(58)!;
+        },
+    }
+    if cleanupAllocator.liveBlocks != 1usize {
+        return process::exit(59)!;
+    }
+    cleanupText.deinit(&mut cleanupAllocator).exit().?;
+    if cleanupAllocator.liveBlocks != 0usize {
+        return process::exit(60)!;
     }
 
     let mut path = std::Path::fromView(page, std::PathView::init(&"root")).exit().?;
