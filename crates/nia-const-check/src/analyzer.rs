@@ -907,7 +907,7 @@ impl Analyzer<'_> {
                     self.push_const_type_mismatch(span, "vector");
                     return;
                 };
-                if values.len() != lanes as usize {
+                if usize::try_from(lanes).ok() != Some(values.len()) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
                         span,

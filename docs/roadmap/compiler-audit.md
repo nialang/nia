@@ -2367,6 +2367,11 @@ acceptance item only when its phase-wide evidence is complete.
       payloads before storing canonical `u64` `usize` values, routing overflow
       through the invalid-IR boundary; backend-lower/LLVM suites, workspace
       check, formatting, and strict Clippy pass.
+- [x] Batch 411 closes const vector lane host-width narrowing.
+      Const-check vector validation and `splat` evaluation, plus body-check
+      const-vector materialization, now checked-convert semantic lane counts to
+      host `usize`; const/body/LLVM suites, workspace check, formatting, and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
