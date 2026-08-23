@@ -64,7 +64,10 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
         stdout_pipe.close_write();
         stderr_pipe.close_write();
         error_pipe.close_write();
-        let pid = ProcessId::init(ret as i32);
+        let pid = match ProcessId::from_syscall(ret) {
+            !pid => pid,
+            error! => return SpawnError::Setup(error)!,
+        };
         let error_read = match error_pipe.take_read() {
             ?fd => {
                 fd
@@ -248,7 +251,7 @@ fn open_dev_null() Errno!types::FileDescriptor {
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !types::FileDescriptor::init(ret as i32)
+        !types::FileDescriptor::from_syscall(ret).?
     }
 }
 

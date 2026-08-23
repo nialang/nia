@@ -170,6 +170,20 @@ extend FileDescriptor {
         Self { fd: fd }
     }
 
+    pub fn from_syscall(ret: isize) Errno!FileDescriptor {
+        if ret < 0isize or ret > i32::MAX as isize {
+            return Errno::Io!;
+        }
+        !FileDescriptor::init(ret as i32)
+    }
+
+    pub fn from_kernel(fd: i32) Errno!FileDescriptor {
+        if fd < 0i32 {
+            return Errno::Io!;
+        }
+        !FileDescriptor::init(fd)
+    }
+
     pub fn stdin() FileDescriptor {
         FileDescriptor::init(0)
     }
@@ -204,6 +218,13 @@ extend Pipe {
 extend ProcessId {
     pub fn init(pid: i32) ProcessId {
         Self { pid: pid }
+    }
+
+    pub fn from_syscall(ret: isize) Errno!ProcessId {
+        if ret <= 0isize or ret > i32::MAX as isize {
+            return Errno::Io!;
+        }
+        !ProcessId::init(ret as i32)
     }
 
     pub fn raw(&self) i32 {

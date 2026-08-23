@@ -390,6 +390,10 @@ signals, not architecture goals.
 - Treat raw syscall error returns as untrusted signed ABI data. Require a
   negative value within Linux's errno range before negating and narrowing it;
   reject sign, minimum-integer, and width-overflow cases as `Io`.
+- Treat successful descriptor and process-id returns as untrusted too. Check
+  non-negative/positive sign and the target `i32` width before constructing
+  typed handles; validate kernel-filled pipe descriptors through the same
+  boundary.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
