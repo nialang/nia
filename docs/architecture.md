@@ -2709,6 +2709,10 @@ function owning the current insertion block. Cross-function block handles are
 therefore rejected before `LLVMBuildBr`, `LLVMBuildCondBr`, or
 `LLVMBuildSwitch`, instead of relying on module verification.
 
+Phi incoming edges are checked similarly. `PhiValue::add_incoming` is fallible:
+each incoming value must match the phi's LLVM type and each incoming block must
+belong to the phi's function before `LLVMAddIncoming` is called.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

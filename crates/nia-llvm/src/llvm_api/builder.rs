@@ -2940,6 +2940,55 @@ mod tests {
     }
 
     #[test]
+    fn rejects_phi_incoming_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("phi-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let incoming = context.append_basic_block(function, "incoming").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let phi = builder.build_phi(context.i32_type(), "phi").unwrap();
+        let value = context.i64_type().const_zero();
+
+        let error = phi
+            .add_incoming(&[(&value, incoming)])
+            .expect_err("phi incoming type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("incoming value type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_cross_function_phi_incoming_block_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("phi-block").unwrap();
+        let function = module
+            .add_function("source", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let other = module
+            .add_function("other", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let foreign = context.append_basic_block(other, "foreign").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let phi = builder.build_phi(context.i32_type(), "phi").unwrap();
+        let value = context.i32_type().const_zero();
+
+        let error = phi
+            .add_incoming(&[(&value, foreign)])
+            .expect_err("cross-function phi incoming block");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("must belong to the phi's function")
+        ));
+    }
+
+    #[test]
     fn accepts_equal_width_vector_to_integer_bitcast() {
         let context = Context::create();
         let module = context.create_module("bitcast-vector").unwrap();
