@@ -2779,6 +2779,11 @@ letting the typed wrapper assert on a null handle.
 silently truncating handles imported from external LLVM IR to Nia's narrower
 source-level array-length model.
 
+Tuple-value projections convert their source `usize` field index with an
+explicit `u32` check before `LLVMBuildExtractValue`; place projections use the
+same checked conversion, so malformed backend indices cannot wrap at the LLVM
+boundary.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
