@@ -274,9 +274,11 @@ same Nia ABI classification as an ordinary function.
 
 `mem::Allocated[T]` and `mem::CallableAllocation[V]` are standard-library
 aggregates, not compiler or ABI primitives. `Allocated[T]` stores a typed
-pointer to caller-provided raw storage together with the size and alignment
-needed to release that block. `CallableAllocation[V]` stores a sized callable
-view plus the original raw block metadata. The owner is therefore an ordinary
+pointer to caller-provided raw storage together with its logical size/alignment
+and the complete allocator release pointer/length. `CallableAllocation[V]`
+stores a sized callable view plus the same original release metadata. The
+release pointer crosses an explicit raw-address integer boundary and is never
+reconstructed from the typed value pointer. The owner is therefore an ordinary
 Nia aggregate; its private field order is a standard-library implementation
 detail and may evolve independently of closure entry symbols.
 

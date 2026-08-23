@@ -274,6 +274,28 @@ pub fn main(init: process::Init) process::ExitCode!() {
         },
     }
     owned.deinit(&mut allocator).exit().?;
+
+    let base: i32 = 1;
+    let mut callableStorage = mem::allocValue(
+        &mut allocator,
+        \[base] value: i32 -> { base + value },
+    ).exit().?;
+    let mut callableState = callableStorage.valueMut();
+    let callableView: &mut Fn(i32) i32 = &mut callableState.*;
+    let mut callableOwner = callableStorage.intoCallable(callableView);
+    allocator.failNext();
+    match callableOwner.deinit(&mut allocator) {
+        !ok => {
+            _ = ok;
+            return process::exit(3)!;
+        },
+        mem::Error::Invalid! => {},
+        error! => {
+            _ = error;
+            return process::exit(4)!;
+        },
+    }
+    callableOwner.deinit(&mut allocator).exit().?;
     !()
 }
 "#,

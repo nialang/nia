@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 458 completed entries in this ledger.
+- Implementation batches: 459 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2599,6 +2599,13 @@ acceptance item only when its phase-wide evidence is complete.
       baselines, along with the dual-stage const, payload-enum, and trait-object
       cases affected by the public std demand graph, now match the current
       implementation. The complete `nia-driver --lib` suite passes 646/646.
+- [x] Batch 459 carries complete allocator release metadata through single
+      typed owners. `Allocated` and `CallableAllocation` now retain the
+      original block's release pointer and length across construction,
+      callable transfer, and retryable `deinit`; release addresses use the
+      explicit raw-integer boundary so closure escape analysis sees only the
+      callable view. They no longer reconstruct release ownership from the
+      value pointer and logical layout after an over-aligned mapping.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
