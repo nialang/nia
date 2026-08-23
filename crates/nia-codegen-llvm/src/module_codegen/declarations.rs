@@ -231,7 +231,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             for field in self.physical_struct_fields(item.def_id, &[], &[], item.span)? {
                 fields.push(self.llvm_basic_type_in(field.ty, field.span)?);
             }
-            struct_ty.set_body(&fields, false);
+            struct_ty
+                .set_body(&fields, false)
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         for key in &self.declarations.struct_instances {
             let item = self
@@ -252,7 +254,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             {
                 fields.push(self.llvm_basic_type_in(field.ty, field.span)?);
             }
-            struct_ty.set_body(&fields, false);
+            struct_ty
+                .set_body(&fields, false)
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         for &def_id in &self.declarations.unions {
             let item = self.program.union_item(def_id).unwrap_or_else(|| {
@@ -267,10 +271,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ),
                 ));
             };
-            union_ty.set_body(
-                &self.union_storage_fields(item.def_id, &[], &[], item.span)?,
-                false,
-            );
+            union_ty
+                .set_body(
+                    &self.union_storage_fields(item.def_id, &[], &[], item.span)?,
+                    false,
+                )
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         for key in &self.declarations.union_instances {
             let item = self
@@ -285,10 +291,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             else {
                 return Err(self.error(item.span, "missing LLVM union instance"));
             };
-            union_ty.set_body(
-                &self.union_storage_fields(item.def_id, &item.args, &item.const_args, item.span)?,
-                false,
-            );
+            union_ty
+                .set_body(
+                    &self.union_storage_fields(
+                        item.def_id,
+                        &item.args,
+                        &item.const_args,
+                        item.span,
+                    )?,
+                    false,
+                )
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         Ok(())
     }

@@ -23,9 +23,10 @@ use llvm_sys::core::{
     LLVMGetInstructionParent, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
     LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType,
     LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType,
-    LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant,
-    LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile,
-    LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsOpaqueStruct, LLVMIsPackedStruct,
+    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
+    LLVMSetSection, LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
+    LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -707,8 +708,19 @@ impl<'ctx> StructType<'ctx> {
         BasicTypeEnum::StructType(self)
     }
 
-    /// Defines or replaces the physical fields of a named struct type.
-    pub fn set_body(self, fields: &[BasicTypeEnum<'ctx>], packed: bool) {
+    /// Defines the physical fields of a named opaque struct type.
+    pub fn set_body(self, fields: &[BasicTypeEnum<'ctx>], packed: bool) -> LlvmResult<()> {
+        let raw = self.as_type_ref();
+        if unsafe { LLVMIsLiteralStruct(raw) } != 0 {
+            return Err(LlvmError::error(
+                "LLVM struct body requires a named opaque struct",
+            ));
+        }
+        if unsafe { LLVMIsOpaqueStruct(raw) } == 0 {
+            return Err(LlvmError::error(
+                "LLVM struct body can only be assigned once to an opaque struct",
+            ));
+        }
         let mut fields = fields
             .iter()
             .map(|field| field.as_type_ref())
@@ -721,6 +733,7 @@ impl<'ctx> StructType<'ctx> {
                 bool_to_llvm(packed),
             )
         };
+        Ok(())
     }
 
     /// Returns the number of physical struct fields.
@@ -1525,6 +1538,39 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("constant array element 0 type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_setting_body_on_literal_struct() {
+        let context = Context::create();
+        let struct_ty = context.struct_type(&[], false);
+
+        let error = struct_ty
+            .set_body(&[context.i32_type().into()], false)
+            .expect_err("literal struct body assignment");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("requires a named opaque struct")
+        ));
+    }
+
+    #[test]
+    fn rejects_setting_body_after_opaque_struct_is_defined() {
+        let context = Context::create();
+        let struct_ty = context.opaque_struct_type("defined").unwrap();
+        struct_ty
+            .set_body(&[context.i32_type().into()], false)
+            .unwrap();
+
+        let error = struct_ty
+            .set_body(&[context.i64_type().into()], false)
+            .expect_err("redefining opaque struct body");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("can only be assigned once")
         ));
     }
 

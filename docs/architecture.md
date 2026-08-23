@@ -2745,6 +2745,12 @@ requirements, and the current compare-exchange failure ordering before the
 setter enters LLVM. Backend validation still owns source-level atomic place and
 value typing.
 
+Named struct body assignment is also fallible: `StructType::set_body` checks
+LLVM's opaque/literal state and only permits defining a named opaque struct
+once before `LLVMStructSetBody`. Declaration lowering propagates the wrapper
+failure, so literal or already-defined struct handles cannot trigger an LLVM
+assertion through the safe API.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
