@@ -2041,6 +2041,11 @@ acceptance item only when its phase-wide evidence is complete.
       provenance, and size preconditions. Codegen continues through its
       validated byte-loop implementation; LLVM/codegen suites, workspace
       check, formatting, and strict Clippy pass.
+- [x] Batch 354 closes the LLVM switch-case boundary. `Builder::build_switch`
+      now validates all case values before instruction creation, requiring
+      constant integers with exactly the selector's LLVM type. Wrapper tests
+      cover mismatched types and runtime values; LLVM/codegen suites, workspace
+      check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -20,8 +20,8 @@ use llvm_sys::core::{
     LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor,
     LLVMBuildZExt, LLVMClearInsertionPosition, LLVMCountStructElementTypes, LLVMDisposeBuilder,
     LLVMGetArrayLength2, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetIntTypeWidth,
-    LLVMGetTypeKind, LLVMGetVectorSize, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
-    LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMGetTypeKind, LLVMGetVectorSize, LLVMIsAConstantInt, LLVMPositionBuilderAtEnd,
+    LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -341,6 +341,7 @@ impl<'ctx> Builder<'ctx> {
         else_block: BasicBlock<'ctx>,
         cases: &[(IntValue<'ctx>, BasicBlock<'ctx>)],
     ) -> LlvmResult<InstructionValue<'ctx>> {
+        validate_switch_cases(value.as_value_ref(), cases)?;
         let inst = unsafe {
             LLVMBuildSwitch(
                 self.raw,
@@ -1452,6 +1453,28 @@ fn validate_shuffle_types(
     Ok(())
 }
 
+fn validate_switch_cases<'ctx>(
+    value: LLVMValueRef,
+    cases: &[(IntValue<'ctx>, BasicBlock<'ctx>)],
+) -> LlvmResult<()> {
+    let value_ty = require_type(unsafe { LLVMTypeOf(value) }, "switch value")?;
+    for (case_value, _) in cases {
+        let case_raw = case_value.as_value_ref();
+        let case_ty = require_type(unsafe { LLVMTypeOf(case_raw) }, "switch case")?;
+        if case_ty != value_ty {
+            return Err(LlvmError::error(
+                "LLVM switch case type does not match the switch value type",
+            ));
+        }
+        if unsafe { LLVMIsAConstantInt(case_raw) }.is_null() {
+            return Err(LlvmError::error(
+                "LLVM switch cases must be constant integer values",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn build_int_bin<'ctx>(
     builder: LLVMBuilderRef,
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
@@ -1892,6 +1915,70 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("truncation target must be narrower")
+        ));
+    }
+
+    #[test]
+    fn rejects_switch_case_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("switch-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let default = context.append_basic_block(function, "default").unwrap();
+        let case_block = context.append_basic_block(function, "case").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_switch(
+                context.i32_type().const_zero(),
+                default,
+                &[(context.i64_type().const_zero(), case_block)],
+            )
+            .expect_err("switch case type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("case type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_nonconstant_switch_case_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("switch-constant").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context
+                    .void_type()
+                    .fn_type(&[context.i32_type().into()], false),
+                None,
+            )
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let default = context.append_basic_block(function, "default").unwrap();
+        let case_block = context.append_basic_block(function, "case").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let nonconstant = function
+            .get_nth_param(0)
+            .unwrap()
+            .unwrap()
+            .into_int_value()
+            .unwrap();
+
+        let error = builder
+            .build_switch(
+                context.i32_type().const_zero(),
+                default,
+                &[(nonconstant, case_block)],
+            )
+            .expect_err("nonconstant switch case");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("must be constant integer")
         ));
     }
 }
