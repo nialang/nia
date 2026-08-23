@@ -857,12 +857,15 @@ where T: Sized
     }
 
     fn allocatedBlock(&self) mem::Error!mem::Block {
-        if self.capacity == 0 {
-            return !mem::Block::empty(mem::Layout::array[T](0).?);
-        }
         match self.storageBlock {
             ?block => !block,
-            null => mem::Error::Invalid!,
+            null => {
+                if self.capacity == 0 {
+                    !mem::Block::empty(mem::Layout::array[T](0).?)
+                } else {
+                    mem::Error::Invalid!
+                }
+            },
         }
     }
 
