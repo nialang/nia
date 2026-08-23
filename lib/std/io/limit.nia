@@ -46,6 +46,10 @@ where R: Reader
         self.reader.endOfStream()
     }
 
+    pub fn invalidRead(&self) Error {
+        self.reader.invalidRead()
+    }
+
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
         match self.limit.remaining {
             ?remaining => {

@@ -348,7 +348,10 @@ signals, not architecture goals.
   library semantics when those behaviors are the subject of the test.
 - Treat public reader/writer byte counts as untrusted implementation output:
   validate `n <= requested.len()` before changing any cursor, buffered length, or
-  limit, and retain pending bytes when reporting an invalid transfer.
+  limit, and retain pending bytes when reporting an invalid transfer. Generic
+  adapters must forward the wrapped implementation's `invalidRead` or
+  `invalidWrite` classification rather than replacing it with ordinary EOF or
+  short-write identity.
 - For multi-allocation collection cleanup, detach each owner only after its
   allocator release succeeds. Preserve failed slots for a cleanup retry and do
   not advertise partially deinitialized state as an empty reusable collection.
