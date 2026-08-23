@@ -3286,6 +3286,10 @@ of exposing record padding as a filesystem name.
 Linux `statx` timestamps are also validated at the syscall conversion boundary:
 every published nanosecond component must be below one billion. Invalid atime,
 mtime, or ctime data returns `Invalid` before constructing public metadata.
+Linux `getcwd` validates the successful return contract before exposing a path:
+the returned count must be non-zero, fit the caller buffer, and include the
+terminating NUL that the kernel promises. A malformed result returns `Io`
+instead of publishing an unterminated slice.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.

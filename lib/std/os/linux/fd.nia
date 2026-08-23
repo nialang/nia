@@ -169,12 +169,13 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
         ret.syscall_error()!
     } else {
         let mut len = ret as usize;
-        if len > buffer.len() {
-            return Errno::TooLong!;
+        if len == 0usize or len > buffer.len() {
+            return Errno::Io!;
         }
-        if len != 0usize and buffer[len - 1usize] == 0u8 {
-            len -= 1usize;
+        if buffer[len - 1usize] != 0u8 {
+            return Errno::Io!;
         }
+        len -= 1usize;
         !&buffer[0..len]
     }
 }

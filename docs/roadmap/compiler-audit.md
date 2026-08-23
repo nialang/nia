@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 431 completed entries in this ledger.
+- Implementation batches: 432 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2462,6 +2462,10 @@ acceptance item only when its phase-wide evidence is complete.
       and required modification/status-change times now reject nanosecond fields
       outside `[0, 1_000_000_000)` before public filesystem metadata is built.
       Filesystem metadata and the complete executable matrix remain green.
+- [x] Batch 432 validates Linux `getcwd` success payloads. Zero or oversized
+      return counts and results lacking the promised trailing NUL now return
+      `Io` before an unterminated path slice can reach filesystem consumers.
+      Filesystem executable coverage remains green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
