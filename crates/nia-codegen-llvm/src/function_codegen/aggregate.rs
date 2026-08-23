@@ -585,7 +585,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .iter()
                     .map(|byte| byte.expect("initialized promoted byte segment"))
                     .collect::<Vec<_>>();
-                values.push(self.module.context.const_string(&segment, true).into());
+                values.push(
+                    self.module
+                        .context
+                        .const_string(&segment, true)
+                        .map_err(|error| error.diagnostic())?
+                        .into(),
+                );
             } else {
                 values.push(self.promoted_undef_bytes((end - start) as u64, span)?);
             }

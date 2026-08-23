@@ -97,6 +97,15 @@ pub(super) fn checked_u32_count(count: usize, message: &str) -> LlvmResult<u32> 
     u32::try_from(count).map_err(|_| LlvmError::error(message))
 }
 
+pub(super) fn require_value(raw: LLVMValueRef, operation: &str) -> LlvmResult<LLVMValueRef> {
+    if raw.is_null() {
+        return Err(LlvmError::error(format!(
+            "LLVM returned a null {operation} value"
+        )));
+    }
+    Ok(raw)
+}
+
 pub(super) fn validate_alignment(bytes: u32) -> LlvmResult<()> {
     if bytes == 0 || !bytes.is_power_of_two() {
         return Err(LlvmError::error(
@@ -631,9 +640,13 @@ impl<'ctx> IntType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(ArrayValue::new(unsafe {
+        let raw = unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        }))
+        };
+        Ok(ArrayValue::new(require_value(
+            raw,
+            "integer constant array",
+        )?))
     }
 
     /// Creates the zero constant.
@@ -676,9 +689,13 @@ impl<'ctx> FloatType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(ArrayValue::new(unsafe {
+        let raw = unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        }))
+        };
+        Ok(ArrayValue::new(require_value(
+            raw,
+            "floating constant array",
+        )?))
     }
 
     /// Creates positive floating-point zero.
@@ -725,9 +742,13 @@ impl<'ctx> PointerType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(ArrayValue::new(unsafe {
+        let raw = unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        }))
+        };
+        Ok(ArrayValue::new(require_value(
+            raw,
+            "pointer constant array",
+        )?))
     }
 }
 
@@ -793,8 +814,8 @@ impl<'ctx> StructType<'ctx> {
         self,
         values: &[BasicValueEnum<'ctx>],
     ) -> LlvmResult<StructValue<'ctx>> {
-        let field_count = self.count_fields() as usize;
-        if values.len() != field_count {
+        let field_count = self.count_fields();
+        if values.len() != field_count as usize {
             return Err(LlvmError::error(format!(
                 "struct constant has {} values, expected {field_count}",
                 values.len()
@@ -818,9 +839,12 @@ impl<'ctx> StructType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(StructValue::new(unsafe {
-            LLVMConstNamedStruct(self.as_type_ref(), values.as_mut_ptr(), values.len() as u32)
-        }))
+        let raw =
+            unsafe { LLVMConstNamedStruct(self.as_type_ref(), values.as_mut_ptr(), field_count) };
+        Ok(StructValue::new(require_value(
+            raw,
+            "named struct constant",
+        )?))
     }
 
     /// Creates a recursively zero-initialized struct constant.
@@ -840,9 +864,13 @@ impl<'ctx> StructType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(ArrayValue::new(unsafe {
+        let raw = unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        }))
+        };
+        Ok(ArrayValue::new(require_value(
+            raw,
+            "struct constant array",
+        )?))
     }
 }
 
@@ -880,9 +908,8 @@ impl<'ctx> ArrayType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(ArrayValue::new(unsafe {
-            LLVMConstArray2(elem_ty, values.as_mut_ptr(), values.len() as u64)
-        }))
+        let raw = unsafe { LLVMConstArray2(elem_ty, values.as_mut_ptr(), values.len() as u64) };
+        Ok(ArrayValue::new(require_value(raw, "array constant array")?))
     }
 }
 
@@ -921,9 +948,8 @@ impl<'ctx> VectorType<'ctx> {
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        Ok(VectorValue::new(unsafe {
-            LLVMConstVector(values.as_mut_ptr(), values.len() as u32)
-        }))
+        let raw = unsafe { LLVMConstVector(values.as_mut_ptr(), self.len()) };
+        Ok(VectorValue::new(require_value(raw, "vector constant")?))
     }
 
     /// Creates a zero-initialized vector constant.
@@ -1566,6 +1592,17 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null basic value".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_constant_value_before_wrapper_construction() {
+        let error =
+            require_value(std::ptr::null_mut(), "constant array").expect_err("null constant value");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null constant array value".to_string())
         );
     }
 

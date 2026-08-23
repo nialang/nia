@@ -44,7 +44,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         .const_zero()
                         .map_err(Self::diagnostic_from_llvm_error);
                 }
-                Ok(self.context.const_string(bytes, true).into())
+                self.context
+                    .const_string(bytes, true)
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)
             }
             StaticInit::Float(text) => self.static_float_init_value(ty, text, span),
             StaticInit::Char(value) => self.static_char_init_value_in(ty, *value, span),
@@ -261,10 +264,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 Some(TyKind::Primitive(PrimitiveTy::U8))
             )
         {
-            return Ok(self
+            return self
                 .context
                 .const_string(&vec![*byte; count as usize], true)
-                .into());
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error);
         }
         let value = self.static_init_value_in(*elem, value, span)?;
         let values = std::iter::repeat_n(value, count as usize).collect::<Vec<_>>();

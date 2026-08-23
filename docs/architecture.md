@@ -2813,6 +2813,12 @@ and validates the `LLVMStructTypeInContext` result before exposing a typed
 handle. Module and function lowering therefore propagate construction errors
 instead of retaining an unchecked null-handle path.
 
+Aggregate constant constructors use the same result-handle guard. Typed array,
+vector, named-struct, and byte-string constants reject null LLVM values before
+wrapping them, and codegen propagates those failures through static and promoted
+initialization. `Context::const_string` is fallible, so no caller can retain an
+unchecked byte-array compatibility path.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

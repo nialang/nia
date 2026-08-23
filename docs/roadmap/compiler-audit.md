@@ -2246,6 +2246,12 @@ acceptance item only when its phase-wide evidence is complete.
       module/function lowering and wrapper-test callers propagate or explicitly
       unwrap valid construction results. LLVM/codegen suites, workspace check,
       formatting, and strict Clippy pass.
+- [x] Batch 389 closes LLVM aggregate constant result-handle gaps.
+      Typed array, vector, named-struct, and context byte-string constructors
+      now reject null LLVM values before typed wrapping; `Context::const_string`
+      returns `LlvmResult` and all codegen callers propagate it. A wrapper
+      regression covers the shared null-value guard, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
