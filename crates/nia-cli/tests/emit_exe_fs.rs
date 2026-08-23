@@ -1816,18 +1816,32 @@ pub fn main(init: process::Init) process::ExitCode!() {
         error! => { _ = error; return process::exit(6)!; },
     }
 
-    let mut invalidStorage: [u8; 16] = [0; 16];
+    let mut invalidStorage: [u8; 16] = [0xa5u8; 16];
     match fs::PathView::init(&"bad\0path").encode(&mut invalidStorage) {
         !value => { _ = value; return process::exit(7)!; },
         fs::PathError::ContainsNul! => {},
         error! => { _ = error; return process::exit(8)!; },
     }
+    let mut invalidIndex = 0usize;
+    while invalidIndex < invalidStorage.len() {
+        if invalidStorage[invalidIndex] != 0xa5u8 {
+            return process::exit(16)!;
+        }
+        invalidIndex += 1usize;
+    }
 
-    let mut shortStorage: [u8; 3] = [0; 3];
+    let mut shortStorage: [u8; 3] = [0x5au8; 3];
     match path.encode(&mut shortStorage) {
         !value => { _ = value; return process::exit(9)!; },
         fs::PathError::TooLong! => {},
         error! => { _ = error; return process::exit(10)!; },
+    }
+    let mut shortIndex = 0usize;
+    while shortIndex < shortStorage.len() {
+        if shortStorage[shortIndex] != 0x5au8 {
+            return process::exit(17)!;
+        }
+        shortIndex += 1usize;
     }
 
     let mut fixedStorage: [u8; 96] = [0; 96];

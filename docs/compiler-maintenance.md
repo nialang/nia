@@ -527,6 +527,10 @@ signals, not architecture goals.
   Reserve the complete mutation first, then use assume-capacity operations so
   allocation failure cannot commit only a separator or prefix. Prefer offset
   rebasing over a temporary allocation when the source is within the same text.
+- Treat caller-provided path encoding storage as transactional output. Validate
+  every scalar, the checked total byte length, and trailing-NUL capacity before
+  writing the first byte. A failed replacement encode must not partially
+  corrupt another borrowed native view backed by the same caller buffer.
 - UTF-8 iterators must validate decoded-width advancement against the borrowed
   slice before committing state. Treat a failed advancement or remaining-count
   decrement as a terminal invalidation, rather than exposing wrapped indices.

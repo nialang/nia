@@ -3396,6 +3396,11 @@ capacity before mutation. After a successful move it reconstructs the aliased
 slice from the new storage and commits the separator plus component with
 infallible assume-capacity operations. Allocation failure leaves the path
 unchanged, and successful self-append introduces no temporary allocation owner.
+`PathView::encode` likewise separates validation from publication. Its first
+pass rejects NUL scalars, checked-length overflow, and missing terminator space
+without touching caller storage. Only a fully validated path reaches the UTF-8
+write pass and trailing-NUL commit, so an older borrowed native view into the
+same buffer is not partially corrupted by a failed replacement encode.
 Allocator-owned `Allocated` and `CallableAllocation` values follow the inverse
 ordering: they retain the value pointer, logical layout, and the allocator
 block's complete release pointer/length until `free` succeeds. Release pointer

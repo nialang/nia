@@ -16,6 +16,9 @@ The library follows a small set of ownership rules:
   records their logical offset before growth, rebuilds the slice after any
   allocation move, and commits only after reserving the complete joined length.
   The operation does not retain a temporary allocation owner.
+- `PathView::encode` validates NULs, total UTF-8 length, and terminator capacity
+  before changing caller storage. Any encoding error leaves the complete output
+  buffer unchanged rather than publishing a partial native path.
 - Ownership-transfer constructors consume an existing owner. Copying
   constructors accept an allocator and preserve typed allocation or validation
   failures.
