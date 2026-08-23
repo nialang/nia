@@ -74,11 +74,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         module: &'m ModuleCodegen<'ctx, 'a>,
         function: impl Into<FunctionCodegenInput<'a>>,
         llvm_function: FunctionValue<'ctx>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Diagnostic> {
+        let function = function.into();
+        let builder = module
+            .context
+            .create_builder()
+            .map_err(ModuleCodegen::diagnostic_from_llvm_error)?;
+        Ok(Self {
             module,
-            builder: module.context.create_builder(),
-            function: function.into(),
+            builder,
+            function,
             llvm_function,
             locals: HashMap::new(),
             local_tys: HashMap::new(),
@@ -87,7 +92,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             defer_scopes: Vec::new(),
             function_defer_scopes: HashMap::new(),
             active_function_scope: None,
-        }
+        })
     }
 
     fn alloc_function_locals(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {

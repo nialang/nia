@@ -56,14 +56,9 @@ impl Context {
     }
 
     /// Creates an instruction builder owned by this context.
-    ///
-    /// LLVM documents context and builder allocation as infallible. Keep the
-    /// assertion here because there is no useful recoverable error contract
-    /// for a context that cannot allocate its own builder.
-    pub fn create_builder<'ctx>(&'ctx self) -> Builder<'ctx> {
+    pub fn create_builder<'ctx>(&'ctx self) -> LlvmResult<Builder<'ctx>> {
         let raw = unsafe { LLVMCreateBuilderInContext(self.raw) };
-        assert!(!raw.is_null());
-        Builder::new(raw)
+        Ok(Builder::new(require_handle(raw, "builder")?))
     }
 
     /// Creates a module, surfacing invalid names or a null LLVM result.
@@ -336,6 +331,17 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null opaque struct type handle".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_builder_before_wrapper_construction() {
+        let error = require_handle::<llvm_sys::LLVMBuilder>(std::ptr::null_mut(), "builder")
+            .expect_err("null builder handle");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null builder handle".to_string())
         );
     }
 

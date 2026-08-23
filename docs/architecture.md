@@ -2823,6 +2823,11 @@ Named opaque struct creation applies the same result check. `Context::opaque_str
 rejects a null `LLVMStructCreateNamed` handle before returning its fallible
 `StructType`, so declaration lowering cannot reach the typed-wrapper assertion.
 
+Instruction-builder allocation is fallible as well. `Context::create_builder`
+checks `LLVMCreateBuilderInContext` before constructing `Builder`; function,
+adapter, and compiler-builtin lowering propagate allocation failures instead of
+retaining an assertion-only compatibility path.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

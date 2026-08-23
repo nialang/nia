@@ -442,7 +442,9 @@ fn emit_u128_div_rem<'ctx>(
         )
         .map_err(diagnostic_from_llvm_error)?;
 
-    let builder = context.create_builder();
+    let builder = context
+        .create_builder()
+        .map_err(diagnostic_from_llvm_error)?;
     let a = divmod
         .get_nth_param(0)
         .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
@@ -620,7 +622,9 @@ fn emit_u128_builtin_wrapper<'ctx>(
     let entry = context
         .append_basic_block(function, "entry")
         .map_err(diagnostic_from_llvm_error)?;
-    let builder = context.create_builder();
+    let builder = context
+        .create_builder()
+        .map_err(diagnostic_from_llvm_error)?;
     builder.position_at_end(entry);
     let a = function
         .get_nth_param(0)
@@ -662,7 +666,9 @@ fn emit_i128_builtin_wrapper<'ctx>(
     let entry = context
         .append_basic_block(function, "entry")
         .map_err(diagnostic_from_llvm_error)?;
-    let builder = context.create_builder();
+    let builder = context
+        .create_builder()
+        .map_err(diagnostic_from_llvm_error)?;
     builder.position_at_end(entry);
     let a = function
         .get_nth_param(0)
