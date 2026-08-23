@@ -696,8 +696,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 _ => return Err(self.error(span, "expected scalar or vector integer type")),
             };
             let bits = lane_ty.bit_width();
-            let min_lane = lane_ty.const_u128(1u128 << (bits - 1));
-            let negative_one_lane = lane_ty.const_u128(u128::MAX);
+            let min_lane = lane_ty.const_u128(1u128 << (bits - 1))?;
+            let negative_one_lane = lane_ty.const_u128(u128::MAX)?;
             let (min, negative_one) = if let Some(lanes) = vector_lanes {
                 (
                     self.splat_int_vector_constant(

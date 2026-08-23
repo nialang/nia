@@ -385,7 +385,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .module
                     .llvm_basic_type(expr.ty, expr.span)?
                     .into_int_type()?;
-                Ok(ty.const_u128(value.bits()).into())
+                Ok(ty.const_u128(value.bits())?.into())
             }
             FunctionExprKind::Range(range) => self.emit_range(expr.span, expr.ty, range),
             FunctionExprKind::RangeBound { range, bound } => {

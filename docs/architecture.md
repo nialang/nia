@@ -2861,6 +2861,11 @@ Pointer conversion constants use the same rule: `PointerType::const_int_to_ptr`
 validates `LLVMConstIntToPtr` before exposing a pointer value, so integer-to-
 pointer folding cannot reintroduce an assertion-only nullable result path.
 
+Wide integer and floating literal constructors also validate their LLVM result
+handles. `IntType::const_u128` checks both native-width and arbitrary-precision
+paths, while `FloatType::const_float` checks `LLVMConstReal`; literal and static
+initialization lowering propagates those diagnostics.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

@@ -343,7 +343,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .module
                     .llvm_basic_type(value.ty, value.span)?
                     .into_int_type()?;
-                ty.const_u128(integer.bits()).into()
+                ty.const_u128(integer.bits())?.into()
             }
             FunctionExprKind::Integer(text) => {
                 self.emit_integer_literal(value.ty, value.span, text)?
@@ -878,7 +878,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "enum backing type is not primitive"));
         };
         let ty = self.integer_llvm_type(*primitive, span)?;
-        Ok(ty.const_u128(value as u128).into())
+        Ok(ty.const_u128(value as u128)?.into())
     }
 
     pub(super) fn emit_enum_tag(

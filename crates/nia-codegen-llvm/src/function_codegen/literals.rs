@@ -20,10 +20,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .ok_or_else(|| self.error(span, format!("invalid float literal `{text}`")))?;
         match self.module.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::F32)) => {
-                Ok(self.module.context.f32_type().const_float(value).into())
+                Ok(self.module.context.f32_type().const_float(value)?.into())
             }
             Some(TyKind::Primitive(PrimitiveTy::F64)) => {
-                Ok(self.module.context.f64_type().const_float(value).into())
+                Ok(self.module.context.f64_type().const_float(value)?.into())
             }
             _ => Err(self.error(span, "float literal target type is not float")),
         }
@@ -41,7 +41,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "integer literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
-        Ok(int_ty.const_u128(value as u128).into())
+        Ok(int_ty.const_u128(value as u128)?.into())
     }
 
     pub(super) fn emit_string_literal(
@@ -120,7 +120,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "char literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
-        Ok(int_ty.const_u128(value as u128).into())
+        Ok(int_ty.const_u128(value as u128)?.into())
     }
 
     pub(super) fn emit_byte_char_literal(
@@ -135,6 +135,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "byte char literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
-        Ok(int_ty.const_u128(value as u128).into())
+        Ok(int_ty.const_u128(value as u128)?.into())
     }
 }

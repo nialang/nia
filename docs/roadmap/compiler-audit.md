@@ -2311,6 +2311,12 @@ acceptance item only when its phase-wide evidence is complete.
       constructing a typed pointer and returns `LlvmResult`; a wrapper
       regression covers the checked conversion, with workspace check,
       formatting, and strict Clippy passing.
+- [x] Batch 400 closes wide integer and floating literal constants.
+      `IntType::const_u128` validates both native-width and arbitrary-precision
+      LLVM constants, while `FloatType::const_float` validates `LLVMConstReal`;
+      literal/static-init lowering propagates the result and a wrapper regression
+      covers both constructors. LLVM/codegen suites, workspace check, formatting,
+      and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
