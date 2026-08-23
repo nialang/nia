@@ -22,7 +22,7 @@ use super::{
     AddressSpace, ArrayValue, AsTypeRef, AsValueRef, Attribute, BasicBlock, BasicTypeEnum, Builder,
     FloatType, FunctionType, FunctionValue, InlineAsmDialect, IntType, LlvmError, LlvmResult,
     Module, PointerType, PointerValue, StructType, VoidType, bool_to_llvm, checked_u32_count,
-    to_c_string,
+    require_value, to_c_string,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -282,15 +282,16 @@ impl Context {
         &'ctx self,
         bytes: &[u8],
         dont_null_terminate: bool,
-    ) -> ArrayValue<'ctx> {
-        ArrayValue::new(unsafe {
+    ) -> LlvmResult<ArrayValue<'ctx>> {
+        let raw = unsafe {
             LLVMConstStringInContext2(
                 self.raw,
                 bytes.as_ptr() as *const _,
                 bytes.len(),
                 bool_to_llvm(dont_null_terminate),
             )
-        })
+        };
+        Ok(ArrayValue::new(require_value(raw, "constant string")?))
     }
 }
 
