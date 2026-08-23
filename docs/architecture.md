@@ -2178,11 +2178,11 @@ primary cause; if releasing the replacement also fails, `Rollback` carries that
 replacement `Block` and its cleanup error so callers can retry both owners
 explicitly. The allocator receives the original block by value, so the caller
 retains that original owner while handling the error.
-Collection cleanup follows the same explicit-owner rule. `HashMap::deinit`
-attempts its control, key, and value releases independently, detaches only the
-successfully freed allocation slots, and retains failed slots for a later retry
-with the same allocator. After a cleanup error the map is cleanup-only state;
-ordinary lookup or mutation is not supported until ownership is fully retired.
+Collection cleanup follows the same explicit-owner rule. A `HashMap` stores its
+control bytes, keys, and values as aligned views into one allocation block;
+`deinit` therefore has one owner to release and retains that block unchanged on
+failure. After a cleanup error the map is cleanup-only state; ordinary lookup or
+mutation is not supported until ownership is fully retired.
 `ArrayList` replacement growth and shrink paths retain a newly allocated
 replacement slice if cleanup of that temporary owner fails after the original
 allocation is still active. Self-aliasing append/insert/replace operations use
@@ -2190,11 +2190,10 @@ a separate alias-copy owner for the same reason. `deinit` attempts active,
 replacement, and alias-copy slices independently, so overlapping failures
 cannot strand either allocation.
 Rehash applies the same transaction rule to replacement storage: the old
-control, key, and value allocations become retired owners on the map before
-the new table is published. If any retired release fails, the active table
-remains usable while the residual retired slices stay attached; a later
-rehash must retire those slices successfully first, and `deinit` attempts both
-active and retired groups while retaining whichever individual owners fail.
+storage block becomes a retired owner on the map before the new table is
+published. If its release fails, the active table remains usable while the
+retired block stays attached; a later rehash must retire it successfully first,
+and `deinit` attempts both active and retired blocks.
 General-purpose allocator rollback follows the same owner rule: when malformed
 small or large metadata requires abandoning a child allocation and that
 fallible release fails, the backing `Block` is retained as a pending owner.

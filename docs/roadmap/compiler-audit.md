@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 454 completed entries in this ledger.
+- Implementation batches: 455 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2573,6 +2573,12 @@ acceptance item only when its phase-wide evidence is complete.
       conversion preserve the new contract. The allocator executable matrix
       covers both a recoverable old-free failure and a two-owner rollback whose
       replacement and original blocks are subsequently released.
+- [x] Batch 455 removes HashMap's multi-allocation rollback surface. Control
+      bytes, keys, and values now occupy one checked, maximum-aligned storage
+      block; rehash transfers one retired block and `deinit` retries that single
+      owner without silently dropping ctrl/key/value allocations. The complete
+      seven-case HashMap executable matrix now covers one-block rehash and
+      cleanup counts, including unit-sized generic fields.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
