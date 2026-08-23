@@ -2066,7 +2066,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not emptyCstring.isEmpty() or emptyCstring.nulTerminatedBytes().len() != 1 {
         return process::exit(58)!;
     }
-    let borrowedCstring = std::CStringView::fromPtrUnchecked((&b"copy\0").ptr());
+    let borrowedCstring = match std::CStringView::fromBytes(&b"copy\0") {
+        !value => value,
+        error! => {
+            _ = error;
+            return process::exit(52)!;
+        },
+    };
     let mut copiedCstring = std::CString::fromView(page, borrowedCstring).exit().?;
     defer copiedCstring.deinit(page).exit().?;
     if not copiedCstring.view().bytes().equals(&b"copy") {

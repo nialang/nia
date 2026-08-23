@@ -8,7 +8,7 @@ using types::{Arg, Args, ArgsIter};
 
 extend Arg {
     fn init(ptr: &u8) Arg {
-        Self { text: cstring::CStringView::fromPtrUnchecked(ptr) }
+        Self { text: cstring::CStringView::fromTerminatedPtr(ptr) }
     }
 
     pub fn rawPtr(&self) &u8 {

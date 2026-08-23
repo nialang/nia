@@ -18,6 +18,7 @@ pub enum CStringBuildError {
 
 pub struct CStringView {
     ptr: &u8,
+    len: usize,
 }
 
 pub struct CString {
@@ -75,7 +76,7 @@ extend CString {
     }
 
     pub fn view(&self) CStringView {
-        CStringView::fromPtrUnchecked(self.bytes.asSlice().ptr())
+        CStringView::fromParts(self.bytes.asSlice().ptr(), self.len())
     }
 
     pub fn rawPtr(&self) &u8 {
@@ -104,8 +105,19 @@ extend CString {
 }
 
 extend CStringView {
-    pub fn fromPtrUnchecked(ptr: &u8) CStringView {
-        Self { ptr }
+    fn fromParts(ptr: &u8, len: usize) CStringView {
+        Self { ptr: ptr, len: len }
+    }
+
+    // The process startup ABI guarantees each argv/envp entry is NUL-terminated.
+    // This package-private boundary records that trusted length once; ordinary
+    // callers must use `fromBytes`, which validates a bounded slice first.
+    pub(pkg) fn fromTerminatedPtr(ptr: &u8) CStringView {
+        let mut len: usize = 0;
+        while ptr[len] != 0 {
+            len += 1;
+        }
+        CStringView::fromParts(ptr, len)
     }
 
     pub fn fromBytes(bytes: &[u8]) CStringError!CStringView {
@@ -120,7 +132,7 @@ extend CStringView {
                 return CStringError::InteriorNul!;
             }
         }
-        !CStringView::fromPtrUnchecked(bytes.ptr())
+        !CStringView::fromParts(bytes.ptr(), bytes.len() - 1)
     }
 
     pub fn rawPtr(&self) &u8 {
@@ -128,11 +140,7 @@ extend CStringView {
     }
 
     pub fn len(&self) usize {
-        let mut len: usize = 0;
-        while self.ptr[len] != 0 {
-            len += 1;
-        }
-        len
+        self.len
     }
 
     pub fn bytes(&self) &[u8] {
@@ -140,7 +148,7 @@ extend CStringView {
     }
 
     pub fn nulTerminatedBytes(&self) &[u8] {
-        &self.ptr[0..self.len() + 1]
+        &self.ptr[0..self.len + 1]
     }
 
     pub fn isEmpty(&self) bool {
