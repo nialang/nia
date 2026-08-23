@@ -6,4 +6,4 @@ module.build_script=build.nia
 exit-code=0
 codegen-preparation-executions=1
 backend-lowering-executions=0
-backend-finalization-executions=21
+backend-finalization-executions=23
