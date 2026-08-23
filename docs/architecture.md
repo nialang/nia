@@ -2775,6 +2775,9 @@ Fixed-array construction now checks the `LLVMArrayType2` result and returns
 `LlvmResult` as well. Zero-length arrays remain supported because LLVM defines
 them as valid types; codegen propagates construction failures instead of
 letting the typed wrapper assert on a null handle.
+`ArrayType::len` preserves LLVM's full `u64` element count rather than
+silently truncating handles imported from external LLVM IR to Nia's narrower
+source-level array-length model.
 
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
