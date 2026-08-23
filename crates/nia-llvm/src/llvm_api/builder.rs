@@ -5,6 +5,7 @@
 //! Unsafe GEP helpers require callers to pass element types and indices that
 //! match the pointee/object being addressed.
 
+use llvm_sys::LLVMTypeKind;
 use llvm_sys::core::{
     LLVMAddCase, LLVMBuildAShr, LLVMBuildAdd, LLVMBuildAlloca, LLVMBuildAnd,
     LLVMBuildAtomicCmpXchg, LLVMBuildAtomicRMW, LLVMBuildBitCast, LLVMBuildBr, LLVMBuildCall2,
@@ -18,8 +19,9 @@ use llvm_sys::core::{
     LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
     LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
     LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
-    LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
-    LLVMSetCurrentDebugLocation2,
+    LLVMCountStructElementTypes, LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType,
+    LLVMGetInsertBlock, LLVMGetTypeKind, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
+    LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -28,8 +30,8 @@ use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
     BasicMetadataValueEnum, BasicTypeEnum, BasicValue, BasicValueEnum, CallSiteValue, Context,
     DILocation, FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue,
-    InstructionValue, IntPredicate, IntType, IntValue, LlvmResult, PhiValue, PointerType,
-    PointerValue, StructValue, VectorValue, to_c_string,
+    InstructionValue, IntPredicate, IntType, IntValue, LlvmError, LlvmResult, PhiValue,
+    PointerType, PointerValue, StructValue, VectorValue, to_c_string,
 };
 /// Owned LLVM instruction builder tied to its originating context.
 ///
@@ -354,20 +356,21 @@ impl<'ctx> Builder<'ctx> {
         Ok(InstructionValue::new(inst))
     }
 
-    /// Extracts aggregate field `index`.
+    /// Extracts aggregate field `index` after checking its field bounds.
     pub fn build_extract_value<AV: AggregateValue<'ctx>>(
         &self,
         aggregate: AV,
         index: u32,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        aggregate_element_type(aggregate.as_value_ref(), index)?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildExtractValue(self.raw, aggregate.as_value_ref(), index, name.as_ptr())
         })
     }
 
-    /// Returns an aggregate with field `index` replaced by `value`.
+    /// Returns an aggregate with field `index` replaced by a matching `value`.
     pub fn build_insert_value<AV: AggregateValue<'ctx>, BV: BasicValue<'ctx>>(
         &self,
         aggregate: AV,
@@ -375,6 +378,13 @@ impl<'ctx> Builder<'ctx> {
         index: u32,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let field_ty = aggregate_element_type(aggregate.as_value_ref(), index)?;
+        let value_ty = require_type(unsafe { LLVMTypeOf(value.as_value_ref()) }, "insert value")?;
+        if field_ty != value_ty {
+            return Err(LlvmError::error(
+                "LLVM aggregate insertion value type does not match the selected field",
+            ));
+        }
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildInsertValue(
@@ -1295,6 +1305,52 @@ fn require_value(raw: LLVMValueRef, operation: &str) -> LlvmResult<LLVMValueRef>
     }
 }
 
+fn require_type(raw: LLVMTypeRef, operation: &str) -> LlvmResult<LLVMTypeRef> {
+    if raw.is_null() {
+        Err(LlvmError::error(format!(
+            "LLVM returned a null type while checking {operation}"
+        )))
+    } else {
+        Ok(raw)
+    }
+}
+
+/// Returns the physical type of one top-level aggregate field.
+///
+/// LLVM's aggregate builders otherwise accept an unchecked `u32` index and
+/// rely on the verifier (or a null result) to report malformed IR. Validate it
+/// before entering the FFI so the safe wrapper preserves its `LlvmResult`
+/// contract and never asks LLVM to construct an invalid instruction.
+fn aggregate_element_type(aggregate: LLVMValueRef, index: u32) -> LlvmResult<LLVMTypeRef> {
+    let aggregate_ty = require_type(unsafe { LLVMTypeOf(aggregate) }, "aggregate value")?;
+    let field_ty = match unsafe { LLVMGetTypeKind(aggregate_ty) } {
+        LLVMTypeKind::LLVMStructTypeKind => {
+            let count = unsafe { LLVMCountStructElementTypes(aggregate_ty) };
+            if u64::from(index) >= u64::from(count) {
+                return Err(LlvmError::error(format!(
+                    "aggregate field index {index} is out of bounds for struct with {count} fields"
+                )));
+            }
+            unsafe { LLVMStructGetTypeAtIndex(aggregate_ty, index) }
+        }
+        LLVMTypeKind::LLVMArrayTypeKind => {
+            let count = unsafe { LLVMGetArrayLength2(aggregate_ty) };
+            if u64::from(index) >= count {
+                return Err(LlvmError::error(format!(
+                    "aggregate field index {index} is out of bounds for array with {count} elements"
+                )));
+            }
+            unsafe { LLVMGetElementType(aggregate_ty) }
+        }
+        kind => {
+            return Err(LlvmError::error(format!(
+                "LLVM aggregate operation received non-aggregate type {kind:?}"
+            )));
+        }
+    };
+    require_type(field_ty, "aggregate field")
+}
+
 fn build_int_bin<'ctx>(
     builder: LLVMBuilderRef,
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
@@ -1444,5 +1500,52 @@ mod tests {
                 "LLVM returned a null value while building test instruction".to_string()
             )
         );
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_aggregate_index_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("aggregate-index").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let aggregate_ty = context.struct_type(&[context.i32_type().into()], false);
+
+        let error = builder
+            .build_extract_value(aggregate_ty.const_zero(), 1, "invalid")
+            .expect_err("out-of-bounds aggregate index");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("field index 1 is out of bounds")
+        ));
+    }
+
+    #[test]
+    fn rejects_aggregate_insert_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("aggregate-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let aggregate_ty = context.struct_type(&[context.i32_type().into()], false);
+
+        let error = builder
+            .build_insert_value(
+                aggregate_ty.const_zero(),
+                context.i64_type().const_zero(),
+                0,
+                "invalid",
+            )
+            .expect_err("aggregate insertion type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("insertion value type does not match")
+        ));
     }
 }
