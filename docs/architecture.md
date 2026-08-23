@@ -3281,6 +3281,11 @@ Formatting template width and precision fields use checked decimal
 accumulation. Values that do not fit target `usize` are invalid templates; they
 cannot wrap to a smaller padding request or reach writer dispatch.
 
+Slice iterators apply the same checked rule to element-size multiplication and
+pointer-address addition before yielding an item. A malformed or impossible
+layout therefore ends iteration instead of wrapping an address into unrelated
+storage.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
