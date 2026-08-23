@@ -23,6 +23,8 @@ The library follows a small set of ownership rules:
   map-owned retired allocations until each release succeeds. A failed retired
   release leaves the active table usable but requires cleanup retry before a
   later rehash or final `deinit`.
+- ArrayList replacement growth and shrink retain a failed temporary replacement
+  owner for `deinit` retry instead of dropping it after an old-owner failure.
 - Hash-map capacity counts logical entries, including slots made reusable by
   deletion. `insertAssumeCapacity` therefore requires `len < capacity`, not an
   unused physical empty-slot budget; it may reuse either an empty or deleted

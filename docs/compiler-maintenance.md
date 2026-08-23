@@ -371,6 +371,10 @@ signals, not architecture goals.
 - For collections whose elements own allocations, retain the collection
   backing whenever any element cleanup fails. Releasing the element storage
   would discard the only metadata capable of retrying the residual owner.
+- Replacement-based collections must retain a temporary new backing if the
+  old-owner release fails and cleanup of that new backing also fails. Keep both
+  owners reachable for `deinit`; never assume a best-effort rollback freed the
+  replacement.
 - For consuming close APIs, clear the cleanup flag before the syscall. A failed
   close may still consume the descriptor, so a defer retry can only mask the
   original error with `BadFd`.

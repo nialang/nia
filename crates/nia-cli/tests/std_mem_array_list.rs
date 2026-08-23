@@ -625,6 +625,135 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_array_list_retains_replacement_when_both_frees_fail() {
+    let root = temp_dir("emit_exe_std_array_list_retains_replacement_when_both_frees_fail");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+struct FailingAllocator {
+    backing: mem::FixedBufferAllocator,
+    freeCount: usize,
+    failures: usize,
+}
+
+extend FailingAllocator {
+    fn init(buffer: &mut [u8]) FailingAllocator {
+        Self { backing: mem::FixedBufferAllocator::init(buffer), freeCount: 0, failures: 0 }
+    }
+
+    fn failNextFrees(&mut self, count: usize) () {
+        self.failures = count;
+    }
+}
+
+extend FailingAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.backing.alloc(layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if not block.isEmpty() {
+            self.freeCount += 1;
+            if self.failures != 0 {
+                self.failures -= 1;
+                return mem::Error::Invalid!;
+            }
+        }
+        self.backing.free(block)
+    }
+
+    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+        _ = block;
+        _ = newLayout;
+        false
+    }
+
+    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+        _ = block;
+        _ = newLayout;
+        null
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut storage: [u8; 8192] = [0; 8192];
+    let mut allocator = FailingAllocator::init(&mut storage);
+    let mut list = std::ArrayList[i32]::init();
+    list.reserveExact(&mut allocator, 2).exit().?;
+    list.appendSliceAssumeCapacity(&[10, 20]);
+    allocator.failNextFrees(2);
+    match list.reserveExact(&mut allocator, 64) {
+        !ok => { _ = ok; return process::exit(1)!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return process::exit(2)!;
+            } },
+    }
+    if allocator.freeCount != 2 or list.len() != 2 or list.asSlice()[0] != 10 or list.asSlice()[1] != 20 {
+        return process::exit(3)!;
+    }
+    allocator.failNextFrees(0);
+    list.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 4 {
+        return process::exit(4)!;
+    }
+
+    let mut retryList = std::ArrayList[i32]::init();
+    retryList.reserveExact(&mut allocator, 2).exit().?;
+    retryList.appendSliceAssumeCapacity(&[30, 40]);
+    allocator.failNextFrees(2);
+    match retryList.reserveExact(&mut allocator, 64) {
+        !ok => { _ = ok; return process::exit(5)!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return process::exit(6)!;
+            } },
+    }
+    allocator.failNextFrees(1);
+    match retryList.deinit(&mut allocator) {
+        !ok => { _ = ok; return process::exit(7)!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return process::exit(8)!;
+            } },
+    }
+    if allocator.freeCount != 8 {
+        return process::exit(9)!;
+    }
+    allocator.failNextFrees(0);
+    retryList.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 9 {
+        return process::exit(10)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_array_list_range_operations_and_owned_copy() {
     let root = temp_dir("emit_exe_std_array_list_range_operations_and_owned_copy");
     let main = root.join("main.nia");

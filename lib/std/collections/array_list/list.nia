@@ -7,13 +7,20 @@ where T: Sized
 {
     items: &mut [T],
     capacity: usize,
+    retiredItems: &mut [T],
+    retiredCapacity: usize,
 }
 
 extend[T] ArrayList[T]
 where T: Sized
 {
     pub fn init() ArrayList[T] {
-        Self { items: raw::danglingSlice[T](0), capacity: 0 }
+        Self {
+            items: raw::danglingSlice[T](0),
+            capacity: 0,
+            retiredItems: raw::danglingSlice[T](0),
+            retiredCapacity: 0,
+        }
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
@@ -23,14 +30,37 @@ where T: Sized
     }
 
     pub fn fromOwnedSlice(items: &mut [T]) ArrayList[T] {
-        Self { items, capacity: items.len() }
+        Self {
+            items,
+            capacity: items.len(),
+            retiredItems: raw::danglingSlice[T](0),
+            retiredCapacity: 0,
+        }
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        self.freeItems(allocator).?;
-        self.items = raw::danglingSlice[T](0);
-        self.capacity = 0;
-        !()
+        let mut firstError: ?mem::Error = null;
+        match self.freeItems(allocator) {
+            !ok => { _ = ok; },
+            err! => { firstError = ?err; },
+        }
+        match self.freeRetiredItems(allocator) {
+            !ok => { _ = ok; },
+            err! => {
+                match firstError {
+                    ?value => { _ = value; },
+                    null => { firstError = ?err; },
+                }
+            },
+        }
+        match firstError {
+            ?err => err!,
+            null => {
+                self.items = raw::danglingSlice[T](0);
+                self.capacity = 0;
+                !()
+            },
+        }
     }
 
     pub fn len(&self) usize {
@@ -91,6 +121,7 @@ where T: Sized
     }
 
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
+        self.freeRetiredItems(allocator).?;
         let len = self.len();
         if std::builtin::size[T]() == 0 {
             self.items = raw::danglingSlice[T](0);
@@ -135,7 +166,10 @@ where T: Sized
                     !ok => {
                         _ = ok;
                     },
-                    error! => {},
+                    error! => {
+                        self.retiredItems = newItems;
+                        self.retiredCapacity = len;
+                    },
                 }
                 return err!;
             },
@@ -423,6 +457,7 @@ where T: Sized
     }
 
     pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
+        self.freeRetiredItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();
         }
@@ -431,6 +466,7 @@ where T: Sized
     }
 
     fn ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
+        self.freeRetiredItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();
         }
@@ -579,6 +615,7 @@ where T: Sized
     }
 
     pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
+        self.freeRetiredItems(allocator).?;
         let targetCapacity = if minCapacity > self.len() {
             minCapacity
         } else {
@@ -622,7 +659,10 @@ where T: Sized
                     !ok => {
                         _ = ok;
                     },
-                    error! => {},
+                    error! => {
+                        self.retiredItems = newItems;
+                        self.retiredCapacity = targetCapacity;
+                    },
                 }
                 return err!;
             },
@@ -660,6 +700,7 @@ where T: Sized
     }
 
     fn growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
+        self.freeRetiredItems(allocator).?;
         if std::builtin::size[T]() == 0 {
             self.capacity = usize::MAX;
             return !();
@@ -687,7 +728,10 @@ where T: Sized
                     !ok => {
                         _ = ok;
                     },
-                    error! => {},
+                    error! => {
+                        self.retiredItems = newItems;
+                        self.retiredCapacity = capacity;
+                    },
                 }
                 return err!;
             },
@@ -701,7 +745,33 @@ where T: Sized
             return !();
         }
         let block = self.allocatedBlock().?;
-        allocator.free(block)
+        match allocator.free(block) {
+            !ok => {
+                _ = ok;
+                self.items = raw::danglingSlice[T](0);
+                self.capacity = 0;
+                !()
+            },
+            err! => err!,
+        }
+    }
+
+    fn freeRetiredItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        if self.retiredItems.len() == 0 or std::builtin::size[T]() == 0 {
+            self.retiredItems = raw::danglingSlice[T](0);
+            self.retiredCapacity = 0;
+            return !();
+        }
+        let layout = mem::Layout::array[T](self.retiredCapacity).?;
+        match allocator.free(mem::Block::init(self.retiredItems.ptrMut() as &mut u8, layout)) {
+            !ok => {
+                _ = ok;
+                self.retiredItems = raw::danglingSlice[T](0);
+                self.retiredCapacity = 0;
+                !()
+            },
+            err! => err!,
+        }
     }
 
     fn allocatedItems(&mut self) &mut [T] {
