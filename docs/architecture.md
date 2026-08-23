@@ -3305,6 +3305,11 @@ slice range.
 continuing to honor the writer contract for each input slice. Long-running
 discard sinks cannot wrap `len()` back to a smaller value.
 
+Build package handles reserve index zero for the root package. Additional
+package indices use checked `len + 1` allocation and report the build memory
+failure boundary if the host index space is exhausted; they cannot alias the
+root through wraparound.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
