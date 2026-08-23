@@ -29,8 +29,8 @@ use std::marker::PhantomData;
 
 use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
-    BasicMetadataValueEnum, BasicTypeEnum, BasicValue, BasicValueEnum, CallSiteValue, Context,
-    DILocation, FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue,
+    BasicMetadataValueEnum, BasicType, BasicTypeEnum, BasicValue, BasicValueEnum, CallSiteValue,
+    Context, DILocation, FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue,
     InstructionValue, IntPredicate, IntType, IntValue, LlvmError, LlvmResult, PhiValue,
     PointerType, PointerValue, StructValue, VectorValue, to_c_string,
 };
@@ -88,7 +88,11 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Allocates stack storage for one value of `ty`.
-    pub fn build_alloca<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PointerValue<'ctx>> {
+    pub fn build_alloca<T: BasicType<'ctx>>(
+        &self,
+        ty: T,
+        name: &str,
+    ) -> LlvmResult<PointerValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr()) };
         Ok(PointerValue::new(require_value(value, "alloca")?))
@@ -106,7 +110,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Loads a value of `ty` through `ptr`.
-    pub fn build_load<T: AsTypeRef>(
+    pub fn build_load<T: BasicType<'ctx>>(
         &self,
         ty: T,
         ptr: PointerValue<'ctx>,
@@ -124,7 +128,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Loads a value while asserting the pointer's byte alignment.
-    pub fn build_aligned_load<T: AsTypeRef>(
+    pub fn build_aligned_load<T: BasicType<'ctx>>(
         &self,
         ty: T,
         ptr: PointerValue<'ctx>,
@@ -150,7 +154,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Emits a volatile load of `ty`.
-    pub fn build_volatile_load<T: AsTypeRef>(
+    pub fn build_volatile_load<T: BasicType<'ctx>>(
         &self,
         ty: T,
         ptr: PointerValue<'ctx>,
@@ -225,7 +229,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Creates an empty phi node whose incoming edges are added separately.
-    pub fn build_phi<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PhiValue<'ctx>> {
+    pub fn build_phi<T: BasicType<'ctx>>(&self, ty: T, name: &str) -> LlvmResult<PhiValue<'ctx>> {
         let name = to_c_string(name)?;
         let value = unsafe { LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr()) };
         Ok(PhiValue::new(require_value(value, "phi")?))
@@ -1057,7 +1061,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     /// Bitcasts a value without changing its bit representation.
-    pub fn build_bit_cast<V: BasicValue<'ctx>, T: AsTypeRef>(
+    pub fn build_bit_cast<V: BasicValue<'ctx>, T: BasicType<'ctx>>(
         &self,
         value: V,
         target: T,

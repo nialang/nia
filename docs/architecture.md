@@ -2673,6 +2673,12 @@ pointer address spaces. Pointer width itself remains target-data dependent;
 pointer-to-integer and integer-to-pointer operations therefore use their
 dedicated typed builders.
 
+The typed builder surface also uses the `BasicType` marker for alloca, load,
+volatile-load, phi, and bitcast destinations. Void and function signature
+handles therefore cannot reach these LLVM instructions through a safe API;
+GEP remains explicitly unsafe because its pointee/provenance contract is
+address-specific rather than a first-class value-type constraint.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

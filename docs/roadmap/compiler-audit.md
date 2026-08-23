@@ -2072,6 +2072,12 @@ acceptance item only when its phase-wide evidence is complete.
       wrapper. Regressions cover a mismatched-width cast and the SIMD bool-mask
       packing path, with LLVM/codegen suites, workspace check, formatting, and
       strict Clippy passing.
+- [x] Batch 359 removes non-first-class type handles from the safe LLVM builder
+      surface. Alloca, load, volatile-load, phi, and bitcast destinations now
+      require the existing `BasicType` marker, so void/function signature types
+      cannot enter those instructions; the codegen place-load helper adopts the
+      same bound. LLVM/codegen suites, workspace check, formatting, and strict
+      Clippy pass with no compatibility shim retained.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
