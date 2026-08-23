@@ -2648,6 +2648,11 @@ allocation provenance, and size contracts. Code generation uses its validated
 byte-loop lowering for these operations, so retaining dead FFI entry points
 would only preserve an unverifiable historical API.
 
+`Builder::build_switch` validates every case before creating the instruction:
+case values must be constant integers whose LLVM type exactly matches the
+switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
+codegen and prevents partially constructed switches from malformed backend IR.
+
 ### 12.2 `nia-codegen-llvm`
 
 Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
