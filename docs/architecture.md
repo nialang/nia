@@ -3266,6 +3266,10 @@ package-private; user code receives these values only from the injected startup
 boundary and stores those validated views rather than retaining raw `argv/envp`
 fields. Repeated `argc()`, `args()`, and `env()` calls therefore cannot rescan
 the environment vector or recreate raw ABI views.
+The startup views also treat a null vector pointer as an empty view and reject
+null individual argv/envp entries before constructing a C-string view. This
+keeps Linux's empty-vector convention inside the package boundary without
+dereferencing malformed raw pointers.
 Process execution likewise has one maintained `Command` lowering path. The
 former public `process::spawnRaw` escape hatch and process-view raw pointer
 getters are removed, so callers cannot bypass argument/environment encoding or
