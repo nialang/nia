@@ -2337,6 +2337,11 @@ acceptance item only when its phase-wide evidence is complete.
       checked `usize -> u64` conversions before LLVM integer constants; the
       affected codegen suite, workspace check, formatting, and strict Clippy
       pass.
+- [x] Batch 405 closes codegen repeat-count narrowing.
+      Static repeated initializers now checked-convert semantic `u64` counts to
+      host `usize` before materializing byte strings or LLVM constant arrays;
+      a focused conversion regression covers the host-width boundary, with
+      codegen tests, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -2822,6 +2822,11 @@ checked-convert host `usize` values to the LLVM `i64` index/length constants;
 these paths no longer silently truncate if a future host uses a wider index
 type.
 
+Static repeated initializers check their semantic `u64` count before materializing
+the host `Vec` or byte string used by LLVM constant construction. Counts that do
+not fit the host `usize` width become diagnostics instead of truncating or
+overflowing an allocation request.
+
 Context-local struct type construction follows the same fallible boundary:
 `Context::struct_type` checks the field count against LLVM's `u32` ABI width
 and validates the `LLVMStructTypeInContext` result before exposing a typed
