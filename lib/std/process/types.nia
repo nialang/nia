@@ -191,9 +191,8 @@ pub struct ChildStderr {
 }
 
 pub struct Init {
-    argc: usize,
-    argv: &&u8,
-    envp: &&u8,
+    args: Args,
+    env: Env,
 }
 
 extend SystemError {

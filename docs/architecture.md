@@ -3262,6 +3262,10 @@ without either a bounded validation or an explicit runtime-owned boundary.
 The corresponding `Init`, `Args`, and `Env` raw-pointer constructors are also
 package-private; user code receives these values only from the injected startup
 `Init`, not by fabricating an arbitrary process ABI record.
+`Init` materializes its `Args` and `Env` views exactly once at that startup
+boundary and stores those validated views rather than retaining raw `argv/envp`
+fields. Repeated `argc()`, `args()`, and `env()` calls therefore cannot rescan
+the environment vector or recreate raw ABI views.
 Process execution likewise has one maintained `Command` lowering path. The
 former public `process::spawnRaw` escape hatch and process-view raw pointer
 getters are removed, so callers cannot bypass argument/environment encoding or

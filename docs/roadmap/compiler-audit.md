@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 438 completed entries in this ledger.
+- Implementation batches: 439 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2488,6 +2488,10 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Batch 438 closes the Linux anonymous `mmap` null-address boundary. A zero
       success return is rejected before conversion to a mutable reference;
       non-zero mappings retain the existing checked range-trimming behavior.
+- [x] Batch 439 removes repeated process-startup view construction. `Init`
+      now materializes `Args` and `Env` once and stores those validated views;
+      `argc()`, `args()`, and `env()` no longer retain or rescan raw startup
+      pointers after the package-owned boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
