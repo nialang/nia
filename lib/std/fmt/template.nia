@@ -8,16 +8,6 @@ struct ParsedSpec {
     dynamic_precision: bool,
 }
 
-pub fn print_unchecked[W](
-    writer: &mut W,
-    template: &[char],
-    args: &[&core::Format],
-) core::Error!()
-where W: io::Writer
-{
-    print_template(writer, template, args, false)
-}
-
 fn parse_presentation(ch: char) ?core::FormatPresentation {
     if ch == 'x' {
         ?core::FormatPresentation::LowerHex
@@ -192,12 +182,9 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
     )
 }
 
-fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize, checked_args: bool) core::Error!usize {
-    if checked_args and arg_index.* >= args.len() {
-        return core::Error::MissingArgument!;
-    }
+fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize) core::Error!usize {
     if arg_index.* >= args.len() {
-        return core::Error::InvalidTemplate!;
+        return core::Error::MissingArgument!;
     }
     let value = match args[arg_index.*].format_usize_arg() {
         ?value => {
@@ -215,15 +202,14 @@ fn resolve_dynamic_spec(
     parsed: ParsedSpec,
     args: &[&core::Format],
     arg_index: &mut usize,
-    checked_args: bool,
 ) core::Error!core::FormatSpec {
     let mut width = parsed.spec.width();
     let mut precision = parsed.spec.precision();
     if parsed.dynamic_width {
-        width = next_usize_arg(args, arg_index, checked_args).?;
+        width = next_usize_arg(args, arg_index).?;
     }
     if parsed.dynamic_precision {
-        precision = ?next_usize_arg(args, arg_index, checked_args).?;
+        precision = ?next_usize_arg(args, arg_index).?;
     }
     !core::FormatSpec::init(
         parsed.spec.presentation(),
@@ -240,7 +226,6 @@ fn print_template[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
-    checked_args: bool,
 ) core::Error!()
 where W: io::Writer
 {
@@ -255,7 +240,7 @@ where W: io::Writer
             }
             let next = template[index + 1usize];
             if next == '}' {
-                if checked_args and arg_index >= args.len() {
+                if arg_index >= args.len() {
                     return core::Error::MissingArgument!;
                 }
                 args[arg_index].format_spec(&mut formatter, core::FormatSpec::display()).?;
@@ -266,12 +251,12 @@ where W: io::Writer
                 index += 2usize;
             } else if next == ':' {
                 let parsed = parse_extended_spec(template, index + 2usize).?;
-                if checked_args and arg_index >= args.len() {
+                if arg_index >= args.len() {
                     return core::Error::MissingArgument!;
                 }
                 let value_index = arg_index;
                 arg_index += 1usize;
-                let spec = resolve_dynamic_spec(parsed, args, &mut arg_index, checked_args).?;
+                let spec = resolve_dynamic_spec(parsed, args, &mut arg_index).?;
                 args[value_index].format_spec(&mut formatter, spec).?;
                 index = parsed.next_index;
             } else {
@@ -289,7 +274,7 @@ where W: io::Writer
             index += 1usize;
         }
     }
-    if checked_args and arg_index != args.len() {
+    if arg_index != args.len() {
         return core::Error::ExtraArgument!;
     }
     !()
@@ -302,7 +287,7 @@ pub fn print_checked[W](
 ) core::Error!()
 where W: io::Writer
 {
-    print_template(writer, template, args, true)
+    print_template(writer, template, args)
 }
 
 extend[W] W

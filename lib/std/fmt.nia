@@ -1,7 +1,4 @@
 // Formatting traits, template parsing, and checked writer dispatch.
-//
-// Checked formatting preserves writer failures. Unchecked formatting is only
-// for boundaries whose writer contract makes failure impossible or irrelevant.
 
 pub(pkg) module core;
 pub(pkg) module primitive;
@@ -12,4 +9,4 @@ using pkg::fmt::primitive;
 using pkg::fmt::template;
 
 pub using core::{Error, FormatWriter, Format, FormatPresentation, FormatSpec, Formatter};
-pub using template::{print_checked, print_unchecked};
+pub using template::print_checked;

@@ -572,7 +572,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not expect_error(writer.print(&"{x}", &[&value]), fmt::Error::InvalidTemplate) {
         return process::exit(10)!;
     }
-    match fmt::print_unchecked(&mut writer, &"{:X}", &[&value]) {
+    match writer.print(&"{:X}", &[&value]) {
         !ok => { _ = ok; },
         error! => { return process::exit(11)!; },
     }
