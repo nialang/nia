@@ -62,6 +62,8 @@ The library follows a small set of ownership rules:
   retries that owner and keeps it visible in capacity/emptiness accounting.
 - Over-aligned page allocations may expose an interior aligned pointer, while
   `mem::Block` retains the complete mmap release range for one exact `free`.
+  Post-`mmap` validation failures release that unpublished range before
+  returning an error.
 - Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
   and replacement releases fail, its `Rollback` variant carries the replacement
   block and cleanup error so callers can retry the still-owned allocations.

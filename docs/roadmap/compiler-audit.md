@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 461 completed entries in this ledger.
+- Implementation batches: 462 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2618,6 +2618,11 @@ acceptance item only when its phase-wide evidence is complete.
       Duplicate slice/capacity fields and raw-slice `Block` reconstruction are
       removed, while the allocator, ArrayList, intrinsic, and string matrices
       pass (4/4, 12/12, 6/6, 4/4, and 3/3 respectively).
+- [x] Batch 462 restores unpublished Linux mapping cleanup. If complete-range
+      or aligned-address validation fails after `mmap` succeeds, one canonical
+      rejection helper unmaps the full release range before returning
+      `OutOfRange`; a `munmap` failure is propagated rather than swallowed.
+      Prefix/suffix trimming remains absent, so the mapping still has one owner.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

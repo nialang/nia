@@ -3453,6 +3453,9 @@ aligned user pointer. When extra pages are needed for over-alignment, the
 prefix and suffix remain part of the allocation's release range rather than
 being independently unmapped; `mem::Block` carries that release pointer and
 length so `PageAllocator::free` releases the complete mapping exactly once.
+If range or alignment validation fails after `mmap` succeeds, the wrapper
+releases that same complete range before returning; the mapping remains owned
+even though no `MappedPages` value was published.
 
 ## 14. Diagnostics
 

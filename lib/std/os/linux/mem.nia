@@ -52,6 +52,12 @@ fn raw_unmap_pages(ptr: &mut u8, len: usize) Errno!() {
     ret.syscall_success()
 }
 
+// A mapping remains owned until validation publishes MappedPages.
+fn reject_mapped_range(ptr: &mut u8, len: usize) Errno!MappedPages {
+    raw_unmap_pages(ptr, len).?;
+    Errno::OutOfRange!
+}
+
 pub fn page_size() usize {
     native_page_size
 }
@@ -92,11 +98,15 @@ pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
     let mapped_addr = mapped as usize;
     match mapped_addr.checked_add(map_len) {
         ?value => { _ = value; },
-        null => return Errno::OutOfRange!,
+        null => {
+            return reject_mapped_range(mapped, map_len);
+        },
     }
     let result_addr = match mapped_addr.align_forward(align) {
         ?value => value,
-        null => return Errno::OutOfRange!,
+        null => {
+            return reject_mapped_range(mapped, map_len);
+        },
     };
     !MappedPages {
         ptr: result_addr as &mut u8,
