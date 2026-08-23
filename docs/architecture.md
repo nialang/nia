@@ -2761,6 +2761,11 @@ atomic RMW, and compare-exchange instructions may receive alignment metadata.
 `LLVMSetAlignment`, while global alignment remains separately validated by the
 global wrapper.
 
+Context custom integer construction rejects zero bit widths before
+`LLVMIntTypeInContext` and returns `LlvmResult`; the fixed 128-bit constructor
+uses LLVM's dedicated context API. Codegen propagates failures for all
+computed-width integer types instead of retaining a direct unchecked call.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

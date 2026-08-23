@@ -2178,6 +2178,12 @@ acceptance item only when its phase-wide evidence is complete.
       global alignment remains separately validated. A wrapper regression covers
       an invalid integer-add target, with LLVM/codegen suites, workspace check,
       formatting, and strict Clippy passing.
+- [x] Batch 377 closes the LLVM custom integer type boundary.
+      `Context::custom_width_int_type` now rejects zero bit widths and returns
+      `LlvmResult`, while `i128_type` uses the dedicated LLVM constructor;
+      computed-width codegen callers propagate failures. A context regression
+      covers zero width, with LLVM/codegen suites, workspace check, formatting,
+      and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

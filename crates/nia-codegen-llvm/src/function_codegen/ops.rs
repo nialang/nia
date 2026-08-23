@@ -444,10 +444,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return result.map_err(|_| self.error(span, "failed to build checked vector shift"));
         }
 
+        let wide_int_ty = self
+            .module
+            .context
+            .custom_width_int_type(lane_bits * 2)
+            .map_err(|error| {
+                self.error(span, format!("failed to create wide shift type: {error:?}"))
+            })?;
         let wide_ty: BasicTypeEnum<'ctx> =
-            BasicTypeEnum::from(self.module.context.custom_width_int_type(lane_bits * 2))
-                .vector_type(lanes)
-                .into();
+            BasicTypeEnum::from(wide_int_ty).vector_type(lanes).into();
         let wide_lhs = if elem.is_signed_integer() {
             self.builder
                 .build_basic_int_s_extend(lhs, wide_ty, "shift.lhs.wide")
@@ -518,7 +523,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let lhs_ty = lhs.get_type();
         let lhs_bits = lhs_ty.bit_width();
         let rhs_bits = rhs.get_type().bit_width();
-        let check_ty = self.module.context.custom_width_int_type(rhs_bits.max(8));
+        let check_ty = self
+            .module
+            .context
+            .custom_width_int_type(rhs_bits.max(8))
+            .map_err(|error| {
+                self.error(
+                    span,
+                    format!("failed to create shift-check type: {error:?}"),
+                )
+            })?;
         let checked_rhs = if rhs_bits == check_ty.bit_width() {
             rhs
         } else {
@@ -582,7 +596,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return result.map_err(|_| self.error(span, "failed to build checked right shift"));
         }
 
-        let wide_ty = self.module.context.custom_width_int_type(lhs_bits * 2);
+        let wide_ty = self
+            .module
+            .context
+            .custom_width_int_type(lhs_bits * 2)
+            .map_err(|error| {
+                self.error(span, format!("failed to create wide shift type: {error:?}"))
+            })?;
         let wide_lhs = if lhs_is_signed {
             self.builder
                 .build_int_s_extend(lhs, wide_ty, "shift.lhs.wide")
@@ -841,7 +861,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         lanes: u32,
         name: &str,
     ) -> Result<nia_llvm::values::IntValue<'ctx>, Diagnostic> {
-        let packed_ty = self.module.context.custom_width_int_type(lanes);
+        let packed_ty = self
+            .module
+            .context
+            .custom_width_int_type(lanes)
+            .map_err(|error| {
+                self.error(
+                    span,
+                    format!("failed to create vector mask type: {error:?}"),
+                )
+            })?;
         let packed = self
             .builder
             .build_bit_cast(mask, packed_ty, "vector.mask.pack")
