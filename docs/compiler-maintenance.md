@@ -368,6 +368,9 @@ signals, not architecture goals.
   word-count, byte-offset, and stack-base arithmetic before turning the initial
   stack into `argv`/`envp` pointers; fail closed before publishing malformed
   process views.
+- Materialize startup process views once. Long-lived `Init` values should store
+  validated `Args`/`Env` records, not raw `argv`/`envp` pointers that force later
+  rescans or recreate the ABI boundary on every accessor.
 - For repeated path validators, keep the terminal component outside the scan
   loop. A `<= len` loop that increments after its end sentinel can wrap a
   maximum-width index even when every component is valid.

@@ -4,19 +4,22 @@ using types::{Args, Env, Init};
 
 extend Init {
     pub(pkg) fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
-        Self { argc: argc, argv: argv, envp: envp }
+        Self {
+            args: Args::init(argc, argv),
+            env: Env::init(envp),
+        }
     }
 
     pub fn argc(&self) usize {
-        self.argc
+        self.args.len()
     }
 
     pub fn args(&self) Args {
-        Args::init(self.argc, self.argv)
+        self.args
     }
 
     pub fn env(&self) Env {
-        Env::init(self.envp)
+        self.env
     }
 
 }
