@@ -343,7 +343,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ptr: PointerValue<'ctx>,
         len: IntValue<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let undef = self.module.slice_type(Span::default())?.get_undef();
+        let undef = self.module.slice_type(Span::default())?.get_undef()?;
         let value = self
             .builder
             .build_insert_value(undef, ptr, 0, "slice.ptr")
