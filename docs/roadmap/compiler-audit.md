@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 487 completed entries in this ledger.
+- Implementation batches: 488 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2781,6 +2781,15 @@ acceptance item only when its phase-wide evidence is complete.
       verifies each remains reflected in capacity/used/emptiness. The retry
       releases only those residual owners and reaches canonical empty state;
       all 14 allocator executable cases pass.
+- [x] Batch 488 removes copied descriptor identity from filesystem adapters.
+      `FileReader`, `FileWriter`, and `DirIterator` now borrow their owning
+      `File` or `Dir` and resolve its live handle before descriptor access, so
+      owner close returns `BadFd` even after the kernel reuses the descriptor
+      for a different file or directory. Directory refill cursor/end state
+      commits only after a successful read, preventing replay of an exhausted
+      batch on retry. A real descriptor-reuse executable verifies writer
+      buffering, reader state, directory iteration, and both replacement
+      objects; all 25 filesystem executable cases pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

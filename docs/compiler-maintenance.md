@@ -460,6 +460,14 @@ signals, not architecture goals.
 - For consuming close APIs, clear the cleanup flag before the syscall. A failed
   close may still consume the descriptor, so a defer retry can only mask the
   original error with `BadFd`.
+- Adapters derived from an owning file or directory must borrow the owner and
+  resolve its live optional handle before each underlying descriptor access. Do
+  not copy its raw descriptor into adapter state: after owner close and
+  descriptor reuse, that snapshot can target an unrelated object. Document the
+  caller's responsibility to keep borrowed owner storage alive and stable
+  because Nia has no borrow checker. Keep exhausted iterators fused, and commit
+  directory refill cursors only after the underlying read succeeds so a
+  transient failure cannot replay an exhausted buffer.
 - For an operation that owns temporary descriptors, perform the main operation
   first and then close every descriptor explicitly. Preserve the main operation
   error when it failed; otherwise return the first close error. Chained cleanup

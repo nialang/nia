@@ -6,39 +6,55 @@ using pkg::slice;
 using traits::{Reader, Writer};
 
 pub struct FileWriter {
-    file: os::FileHandle,
+    file: FileSource,
     buffer: &mut [u8],
     len: usize,
 }
 
 pub struct FileReader {
-    file: os::FileHandle,
+    file: FileSource,
     buffer: &mut [u8],
     start: usize,
     end: usize,
 }
 
+enum FileSource {
+    Borrowed(&fs::File),
+    Standard(os::FileHandle),
+}
+
+extend FileSource {
+    fn handle(&self) fs::Error!os::FileHandle {
+        match self.* {
+            FileSource::Borrowed(file) => file.borrowHandle(),
+            FileSource::Standard(handle) => !handle,
+        }
+    }
+}
+
 extend fs::File {
     pub fn writer(&self, buffer: &mut [u8]) fs::Error!FileWriter {
-        !FileWriter::init(self.borrowHandle().?, buffer)
+        _ = self.borrowHandle().?;
+        !FileWriter::init(FileSource::Borrowed(self), buffer)
     }
 
     pub fn reader(&self, buffer: &mut [u8]) fs::Error!FileReader {
-        !FileReader::init(self.borrowHandle().?, buffer)
+        _ = self.borrowHandle().?;
+        !FileReader::init(FileSource::Borrowed(self), buffer)
     }
 }
 
 extend FileWriter {
-    pub(pkg) fn init(file: os::FileHandle, buffer: &mut [u8]) FileWriter {
+    fn init(file: FileSource, buffer: &mut [u8]) FileWriter {
         Self { file, buffer, len: 0 }
     }
 
     pub fn stdout(buffer: &mut [u8]) FileWriter {
-        FileWriter::init(os::FileHandle::stdout(), buffer)
+        FileWriter::init(FileSource::Standard(os::FileHandle::stdout()), buffer)
     }
 
     pub fn stderr(buffer: &mut [u8]) FileWriter {
-        FileWriter::init(os::FileHandle::stderr(), buffer)
+        FileWriter::init(FileSource::Standard(os::FileHandle::stderr()), buffer)
     }
 
     pub fn len(&self) usize {
@@ -54,7 +70,7 @@ extend FileWriter {
     }
 
     fn write_direct(&mut self, bytes: &[u8]) fs::Error!usize {
-        let n = self.file.writeSome(bytes).as_fs_error().?;
+        let n = self.file.handle().?.writeSome(bytes).as_fs_error().?;
         if n > bytes.len() {
             return fs::Error::Io!;
         }
@@ -121,12 +137,12 @@ extend FileWriter : Writer {
 }
 
 extend FileReader {
-    pub(pkg) fn init(file: os::FileHandle, buffer: &mut [u8]) FileReader {
+    fn init(file: FileSource, buffer: &mut [u8]) FileReader {
         Self { file, buffer, start: 0, end: 0 }
     }
 
     pub fn stdin(buffer: &mut [u8]) FileReader {
-        FileReader::init(os::FileHandle::stdin(), buffer)
+        FileReader::init(FileSource::Standard(os::FileHandle::stdin()), buffer)
     }
 
     pub fn len(&self) usize {
@@ -147,7 +163,7 @@ extend FileReader {
     }
 
     fn read_direct(&mut self, bytes: &mut [u8]) fs::Error!usize {
-        let n = self.file.readSome(bytes).as_fs_error().?;
+        let n = self.file.handle().?.readSome(bytes).as_fs_error().?;
         if n > bytes.len() {
             return fs::Error::Io!;
         }

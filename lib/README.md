@@ -90,6 +90,11 @@ The library follows a small set of ownership rules:
   or `Build::deinit`.
 - File close paths treat the descriptor as consumed before the OS close result;
   cleanup defers must not issue a second close after a close error.
+- `FileReader`, `FileWriter`, and `DirIterator` borrow their `File` or `Dir`
+  owner and resolve its live handle before accessing the underlying descriptor.
+  They never retain a copied descriptor that could silently target a different
+  object after close and OS descriptor reuse. Callers must keep the borrowed
+  owner storage alive and stable for the adapter lifetime.
 - Temporary filesystem descriptors are closed after their owning operation. A
   failed operation remains the primary error; after success, the first close
   error is returned while every later descriptor is still attempted.

@@ -111,7 +111,6 @@ pub(pkg) struct DirectoryEntry {
 }
 
 pub(pkg) struct DirectoryReader {
-    handle: FileHandle,
     buffer: &mut [u8],
     start: usize,
     end: usize,
@@ -489,18 +488,22 @@ extend DirectoryEntry {
 }
 
 extend DirectoryReader {
-    pub(pkg) fn init(handle: FileHandle, buffer: &mut [u8]) DirectoryReader {
-        Self { handle: handle, buffer: buffer, start: 0, end: 0, done: false }
+    pub(pkg) fn init(buffer: &mut [u8]) DirectoryReader {
+        Self { buffer: buffer, start: 0, end: 0, done: false }
     }
 
-    pub(pkg) fn next(&mut self) ?(Error!DirectoryEntry) {
+    pub(pkg) fn isDone(&self) bool {
+        self.done
+    }
+
+    pub(pkg) fn next(&mut self, handle: FileHandle) ?(Error!DirectoryEntry) {
         if self.done {
             return null;
         }
         if self.start >= self.end {
-            self.start = 0;
-            match self.handle.readDirEntries(self.buffer) {
+            match handle.readDirEntries(self.buffer) {
                 !value => {
+                    self.start = 0;
                     self.end = value;
                 },
                 err! => {

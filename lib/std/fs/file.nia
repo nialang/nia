@@ -159,7 +159,8 @@ extend Dir {
         if buffer.len() == 0 {
             Error::Invalid!
         } else {
-            !DirIterator::init(os::DirectoryReader::init(self.borrowHandle().?, buffer))
+            _ = self.borrowHandle().?;
+            !DirIterator::init(self, os::DirectoryReader::init(buffer))
         }
     }
 
