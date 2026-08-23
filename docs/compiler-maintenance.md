@@ -368,6 +368,9 @@ signals, not architecture goals.
   word-count, byte-offset, and stack-base arithmetic before turning the initial
   stack into `argv`/`envp` pointers; fail closed before publishing malformed
   process views.
+- For repeated path validators, keep the terminal component outside the scan
+  loop. A `<= len` loop that increments after its end sentinel can wrap a
+  maximum-width index even when every component is valid.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

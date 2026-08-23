@@ -3271,6 +3271,10 @@ initial stack through checked word-count, byte-offset, and base-address
 arithmetic. An unrepresentable startup layout exits with status 127 before a
 raw pointer is published to `Init`; the ordinary kernel-provided layout remains
 unchanged.
+Build path validators scan separators only while the index is strictly inside
+the slice and validate the final component after the loop. They do not perform
+an extra end-of-slice increment, so a maximum-width path length cannot wrap a
+temporary index after successful validation.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.

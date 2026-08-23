@@ -2443,6 +2443,11 @@ acceptance item only when its phase-wide evidence is complete.
       layout exits with status 127 instead of publishing wrapped raw pointers.
       Freestanding loader/codegen coverage and the process executable matrix
       remain green.
+- [x] Batch 428 removes terminal-index wraparound from build path validation.
+      The plan encoder and build graph now scan only in-slice separators and
+      validate the final component after the loop, preserving rejection of
+      empty/current/parent components without incrementing `len` at the end.
+      Build-plan owner and standard build-case coverage remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
