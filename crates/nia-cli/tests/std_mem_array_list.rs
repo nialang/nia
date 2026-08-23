@@ -479,25 +479,25 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let mut copied = source.toOwnedSlice(targetAllocator).exit().?;
-    if not copied.equals(&expectedSource[..]) {
+    if not copied.asSlice().equals(&expectedSource[..]) {
         return process::exit(6)!;
     }
-    targetAllocator.freeSlice[i32](copied).exit().?;
+    copied.deinit(targetAllocator).exit().?;
 
     let mut owned = source.intoOwnedSlice(sourceAllocator).exit().?;
     if source.len() != 0 or source.capacity() != 0 {
         return process::exit(7)!;
     }
-    if not owned.equals(&expectedSource[..]) {
+    if not owned.asSlice().equals(&expectedSource[..]) {
         return process::exit(8)!;
     }
-    sourceAllocator.freeSlice[i32](owned).exit().?;
+    owned.deinit(sourceAllocator).exit().?;
 
     let mut external = targetAllocator.allocSlice[i32](3).exit().?;
-    external[0] = 4;
-    external[1] = 5;
-    external[2] = 6;
-    let mut adopted = std::ArrayList[i32]::fromOwnedSlice(external);
+    external.asMutSlice()[0] = 4;
+    external.asMutSlice()[1] = 5;
+    external.asMutSlice()[2] = 6;
+    let mut adopted = std::ArrayList[i32]::fromOwnedAllocation(external);
     let expectedAdopted: [i32; 3] = [4, 5, 6];
     if adopted.capacity() != 3 or not adopted.asSlice().equals(&expectedAdopted[..]) {
         return process::exit(11)!;
@@ -873,14 +873,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let mut owned = list.toOwnedSlice(page).exit().?;
-    if not owned.equals(list.asSlice()) {
+    if not owned.asSlice().equals(list.asSlice()) {
         return process::exit(8)!;
     }
-    owned[0] = 1234;
+    owned.asMutSlice()[0] = 1234;
     if list.asSlice()[0] == 1234 {
         return process::exit(9)!;
     }
-    page.freeSlice[i32](owned).exit().?;
+    owned.deinit(page).exit().?;
 
     expectInvalid(list.removeRange(7, 1)).?;
     expectInvalid(list.removeRange(5, 2)).?;

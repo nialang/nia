@@ -119,11 +119,12 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let mut bytes = arena.allocSlice[u8](64).exit().?;
-    bytes[0] = 7;
-    bytes[63] = 9;
-    if bytes[0] != 7 or bytes[63] != 9 {
+    bytes.asMutSlice()[0] = 7;
+    bytes.asMutSlice()[63] = 9;
+    if bytes.asSlice()[0] != 7 or bytes.asSlice()[63] != 9 {
         return process::exit(4)!;
     }
+    bytes.deinit(&mut arena).exit().?;
 
     arena.deinit().exit().?;
     if arena.capacity() != 0 or arena.used() != 0 {

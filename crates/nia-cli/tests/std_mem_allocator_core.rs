@@ -91,20 +91,18 @@ fn check_layout_rejects_array_size_overflow() process::ExitCode!() {
 fn check_allocator_can_allocate_typed_slices() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     match allocator.allocSlice[i32](4) {
-        mut !items => { items[0] = 10;
-                items[1] = 20;
-                items[2] = 30;
-                items[3] = 40;
-                if items.len() != 4 {
+        mut !allocation => { allocation.asMutSlice()[0] = 10;
+                allocation.asMutSlice()[1] = 20;
+                allocation.asMutSlice()[2] = 30;
+                allocation.asMutSlice()[3] = 40;
+                if allocation.len() != 4 {
                     return process::exit(2)!;
                 }
-                if items[0] + items[1] + items[2] + items[3] != 100 {
+                if allocation.asSlice()[0] + allocation.asSlice()[1]
+                    + allocation.asSlice()[2] + allocation.asSlice()[3] != 100 {
                     return process::exit(3)!;
                 }
-                match allocator.freeSlice[i32](items) {
-                    !ok => { _ = ok; },
-                    error! => { return process::exit(4)!; },
-                } },
+                allocation.deinit(&mut allocator).exit().?; },
         error! => { return process::exit(1)!; },
     }
     !()

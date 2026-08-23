@@ -63,6 +63,10 @@ The library follows a small set of ownership rules:
 - Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
   and replacement releases fail, its `Rollback` variant carries the replacement
   block and cleanup error so callers can retry the still-owned allocations.
+- `Allocator::allocSlice` returns a `SliceAllocation[T]` owner instead of a raw
+  slice. `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
+  `Block`, and `ArrayList`/`String` owner-transfer APIs consume that typed owner.
+  Raw-slice ownership constructors are intentionally absent.
 - Staged string formatting preserves format and UTF-8 errors over temporary
   writer cleanup failures; cleanup allocation errors are reported only when
   formatting itself succeeds. A backing whose `free` failed before release is

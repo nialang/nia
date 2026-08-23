@@ -21,7 +21,7 @@ using pkg::mem::page_allocator;
 pub using types::{Block, Error, Layout};
 pub using allocation::{Allocated, CallableAllocation};
 pub using arena_allocator::ArenaAllocator;
-pub using allocator::{Allocator, ReallocError};
+pub using allocator::{Allocator, ReallocError, SliceAllocation};
 pub using fixed_buffer_allocator::FixedBufferAllocator;
 pub using general_purpose_allocator::{DeinitStatus, GeneralPurposeAllocator};
 pub using page_allocator::PageAllocator;
