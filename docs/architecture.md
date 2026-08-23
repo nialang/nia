@@ -2182,6 +2182,11 @@ control bytes. Removing an entry makes one assume-capacity insertion legal even
 when the empty-slot growth budget is exhausted; insertion may land in an empty
 or deleted slot while the budget remains saturated until a reserve-triggered
 rehash restores the normal empty-slot ratio.
+The probing cursor accepts only the allocated table shape (at least eight
+buckets and a power-of-two count). Its quadratic group step performs explicit
+modulo addition before indexing, so host-width arithmetic cannot change the
+probe sequence through an intermediate overflow. Invalid cursor shapes are
+empty and cannot inspect control storage.
 
 ### 9.5 `nia-function-lower`
 
