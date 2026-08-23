@@ -393,8 +393,10 @@ signals, not architecture goals.
 - `ArrayList` keeps allocation ownership in `storageBlock`, `replacementBlock`,
   and `aliasBlock` only. The `items` view and logical capacity are borrowed
   metadata, not release state; a present `storageBlock` must be released even
-  when the logical element size or capacity is zero. Do not add a fallback that
-  rebuilds a `Block` from a raw slice pointer and length.
+  when the logical element size or capacity is zero, and growth must use it as
+  the old replacement owner. Only an ownerless zero-capacity list may use a
+  canonical empty Block. Do not add a fallback that rebuilds a `Block` from a
+  raw slice pointer and length.
 - Self-aliasing collection operations need a distinct temporary-copy owner;
   do not reuse the replacement slot when a grow/shrink failure can already
   retain another allocation.

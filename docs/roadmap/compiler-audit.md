@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 465 completed entries in this ledger.
+- Implementation batches: 466 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2639,6 +2639,12 @@ acceptance item only when its phase-wide evidence is complete.
       now clear the owner only after that release succeeds. An allocator-backed
       executable regression proves both adopted empty lists and empty ownership
       transfers release a non-empty block exactly once.
+- [x] Batch 466 makes ArrayList empty-state replacement owner-driven. The
+      allocation lookup returns a present `storageBlock` before considering
+      logical capacity, so growing an adopted zero-length allocation replaces
+      and releases its real old Block instead of a synthesized empty Block. The
+      custom allocator regression grows such a list, preserves its new element,
+      and proves both old and new owners are released exactly once.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

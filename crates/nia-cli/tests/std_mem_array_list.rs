@@ -563,6 +563,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(16)!;
     }
     transferred.deinit(&mut zeroAllocator).exit().?;
+
+    let emptyForGrowth = zeroAllocator.allocSlice[i32](0).exit().?;
+    let mut growingList = std::ArrayList[i32]::fromOwnedAllocation(emptyForGrowth);
+    growingList.push(&mut zeroAllocator, 42).exit().?;
+    if zeroAllocator.freeCount != 3 or growingList.len() != 1 or growingList.asSlice()[0] != 42 {
+        return process::exit(17)!;
+    }
+    growingList.deinit(&mut zeroAllocator).exit().?;
+    if zeroAllocator.freeCount != 4 {
+        return process::exit(18)!;
+    }
     !()
 }
 "#,
