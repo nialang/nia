@@ -357,9 +357,16 @@ impl<'a> ModuleLowerer<'a> {
             nia_ty::ConstGenericValue::Int(value) => {
                 let ty = self.ty_kind(arg.ty).cloned();
                 match ty {
-                    Some(TyKind::Primitive(PrimitiveTy::Usize)) => FunctionExprKind::BuiltinValue(
-                        nia_function_ir::FunctionBuiltinValue::Usize(value.bits() as u64),
-                    ),
+                    Some(TyKind::Primitive(PrimitiveTy::Usize)) => {
+                        let value = u64::try_from(value.bits()).unwrap_or_else(|_| {
+                            crate::input::unreachable_invalid_function_ir(
+                                "usize const generic value exceeds u64",
+                            )
+                        });
+                        FunctionExprKind::BuiltinValue(
+                            nia_function_ir::FunctionBuiltinValue::Usize(value),
+                        )
+                    }
                     _ => FunctionExprKind::BuiltinValue(
                         nia_function_ir::FunctionBuiltinValue::Int(value),
                     ),
