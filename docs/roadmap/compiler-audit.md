@@ -2306,6 +2306,11 @@ acceptance item only when its phase-wide evidence is complete.
       compiler builtins, function lowering, static initialization, and wrapper
       tests propagate or explicitly unwrap valid values. LLVM/codegen suites,
       workspace check, formatting, and strict Clippy pass.
+- [x] Batch 399 closes integer-to-pointer constant conversion.
+      `PointerType::const_int_to_ptr` now validates `LLVMConstIntToPtr` before
+      constructing a typed pointer and returns `LlvmResult`; a wrapper
+      regression covers the checked conversion, with workspace check,
+      formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -741,8 +741,11 @@ impl<'ctx> PointerType<'ctx> {
     }
 
     /// Constant-folds an integer-to-pointer conversion.
-    pub fn const_int_to_ptr(self, value: IntValue<'ctx>) -> PointerValue<'ctx> {
-        PointerValue::new(unsafe { LLVMConstIntToPtr(value.as_value_ref(), self.as_type_ref()) })
+    pub fn const_int_to_ptr(self, value: IntValue<'ctx>) -> LlvmResult<PointerValue<'ctx>> {
+        Ok(PointerValue::new(require_value(
+            unsafe { LLVMConstIntToPtr(value.as_value_ref(), self.as_type_ref()) },
+            "integer-to-pointer constant",
+        )?))
     }
 
     /// Creates an undefined pointer value.
@@ -1848,6 +1851,16 @@ mod tests {
         assert!(context.i32_type().const_zero().is_ok());
         assert!(context.f32_type().const_zero().is_ok());
         assert!(context.ptr_type(AddressSpace(3)).const_null().is_ok());
+    }
+
+    #[test]
+    fn typed_integer_to_pointer_constant_uses_checked_conversion() {
+        let context = Context::create().unwrap();
+        let value = context
+            .ptr_type(AddressSpace(1))
+            .const_int_to_ptr(context.i64_type().const_zero().unwrap());
+
+        assert!(value.is_ok());
     }
 
     #[test]

@@ -2857,6 +2857,10 @@ floating-point `const_zero`, plus pointer `const_zero`/`const_null`, validate
 their LLVM results before returning typed values; codegen propagates failures
 through its existing diagnostic conversion.
 
+Pointer conversion constants use the same rule: `PointerType::const_int_to_ptr`
+validates `LLVMConstIntToPtr` before exposing a pointer value, so integer-to-
+pointer folding cannot reintroduce an assertion-only nullable result path.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted
