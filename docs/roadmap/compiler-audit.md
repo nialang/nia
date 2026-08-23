@@ -2295,6 +2295,11 @@ acceptance item only when its phase-wide evidence is complete.
       storage propagate the diagnostic, while wrapper tests explicitly cover
       both aggregate categories. LLVM/codegen suites, workspace check,
       formatting, and strict Clippy pass.
+- [x] Batch 397 closes scalar typed undefined values.
+      Integer, floating-point, and pointer `get_undef` methods now validate
+      `LLVMGetUndef` through the shared null-result guard and return
+      `LlvmResult`; a wrapper regression covers all three scalar categories,
+      with workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

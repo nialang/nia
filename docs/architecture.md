@@ -2848,6 +2848,10 @@ and array `const_zero`/`get_undef` methods validate `LLVMConstNull` and
 `LLVMGetUndef` before wrapping values; aggregate codegen propagates those
 diagnostics rather than relying on assertion-backed compatibility paths.
 
+Scalar integer, floating-point, and pointer `get_undef` constructors likewise
+validate `LLVMGetUndef` and return `LlvmResult`; no public typed undefined-value
+constructor remains an assertion-only wrapper around a nullable LLVM result.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted
