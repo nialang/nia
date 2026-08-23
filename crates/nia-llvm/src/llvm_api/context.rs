@@ -258,9 +258,8 @@ impl Context {
     /// Creates a named opaque struct whose body may be supplied later.
     pub fn opaque_struct_type<'ctx>(&'ctx self, name: &str) -> LlvmResult<StructType<'ctx>> {
         let name = to_c_string(name)?;
-        Ok(StructType::new(unsafe {
-            LLVMStructCreateNamed(self.raw, name.as_ptr())
-        }))
+        let raw = unsafe { LLVMStructCreateNamed(self.raw, name.as_ptr()) };
+        Ok(StructType::new(require_handle(raw, "opaque struct type")?))
     }
 
     /// Appends a named basic block to `function`.
@@ -325,6 +324,18 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null module handle".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_null_opaque_struct_type_before_wrapper_construction() {
+        let error =
+            require_handle::<llvm_sys::LLVMType>(std::ptr::null_mut(), "opaque struct type")
+                .expect_err("null opaque struct type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null opaque struct type handle".to_string())
         );
     }
 

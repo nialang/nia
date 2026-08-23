@@ -2819,6 +2819,10 @@ and validates the `LLVMStructTypeInContext` result before exposing a typed
 handle. Module and function lowering therefore propagate construction errors
 instead of retaining an unchecked null-handle path.
 
+Named opaque struct creation applies the same result check. `Context::opaque_struct_type`
+rejects a null `LLVMStructCreateNamed` handle before returning its fallible
+`StructType`, so declaration lowering cannot reach the typed-wrapper assertion.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

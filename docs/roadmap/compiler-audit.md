@@ -2258,6 +2258,11 @@ acceptance item only when its phase-wide evidence is complete.
       propagate the failure. A wrapper regression covers the null type guard,
       with LLVM/codegen suites, workspace check, formatting, and strict Clippy
       passing.
+- [x] Batch 391 closes the LLVM named opaque-struct allocation boundary.
+      `Context::opaque_struct_type` now checks the `LLVMStructCreateNamed`
+      handle before typed construction and retains its fallible API. A context
+      regression covers the shared null-handle guard, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
