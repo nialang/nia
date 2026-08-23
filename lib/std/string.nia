@@ -236,6 +236,7 @@ extend String {
     }
 
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[char] {
+        self.releaseFormatBytes(allocator).?;
         self.text.intoOwnedSlice(allocator)
     }
 }

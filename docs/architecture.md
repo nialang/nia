@@ -2214,6 +2214,10 @@ releases its Block, including a zero-length view whose allocator may still carry
 a non-empty release range, and clears the owner only after that release
 succeeds. Replacement and alias-copy rollback owners retain their original
 `Block` until a retrying `free` succeeds.
+`String` also has a formatting staging list that can retain a pending owner
+when staging cleanup fails. `String::intoOwnedSlice` retires that staging owner
+before transferring the text list, so a successful transfer cannot strand a
+second allocation; a failed retirement leaves the source ownership intact.
 Rehash applies the same transaction rule to replacement storage: the old
 storage block becomes a retired owner on the map before the new table is
 published. If its release fails, the active table remains usable while the

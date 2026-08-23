@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 466 completed entries in this ledger.
+- Implementation batches: 467 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2645,6 +2645,12 @@ acceptance item only when its phase-wide evidence is complete.
       and releases its real old Block instead of a synthesized empty Block. The
       custom allocator regression grows such a list, preserves its new element,
       and proves both old and new owners are released exactly once.
+- [x] Batch 467 closes String's formatting-staging transfer gap. When staging
+      cleanup previously failed, `String::intoOwnedSlice` now retries and
+      retires the pending format owner before transferring the text owner; a
+      failed retry leaves the source intact. The process executable regression
+      covers failed and successful retries, then verifies both allocations are
+      released.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
