@@ -17,6 +17,7 @@ pub trait Format {
     fn format(&self, formatter: &mut Formatter) Error!();
 
     fn format_spec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+        spec.validate().?;
         if spec.presentation() == FormatPresentation::Display {
             self.format(formatter)
         } else {
@@ -141,6 +142,26 @@ extend FormatSpec {
     pub fn alternate(&self) bool {
         self.alternate
     }
+
+    pub fn validate(&self) Error!() {
+        match self.presentation {
+            FormatPresentation::Display => {},
+            FormatPresentation::LowerHex => {},
+            FormatPresentation::UpperHex => {},
+            FormatPresentation::Binary => {},
+            FormatPresentation::Octal => {},
+            FormatPresentation::Pointer => {},
+            _ => return Error::InvalidTemplate!,
+        }
+        match self.alignment {
+            FormatAlignment::None => {},
+            FormatAlignment::Left => {},
+            FormatAlignment::Right => {},
+            FormatAlignment::Center => {},
+            _ => return Error::InvalidTemplate!,
+        }
+        !()
+    }
 }
 
 pub struct Formatter {
@@ -227,6 +248,7 @@ extend Formatter {
     }
 
     pub fn write_padding_before(&mut self, content_width: usize, spec: FormatSpec) Error!() {
+        spec.validate().?;
         let padding = self.padding_width(content_width, spec);
         match spec.alignment() {
             FormatAlignment::Left => !(),
@@ -236,6 +258,7 @@ extend Formatter {
     }
 
     pub fn write_padding_after(&mut self, content_width: usize, spec: FormatSpec) Error!() {
+        spec.validate().?;
         let padding = self.padding_width(content_width, spec);
         match spec.alignment() {
             FormatAlignment::Left => self.write_fill(spec.fill(), padding),
@@ -253,6 +276,7 @@ extend Formatter {
     }
 
     pub fn write_pointer_spec(&mut self, value: usize, spec: FormatSpec) Error!() {
+        spec.validate().?;
         if spec.sign_plus() or spec.alternate() or spec.has_precision() {
             return Error::InvalidTemplate!;
         }
@@ -305,6 +329,7 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!() {
+        spec.validate().?;
         validate_radix(radix).?;
         let mut prefix_width = 0usize;
         if spec.alternate() {
@@ -448,6 +473,7 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!() {
+        spec.validate().?;
         validate_radix(radix).?;
         let abs = self.signed_abs(value);
         let mut prefix_width = 0usize;

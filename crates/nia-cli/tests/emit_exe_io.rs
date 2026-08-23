@@ -686,6 +686,39 @@ pub fn main(init: process::Init) process::ExitCode!() {
     ) or radixWriter.len != 0usize {
         return process::exit(33)!;
     }
+    let invalidAlignmentSpec = fmt::FormatSpec::init(
+        fmt::FormatPresentation::Display,
+        8usize,
+        null,
+        '_',
+        17i32 as fmt::FormatAlignment,
+        false,
+        false,
+    );
+    if not expect_error(invalidAlignmentSpec.validate(), fmt::Error::InvalidTemplate) {
+        return process::exit(34)!;
+    }
+    if not expect_error(
+        formatter.write_unsigned_radix_spec(7u128, 10u128, false, invalidAlignmentSpec),
+        fmt::Error::InvalidTemplate,
+    ) or radixWriter.len != 0usize {
+        return process::exit(35)!;
+    }
+    let invalidPresentationSpec = fmt::FormatSpec::init(
+        17i32 as fmt::FormatPresentation,
+        8usize,
+        null,
+        '_',
+        fmt::FormatAlignment::Right,
+        false,
+        false,
+    );
+    if not expect_error(
+        formatter.write_padding_before(1usize, invalidPresentationSpec),
+        fmt::Error::InvalidTemplate,
+    ) or radixWriter.len != 0usize {
+        return process::exit(36)!;
+    }
     !()
 }
 "#,

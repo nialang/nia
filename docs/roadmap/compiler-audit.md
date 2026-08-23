@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 491 completed entries in this ledger.
+- Implementation batches: 492 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2810,6 +2810,14 @@ acceptance item only when its phase-wide evidence is complete.
       `FormatAlignment` now completes the public `FormatSpec` facade contract.
       A counting-writer executable covers radices 0, 1, and 3 and proves every
       rejection leaves output length zero.
+- [x] Batch 492 validates public formatting specs before output. Because
+      presentation and alignment are open enums, `FormatSpec::validate` now
+      rejects unnamed discriminants, and every spec-aware formatter entry point
+      performs that check before padding, prefixes, signs, or content can reach
+      the writer. The generic slice override observes the same contract instead
+      of bypassing the trait default. A counting-writer executable constructs
+      malformed presentation and alignment values and proves both failures
+      leave output length zero.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

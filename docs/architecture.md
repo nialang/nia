@@ -3554,6 +3554,10 @@ Unsupported radices therefore return `InvalidTemplate` without division by
 zero, non-termination at radix one, or partial writer mutation. The public
 `FormatSpec` construction surface is complete through the `std::fmt` facade:
 its `FormatAlignment` parameter and result type are exported with the spec.
+Because presentation and alignment are open enums, `FormatSpec::validate`
+rejects unnamed discriminants. Every spec-aware formatter entry point performs
+that validation before padding, prefixes, signs, or content reach the writer;
+an unknown alignment cannot silently acquire right-alignment behavior.
 
 Slice iterators apply the same checked rule to element-size multiplication and
 pointer-address addition before yielding an item. A malformed or impossible
