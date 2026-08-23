@@ -2332,6 +2332,11 @@ acceptance item only when its phase-wide evidence is complete.
       Struct-body and phi-incoming wrappers now use the shared
       `checked_u32_count` helper directly, eliminating parallel conversion and
       error paths while preserving the existing LLVM/codegen coverage.
+- [x] Batch 404 closes codegen host-width truncation at LLVM `i64` indices.
+      Array-literal element indices and promoted byte-segment lengths now use
+      checked `usize -> u64` conversions before LLVM integer constants; the
+      affected codegen suite, workspace check, formatting, and strict Clippy
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
