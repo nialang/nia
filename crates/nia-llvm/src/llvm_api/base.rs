@@ -871,18 +871,17 @@ impl<'ctx> VectorType<'ctx> {
     /// Creates a vector constant after checking lane count and lane types.
     pub fn const_vector(self, values: &[BasicValueEnum<'ctx>]) -> LlvmResult<VectorValue<'ctx>> {
         if values.len() != self.len() as usize {
-            return Err(LlvmError::ice(
+            return Err(LlvmError::error(
                 "constant vector lane count does not match type",
             ));
         }
         let elem_ty = self.get_element_type()?;
-        if values
-            .iter()
-            .any(|value| !value.get_type().is_ok_and(|ty| ty == elem_ty))
-        {
-            return Err(LlvmError::ice(
-                "constant vector lane type does not match type",
-            ));
+        for (index, value) in values.iter().enumerate() {
+            if value.get_type()? != elem_ty {
+                return Err(LlvmError::error(format!(
+                    "constant vector lane {index} type does not match type"
+                )));
+            }
         }
         let mut values = values
             .iter()
@@ -1571,6 +1570,36 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("can only be assigned once")
+        ));
+    }
+
+    #[test]
+    fn reports_constant_vector_lane_count_as_api_error() {
+        let context = Context::create();
+        let vector_ty = BasicTypeEnum::from(context.i32_type()).vector_type(2);
+
+        let error = vector_ty
+            .const_vector(&[context.i32_type().const_zero().into()])
+            .expect_err("constant vector lane count mismatch");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("constant vector lane count does not match")
+        ));
+    }
+
+    #[test]
+    fn reports_constant_vector_lane_type_as_api_error() {
+        let context = Context::create();
+        let vector_ty = BasicTypeEnum::from(context.i32_type()).vector_type(1);
+
+        let error = vector_ty
+            .const_vector(&[context.i64_type().const_zero().into()])
+            .expect_err("constant vector lane type mismatch");
+
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("constant vector lane 0 type does not match")
         ));
     }
 
