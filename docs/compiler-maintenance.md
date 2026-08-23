@@ -378,6 +378,10 @@ signals, not architecture goals.
   followed by a failed release. Pending rollback owners belong to allocator
   state and are retried before later allocation or during `deinit`; they must
   contribute to `capacity`/emptiness so no failed cleanup becomes invisible.
+- Do not implement generic error or process-exit conversions for errors that
+  carry live owners. In particular, callers must match `ReallocError::Rollback`
+  and release both the original Block and its replacement; converting the enum
+  by value to an exit code would silently discard the replacement owner.
 - Keep allocator page slot growth and live-count updates checked. Reject a
   doubling overflow or an impossible used-slot transition before mutating the
   page metadata.
