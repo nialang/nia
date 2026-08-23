@@ -26,6 +26,7 @@ const s_ifblk: u16 = 0o060000u16;
 const s_ifreg: u16 = 0o100000u16;
 const s_iflnk: u16 = 0o120000u16;
 const s_ifsock: u16 = 0o140000u16;
+const nanos_per_second: u32 = 1000000000u32;
 
 pub extern struct StatxTimestamp {
     sec: i64,
@@ -122,8 +123,11 @@ fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileM
 }
 
 extend StatxTimestamp {
-    fn as_timestamp(&self) Timestamp {
-        Timestamp::init(self.sec, self.nsec)
+    fn as_timestamp(&self) Errno!Timestamp {
+        if self.nsec >= nanos_per_second {
+            return Errno::Invalid!;
+        }
+        !Timestamp::init(self.sec, self.nsec)
     }
 }
 
@@ -151,7 +155,7 @@ extend Statx {
         }
         let mut atime: ?Timestamp = null;
         if (self.mask & statx_atime) == statx_atime {
-            atime = ?self.atime.as_timestamp();
+            atime = ?self.atime.as_timestamp().?;
         }
         let mut block_size = 1u32;
         if (self.mask & statx_blocks) == statx_blocks {
@@ -165,8 +169,8 @@ extend Statx {
             self.mode as u32,
             block_size,
             atime,
-            self.mtime.as_timestamp(),
-            self.ctime.as_timestamp(),
+            self.mtime.as_timestamp().?,
+            self.ctime.as_timestamp().?,
         )
     }
 }
