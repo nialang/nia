@@ -2323,6 +2323,11 @@ acceptance item only when its phase-wide evidence is complete.
       lowering propagate the checked result. A wrapper regression covers native
       and wide integer types, with LLVM/codegen suites, workspace check,
       formatting, and strict Clippy passing.
+- [x] Batch 402 closes LLVM constant-array count truncation.
+      Integer, float, pointer, struct, and nested-array `const_array` methods
+      now checked-convert host lengths to LLVM's `u64` count ABI through
+      `checked_u64_count`; a width regression covers the shared helper, with
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

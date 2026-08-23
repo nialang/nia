@@ -2871,6 +2871,11 @@ The ordinary integer constant constructor follows the same checked boundary:
 backend integer constants now propagate that result rather than relying on an
 assertion-backed typed wrapper.
 
+Typed constant-array constructors also checked-convert host slice lengths to
+LLVM's `u64` count ABI through `checked_u64_count`; integer, float, pointer,
+struct, and nested-array constants cannot silently truncate a host count before
+`LLVMConstArray2`.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

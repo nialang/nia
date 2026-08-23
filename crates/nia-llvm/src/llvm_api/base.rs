@@ -97,6 +97,10 @@ pub(super) fn checked_u32_count(count: usize, message: &str) -> LlvmResult<u32> 
     u32::try_from(count).map_err(|_| LlvmError::error(message))
 }
 
+pub(super) fn checked_u64_count(count: usize, message: &str) -> LlvmResult<u64> {
+    u64::try_from(count).map_err(|_| LlvmError::error(message))
+}
+
 pub(super) fn require_value(raw: LLVMValueRef, operation: &str) -> LlvmResult<LLVMValueRef> {
     if raw.is_null() {
         return Err(LlvmError::error(format!(
@@ -649,13 +653,13 @@ impl<'ctx> IntType<'ctx> {
     /// Creates an array constant from integer elements of this type.
     pub fn const_array(self, values: &[IntValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
         validate_constant_elements(values, self.as_type_ref())?;
+        let value_count =
+            checked_u64_count(values.len(), "LLVM integer constant array is too large")?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        let raw = unsafe {
-            LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        };
+        let raw = unsafe { LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), value_count) };
         Ok(ArrayValue::new(require_value(
             raw,
             "integer constant array",
@@ -707,13 +711,13 @@ impl<'ctx> FloatType<'ctx> {
     /// Creates an array constant from floating-point elements of this type.
     pub fn const_array(self, values: &[FloatValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
         validate_constant_elements(values, self.as_type_ref())?;
+        let value_count =
+            checked_u64_count(values.len(), "LLVM floating constant array is too large")?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        let raw = unsafe {
-            LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        };
+        let raw = unsafe { LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), value_count) };
         Ok(ArrayValue::new(require_value(
             raw,
             "floating constant array",
@@ -775,13 +779,13 @@ impl<'ctx> PointerType<'ctx> {
     /// Creates an array constant from pointer elements of this type.
     pub fn const_array(self, values: &[PointerValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
         validate_constant_elements(values, self.as_type_ref())?;
+        let value_count =
+            checked_u64_count(values.len(), "LLVM pointer constant array is too large")?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        let raw = unsafe {
-            LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        };
+        let raw = unsafe { LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), value_count) };
         Ok(ArrayValue::new(require_value(
             raw,
             "pointer constant array",
@@ -903,13 +907,13 @@ impl<'ctx> StructType<'ctx> {
     /// Creates an array constant from struct elements of this type.
     pub fn const_array(self, values: &[StructValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
         validate_constant_elements(values, self.as_type_ref())?;
+        let value_count =
+            checked_u64_count(values.len(), "LLVM struct constant array is too large")?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        let raw = unsafe {
-            LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
-        };
+        let raw = unsafe { LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), value_count) };
         Ok(ArrayValue::new(require_value(
             raw,
             "struct constant array",
@@ -953,11 +957,13 @@ impl<'ctx> ArrayType<'ctx> {
     pub fn const_array(self, values: &[ArrayValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
         let elem_ty = unsafe { LLVMGetElementType(self.as_type_ref()) };
         validate_constant_elements(values, elem_ty)?;
+        let value_count =
+            checked_u64_count(values.len(), "LLVM nested array constant is too large")?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        let raw = unsafe { LLVMConstArray2(elem_ty, values.as_mut_ptr(), values.len() as u64) };
+        let raw = unsafe { LLVMConstArray2(elem_ty, values.as_mut_ptr(), value_count) };
         Ok(ArrayValue::new(require_value(raw, "array constant array")?))
     }
 }
@@ -1959,6 +1965,23 @@ mod tests {
             assert_eq!(
                 error,
                 LlvmError::Error("LLVM GEP has too many indices".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_constant_array_count_width_overflow() {
+        let count = u64::MAX as usize;
+        assert_eq!(
+            checked_u64_count(count, "LLVM constant array is too large").unwrap(),
+            u64::MAX
+        );
+        if usize::BITS > u64::BITS {
+            let error = checked_u64_count(count + 1, "LLVM constant array is too large")
+                .expect_err("constant array count overflow");
+            assert_eq!(
+                error,
+                LlvmError::Error("LLVM constant array is too large".to_string())
             );
         }
     }
