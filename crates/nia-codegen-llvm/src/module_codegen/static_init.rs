@@ -329,46 +329,51 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match self.llvm_basic_type_in(elem_ty, span)? {
-            BasicTypeEnum::IntType(ty) => Ok(ty
+            BasicTypeEnum::IntType(ty) => ty
                 .const_array(
                     &values
                         .iter()
                         .map(|value| value.into_int_value())
                         .collect::<Result<Vec<_>, _>>()?,
                 )
-                .into()),
-            BasicTypeEnum::FloatType(ty) => Ok(ty
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
+            BasicTypeEnum::FloatType(ty) => ty
                 .const_array(
                     &values
                         .iter()
                         .map(|value| value.into_float_value())
                         .collect::<Result<Vec<_>, _>>()?,
                 )
-                .into()),
-            BasicTypeEnum::PointerType(ty) => Ok(ty
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
+            BasicTypeEnum::PointerType(ty) => ty
                 .const_array(
                     &values
                         .iter()
                         .map(|value| value.into_pointer_value())
                         .collect::<Result<Vec<_>, _>>()?,
                 )
-                .into()),
-            BasicTypeEnum::StructType(ty) => Ok(ty
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
+            BasicTypeEnum::StructType(ty) => ty
                 .const_array(
                     &values
                         .iter()
                         .map(|value| value.into_struct_value())
                         .collect::<Result<Vec<_>, _>>()?,
                 )
-                .into()),
-            BasicTypeEnum::ArrayType(ty) => Ok(ty
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
+            BasicTypeEnum::ArrayType(ty) => ty
                 .const_array(
                     &values
                         .iter()
                         .map(|value| value.into_array_value())
                         .collect::<Result<Vec<_>, _>>()?,
                 )
-                .into()),
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
             _ => Err(self.error(
                 span,
                 "array static initializer element type is not supported",
