@@ -2629,6 +2629,13 @@ indices, and require inserted values to have the selected field type before
 calling LLVM. This keeps malformed aggregate IR out of the backend without
 spreading `unsafe` blocks across ordinary lowering code.
 
+The same checked boundary applies to vector and select builders: scalar/vector
+condition shape and `i1` lanes are checked for selects; vector element/index
+types are checked for lane operations; and shuffle inputs plus `i32` mask lanes
+are checked before LLVM instruction construction. Runtime lane bounds remain a
+language-level concern for dynamic indices, while static type/shape violations
+are rejected by the wrapper.
+
 ### 12.2 `nia-codegen-llvm`
 
 Emits LLVM IR, objects, and native codegen units from backend IR. It owns:

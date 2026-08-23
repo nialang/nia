@@ -20,8 +20,9 @@ use llvm_sys::core::{
     LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
     LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
     LLVMCountStructElementTypes, LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType,
-    LLVMGetInsertBlock, LLVMGetTypeKind, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
-    LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMGetInsertBlock, LLVMGetIntTypeWidth, LLVMGetTypeKind, LLVMGetVectorSize,
+    LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2,
+    LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -1022,6 +1023,11 @@ impl<'ctx> Builder<'ctx> {
         on_false: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_select_types(
+            cond.as_value_ref(),
+            on_true.as_value_ref(),
+            on_false.as_value_ref(),
+        )?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildSelect(
@@ -1041,6 +1047,7 @@ impl<'ctx> Builder<'ctx> {
         index: IntValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_vector_index(vector.as_value_ref(), index.as_value_ref())?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildExtractElement(
@@ -1060,6 +1067,16 @@ impl<'ctx> Builder<'ctx> {
         index: IntValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let element_ty = validate_vector_index(vector.as_value_ref(), index.as_value_ref())?;
+        let value_ty = require_type(
+            unsafe { LLVMTypeOf(element.as_value_ref()) },
+            "vector element",
+        )?;
+        if element_ty != value_ty {
+            return Err(LlvmError::error(
+                "LLVM vector insertion value type does not match the vector element type",
+            ));
+        }
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildInsertElement(
@@ -1080,6 +1097,7 @@ impl<'ctx> Builder<'ctx> {
         mask: VectorValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_shuffle_types(lhs.as_value_ref(), rhs.as_value_ref(), mask.as_value_ref())?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildShuffleVector(
@@ -1351,6 +1369,112 @@ fn aggregate_element_type(aggregate: LLVMValueRef, index: u32) -> LlvmResult<LLV
     require_type(field_ty, "aggregate field")
 }
 
+fn validate_select_types(
+    cond: LLVMValueRef,
+    on_true: LLVMValueRef,
+    on_false: LLVMValueRef,
+) -> LlvmResult<()> {
+    let cond_ty = require_type(unsafe { LLVMTypeOf(cond) }, "select condition")?;
+    let true_ty = require_type(unsafe { LLVMTypeOf(on_true) }, "select true value")?;
+    let false_ty = require_type(unsafe { LLVMTypeOf(on_false) }, "select false value")?;
+    if true_ty != false_ty {
+        return Err(LlvmError::error(
+            "LLVM select arms must have identical types",
+        ));
+    }
+    match unsafe { LLVMGetTypeKind(cond_ty) } {
+        LLVMTypeKind::LLVMIntegerTypeKind => {
+            if unsafe { LLVMGetIntTypeWidth(cond_ty) } != 1 {
+                return Err(LlvmError::error(
+                    "LLVM scalar select condition must have i1 type",
+                ));
+            }
+        }
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind => {
+            let cond_element =
+                require_type(unsafe { LLVMGetElementType(cond_ty) }, "select condition")?;
+            if unsafe { LLVMGetTypeKind(cond_element) } != LLVMTypeKind::LLVMIntegerTypeKind
+                || unsafe { LLVMGetIntTypeWidth(cond_element) } != 1
+            {
+                return Err(LlvmError::error(
+                    "LLVM vector select condition must contain i1 lanes",
+                ));
+            }
+            if !matches!(
+                unsafe { LLVMGetTypeKind(true_ty) },
+                LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind
+            ) || unsafe { LLVMGetTypeKind(true_ty) } != unsafe { LLVMGetTypeKind(cond_ty) }
+                || unsafe { LLVMGetVectorSize(true_ty) } != unsafe { LLVMGetVectorSize(cond_ty) }
+            {
+                return Err(LlvmError::error(
+                    "LLVM vector select condition and arms must have matching vector shape",
+                ));
+            }
+        }
+        kind => {
+            return Err(LlvmError::error(format!(
+                "LLVM select condition must be i1 or an i1 vector, got {kind:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_vector_index(vector: LLVMValueRef, index: LLVMValueRef) -> LlvmResult<LLVMTypeRef> {
+    let vector_ty = require_type(unsafe { LLVMTypeOf(vector) }, "vector value")?;
+    if !matches!(
+        unsafe { LLVMGetTypeKind(vector_ty) },
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind
+    ) {
+        return Err(LlvmError::error(
+            "LLVM vector operation received a non-vector value",
+        ));
+    }
+    let index_ty = require_type(unsafe { LLVMTypeOf(index) }, "vector index")?;
+    if unsafe { LLVMGetTypeKind(index_ty) } != LLVMTypeKind::LLVMIntegerTypeKind {
+        return Err(LlvmError::error(
+            "LLVM vector index must have an integer type",
+        ));
+    }
+    require_type(unsafe { LLVMGetElementType(vector_ty) }, "vector element")
+}
+
+fn validate_shuffle_types(
+    lhs: LLVMValueRef,
+    rhs: LLVMValueRef,
+    mask: LLVMValueRef,
+) -> LlvmResult<()> {
+    let lhs_ty = require_type(unsafe { LLVMTypeOf(lhs) }, "shuffle left vector")?;
+    let rhs_ty = require_type(unsafe { LLVMTypeOf(rhs) }, "shuffle right vector")?;
+    if !matches!(
+        unsafe { LLVMGetTypeKind(lhs_ty) },
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind
+    ) || lhs_ty != rhs_ty
+    {
+        return Err(LlvmError::error(
+            "LLVM shuffle inputs must have identical vector types",
+        ));
+    }
+    let mask_ty = require_type(unsafe { LLVMTypeOf(mask) }, "shuffle mask")?;
+    if !matches!(
+        unsafe { LLVMGetTypeKind(mask_ty) },
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind
+    ) {
+        return Err(LlvmError::error(
+            "LLVM shuffle mask must be an integer vector",
+        ));
+    }
+    let mask_element = require_type(unsafe { LLVMGetElementType(mask_ty) }, "shuffle mask")?;
+    if unsafe { LLVMGetTypeKind(mask_element) } != LLVMTypeKind::LLVMIntegerTypeKind
+        || unsafe { LLVMGetIntTypeWidth(mask_element) } != 32
+    {
+        return Err(LlvmError::error(
+            "LLVM shuffle mask lanes must have i32 type",
+        ));
+    }
+    Ok(())
+}
+
 fn build_int_bin<'ctx>(
     builder: LLVMBuilderRef,
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
@@ -1546,6 +1670,121 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("insertion value type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_select_arm_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("select-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+
+        let error = builder
+            .build_select(
+                context.bool_type().const_zero().into(),
+                context.i32_type().const_zero().into(),
+                context.i64_type().const_zero().into(),
+                "invalid",
+            )
+            .expect_err("select arm type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("select arms must have identical types")
+        ));
+    }
+
+    #[test]
+    fn accepts_scalar_select_for_vector_values() {
+        let context = Context::create();
+        let module = context.create_module("select-vector").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let vector = BasicTypeEnum::from(context.i32_type())
+            .vector_type(2)
+            .const_zero()
+            .unwrap();
+
+        let value = builder
+            .build_select(
+                context.bool_type().const_zero().into(),
+                vector,
+                vector,
+                "valid",
+            )
+            .unwrap();
+        assert!(value.is_vector_value());
+    }
+
+    #[test]
+    fn rejects_vector_insert_element_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("vector-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let vector = BasicTypeEnum::from(context.i32_type())
+            .vector_type(2)
+            .const_zero()
+            .unwrap()
+            .into_vector_value()
+            .unwrap();
+        let index = context.i32_type().const_zero();
+
+        let error = builder
+            .build_insert_element(
+                vector,
+                context.i64_type().const_zero().into(),
+                index,
+                "invalid",
+            )
+            .expect_err("vector insertion type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("vector insertion value type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_shuffle_mask_with_non_i32_lanes_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("shuffle-mask").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let vector = BasicTypeEnum::from(context.i32_type())
+            .vector_type(2)
+            .const_zero()
+            .unwrap()
+            .into_vector_value()
+            .unwrap();
+        let mask = BasicTypeEnum::from(context.i64_type())
+            .vector_type(2)
+            .const_zero()
+            .unwrap()
+            .into_vector_value()
+            .unwrap();
+
+        let error = builder
+            .build_shuffle_vector(vector, vector, mask, "invalid")
+            .expect_err("shuffle mask lane type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("shuffle mask lanes must have i32 type")
         ));
     }
 }
