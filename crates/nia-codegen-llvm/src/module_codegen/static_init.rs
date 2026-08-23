@@ -123,7 +123,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
         }
         let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
-        Ok(ptr.const_bitcast(target_ptr_ty).into())
+        ptr.const_bitcast(target_ptr_ty)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn static_addr_of_function_value(
@@ -156,11 +158,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
         let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
-        Ok(function
+        function
             .as_global_value()
             .as_pointer_value()
             .const_bitcast(target_ptr_ty)
-            .into())
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn static_float_init_value(

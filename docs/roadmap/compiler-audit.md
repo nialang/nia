@@ -2207,6 +2207,12 @@ acceptance item only when its phase-wide evidence is complete.
       place-projection guard. A conversion regression covers the representable
       and overflow cases, with LLVM/codegen suites, workspace check, formatting,
       and strict Clippy passing.
+- [x] Batch 382 closes the LLVM constant-bitcast boundary.
+      Integer constants now require equal source/target widths and pointer
+      constants equal address spaces before `LLVMConstBitCast`; both wrappers
+      reject null results and static-initializer callers propagate failures.
+      Wrapper regressions cover both mismatches, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
