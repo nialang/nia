@@ -1059,11 +1059,11 @@ impl<'ctx> BasicTypeEnum<'ctx> {
     /// Creates the type's canonical zero value.
     pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         Ok(match self {
-            Self::ArrayType(t) => t.const_zero().into(),
+            Self::ArrayType(t) => BasicValueEnum::new(unsafe { LLVMConstNull(t.as_type_ref()) })?,
             Self::FloatType(t) => t.const_zero().into(),
             Self::IntType(t) => t.const_zero().into(),
             Self::PointerType(t) => t.const_zero().into(),
-            Self::StructType(t) => t.const_zero().into(),
+            Self::StructType(t) => BasicValueEnum::new(unsafe { LLVMConstNull(t.as_type_ref()) })?,
             Self::VectorType(t) => t.const_zero()?,
             Self::ScalableVectorType(t) => t.const_zero()?,
         })
@@ -1756,6 +1756,16 @@ mod tests {
             .expect("zero-length LLVM arrays are valid");
 
         let _ = array.const_zero();
+    }
+
+    #[test]
+    fn shared_zero_constant_path_checks_aggregate_handles() {
+        let context = Context::create().unwrap();
+        let array = context.i8_type().array_type(0).unwrap();
+        let struct_ty = context.struct_type(&[], false).unwrap();
+
+        assert!(BasicTypeEnum::ArrayType(array).const_zero().is_ok());
+        assert!(BasicTypeEnum::StructType(struct_ty).const_zero().is_ok());
     }
 
     #[test]

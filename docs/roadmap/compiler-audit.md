@@ -2276,6 +2276,12 @@ acceptance item only when its phase-wide evidence is complete.
       the failure, while wrapper tests explicitly unwrap valid contexts. A
       context regression covers the null root guard, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 394 closes the shared aggregate zero-constant boundary.
+      `BasicTypeEnum::const_zero` now routes array and struct constants through
+      the checked `BasicValueEnum` constructor instead of assertion-based typed
+      wrappers. A shared zero-path regression covers both aggregate categories,
+      with LLVM/codegen suites, workspace check, formatting, and strict Clippy
+      passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
