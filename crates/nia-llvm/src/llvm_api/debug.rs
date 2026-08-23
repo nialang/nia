@@ -24,7 +24,7 @@ use std::marker::PhantomData;
 
 use super::{
     AsValueRef, BasicBlock, BasicValue, Context, InstructionValue, LlvmError, LlvmResult, Module,
-    PointerValue,
+    PointerValue, checked_u32_count,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,6 +355,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         &self,
         input: DICompositeTypeInput<'ctx, '_>,
     ) -> LlvmResult<DIType<'ctx>> {
+        let element_count = checked_u32_count(
+            input.elements.len(),
+            "LLVM debug struct type has too many elements",
+        )?;
         let mut elements = input
             .elements
             .iter()
@@ -373,7 +377,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                 LLVMDIFlagZero,
                 std::ptr::null_mut(),
                 elements.as_mut_ptr(),
-                elements.len() as u32,
+                element_count,
                 0,
                 std::ptr::null_mut(),
                 input.unique_id.as_ptr() as *const _,
@@ -387,6 +391,10 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         &self,
         input: DICompositeTypeInput<'ctx, '_>,
     ) -> LlvmResult<DIType<'ctx>> {
+        let element_count = checked_u32_count(
+            input.elements.len(),
+            "LLVM debug union type has too many elements",
+        )?;
         let mut elements = input
             .elements
             .iter()
@@ -404,7 +412,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                 input.align_in_bits,
                 LLVMDIFlagZero,
                 elements.as_mut_ptr(),
-                elements.len() as u32,
+                element_count,
                 0,
                 input.unique_id.as_ptr() as *const _,
                 input.unique_id.len(),
