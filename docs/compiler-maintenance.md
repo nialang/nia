@@ -380,6 +380,10 @@ signals, not architecture goals.
 - Validate kernel timestamp subsecond fields before publishing domain metadata.
   A raw nanosecond value must be within one second; do not defer this invariant
   to formatting or later consumers.
+- Validate pointer-returning syscall payloads before converting them to slices.
+  For Linux `getcwd`, require a positive in-buffer count and the promised NUL
+  terminator; malformed success data is an I/O failure, not a partially trusted
+  path.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
