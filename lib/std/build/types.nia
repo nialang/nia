@@ -393,4 +393,6 @@ pub struct Build {
     executables: collections::ArrayList[ExecutableTarget],
     objects: collections::ArrayList[ObjectTarget],
     staticArchives: collections::ArrayList[StaticArchiveTarget],
+    validationIndegree: collections::ArrayList[usize],
+    validationReady: collections::ArrayList[usize],
 }

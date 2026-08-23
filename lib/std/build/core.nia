@@ -214,11 +214,15 @@ extend Build {
             executables: collections::ArrayList[ExecutableTarget]::init(),
             objects: collections::ArrayList[ObjectTarget]::init(),
             staticArchives: collections::ArrayList[StaticArchiveTarget]::init(),
+            validationIndegree: collections::ArrayList[usize]::init(),
+            validationReady: collections::ArrayList[usize]::init(),
         }
     }
 
     pub fn deinit(&mut self) Error!() {
         let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
+        rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         let mut elementError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
@@ -1253,18 +1257,33 @@ extend Build {
     }
 
     fn validateDependencyGraph(&mut self) Error!() {
-        let mut indegree = collections::ArrayList[usize]::initCapacity(
+        self.cleanupValidationScratch().?;
+        let operation = self.validateDependencyGraphWithScratch();
+        let cleanup = self.cleanupValidationScratch();
+        match operation {
+            !ok => {
+                _ = ok;
+                cleanup
+            },
+            primary! => {
+                _ = cleanup;
+                primary!
+            },
+        }
+    }
+
+    fn validateDependencyGraphWithScratch(&mut self) Error!() {
+        self.validationIndegree = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
-        defer indegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
         let mut index: usize = 0;
         while index < self.steps.len() {
-            indegree.push(self.allocator, 0).asBuildError(Operation::Retain, Subject::Dependencies).?;
+            self.validationIndegree.push(self.allocator, 0).asBuildError(Operation::Retain, Subject::Dependencies).?;
             index += 1;
         }
         for &edge in self.dependencies.iter() {
-            let slot = &mut indegree.asMutSlice()[edge.step.index()];
+            let slot = &mut self.validationIndegree.asMutSlice()[edge.step.index()];
             slot.* = match slot.*.checked_add(1) {
                 ?value => value,
                 null => return Error::Invalid {
@@ -1274,37 +1293,36 @@ extend Build {
             };
         }
 
-        let mut ready = collections::ArrayList[usize]::initCapacity(
+        self.validationReady = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
         ).asBuildError(Operation::Retain, Subject::Dependencies).?;
-        defer ready.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies).?;
         index = 0;
-        while index < indegree.len() {
-            if indegree.asSlice()[index] == 0 {
-                ready.push(self.allocator, index).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        while index < self.validationIndegree.len() {
+            if self.validationIndegree.asSlice()[index] == 0 {
+                self.validationReady.push(self.allocator, index).asBuildError(Operation::Retain, Subject::Dependencies).?;
             }
             index += 1;
         }
 
         let mut cursor: usize = 0;
-        while cursor < ready.len() {
-            let completed = ready.asSlice()[cursor];
+        while cursor < self.validationReady.len() {
+            let completed = self.validationReady.asSlice()[cursor];
             cursor += 1;
             for &edge in self.dependencies.iter() {
                 if edge.dependency.index() == completed {
                     let dependent = edge.step.index();
-                    indegree.asMutSlice()[dependent] -= 1;
-                    if indegree.asSlice()[dependent] == 0 {
-                        ready.push(self.allocator, dependent).asBuildError(Operation::Retain, Subject::Dependencies).?;
+                    self.validationIndegree.asMutSlice()[dependent] -= 1;
+                    if self.validationIndegree.asSlice()[dependent] == 0 {
+                        self.validationReady.push(self.allocator, dependent).asBuildError(Operation::Retain, Subject::Dependencies).?;
                     }
                 }
             }
         }
         if cursor != self.steps.len() {
             for &edge in self.dependencies.iter() {
-                if indegree.asSlice()[edge.step.index()] != 0
-                    and indegree.asSlice()[edge.dependency.index()] != 0
+                if self.validationIndegree.asSlice()[edge.step.index()] != 0
+                    and self.validationIndegree.asSlice()[edge.dependency.index()] != 0
                 {
                     return Error::StepCycle {
                         step: edge.step.index(),
@@ -1318,6 +1336,25 @@ extend Build {
             }!;
         }
         !()
+    }
+
+    fn cleanupValidationScratch(&mut self) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(
+            &mut firstError,
+            self.validationReady.deinit(self.allocator).asBuildError(
+                Operation::Release,
+                Subject::Dependencies,
+            ),
+        );
+        rememberCleanupError(
+            &mut firstError,
+            self.validationIndegree.deinit(self.allocator).asBuildError(
+                Operation::Release,
+                Subject::Dependencies,
+            ),
+        );
+        cleanupResult(firstError)
     }
 
     pub fn reportError(&mut self, error: Error) Error!() {
