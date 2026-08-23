@@ -2130,6 +2130,11 @@ acceptance item only when its phase-wide evidence is complete.
       address space is supplied, and `PointerType::address_space` exposes the
       resulting value. An address-space preservation regression plus
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 369 closes the LLVM alignment boundary. Global/instruction
+      alignment setters and aligned loads now require a non-zero power-of-two
+      byte alignment and return `LlvmResult`; codegen propagates setter failures.
+      Regressions cover invalid global and load alignments, with LLVM/codegen
+      suites, workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

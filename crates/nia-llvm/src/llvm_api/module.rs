@@ -405,4 +405,21 @@ mod tests {
             AddressSpace(3)
         );
     }
+
+    #[test]
+    fn rejects_invalid_global_alignment_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("global-alignment").unwrap();
+        let global = module
+            .add_global(context.i32_type().into(), None, "value")
+            .unwrap();
+
+        let error = global
+            .set_alignment(3)
+            .expect_err("non-power-of-two global alignment");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("non-zero power of two")
+        ));
+    }
 }

@@ -92,6 +92,15 @@ pub(super) fn bool_to_llvm(value: bool) -> i32 {
     if value { 1 } else { 0 }
 }
 
+pub(super) fn validate_alignment(bytes: u32) -> LlvmResult<()> {
+    if bytes == 0 || !bytes.is_power_of_two() {
+        return Err(LlvmError::error(
+            "LLVM alignment must be a non-zero power of two",
+        ));
+    }
+    Ok(())
+}
+
 /// Provides a borrowed raw LLVM type handle.
 pub trait AsTypeRef {
     /// Returns the underlying non-owning type handle.
@@ -1561,8 +1570,10 @@ impl<'ctx> GlobalValue<'ctx> {
     }
 
     /// Sets the global's required byte alignment.
-    pub fn set_alignment(self, bytes: u32) {
+    pub fn set_alignment(self, bytes: u32) -> LlvmResult<()> {
+        validate_alignment(bytes)?;
         unsafe { LLVMSetAlignment(self.raw, bytes) };
+        Ok(())
     }
 }
 
@@ -1651,8 +1662,10 @@ impl<'ctx> InstructionValue<'ctx> {
     }
 
     /// Sets the instruction's required byte alignment.
-    pub fn set_alignment(self, bytes: u32) {
+    pub fn set_alignment(self, bytes: u32) -> LlvmResult<()> {
+        validate_alignment(bytes)?;
         unsafe { LLVMSetAlignment(self.raw, bytes) };
+        Ok(())
     }
 
     /// Marks a memory instruction volatile or non-volatile.
