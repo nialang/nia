@@ -2352,6 +2352,12 @@ acceptance item only when its phase-wide evidence is complete.
       hashes in `u64` before converting to host `usize`; a high-bit regression
       proves 32-bit and 64-bit hosts select identical buckets, with backend IR,
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 408 closes body-check and backend static collection-length drift.
+      Array literal inference, const-value materialization, string literal
+      typing, and static-initializer repeat compression now checked-convert host
+      lengths to semantic `u64`, failing closed or preserving the original form
+      when the conversion is unavailable; body-check/backend-lower/LLVM suites,
+      workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -1329,6 +1329,11 @@ runtime slice.
 All host collection lengths entering this semantic `u64` array-length surface
 use checked conversions. A length that cannot be represented is rejected or
 left unknown, never truncated into a mismatching accepted const type.
+Body checking applies the same rule while inferring array literals and
+materializing const arrays; string literals become unknown-length arrays when
+their decoded host count cannot be represented. Backend static-initializer
+compression likewise keeps the original explicit array when its repeat count
+cannot be represented, so optimization never changes the accepted shape.
 
 Const struct literals have one typed surface: the source literal names a
 nominal type, and resolved const IR stores that type as a required field. The
