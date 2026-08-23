@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 463 completed entries in this ledger.
+- Implementation batches: 464 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2628,6 +2628,11 @@ acceptance item only when its phase-wide evidence is complete.
       then clears the owner only after successful release. A custom allocator
       regression covers a non-empty release range attached to a zero-length
       slice.
+- [x] Batch 464 makes single allocation owner retirement complete. Successful
+      `Allocated`/`CallableAllocation` deinit and `intoCallable` transfer now
+      clear release pointer and length together with logical size, preventing
+      repeated cleanup or source-owner cleanup after transfer from releasing
+      the same block twice.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

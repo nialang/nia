@@ -2164,7 +2164,10 @@ library's `Allocated[T]` and `CallableAllocation[V]` APIs use ordinary typed
 pointers, layout values, integer/raw-address boundaries, and explicit `deinit`;
 the compiler does not know about allocators or heap policy. Success and error
 payload provenance are tracked separately so an error-only stack address cannot
-contaminate a successfully allocated value.
+contaminate a successfully allocated value. A successful owner transfer or
+`deinit` clears both the logical size and the stored release range; a failed
+release leaves all metadata intact for retry and a completed owner cannot be
+freed again through its former pointer.
 
 The allocator protocol keeps non-empty ownership transitions explicit. A
 successful resize to an empty layout must itself retire all ownership state;
