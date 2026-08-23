@@ -3333,6 +3333,11 @@ list and values, environment list and name/value pairs before allocation can
 fail. Producer edges are committed as one suffix transaction; failure removes
 that suffix and moves the whole command step into pending ownership without
 letting cleanup replace the primary error.
+The remaining aggregate, check, and emit records enter through the same pending
+step slot, even though their payloads are non-owning. Emit-executable archive
+edges use the common explicit suffix rollback shape. Consequently `std::build`
+has no fallible cleanup defer; ownership and error precedence are visible in
+the state machine itself.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while

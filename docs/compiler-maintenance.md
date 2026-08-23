@@ -435,6 +435,10 @@ signals, not architecture goals.
   active union/struct form before nested strings are retained. On any producer
   edge failure, remove the complete newly added dependency suffix and transfer
   the popped command step to pending ownership before recursive cleanup.
+- Keep every build step insertion on the pending-step boundary, including
+  non-owning aggregate/check/emit payloads, so later payload evolution cannot
+  reintroduce detached name ownership. Multi-edge commits use explicit suffix
+  rollback; `lib/std/build` must remain free of fallible cleanup defers.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a
