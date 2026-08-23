@@ -1334,6 +1334,9 @@ materializing const arrays; string literals become unknown-length arrays when
 their decoded host count cannot be represented. Backend static-initializer
 compression likewise keeps the original explicit array when its repeat count
 cannot be represented, so optimization never changes the accepted shape.
+LLVM vector constant materialization also checks the semantic lane count before
+using it as a host `usize` loop bound, failing with a diagnostic instead of
+wrapping on a narrower host.
 
 Const struct literals have one typed surface: the source literal names a
 nominal type, and resolved const IR stores that type as a required field. The

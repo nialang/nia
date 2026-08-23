@@ -699,7 +699,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 "promoted vector initializer has a non-vector type",
             ));
         };
-        let lane_count = *lanes as usize;
+        let lane_count = super::checked_vector_lane_count(*lanes)
+            .ok_or_else(|| self.error(expr.span, "vector lane count is too large for the host"))?;
         match &expr.kind {
             FunctionExprKind::Splat { value } => {
                 let value = self.emit_promoted_const_value(value)?.value;
