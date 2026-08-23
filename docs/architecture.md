@@ -2766,6 +2766,11 @@ Context custom integer construction rejects zero bit widths before
 uses LLVM's dedicated context API. Codegen propagates failures for all
 computed-width integer types instead of retaining a direct unchecked call.
 
+Fixed-vector type construction likewise rejects zero lane counts before
+`LLVMVectorType` and returns `LlvmResult`; module and function lowering
+propagate the constructor result rather than relying only on source-level lane
+validation.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
