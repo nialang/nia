@@ -6,6 +6,26 @@ using types::Errno;
 
 const native_page_size: usize = 4096usize;
 
+pub struct MappedPages {
+    ptr: &mut u8,
+    releasePtr: &mut u8,
+    releaseSize: usize,
+}
+
+extend MappedPages {
+    pub fn ptr(&self) &mut u8 {
+        self.ptr
+    }
+
+    pub fn releasePtr(&self) &mut u8 {
+        self.releasePtr
+    }
+
+    pub fn releaseSize(&self) usize {
+        self.releaseSize
+    }
+}
+
 fn raw_map_pages(len: usize) Errno!&mut u8 {
     let prot_read_write = 3usize;
     let private_anonymous = 34usize;
@@ -47,7 +67,7 @@ pub fn page_aligned_len(len: usize) Errno!usize {
     }
 }
 
-pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
+pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 {
         return Errno::Invalid!;
     }
@@ -71,59 +91,18 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     let mapped = raw_map_pages(map_len).?;
     let mapped_addr = mapped as usize;
     match mapped_addr.checked_add(map_len) {
-        ?value => {
-            _ = value;
-        },
-        null => {
-            match raw_unmap_pages(mapped, map_len) {
-                !ok => {
-                    _ = ok;
-                },
-                error! => {},
-            }
-            return Errno::OutOfRange!;
-        },
+        ?value => { _ = value; },
+        null => return Errno::OutOfRange!,
     }
-    let mut result_addr: usize;
-    match mapped_addr.align_forward(align) {
-        ?value => {
-            result_addr = value;
-        },
-        null => {
-                match raw_unmap_pages(mapped, map_len) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {},
-                }
-                return Errno::OutOfRange!;
-        },
+    let result_addr = match mapped_addr.align_forward(align) {
+        ?value => value,
+        null => return Errno::OutOfRange!,
+    };
+    !MappedPages {
+        ptr: result_addr as &mut u8,
+        releasePtr: mapped,
+        releaseSize: map_len,
     }
-
-    let drop_len = result_addr - mapped_addr;
-    if drop_len != 0 {
-        raw_unmap_pages(mapped, drop_len).?;
-    }
-
-    let remaining_len = map_len - drop_len;
-    if remaining_len > aligned_len {
-        let suffixAddr = match result_addr.checked_add(aligned_len) {
-            ?value => value,
-            null => {
-                match raw_unmap_pages(mapped, map_len) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    error! => {},
-                }
-                return Errno::OutOfRange!;
-            },
-        };
-        let suffix = suffixAddr as &mut u8;
-        raw_unmap_pages(suffix, remaining_len - aligned_len).?;
-    }
-
-    !(result_addr as &mut u8)
 }
 
 pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!() {

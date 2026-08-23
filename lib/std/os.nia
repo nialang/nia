@@ -232,7 +232,7 @@ pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) 
     !metadata.asOsMetadata()
 }
 
-pub(pkg) fn mapPages(len: usize, align: usize) Error!&mut u8 {
+pub(pkg) fn mapPages(len: usize, align: usize) Error!platform::MappedPages {
     platform::map_pages(len, align).asOsError()
 }
 

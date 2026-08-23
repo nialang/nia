@@ -20,8 +20,13 @@ extend PageAllocator : Allocator {
         if layout.isEmpty() {
             !Block::empty(layout)
         } else {
-            let ptr = os::mapPages(layout.size(), layout.align()).?;
-            !Block::init(ptr, layout)
+            let mapping = os::mapPages(layout.size(), layout.align()).?;
+            !Block::initWithRelease(
+                mapping.ptr(),
+                layout,
+                mapping.releasePtr(),
+                mapping.releaseSize(),
+            )
         }
     }
 
@@ -57,7 +62,12 @@ extend PageAllocator : Allocator {
 
     pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
-            ?Block::init(block.ptr(), newLayout)
+            ?Block::initWithRelease(
+                block.ptr(),
+                newLayout,
+                block.releasePtr(),
+                block.releaseSize(),
+            )
         } else if block.isEmpty() and newLayout.isEmpty() {
             ?Block::empty(newLayout)
         } else {
@@ -70,7 +80,7 @@ extend PageAllocator : Allocator {
         if block.layout().isEmpty() {
             !()
         } else {
-            os::unmapPages(block.ptr(), block.size()).asPageAllocatorError()
+            os::unmapPages(block.releasePtr(), block.releaseSize()).asPageAllocatorError()
         }
     }
 }

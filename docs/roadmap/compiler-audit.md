@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 455 completed entries in this ledger.
+- Implementation batches: 456 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2579,6 +2579,12 @@ acceptance item only when its phase-wide evidence is complete.
       owner without silently dropping ctrl/key/value allocations. The complete
       seven-case HashMap executable matrix now covers one-block rehash and
       cleanup counts, including unit-sized generic fields.
+- [x] Batch 456 makes over-aligned Linux mappings single-owner. The page mapper
+      now retains the complete mmap range while exposing an aligned interior
+      pointer; `mem::Block` carries the release pointer/length and
+      `PageAllocator::free` unmaps that range once. Prefix/suffix best-effort
+      unmaps and their swallowed cleanup errors are removed; the allocator
+      executable matrix still passes the over-aligned mapping/realloc cases.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

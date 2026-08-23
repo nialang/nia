@@ -14,6 +14,8 @@ using pkg::os::linux::random as random_impl;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
 
+pub using memory::MappedPages;
+
 pub using types::{
     DirectoryEntry,
     Errno,
@@ -137,7 +139,7 @@ pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
     fd::dir_entry_next_offset(buffer, offset)
 }
 
-pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
+pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
     memory::map_pages(len, align)
 }
 
