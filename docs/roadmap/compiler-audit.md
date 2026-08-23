@@ -2125,6 +2125,11 @@ acceptance item only when its phase-wide evidence is complete.
       codegen callers propagate wrapper failures. A mismatched-initializer
       regression plus LLVM/codegen suites, workspace check, formatting, and
       strict Clippy pass.
+- [x] Batch 368 removes the ignored LLVM global address-space argument.
+      `Module::add_global` now calls `LLVMAddGlobalInAddressSpace` when an
+      address space is supplied, and `PointerType::address_space` exposes the
+      resulting value. An address-space preservation regression plus
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

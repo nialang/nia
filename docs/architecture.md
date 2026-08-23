@@ -2718,6 +2718,10 @@ now returns `LlvmResult` and compares the initializer's LLVM type with the
 declared global type before `LLVMSetInitializer`; codegen still performs its
 source-level diagnostic check and propagates any wrapper failure.
 
+Global declaration address spaces are no longer ignored: `Module::add_global`
+uses LLVM's address-space-aware constructor when supplied, and `PointerType`
+exposes the resulting numeric address space for boundary checks.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

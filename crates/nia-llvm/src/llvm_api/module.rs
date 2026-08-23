@@ -12,9 +12,10 @@ use llvm_sys::core::LLVMPrintModuleToFile;
 #[cfg(not(windows))]
 use llvm_sys::core::LLVMPrintModuleToString;
 use llvm_sys::core::{
-    LLVMAddFunction, LLVMAddGlobal, LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule,
-    LLVMGetBufferSize, LLVMGetBufferStart, LLVMGetFirstFunction, LLVMGetIntrinsicDeclaration,
-    LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetNextFunction, LLVMSetLinkage,
+    LLVMAddFunction, LLVMAddGlobal, LLVMAddGlobalInAddressSpace, LLVMDisposeMemoryBuffer,
+    LLVMDisposeMessage, LLVMDisposeModule, LLVMGetBufferSize, LLVMGetBufferStart,
+    LLVMGetFirstFunction, LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal,
+    LLVMGetNextFunction, LLVMSetLinkage,
 };
 use llvm_sys::linker::LLVMLinkModules2;
 use llvm_sys::prelude::LLVMModuleRef;
@@ -130,18 +131,25 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
-    /// Declares a global value of `ty`.
-    ///
-    /// The address-space argument is reserved until the wrapper adopts LLVM's
-    /// address-space-aware global constructor.
+    /// Declares a global value of `ty` in the requested address space.
     pub fn add_global(
         &self,
         ty: BasicTypeEnum<'ctx>,
-        _addr_space: Option<AddressSpace>,
+        addr_space: Option<AddressSpace>,
         name: &str,
     ) -> LlvmResult<GlobalValue<'ctx>> {
         let name = to_c_string(name)?;
-        let value = unsafe { LLVMAddGlobal(self.raw, ty.as_type_ref(), name.as_ptr()) };
+        let value = unsafe {
+            match addr_space {
+                Some(address_space) => LLVMAddGlobalInAddressSpace(
+                    self.raw,
+                    ty.as_type_ref(),
+                    name.as_ptr(),
+                    address_space.0,
+                ),
+                None => LLVMAddGlobal(self.raw, ty.as_type_ref(), name.as_ptr()),
+            }
+        };
         let value = require_handle(value, "global")?;
         Ok(GlobalValue::new(value))
     }
@@ -382,5 +390,19 @@ mod tests {
             error,
             LlvmError::Error(message) if message.contains("initializer type does not match")
         ));
+    }
+
+    #[test]
+    fn preserves_global_address_space_in_pointer_type() {
+        let context = Context::create();
+        let module = context.create_module("global-address-space").unwrap();
+        let global = module
+            .add_global(context.i32_type().into(), Some(AddressSpace(3)), "value")
+            .unwrap();
+
+        assert_eq!(
+            global.as_pointer_value().get_type().address_space(),
+            AddressSpace(3)
+        );
     }
 }
