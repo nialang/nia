@@ -2097,6 +2097,12 @@ acceptance item only when its phase-wide evidence is complete.
       contract. Regressions cover a scalar width mismatch, an integer value
       routed to floating arithmetic, and pointer equality, with LLVM/codegen
       suites, workspace check, formatting, and strict Clippy passing.
+- [x] Batch 363 closes the LLVM unary-operand boundary. Shared integer
+      negation/bitwise-not and floating negation now validate scalar/vector
+      operand categories before FFI entry; typed unary builders retain their
+      existing narrow value handles. Regressions cover both cross-category
+      failures, with LLVM/codegen suites, workspace check, formatting, and
+      strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
