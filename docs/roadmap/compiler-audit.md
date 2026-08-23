@@ -2219,6 +2219,12 @@ acceptance item only when its phase-wide evidence is complete.
       inline-assembly, compiler-builtin, and wrapper-test callers propagate or
       explicitly unwrap construction results. A parameter-count regression plus
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 384 closes the LLVM constant-GEP construction boundary.
+      Constant and in-bounds constant GEP wrappers now check index-count width
+      and LLVM result handles, returning `LlvmResult`; static address lowering
+      propagates failures. An index-count regression covers the conversion
+      boundary, with LLVM/codegen suites, workspace check, formatting, and
+      strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
