@@ -3241,6 +3241,15 @@ truncated drafts from turning a small count prefix into a large host allocation.
 The standard filesystem close API consumes its descriptor before issuing the OS
 close. Build-plan publication clears its fallback flag before the explicit
 close, preserving the first close error without a second `BadFd` attempt.
+Allocator-owned `Allocated` and `CallableAllocation` values follow the inverse
+ordering: they retain their pointer, size, and alignment until `free` succeeds.
+A failed release therefore leaves a complete owner available for an explicit
+retry instead of silently converting the value into an unreleasable empty
+sentinel.
+Their construction is exposed through the `std::mem` facade as
+`mem::allocValue`; the former extension hidden in the package-private
+allocation module is removed so the documented owner API is actually reachable
+to user programs.
 
 Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries

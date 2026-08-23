@@ -283,7 +283,7 @@ detail and may evolve independently of closure entry symbols.
 Construction and destruction are explicit:
 
 ```text
-allocator.allocValue[T](value) -> Error!Allocated[T]
+mem::allocValue[T](allocator, value) -> Error!Allocated[T]
 allocated.intoCallable(view)  -> CallableAllocation[V]
 owner.deinit(allocator)       -> Error!()
 ```

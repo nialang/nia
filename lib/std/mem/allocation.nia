@@ -21,17 +21,15 @@ where V: Sized
     align: usize,
 }
 
-extend Allocator {
-    pub fn allocValue[T](&mut self, value: T) Error!Allocated[T]
-    where T: Sized
-    {
-        let layout = Layout::of[T]().?;
-        let block = self.alloc(layout).?;
-        let address = block.ptr() as usize;
-        let mut valuePtr = address as &mut T;
-        valuePtr.* = value;
-        !Allocated[T] { valuePtr, size: layout.size(), align: layout.align() }
-    }
+pub fn allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
+where T: Sized
+{
+    let layout = Layout::of[T]().?;
+    let block = allocator.alloc(layout).?;
+    let address = block.ptr() as usize;
+    let mut valuePtr = address as &mut T;
+    valuePtr.* = value;
+    !Allocated[T] { valuePtr, size: layout.size(), align: layout.align() }
 }
 
 extend[T] Allocated[T]
@@ -63,9 +61,10 @@ where T: Sized
         let address = self.valuePtr as usize;
         let allocationPtr = address as &mut u8;
         let layout = Layout::init(self.size, self.align).?;
+        allocator.free(Block::init(allocationPtr, layout)).?;
         self.valuePtr = self.align as &mut T;
         self.size = 0;
-        allocator.free(Block::init(allocationPtr, layout))
+        !()
     }
 }
 
@@ -80,7 +79,8 @@ where V: Sized
         let address = self.allocationPtr as usize;
         let allocationPtr = address as &mut u8;
         let layout = Layout::init(self.size, self.align).?;
+        allocator.free(Block::init(allocationPtr, layout)).?;
         self.size = 0;
-        allocator.free(Block::init(allocationPtr, layout))
+        !()
     }
 }

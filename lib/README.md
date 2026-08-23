@@ -36,6 +36,8 @@ The library follows a small set of ownership rules:
   attached by the owning module.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
+- `mem::allocValue` is the public construction boundary for allocator-backed
+  typed owners; implementation modules do not hide the only entry point.
 
 The source files are the API reference: facades state their boundaries and the
 owning modules document type-specific lifetime, error, and cleanup contracts.
