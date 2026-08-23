@@ -2636,6 +2636,12 @@ are checked before LLVM instruction construction. Runtime lane bounds remain a
 language-level concern for dynamic indices, while static type/shape violations
 are rejected by the wrapper.
 
+Integer extension/truncation builders likewise validate scalar/vector integer
+shapes and lane widths before FFI entry. Extensions require a wider target and
+truncations a narrower target; this makes the checked wrapper the single place
+that guards LLVM's width-sensitive cast contracts while higher-level lowering
+continues to choose signedness.
+
 ### 12.2 `nia-codegen-llvm`
 
 Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
