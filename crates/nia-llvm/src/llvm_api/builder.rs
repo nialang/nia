@@ -419,6 +419,7 @@ impl<'ctx> Builder<'ctx> {
         value: V,
         ordering: AtomicOrdering,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_atomic_rmw(value.as_value_ref(), op, ordering)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildAtomicRMW(
                 self.raw,
@@ -441,6 +442,12 @@ impl<'ctx> Builder<'ctx> {
         failure: AtomicOrdering,
         weak: bool,
     ) -> LlvmResult<StructValue<'ctx>> {
+        validate_cmpxchg(
+            expected.as_value_ref(),
+            desired.as_value_ref(),
+            success,
+            failure,
+        )?;
         let value = unsafe {
             LLVMBuildAtomicCmpXchg(
                 self.raw,
@@ -1475,6 +1482,87 @@ fn validate_switch_cases<'ctx>(
     Ok(())
 }
 
+fn validate_atomic_rmw(
+    value: LLVMValueRef,
+    op: AtomicRMWBinOp,
+    ordering: AtomicOrdering,
+) -> LlvmResult<()> {
+    if matches!(
+        ordering,
+        AtomicOrdering::NotAtomic | AtomicOrdering::Unordered
+    ) {
+        return Err(LlvmError::error(
+            "LLVM atomic RMW requires an ordering stronger than unordered",
+        ));
+    }
+    let value_ty = require_type(unsafe { LLVMTypeOf(value) }, "atomic RMW value")?;
+    let kind = unsafe { LLVMGetTypeKind(value_ty) };
+    if !matches!(
+        kind,
+        LLVMTypeKind::LLVMIntegerTypeKind | LLVMTypeKind::LLVMPointerTypeKind
+    ) {
+        return Err(LlvmError::error(
+            "LLVM atomic RMW value must have integer or pointer type",
+        ));
+    }
+    if !matches!(op, AtomicRMWBinOp::Xchg) && kind != LLVMTypeKind::LLVMIntegerTypeKind {
+        return Err(LlvmError::error(
+            "LLVM non-exchange atomic RMW operations require an integer value",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_cmpxchg(
+    expected: LLVMValueRef,
+    desired: LLVMValueRef,
+    success: AtomicOrdering,
+    failure: AtomicOrdering,
+) -> LlvmResult<()> {
+    let expected_ty = require_type(unsafe { LLVMTypeOf(expected) }, "cmpxchg expected value")?;
+    let desired_ty = require_type(unsafe { LLVMTypeOf(desired) }, "cmpxchg desired value")?;
+    if expected_ty != desired_ty {
+        return Err(LlvmError::error(
+            "LLVM cmpxchg expected and desired values must have identical types",
+        ));
+    }
+    let kind = unsafe { LLVMGetTypeKind(expected_ty) };
+    if !matches!(
+        kind,
+        LLVMTypeKind::LLVMIntegerTypeKind | LLVMTypeKind::LLVMPointerTypeKind
+    ) {
+        return Err(LlvmError::error(
+            "LLVM cmpxchg values must have integer or pointer type",
+        ));
+    }
+    if !cmpxchg_order_allowed(success, failure) {
+        return Err(LlvmError::error(
+            "LLVM cmpxchg ordering combination is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn cmpxchg_order_allowed(success: AtomicOrdering, failure: AtomicOrdering) -> bool {
+    match success {
+        AtomicOrdering::Monotonic => failure == AtomicOrdering::Monotonic,
+        AtomicOrdering::Acquire => {
+            matches!(failure, AtomicOrdering::Monotonic | AtomicOrdering::Acquire)
+        }
+        AtomicOrdering::Release => failure == AtomicOrdering::Monotonic,
+        AtomicOrdering::AcquireRelease => {
+            matches!(failure, AtomicOrdering::Monotonic | AtomicOrdering::Acquire)
+        }
+        AtomicOrdering::SequentiallyConsistent => matches!(
+            failure,
+            AtomicOrdering::Monotonic
+                | AtomicOrdering::Acquire
+                | AtomicOrdering::SequentiallyConsistent
+        ),
+        AtomicOrdering::NotAtomic | AtomicOrdering::Unordered => false,
+    }
+}
+
 fn build_int_bin<'ctx>(
     builder: LLVMBuilderRef,
     f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
@@ -1979,6 +2067,61 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("must be constant integer")
+        ));
+    }
+
+    #[test]
+    fn rejects_non_integer_atomic_rmw_operand_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("atomic-rmw-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let ptr = context.ptr_type(Default::default()).const_null();
+
+        let error = builder
+            .build_atomicrmw(
+                AtomicRMWBinOp::Add,
+                ptr,
+                context.f32_type().const_zero(),
+                AtomicOrdering::Monotonic,
+            )
+            .expect_err("floating atomic RMW operand");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("must have integer or pointer type")
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_cmpxchg_ordering_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("cmpxchg-order").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let ptr = context.ptr_type(Default::default()).const_null();
+        let value = context.i32_type().const_zero();
+
+        let error = builder
+            .build_cmpxchg(
+                ptr,
+                value,
+                value,
+                AtomicOrdering::Release,
+                AtomicOrdering::Acquire,
+                false,
+            )
+            .expect_err("invalid cmpxchg failure ordering");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("ordering combination is invalid")
         ));
     }
 }

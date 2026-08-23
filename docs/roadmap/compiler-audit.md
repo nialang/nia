@@ -2046,6 +2046,12 @@ acceptance item only when its phase-wide evidence is complete.
       constant integers with exactly the selector's LLVM type. Wrapper tests
       cover mismatched types and runtime values; LLVM/codegen suites, workspace
       check, formatting, and strict Clippy pass.
+- [x] Batch 355 closes the LLVM atomic builder boundary. Atomic RMW now rejects
+      unordered/non-atomic orderings and invalid operand kinds for each opcode;
+      compare-exchange validates matching expected/desired types and legal
+      success/failure ordering combinations before FFI entry. Wrapper tests
+      cover a floating RMW operand and invalid cmpxchg ordering; LLVM/codegen
+      suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
