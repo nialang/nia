@@ -170,6 +170,9 @@ The library follows a small set of ownership rules:
   formatting itself succeeds. A backing whose `free` failed before release is
   transferred to the destination as a pending owner, retried before the next
   format and during `String::deinit`.
+- Formatter radix methods reject values outside 2, 8, 10, and 16 before writing
+  any output. `FormatSpec`, `FormatPresentation`, and `FormatAlignment` are all
+  available from the public `std::fmt` facade.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed

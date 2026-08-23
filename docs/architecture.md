@@ -3548,6 +3548,12 @@ into the wrapped reader's ordinary end-of-stream or writer's short-write error.
 Formatting template width and precision fields use checked decimal
 accumulation. Values that do not fit target `usize` are invalid templates; they
 cannot wrap to a smaller padding request or reach writer dispatch.
+Formatter radix entry points admit only binary, octal, decimal, and hexadecimal
+before computing digit counts or emitting sign, prefix, or padding bytes.
+Unsupported radices therefore return `InvalidTemplate` without division by
+zero, non-termination at radix one, or partial writer mutation. The public
+`FormatSpec` construction surface is complete through the `std::fmt` facade:
+its `FormatAlignment` parameter and result type are exported with the spec.
 
 Slice iterators apply the same checked rule to element-size multiplication and
 pointer-address addition before yielding an item. A malformed or impossible

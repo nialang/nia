@@ -147,6 +147,14 @@ pub struct Formatter {
     writer: &mut FormatWriter,
 }
 
+fn validate_radix(radix: u128) Error!() {
+    if radix == 2u128 or radix == 8u128 or radix == 10u128 or radix == 16u128 {
+        !()
+    } else {
+        Error::InvalidTemplate!
+    }
+}
+
 extend Formatter {
     pub fn init(writer: &mut FormatWriter) Formatter {
         Self { writer }
@@ -261,6 +269,7 @@ extend Formatter {
     }
 
     pub fn write_unsigned_radix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
+        validate_radix(radix).?;
         if radix == 10u128 {
             self.write_unsigned_base10(value, uppercase)
         } else if radix == 16u128 {
@@ -296,6 +305,7 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!() {
+        validate_radix(radix).?;
         let mut prefix_width = 0usize;
         if spec.alternate() {
             if radix == 16u128 or radix == 2u128 {
@@ -413,6 +423,7 @@ extend Formatter {
     }
 
     pub fn write_signed_radix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
+        validate_radix(radix).?;
         if value < 0i128 {
             self.write_byte(b'-').?;
             self.write_unsigned_radix(((0i128 - (value + 1i128)) as u128) + 1u128, radix, uppercase)
@@ -437,6 +448,7 @@ extend Formatter {
         uppercase: bool,
         spec: FormatSpec,
     ) Error!() {
+        validate_radix(radix).?;
         let abs = self.signed_abs(value);
         let mut prefix_width = 0usize;
         if spec.alternate() {

@@ -8,5 +8,5 @@ using pkg::fmt::core;
 using pkg::fmt::primitive;
 using pkg::fmt::template;
 
-pub using core::{Error, FormatWriter, Format, FormatPresentation, FormatSpec, Formatter};
+pub using core::{Error, FormatWriter, Format, FormatAlignment, FormatPresentation, FormatSpec, Formatter};
 pub using template::print_checked;
