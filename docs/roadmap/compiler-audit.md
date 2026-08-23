@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 482 completed entries in this ledger.
+- Implementation batches: 483 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2749,6 +2749,13 @@ acceptance item only when its phase-wide evidence is complete.
       argument-value and environment-value allocation failures, multiple
       simultaneous nested releases, containing-list retention, retry, and
       complete final cleanup.
+- [x] Batch 483 unifies all remaining build steps on pending ownership.
+      Aggregate, check, and emit records reserve the steps list before name
+      retention and transfer through an infallible append. Emit-executable
+      archive dependencies use explicit suffix rollback with primary-error
+      precedence. The obsolete generic local `Step::init` transaction and final
+      two fallible cleanup defers are removed; `lib/std/build` now contains no
+      `defer`, while ownership and target suites retain full coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

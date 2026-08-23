@@ -76,6 +76,10 @@ The library follows a small set of ownership rules:
   argument/environment owners before string retention. Multi-producer edge
   failure removes all newly added edges, preserves the primary error, and moves
   the command step into pending ownership for recursive cleanup retry.
+- Aggregate, check, and emit step names use the same pre-reserved pending step.
+  Emit-executable archive edges and external-command producer edges use explicit
+  dependency-suffix rollback. The build implementation has no fallible cleanup
+  defer that can hide an owner or replace a primary error.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

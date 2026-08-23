@@ -494,29 +494,38 @@ extend Build {
             StepPayload { executable: ExecutableStep::init(target) },
         ).?;
         let dependencyStart = self.dependencies.len();
-        let mut committed = false;
-        defer if not committed {
-            while self.dependencies.len() > dependencyStart {
-                _ = self.dependencies.pop();
-            }
-            self.rollbackLastStep().?;
-        };
-        archiveIndex = 0;
-        while archiveIndex < archiveCount {
-            let archive = self.executables.asSlice()[target.index()]
-                .staticArchives.asSlice()[archiveIndex];
+        match self.addExecutableArchiveDependencies(result, target) {
+            !ok => {
+                _ = ok;
+                !result
+            },
+            primary! => {
+                while self.dependencies.len() > dependencyStart {
+                    _ = self.dependencies.pop();
+                }
+                _ = self.rollbackLastStep();
+                primary!
+            },
+        }
+    }
+
+    fn addExecutableArchiveDependencies(
+        &mut self,
+        step: StepHandle,
+        target: ExecutableHandle,
+    ) Error!() {
+        let archives = self.executables.asSlice()[target.index()].staticArchives.asSlice();
+        for &archive in archives.iter() {
             let producer = match self.findEmitStaticArchiveStep(archive) {
                 ?producer => producer,
                 null => return Error::Invalid {
                     operation: Operation::Validate,
-                    subject: Subject::Step(result.index()),
+                    subject: Subject::Step(step.index()),
                 }!,
             };
-            self.dependOn(result, producer).?;
-            archiveIndex += 1;
+            self.dependOn(step, producer).?;
         }
-        committed = true;
-        !result
+        !()
     }
 
     pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
@@ -1684,33 +1693,17 @@ extend Build {
     }
 
     fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
-        self.cleanupPendingStep().?;
-        if not isValidStableName(name) {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(self.steps.len()),
-            }!;
-        }
-        match self.findStep(name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Step(self.steps.len()),
-                }!;
+        self.prepareStepSlot(name).?;
+        self.pendingStep = Step::initSimple(self.steps.len(), kind, payload);
+        self.hasPendingStep = true;
+        match self.pendingStep.initializeName(self.allocator, name) {
+            !ok => _ = ok,
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
             },
-            null => {},
         }
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        let mut step = Step::init(self.allocator, name, kind, payload, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            step.deinit(self.allocator).?;
-        };
-        self.steps.push(self.allocator, step).asBuildError(Operation::Retain, Subject::Steps).?;
-        transferred = true;
-        self.planValidated = false;
-        !handle
+        self.commitPendingStep()
     }
 
     fn preparePendingStep(&mut self, name: &[char], kind: StepKind) Error!() {
@@ -2462,6 +2455,15 @@ extend ExternalCommandStep {
 }
 
 extend Step {
+    fn initSimple(index: usize, kind: StepKind, payload: StepPayload) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: kind,
+            payload: payload,
+        }
+    }
+
     fn initAggregate(index: usize) Step {
         Self {
             index: index,
@@ -2590,20 +2592,9 @@ extend Step {
         self.payload.externalCommand.initialize(allocator, options, self.index)
     }
 
-    fn init(
-        allocator: &mut mem::Allocator,
-        name: &[char],
-        kind: StepKind,
-        payload: StepPayload,
-        index: usize,
-    ) Error!Step {
-        let ownedName = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !Self {
-            index: index,
-            name: ownedName,
-            kind: kind,
-            payload: payload,
-        }
+    fn initializeName(&mut self, allocator: &mut mem::Allocator, name: &[char]) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
