@@ -3308,6 +3308,14 @@ first close failure. If the operation itself fails, that primary error remains
 authoritative while cleanup is still attempted. The shared Linux `Errno!T`
 combiner keeps this ordering identical across create, delete, rename, and
 metadata paths.
+Filesystem path lowering has no allocator cleanup phase. Scalar paths encode
+directly into an `os::maxPathBytes` stack buffer, while containment operations
+copy each split native component into an independently NUL-terminated bounded
+stack buffer. Oversized paths fail as contextual `PathError::TooLong` values
+before entering the syscall layer. The obsolete `*WithAllocator` filesystem
+entry points and the unreachable allocation arm of `OperationError` are absent,
+so neither a failed operation nor a successfully returned handle can be lost to
+a temporary path release error.
 Allocator-owned `Allocated` and `CallableAllocation` values follow the inverse
 ordering: they retain the value pointer, logical layout, and the allocator
 block's complete release pointer/length until `free` succeeds. Release pointer

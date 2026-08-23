@@ -1,5 +1,4 @@
 using pkg::fs::convert;
-using pkg::mem;
 using pkg::os;
 using pkg::string;
 
@@ -52,7 +51,6 @@ pub enum Operation {
 }
 
 pub enum OperationError {
-    Allocation { operation: Operation, cause: mem::Error },
     Path { operation: Operation, cause: PathError },
     System { operation: Operation, cause: Error },
 }

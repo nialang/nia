@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 469 completed entries in this ledger.
+- Implementation batches: 470 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2663,6 +2663,14 @@ acceptance item only when its phase-wide evidence is complete.
       removed instead of discarding that owner. Realloc success fixtures now
       match every error variant and attempt both original and replacement frees;
       compile-fail coverage keeps all three convenience conversions absent.
+- [x] Batch 470 removes allocator-owned filesystem path staging. Scalar paths
+      now encode directly into `os::maxPathBytes` stack storage, and native
+      create/delete/rename splitting uses independently terminated stack
+      buffers, so fallible temporary cleanup cannot replace a primary operation
+      error or discard a successful handle. Oversized paths fail before the
+      syscall as contextual `PathError::TooLong`; obsolete `*WithAllocator`
+      entry points and the unreachable `OperationError::Allocation` arm are
+      removed and locked out by compile-fail coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

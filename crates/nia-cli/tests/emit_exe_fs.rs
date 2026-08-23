@@ -303,8 +303,8 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_std_fs_scalar_paths_lower_with_dynamic_storage() {
-    let root = temp_dir("emit_exe_std_fs_scalar_paths_lower_with_dynamic_storage");
+fn emit_exe_std_fs_scalar_paths_encode_into_bounded_storage() {
+    let root = temp_dir("emit_exe_std_fs_scalar_paths_encode_into_bounded_storage");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -321,15 +321,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut longPath = fs::Path::init();
     defer longPath.deinit(allocator).exit().?;
     let mut index: usize = 0;
-    while index < 5000usize {
+    while index < 4095usize {
         longPath.push(allocator, 'a').exit().?;
         index += 1;
     }
 
     let mut cwd = fs::Dir::cwd().exit().?;
     defer cwd.close().exit().?;
-    let longRelative = longPath.view().relative().exit().?;
-    match cwd.createFileWithAllocator(allocator, longRelative, fs::CreateOptions::init()) {
+    let syscallRelative = longPath.view().relative().exit().?;
+    match cwd.createFile(syscallRelative, fs::CreateOptions::init()) {
         !file => { _ = file; return process::exit(1)!; },
         fs::OperationError::System {
             operation: fs::Operation::CreateFile,
@@ -338,26 +338,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
         error! => { _ = error; return process::exit(2)!; },
     }
 
-    let mut tinyStorage: [u8; 1] = [0];
-    let mut tiny = mem::FixedBufferAllocator::init(&mut tinyStorage[..]);
-    let rejected = fs::RelativePathView::fromText(&"must-not-exist.txt").exit().?;
-    match cwd.createFileWithAllocator(&mut tiny, rejected, fs::CreateOptions::init()) {
+    longPath.push(allocator, 'a').exit().?;
+    let longRelative = longPath.view().relative().exit().?;
+    match cwd.createFile(longRelative, fs::CreateOptions::init()) {
         !file => { _ = file; return process::exit(3)!; },
-        fs::OperationError::Allocation {
+        fs::OperationError::Path {
             operation: fs::Operation::CreateFile,
-            cause: mem::Error::OutOfMemory,
+            cause: fs::PathError::TooLong,
         }! => {},
         error! => { _ = error; return process::exit(4)!; },
     }
 
-    let mut fixedStorage: [u8; 128] = [0; 128];
-    let mut fixed = mem::FixedBufferAllocator::init(&mut fixedStorage[..]);
     let accepted = fs::RelativePathView::fromText(&"allocated.txt").exit().?;
-    let mut file = cwd.createFileWithAllocator(
-        &mut fixed,
-        accepted,
-        fs::CreateOptions::init(),
-    ).exit().?;
+    let mut file = cwd.createFile(accepted, fs::CreateOptions::init()).exit().?;
     file.close().exit().?;
     !()
 }
@@ -371,7 +364,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe fs dynamic scalar paths");
+        .output_timeout_for_build("run nia emit --exe fs bounded scalar paths");
     assert!(
         output.status.success(),
         "stderr:\n{}",
@@ -380,12 +373,62 @@ pub fn main(init: process::Init) process::ExitCode!() {
     assert_eq!(
         Command::new(&exe)
             .current_dir(&root)
-            .status_timeout("run emitted dynamic scalar path executable")
+            .status_timeout("run emitted bounded scalar path executable")
             .code(),
         Some(0)
     );
     assert!(root.join("allocated.txt").is_file());
-    assert!(!root.join("must-not-exist.txt").exists());
+}
+
+#[test]
+fn check_std_fs_allocator_path_entry_points_are_absent() {
+    let root = temp_dir("check_std_fs_allocator_path_entry_points_are_absent");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::mem;
+
+fn probe(
+    dir: &fs::Dir,
+    allocator: &mut mem::Allocator,
+    path: fs::RelativePathView,
+    native: fs::RelativeNativePathView,
+) () {
+    _ = dir.openFileWithAllocator(allocator, path, fs::OpenOptions::init());
+    _ = dir.createDirWithAllocator(allocator, path, fs::CreateDirOptions::init());
+    _ = dir.deleteNativeFileWithAllocator(allocator, native);
+    _ = dir.renameNativeToWithAllocator(allocator, native, dir, native);
+    _ = fs::File::openWithAllocator(allocator, path.path(), fs::OpenOptions::init());
+    _ = fs::File::createWithAllocator(allocator, path.path(), fs::CreateOptions::init());
+}
+
+fn main() () {}
+"#,
+    )
+    .expect("write obsolete filesystem allocator API source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check obsolete filesystem allocator APIs");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for name in [
+        "openFileWithAllocator",
+        "createDirWithAllocator",
+        "deleteNativeFileWithAllocator",
+        "renameNativeToWithAllocator",
+        "openWithAllocator",
+        "createWithAllocator",
+    ] {
+        assert!(
+            stderr.contains(name),
+            "missing diagnostic for {name}:\n{stderr}"
+        );
+    }
 }
 
 #[cfg(unix)]

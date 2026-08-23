@@ -49,6 +49,10 @@ The library follows a small set of ownership rules:
 - Temporary filesystem descriptors are closed after their owning operation. A
   failed operation remains the primary error; after success, the first close
   error is returned while every later descriptor is still attempted.
+- Filesystem syscall paths encode into `os::maxPathBytes` caller-stack storage.
+  Scalar and split native paths return `PathError::TooLong` before a syscall
+  when that bound is exceeded; they do not create hidden allocator owners whose
+  fallible cleanup could replace the operation result.
 - Spawn handshake descriptors are consumed and closed exactly once after the
   handshake result is known. EOF plus close failure is reported as setup error;
   an earlier handshake/read error remains the primary cause.
