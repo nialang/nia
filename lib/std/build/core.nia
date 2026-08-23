@@ -151,6 +151,8 @@ extend Build {
             steps: collections::ArrayList[Step]::init(),
             dependencies: collections::ArrayList[StepDependency]::init(),
             packages: collections::ArrayList[Package]::init(),
+            pendingPackage: Package::init(0usize),
+            hasPendingPackage: false,
             modules: collections::ArrayList[Module]::init(),
             executables: collections::ArrayList[ExecutableTarget]::init(),
             objects: collections::ArrayList[ObjectTarget]::init(),
@@ -215,6 +217,7 @@ extend Build {
         rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan));
+        rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
         let mut elementError: ?Error = null;
         let mut index = self.steps.len();
         while index != 0 {
@@ -304,6 +307,7 @@ extend Build {
     }
 
     pub fn addPackage(&mut self, options: PackageOptions) Error!PackageHandle {
+        self.cleanupPendingPackage().?;
         let packageIndex = match self.packages.len().checked_add(1) {
             ?value => value,
             null => return Error::Failure {
@@ -330,15 +334,31 @@ extend Build {
                 }!;
             }
         }
-        let mut package = Package::init(self.allocator, options, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            package.deinit(self.allocator).?;
-        };
-        self.packages.push(self.allocator, package).asBuildError(Operation::Retain, Subject::Packages).?;
-        transferred = true;
+        self.packages.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Packages).?;
+        self.pendingPackage = Package::init(handle.index());
+        self.hasPendingPackage = true;
+        match self.pendingPackage.initialize(self.allocator, options) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingPackage();
+                return primary!;
+            },
+        }
+        self.packages.appendAssumeCapacity(self.pendingPackage);
+        self.hasPendingPackage = false;
         self.planValidated = false;
         !handle
+    }
+
+    fn cleanupPendingPackage(&mut self) Error!() {
+        if not self.hasPendingPackage {
+            return !();
+        }
+        self.pendingPackage.deinit(self.allocator).?;
+        self.hasPendingPackage = false;
+        !()
     }
 
     pub fn buildDir(&self) fs::PathView {
@@ -2495,20 +2515,18 @@ extend PackageOptions {
 }
 
 extend Package {
-    fn init(allocator: &mut mem::Allocator, options: PackageOptions, index: usize) Error!Package {
-        let mut package: Package = Package {
+    fn init(index: usize) Package {
+        Package {
             index: index,
             name: string::String::init(),
             root: fs::Path::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            package.deinit(allocator).?;
-        };
-        package.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Package(index)).?;
-        package.root = fs::Path::fromView(allocator, options.root).asBuildError(Operation::Retain, Subject::Package(index)).?;
-        transferred = true;
-        !package
+        }
+    }
+
+    fn initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
+        self.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Package(self.index)).?;
+        self.root = fs::Path::fromView(allocator, options.root).asBuildError(Operation::Retain, Subject::Package(self.index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {

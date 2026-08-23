@@ -22,6 +22,9 @@
 // `Build::init` returns a `BuildInitAttempt`; callers must retry `finish()` when
 // allocator cleanup fails. The attempt publishes the initialized `Build` or
 // the original initialization error only after every partial owner is retired.
+// Package insertion reserves its owning list before retaining fields. A
+// partially initialized package stays in a Build-owned pending slot when
+// rollback cleanup fails and is retried by the next insertion or `deinit()`.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 

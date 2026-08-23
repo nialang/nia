@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 474 completed entries in this ledger.
+- Implementation batches: 475 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2697,6 +2697,12 @@ acceptance item only when its phase-wide evidence is complete.
       The former fallible rollback defers and direct `Error!Build` surface are
       removed; fault injection proves a retained-free failure can be retried
       before the original allocation error is published.
+- [x] Batch 475 makes package graph insertion a Build-owned transaction. The
+      package list reserves capacity before field retention, and a partial
+      package remains in a pending `Build` slot until initialization transfers
+      it or cleanup succeeds. Fault injection covers root allocation failure,
+      simultaneous name-release failure, retry through the next insertion, and
+      complete final graph cleanup.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

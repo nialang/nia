@@ -146,6 +146,17 @@ fn isImportRetainOom(error: build::Error) bool {
     }
 }
 
+fn isPackageRetainOom(error: build::Error) bool {
+    match error {
+        build::Error::Failure {
+            operation: build::ErrorOperation::Retain,
+            subject: build::ErrorSubject::Package(1usize),
+            cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
+        } => true,
+        _ => false,
+    }
+}
+
 fn isExecutableRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
@@ -414,6 +425,28 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     defer if not cleaned {
         api.deinit().exit().?;
     };
+
+    let packageOptions = build::PackageOptions::init(
+        &"dependency",
+        fs::PathView::init(&"dependency"),
+    );
+    let beforePackage = allocator.activeAllocations;
+    allocator.failAfter(2usize);
+    allocator.failNextRetainedFree();
+    match api.addPackage(packageOptions) {
+        !handle => {
+            _ = handle;
+            return process::exit(58)!;
+        },
+        err! => if not isPackageRetainOom(err) {
+            return process::exit(59)!;
+        },
+    }
+    if allocator.activeAllocations != beforePackage + 2usize {
+        return process::exit(60)!;
+    }
+    allocator.disableFailure();
+    _ = api.addPackage(packageOptions).exit().?;
 
     let shortName = "a";
     let secondName = "c";

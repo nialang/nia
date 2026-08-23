@@ -403,6 +403,10 @@ signals, not architecture goals.
   can fail. `Build::init` therefore returns a retryable `BuildInitAttempt`;
   direct `Error!Build` construction and fallible local rollback defers are not
   valid because neither can carry unreleased paths or target strings.
+- Graph insertion must reserve the containing collection before constructing
+  fallible owned fields. For package records, keep the partial record in the
+  `Build` pending slot and retry its cleanup before the next insertion or from
+  `deinit`; never return through a local rollback defer that loses the record.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a
