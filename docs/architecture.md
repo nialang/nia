@@ -2648,6 +2648,14 @@ allocation provenance, and size contracts. Code generation uses its validated
 byte-loop lowering for these operations, so retaining dead FFI entry points
 would only preserve an unverifiable historical API.
 
+Atomic RMW and compare-exchange builders validate their LLVM-visible operand
+contracts before FFI entry: RMW operands must be integer or exchangeable pointer
+values, non-exchange operations require integers, and unordered/non-atomic
+orderings are rejected. Compare-exchange expected/desired values must match and
+its failure ordering must be legal relative to success. Opaque pointer
+pointee/provenance facts remain owned by backend validation because LLVM does
+not expose them through the typed pointer handle.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
