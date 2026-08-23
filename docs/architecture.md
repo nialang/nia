@@ -2623,6 +2623,12 @@ those facts from checked backend projections and documents the corresponding
 unsafe call sites. The unused pointer-difference wrapper was removed rather
 than exposing an unchecked provenance contract with no consumer.
 
+Aggregate extract/insert wrappers are checked at the same boundary: they
+inspect the actual LLVM aggregate type, reject out-of-range struct/array
+indices, and require inserted values to have the selected field type before
+calling LLVM. This keeps malformed aggregate IR out of the backend without
+spreading `unsafe` blocks across ordinary lowering code.
+
 ### 12.2 `nia-codegen-llvm`
 
 Emits LLVM IR, objects, and native codegen units from backend IR. It owns:

@@ -2017,6 +2017,12 @@ acceptance item only when its phase-wide evidence is complete.
       after backend projection checks. The uncalled `build_ptr_diff` wrapper and
       its FFI import were deleted instead of retaining an unverifiable API.
       LLVM/codegen tests, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 350 closes the LLVM aggregate extract/insert safety boundary.
+      `Builder::build_extract_value` and `build_insert_value` now inspect the
+      physical aggregate type, reject out-of-range struct/array indices, and
+      reject insertion values whose LLVM type differs from the selected field
+      before entering the FFI. Malformed-index and type-mismatch wrapper tests
+      plus the full LLVM/codegen suites, workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
