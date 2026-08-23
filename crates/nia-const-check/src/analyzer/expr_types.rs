@@ -409,9 +409,12 @@ impl Analyzer<'_> {
         &mut self,
         literal: &ConstStringLiteral,
     ) -> Option<ConstValueType> {
-        let len = nia_const_eval::eval_string_literal(literal)?
-            .chars()
-            .count() as u64;
+        let len = u64::try_from(
+            nia_const_eval::eval_string_literal(literal)?
+                .chars()
+                .count(),
+        )
+        .ok()?;
         self.const_array_runtime_type(len, PrimitiveTy::Char)
             .map(ConstValueType::Runtime)
     }

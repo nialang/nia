@@ -32,7 +32,7 @@ impl Analyzer<'_> {
                     expected_elem,
                     &mut types_match,
                 );
-                (elem_ty, Some(elems.len() as u64))
+                (elem_ty, Some(u64::try_from(elems.len()).ok()?))
             }
             ResolvedConstArrayElementsKind::Repeat { value, count } => {
                 let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
@@ -134,7 +134,7 @@ impl Analyzer<'_> {
                 if !types_match {
                     return None;
                 }
-                (elem_ty?, Some(elems.len() as u64))
+                (elem_ty?, Some(u64::try_from(elems.len()).ok()?))
             }
             ResolvedConstArrayElementsKind::Repeat { value, count } => {
                 let elem_ty = self.resolved_const_expr_type(value, None);

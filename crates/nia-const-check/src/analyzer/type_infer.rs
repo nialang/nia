@@ -487,7 +487,7 @@ impl Analyzer<'_> {
             )),
             ResolvedConstExprKind::String(literal) => self.const_string_literal_type(literal),
             ResolvedConstExprKind::ByteString(literal) => self.const_byte_string_literal_type(
-                nia_const_eval::eval_byte_string_literal(literal)?.len() as u64,
+                u64::try_from(nia_const_eval::eval_byte_string_literal(literal)?.len()).ok()?,
             ),
             ResolvedConstExprKind::Embed { path } => {
                 let path = nia_const_eval::eval_string_literal(path)?;

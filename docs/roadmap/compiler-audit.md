@@ -2342,6 +2342,11 @@ acceptance item only when its phase-wide evidence is complete.
       host `usize` before materializing byte strings or LLVM constant arrays;
       a focused conversion regression covers the host-width boundary, with
       codegen tests, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 406 closes const-check collection-length truncation.
+      Typed const array validation, inferred list/byte-string lengths, and
+      character-string matching now checked-convert host collection counts to
+      semantic `u64` lengths, failing closed instead of truncating; const-check
+      owner tests, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

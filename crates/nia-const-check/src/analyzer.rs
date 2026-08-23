@@ -724,7 +724,7 @@ impl Analyzer<'_> {
                     return;
                 };
                 if let ConstValueType::Array { len: Some(len), .. } = ty
-                    && values.len() as u64 != *len
+                    && u64::try_from(values.len()) != Ok(*len)
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
@@ -887,7 +887,7 @@ impl Analyzer<'_> {
                     return;
                 };
                 if let Some(expected_len) = self.runtime_array_len(ty)
-                    && values.len() as u64 != expected_len
+                    && u64::try_from(values.len()) != Ok(expected_len)
                 {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
@@ -1184,7 +1184,7 @@ impl Analyzer<'_> {
             return false;
         }
         self.runtime_array_len(ty)
-            .is_none_or(|len| value.chars().count() as u64 == len)
+            .is_none_or(|len| u64::try_from(value.chars().count()) == Ok(len))
     }
 
     fn runtime_array_is_char_array(&self, ty: InternedTyId) -> bool {
