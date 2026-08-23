@@ -2347,6 +2347,11 @@ acceptance item only when its phase-wide evidence is complete.
       character-string matching now checked-convert host collection counts to
       semantic `u64` lengths, failing closed instead of truncating; const-check
       owner tests, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 407 closes cross-host codegen bucket identity drift.
+      Backend partition buckets now reduce definition ids and stable symbol
+      hashes in `u64` before converting to host `usize`; a high-bit regression
+      proves 32-bit and 64-bit hosts select identical buckets, with backend IR,
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

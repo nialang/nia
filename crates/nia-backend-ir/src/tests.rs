@@ -363,6 +363,15 @@ fn large_source_modules_use_stable_bounded_definition_buckets() {
 }
 
 #[test]
+fn codegen_bucket_assignment_uses_full_stable_numeric_width() {
+    assert_eq!(super::stable_numeric_bucket(u64::MAX), 3);
+    assert_eq!(
+        super::stable_numeric_bucket((u64::from(u32::MAX) << 32) | 1),
+        1
+    );
+}
+
+#[test]
 #[should_panic(expected = "duplicate stable codegen partition key")]
 fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
     let mut module_ids = ModuleIdAllocator::new();

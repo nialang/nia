@@ -993,7 +993,7 @@ impl CodegenPartitionDefinitions {
             .map(|_| Self::default())
             .collect::<Vec<_>>();
         for index in definitions.globals {
-            let bucket = module.globals[index].def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS;
+            let bucket = stable_numeric_bucket(module.globals[index].def_id.def_id.0);
             buckets[bucket].globals.push(index);
         }
         for index in definitions.global_instances {
@@ -1001,7 +1001,7 @@ impl CodegenPartitionDefinitions {
             buckets[bucket].global_instances.push(index);
         }
         for index in definitions.functions {
-            let bucket = module.functions[index].def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS;
+            let bucket = stable_numeric_bucket(module.functions[index].def_id.def_id.0);
             buckets[bucket].functions.push(index);
         }
         for index in definitions.function_instances {
@@ -1011,9 +1011,7 @@ impl CodegenPartitionDefinitions {
         for index in definitions.closure_entries {
             let entry = &module.closure_entries[index];
             let bucket = match &entry.key.owner {
-                BackendClosureEntryOwner::Source(def_id) => {
-                    def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS
-                }
+                BackendClosureEntryOwner::Source(def_id) => stable_numeric_bucket(def_id.def_id.0),
                 BackendClosureEntryOwner::FunctionInstance(owner) => {
                     let owner_symbol = module
                         .function_instances
@@ -1048,7 +1046,11 @@ impl CodegenPartitionDefinitions {
 }
 
 fn stable_symbol_bucket(symbol: &str) -> usize {
-    nia_symbol::stable_hash(symbol) as usize % SOURCE_CODEGEN_BUCKETS
+    stable_numeric_bucket(nia_symbol::stable_hash(symbol))
+}
+
+fn stable_numeric_bucket(value: u64) -> usize {
+    (value % SOURCE_CODEGEN_BUCKETS as u64) as usize
 }
 
 /// Fully lowered payload for one source module.
