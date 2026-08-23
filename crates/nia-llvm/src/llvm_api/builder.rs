@@ -326,6 +326,7 @@ impl<'ctx> Builder<'ctx> {
         then_block: BasicBlock<'ctx>,
         else_block: BasicBlock<'ctx>,
     ) -> LlvmResult<InstructionValue<'ctx>> {
+        validate_branch_condition(comparison.as_value_ref())?;
         let instruction = unsafe {
             LLVMBuildCondBr(
                 self.raw,
@@ -1293,6 +1294,21 @@ impl<'ctx> Builder<'ctx> {
     ) -> LlvmResult<FloatValue<'ctx>> {
         cast_float(self.raw, LLVMBuildFPCast, value, target, name)
     }
+}
+
+fn validate_branch_condition(condition: LLVMValueRef) -> LlvmResult<()> {
+    let ty = require_type(
+        unsafe { LLVMTypeOf(condition) },
+        "conditional branch condition",
+    )?;
+    if unsafe { LLVMGetTypeKind(ty) } != LLVMTypeKind::LLVMIntegerTypeKind
+        || unsafe { LLVMGetIntTypeWidth(ty) } != 1
+    {
+        return Err(LlvmError::error(
+            "LLVM conditional branch condition must have scalar i1 type",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_call_arguments(
@@ -2366,6 +2382,28 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("equal bit widths")
+        ));
+    }
+
+    #[test]
+    fn rejects_non_boolean_conditional_branch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("branch-condition").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let then_block = context.append_basic_block(function, "then").unwrap();
+        let else_block = context.append_basic_block(function, "else").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_conditional_branch(context.i32_type().const_zero(), then_block, else_block)
+            .expect_err("non-boolean conditional branch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("must have scalar i1 type")
         ));
     }
 

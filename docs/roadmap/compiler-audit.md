@@ -2078,6 +2078,11 @@ acceptance item only when its phase-wide evidence is complete.
       cannot enter those instructions; the codegen place-load helper adopts the
       same bound. LLVM/codegen suites, workspace check, formatting, and strict
       Clippy pass with no compatibility shim retained.
+- [x] Batch 360 closes the LLVM conditional-branch condition boundary.
+      `build_conditional_branch` now requires a scalar one-bit integer condition
+      before `LLVMBuildCondBr`; the broad `IntValue` handle is no longer treated
+      as boolean proof. A non-`i1` regression plus LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
