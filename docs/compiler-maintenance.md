@@ -481,6 +481,11 @@ signals, not architecture goals.
   owners. A string-to-slice ownership transfer must retire that pending staging
   owner before transferring the text backing. If that pending release fails,
   leave both owners attached to the source for retry.
+- Validate formatter radices at the public entry point before digit counting or
+  writing signs, prefixes, and padding. The supported set is exactly 2, 8, 10,
+  and 16; radix zero must not divide by zero, radix one must not loop forever,
+  and every unsupported radix must leave the writer unchanged. Public spec
+  constructors must have all parameter/result enums exported from the facade.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.

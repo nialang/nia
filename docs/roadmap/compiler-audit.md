@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 490 completed entries in this ledger.
+- Implementation batches: 491 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2803,6 +2803,13 @@ acceptance item only when its phase-wide evidence is complete.
       reaches the write pass. Sentinel-backed executable cases prove both a
       mid-path NUL and a buffer lacking only terminator space leave every output
       byte unchanged.
+- [x] Batch 491 validates formatter radices before computation or output. All
+      public signed/unsigned radix entry points now reject values outside
+      `{2, 8, 10, 16}` before digit division, sign, prefix, or padding, closing
+      radix-zero traps, radix-one non-termination, and partial-output failures.
+      `FormatAlignment` now completes the public `FormatSpec` facade contract.
+      A counting-writer executable covers radices 0, 1, and 3 and proves every
+      rejection leaves output length zero.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
