@@ -466,7 +466,9 @@ signals, not architecture goals.
 - Over-aligned Linux page mappings may expose an aligned interior pointer, but
   the complete mmap range remains the release owner. Keep that release range in
   the allocator block and unmap it exactly once; do not trim prefix/suffix
-  pages through best-effort calls that can strand a residual mapping.
+  pages through best-effort calls that can strand a residual mapping. If
+  validation fails after `mmap` succeeds, unmap the complete range before
+  returning the error; an unpublished mapping is still an owned resource.
 - Typed slice owners must retain the allocator `Block`, not only a borrowed
   slice. Transfer APIs consume `SliceAllocation[T]`; cleanup failure leaves the
   owner and its release range attached for retry. Do not add raw-slice ownership
