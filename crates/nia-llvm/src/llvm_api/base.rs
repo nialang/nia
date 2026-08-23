@@ -622,15 +622,25 @@ impl<'ctx> IntType<'ctx> {
     }
 
     /// Creates an unsigned integer constant up to 128 bits wide.
-    pub fn const_u128(self, value: u128) -> IntValue<'ctx> {
+    pub fn const_u128(self, value: u128) -> LlvmResult<IntValue<'ctx>> {
         if self.bit_width() <= 64 {
-            return self.const_int(value as u64, false);
+            return Ok(IntValue::new(require_value(
+                unsafe { LLVMConstInt(self.as_type_ref(), value as u64, 0) },
+                "integer constant",
+            )?));
         }
 
         let words = [value as u64, (value >> 64) as u64];
-        IntValue::new(unsafe {
-            LLVMConstIntOfArbitraryPrecision(self.as_type_ref(), words.len() as u32, words.as_ptr())
-        })
+        Ok(IntValue::new(require_value(
+            unsafe {
+                LLVMConstIntOfArbitraryPrecision(
+                    self.as_type_ref(),
+                    words.len() as u32,
+                    words.as_ptr(),
+                )
+            },
+            "wide integer constant",
+        )?))
     }
 
     /// Creates an array constant from integer elements of this type.
@@ -684,8 +694,11 @@ impl<'ctx> IntValue<'ctx> {
 
 impl<'ctx> FloatType<'ctx> {
     /// Creates a floating-point constant, rounded to this type's precision.
-    pub fn const_float(self, value: f64) -> FloatValue<'ctx> {
-        FloatValue::new(unsafe { LLVMConstReal(self.as_type_ref(), value) })
+    pub fn const_float(self, value: f64) -> LlvmResult<FloatValue<'ctx>> {
+        Ok(FloatValue::new(require_value(
+            unsafe { LLVMConstReal(self.as_type_ref(), value) },
+            "floating-point constant",
+        )?))
     }
 
     /// Creates an array constant from floating-point elements of this type.
@@ -1861,6 +1874,14 @@ mod tests {
             .const_int_to_ptr(context.i64_type().const_zero().unwrap());
 
         assert!(value.is_ok());
+    }
+
+    #[test]
+    fn typed_literal_constants_use_checked_conversion() {
+        let context = Context::create().unwrap();
+
+        assert!(context.i128_type().const_u128(1).is_ok());
+        assert!(context.f64_type().const_float(1.5).is_ok());
     }
 
     #[test]

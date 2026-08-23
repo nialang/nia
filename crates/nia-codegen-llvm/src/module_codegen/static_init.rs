@@ -24,7 +24,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     );
                 };
                 let int_ty = self.integer_llvm_type(*primitive, span)?;
-                Ok(int_ty.const_u128(value.bits()).into())
+                Ok(int_ty.const_u128(value.bits())?.into())
             }
             StaticInit::Bool(value) => Ok(self
                 .context
@@ -181,10 +181,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .ok_or_else(|| self.error(span, format!("invalid float literal `{text}`")))?;
         match self.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::F32)) => {
-                Ok(self.context.f32_type().const_float(value).into())
+                Ok(self.context.f32_type().const_float(value)?.into())
             }
             Some(TyKind::Primitive(PrimitiveTy::F64)) => {
-                Ok(self.context.f64_type().const_float(value).into())
+                Ok(self.context.f64_type().const_float(value)?.into())
             }
             _ => Err(self.error(span, "float static initializer target is not float")),
         }
@@ -200,7 +200,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Err(self.error(span, "char static initializer target is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
-        Ok(int_ty.const_u128(value as u128).into())
+        Ok(int_ty.const_u128(value as u128)?.into())
     }
 
     fn static_chars_init_value_in(
