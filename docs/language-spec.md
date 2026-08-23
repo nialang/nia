@@ -1340,7 +1340,8 @@ the restriction begins when the address becomes part of closure state.
 The standard library provides an explicit owner for callers that need a
 callable view to outlive the lexical scope of its closure state. `mem::Allocator`
 allocates raw storage, while `Allocator::allocValue[T](value)` constructs an
-`mem::Allocated[T]` handle containing the typed storage pointer and its layout.
+`mem::Allocated[T]` handle containing the typed storage pointer, its logical
+layout, and the allocator release range required to free the original block.
 The operation is library code: the compiler does not select an allocator,
 insert heap operations, or attach an implicit destructor to `T`. A caller may
 obtain `valueMut()`, create the explicit callable view, and move that view into
@@ -1356,9 +1357,10 @@ let result = owner.callback()(8);
 owner.deinit(&mut allocator).?;
 ```
 
-`CallableAllocation` is still an ordinary value. It does not make the callable
-view immortal, infer ownership for captured pointers, or make allocation
-failure disappear. `deinit` is explicit and must receive the allocator that
+`CallableAllocation` is still an ordinary value. It carries the original
+allocator release range through the explicit owner transfer; it does not make
+the callable view immortal, infer ownership for captured pointers, or make
+allocation failure disappear. `deinit` is explicit and must receive the allocator that
 produced the block; cleanup errors remain typed. Copying the owner does not
 duplicate the block: copies alias the same allocation, so callers must arrange
 that only one logical owner performs `deinit`. A view returned by `callback()`

@@ -3283,10 +3283,13 @@ authoritative while cleanup is still attempted. The shared Linux `Errno!T`
 combiner keeps this ordering identical across create, delete, rename, and
 metadata paths.
 Allocator-owned `Allocated` and `CallableAllocation` values follow the inverse
-ordering: they retain their pointer, size, and alignment until `free` succeeds.
-A failed release therefore leaves a complete owner available for an explicit
-retry instead of silently converting the value into an unreleasable empty
-sentinel.
+ordering: they retain the value pointer, logical layout, and the allocator
+block's complete release pointer/length until `free` succeeds. Release pointer
+bookkeeping crosses the raw-address integer boundary just like the existing
+typed storage pointer; it is not reconstructed from the value pointer and
+logical layout. A failed release therefore leaves a complete owner available
+for an explicit retry instead of silently converting the value into an
+unreleasable empty sentinel.
 Their construction is exposed through the `std::mem` facade as
 `mem::allocValue`; the former extension hidden in the package-private
 allocation module is removed so the documented owner API is actually reachable
