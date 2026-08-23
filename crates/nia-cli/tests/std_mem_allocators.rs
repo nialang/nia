@@ -870,3 +870,79 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_mem_general_allocator_rejects_wrapped_large_header_base() {
+    let root = temp_dir("emit_exe_std_mem_general_allocator_rejects_wrapped_large_header_base");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::mem;
+using std::process;
+
+struct MalformedAllocator {}
+
+extend MalformedAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if layout.isEmpty() {
+            return !mem::Block::empty(layout);
+        }
+        !mem::Block::init((usize::MAX - 1usize) as &mut u8, layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        _ = block;
+        !()
+    }
+
+    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+        _ = block;
+        _ = newLayout;
+        false
+    }
+
+    fn remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+        _ = block;
+        _ = newLayout;
+        null
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut child = MalformedAllocator {};
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
+    let layout = mem::Layout::init(4096, 8).?;
+    match allocator.alloc(layout) {
+        !block => { _ = block;
+                return process::exit(1)!; },
+        err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
+                return process::exit(2)!;
+            } },
+    }
+    allocator.deinitWithoutLeakCheck().?;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}

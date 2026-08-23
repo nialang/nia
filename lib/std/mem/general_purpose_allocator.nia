@@ -496,7 +496,19 @@ extend GeneralPurposeAllocator {
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
         let base = backing.ptr() as usize;
-        let userAddr = match (base + headerSize).align_forward(layout.align()) {
+        let afterHeader = match base.checked_add(headerSize) {
+            ?value => value,
+            null => {
+                match self.child.free(backing) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    error! => {},
+                }
+                return Error::OutOfMemory!;
+            },
+        };
+        let userAddr = match afterHeader.align_forward(layout.align()) {
             ?value => {
                 value
             },

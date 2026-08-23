@@ -43,6 +43,8 @@ The library follows a small set of ownership rules:
 - Slice iterators validate checked element offsets and addresses before moving
   their front or back bounds; an impossible address returns `null` without
   consuming the pending element.
+- General-purpose large allocations validate the backing base plus header offset
+  before publishing allocator metadata, rejecting malformed child addresses.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed

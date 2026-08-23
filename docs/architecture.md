@@ -3335,6 +3335,10 @@ uses the same exact-zero rule before consuming its output descriptor pair.
 The anonymous Linux `mmap` wrapper rejects a zero success address before it is
 cast into a mutable reference; the active mapping flags do not request a null
 mapping, so a zero result is malformed ABI data.
+The general-purpose allocator also checks the large-allocation base plus its
+header offset before alignment and metadata publication. A child allocator
+that returns an unrepresentable backing address is rejected and released
+without writing a wrapped header pointer.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.

@@ -380,6 +380,9 @@ signals, not architecture goals.
 - Treat fallible iterator address calculation as a transaction. Compute and
   validate the candidate element address before committing front/back index
   changes; failure must not silently consume an item.
+- Check large-allocation base plus header offsets before alignment and metadata
+  publication. A malformed child-allocator address must fail closed before any
+  wrapped header pointer is written.
 - Keep hash-table probe cursors closed over their allocated table shape. Validate
   the power-of-two/group-width precondition before deriving a mask, and perform
   probe-step modulo arithmetic without an overflowing host-width intermediate.
