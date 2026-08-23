@@ -3257,6 +3257,10 @@ without either a bounded validation or an explicit runtime-owned boundary.
 The corresponding `Init`, `Args`, and `Env` raw-pointer constructors are also
 package-private; user code receives these values only from the injected startup
 `Init`, not by fabricating an arbitrary process ABI record.
+Process execution likewise has one maintained `Command` lowering path. The
+former public `process::spawnRaw` escape hatch and process-view raw pointer
+getters are removed, so callers cannot bypass argument/environment encoding or
+the spawn error-handshake and ownership rules.
 
 The public `std::io::Reader` and `Writer` contracts require every implementation
 to report no more bytes than the slice supplied to that call. Trait defaults and

@@ -6,19 +6,19 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_std_process_spawn_raw_and_wait() {
-    let root = temp_dir("emit_exe_std_process_spawn_raw_and_wait");
+fn emit_exe_std_process_command_spawn_and_wait() {
+    let root = temp_dir("emit_exe_std_process_command_spawn_and_wait");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
+using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let path = b"/bin/true\0";
-    let mut argv: [&u8; 2] = [&path[0], 0usize as &u8];
-    let mut child = match process::spawnRaw(&path[0], &argv[0], init.rawEnvp()) {
+    let command = process::Command::init(std::PathView::init(&"/bin/true"), init.env());
+    let mut child = match command.spawn() {
         !value => {
             value
         },
@@ -76,19 +76,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_std_process_wait_reports_exit_code() {
+fn emit_exe_std_process_command_wait_reports_exit_code() {
     let root = temp_dir("emit_exe_std_process_wait_reports_exit_code");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
+using std;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    let path = b"/bin/false\0";
-    let mut argv: [&u8; 2] = [&path[0], 0usize as &u8];
-    let mut child = match process::spawnRaw(&path[0], &argv[0], init.rawEnvp()) {
+    let command = process::Command::init(std::PathView::init(&"/bin/false"), init.env());
+    let mut child = match command.spawn() {
         !value => {
             value
         },
@@ -3101,16 +3101,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if args.len() != 3 {
         return process::exit(1)!;
     }
-    let rawArgv = args.rawArgv();
-    if rawArgv as usize != init.rawArgv() as usize {
-        return process::exit(24)!;
-    }
     match args.program() {
         ?program => { if program.isEmpty() {
                 return process::exit(9)!;
-            }
-            if program.rawPtr() as usize != rawArgv[0] as usize {
-                return process::exit(25)!;
             }
         },
         null => { return process::exit(10)!; },
@@ -3135,9 +3128,6 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if first_arg.isEmpty() or second_arg.isEmpty() {
         return process::exit(26)!;
-    }
-    if first_arg.rawPtr() as usize != rawArgv[1] as usize or second_arg.rawPtr() as usize != rawArgv[2] as usize {
-        return process::exit(27)!;
     }
     let mut for_count = 0;
     for arg in args.skipProgram() {
@@ -3253,22 +3243,13 @@ fn starts_with_needle(bytes: &[u8]) bool {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     let env = init.env();
-    let rawEnvp = env.rawEnvp();
-    if rawEnvp as usize != init.rawEnvp() as usize {
-        return process::exit(3)!;
-    }
-    let mut index: usize = 0;
     for item in env.iter() {
         if starts_with_needle(item.bytes()) {
             if item.isEmpty() {
                 return process::exit(4)!;
             }
-            if item.rawPtr() as usize != rawEnvp[index] as usize {
-                return process::exit(5)!;
-            }
             return !();
         }
-        index += 1;
     }
     return process::exit(2)!;
 }

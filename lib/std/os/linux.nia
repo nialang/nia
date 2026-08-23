@@ -149,10 +149,6 @@ pub fn random(bytes: &mut [u8]) Errno!() {
     random_impl::random(bytes)
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
-    process::spawn_raw(path, argv, envp)
-}
-
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
     process::spawn(path, argv, envp, options)
 }
