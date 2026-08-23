@@ -606,6 +606,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .context
             .i8_type()
             .array_type(len)
+            .map_err(|error| {
+                self.error(
+                    span,
+                    format!("failed to create promoted byte array type: {error:?}"),
+                )
+            })?
             .get_undef()
             .into())
     }

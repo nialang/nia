@@ -590,7 +590,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     "trait-object vtable has too many entries for LLVM",
                 )
             })?;
-            let array_ty = ptr_ty.array_type(array_len);
+            let array_ty = ptr_ty
+                .array_type(array_len)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             let global = self
                 .module
                 .add_global(

@@ -2190,6 +2190,12 @@ acceptance item only when its phase-wide evidence is complete.
       propagate or explicitly unwrap valid construction. A wrapper regression
       covers zero lanes, with LLVM/codegen suites, workspace check, formatting,
       and strict Clippy passing.
+- [x] Batch 379 closes the LLVM fixed-array construction boundary.
+      `array_type` now checks the `LLVMArrayType2` handle and returns
+      `LlvmResult`; all codegen callers propagate failures. Zero-length arrays
+      remain explicitly supported by LLVM and have a wrapper regression, with
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy
+      passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

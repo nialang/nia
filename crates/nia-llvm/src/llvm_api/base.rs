@@ -566,8 +566,12 @@ macro_rules! impl_basic_type_methods {
             }
 
             /// Creates a fixed-size array of this element type.
-            pub fn array_type(self, len: u32) -> ArrayType<'ctx> {
-                ArrayType::new(unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) })
+            pub fn array_type(self, len: u32) -> LlvmResult<ArrayType<'ctx>> {
+                let raw = unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) };
+                if raw.is_null() {
+                    return Err(LlvmError::error("LLVM returned a null array type"));
+                }
+                Ok(ArrayType::new(raw))
             }
         }
     };
@@ -1010,8 +1014,12 @@ impl<'ctx> BasicTypeEnum<'ctx> {
     }
 
     /// Creates a fixed-size array of this element type.
-    pub fn array_type(self, len: u32) -> ArrayType<'ctx> {
-        ArrayType::new(unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) })
+    pub fn array_type(self, len: u32) -> LlvmResult<ArrayType<'ctx>> {
+        let raw = unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null array type"));
+        }
+        Ok(ArrayType::new(raw))
     }
 
     /// Creates a function signature returning this type.
@@ -1628,6 +1636,17 @@ mod tests {
             error,
             LlvmError::Error("LLVM fixed vector type requires at least one lane".to_string())
         );
+    }
+
+    #[test]
+    fn accepts_zero_length_fixed_array_types() {
+        let context = Context::create();
+
+        let array = BasicTypeEnum::from(context.i8_type())
+            .array_type(0)
+            .expect("zero-length LLVM arrays are valid");
+
+        let _ = array.const_zero();
     }
 
     #[test]

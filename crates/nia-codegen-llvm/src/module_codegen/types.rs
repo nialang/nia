@@ -450,7 +450,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         self.error(span, format!("array length {len} is too large for LLVM"))
                     );
                 }
-                Ok(elem.array_type(len as u32).into())
+                elem.array_type(len as u32)
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)
             }
             Some(TyKind::Nominal {
                 def_id,
@@ -559,7 +561,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map(|variant| variant.payload.align)
             .max()
             .unwrap_or(1);
-        let padding = self.context.i8_type().array_type(padding as u32).into();
+        let padding = self
+            .context
+            .i8_type()
+            .array_type(padding as u32)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)?;
         let storage = self.union_storage_type(storage_size, storage_align, span)?;
         Ok(self
             .context
@@ -605,7 +612,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if padding > u32::MAX as u64 {
                 return Err(self.error(span, "union storage padding is too large for LLVM"));
             }
-            fields.push(self.context.i8_type().array_type(padding as u32).into());
+            fields.push(
+                self.context
+                    .i8_type()
+                    .array_type(padding as u32)
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)?,
+            );
         }
         Ok(self.context.struct_type(&fields, false).into())
     }
@@ -893,7 +906,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if padding > u32::MAX as u64 {
                 return Err(self.error(span, "union padding is too large for LLVM"));
             }
-            fields.push(self.context.i8_type().array_type(padding as u32).into());
+            fields.push(
+                self.context
+                    .i8_type()
+                    .array_type(padding as u32)
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)?,
+            );
         }
         Ok(fields)
     }

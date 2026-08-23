@@ -969,7 +969,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             metadata = unsafe {
                 self.builder
                     .build_gep(
-                        ptr_ty.array_type(array_len),
+                        ptr_ty.array_type(array_len).map_err(|error| {
+                            self.error(
+                                span,
+                                format!("failed to create metadata array type: {error:?}"),
+                            )
+                        })?,
                         metadata.into_pointer_value()?,
                         &[zero, offset_index],
                         "traitobj.upcast.metadata.offset",
