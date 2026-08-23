@@ -317,6 +317,44 @@ fn emit_exe_std_mem_general_purpose_allocator_supports_large_overaligned_realloc
 using std::mem;
 using std::process;
 
+fn reallocOrExit(
+    allocator: &mut mem::Allocator,
+    block: mem::Block,
+    layout: mem::Layout,
+    code: i32,
+) process::ExitCode!mem::Block {
+    match allocator.realloc(block, layout) {
+        !newBlock => !newBlock,
+        mem::ReallocError::Allocation(cause)! => {
+            _ = cause;
+            allocator.free(block).exit().?;
+            process::exit(code)!
+        },
+        mem::ReallocError::OldFree(cause)! => {
+            _ = cause;
+            allocator.free(block).exit().?;
+            process::exit(code)!
+        },
+        mem::ReallocError::Rollback {
+            primary,
+            replacement,
+            replacementError,
+        }! => {
+            _ = primary;
+            _ = replacementError;
+            match allocator.free(replacement) {
+                !ok => { _ = ok; },
+                error! => { _ = error; },
+            }
+            match allocator.free(block) {
+                !ok => { _ = ok; },
+                error! => { _ = error; },
+            }
+            process::exit(code)!
+        },
+    }
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut page = mem::PageAllocator::init();
@@ -333,7 +371,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let grown_layout = mem::Layout::init(3040, 4096).exit().?;
     let old_addr = block.ptr() as usize;
-    block = allocator.realloc(block, grown_layout).exit().?;
+    block = reallocOrExit(&mut allocator, block, grown_layout, 8).?;
     if block.ptr() as usize != old_addr or block.size() != 3040 {
         return process::exit(2)!;
     }
@@ -343,7 +381,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let moved_layout = mem::Layout::init(12000, 4096).exit().?;
-    block = allocator.realloc(block, moved_layout).exit().?;
+    block = reallocOrExit(&mut allocator, block, moved_layout, 9).?;
     if block.ptr() as usize % 4096 != 0 or block.size() != 12000 {
         return process::exit(4)!;
     }
@@ -353,7 +391,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
 
     let empty_layout = mem::Layout::init(0, 4096).exit().?;
-    block = allocator.realloc(block, empty_layout).exit().?;
+    block = reallocOrExit(&mut allocator, block, empty_layout, 10).?;
     if not block.isEmpty() or not allocator.isEmpty() {
         return process::exit(6)!;
     }

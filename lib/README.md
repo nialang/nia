@@ -72,6 +72,8 @@ The library follows a small set of ownership rules:
 - Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
   and replacement releases fail, its `Rollback` variant carries the replacement
   block and cleanup error so callers can retry the still-owned allocations.
+  This owner-carrying error has no generic process-exit conversion; callers must
+  match it and retire the original and replacement owners explicitly.
 - Successful allocator remap changes only a block's logical layout. Default and
   concrete remap paths preserve the original release pointer and length, as do
   arena backing-chunk resizes.

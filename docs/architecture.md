@@ -2182,7 +2182,9 @@ discarding rollback state. A failed old-owner release is reported as the
 primary cause; if releasing the replacement also fails, `Rollback` carries that
 replacement `Block` and its cleanup error so callers can retry both owners
 explicitly. The allocator receives the original block by value, so the caller
-retains that original owner while handling the error.
+retains that original owner while handling the error. `ReallocError` therefore
+has no `IntoError[ExitCode]`, `asExitCode`, or error-union `exit` adapter: any
+such by-value conversion would discard the replacement owner in `Rollback`.
 Successful `resize`/`remap` changes only the block's logical layout. The
 canonical `Block::withLayout` transition preserves its release pointer and
 length; default and concrete allocator remap paths must not rebuild a block from

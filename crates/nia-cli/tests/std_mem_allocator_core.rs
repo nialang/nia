@@ -403,6 +403,7 @@ fn std_mem_obsolete_allocator_spellings_are_absent() {
         &main,
         r#"
 using std::mem;
+using std::process;
 
 fn probe(
     allocator: &mut mem::Allocator,
@@ -410,6 +411,8 @@ fn probe(
     block: mem::Block,
     arena: &mut mem::ArenaAllocator,
     fixed: &mem::FixedBufferAllocator,
+    reallocError: mem::ReallocError,
+    reallocResult: mem::ReallocError!mem::Block,
 ) () {
     let mut bytes: [u8; 1] = [0];
     _ = allocator.alloc_bytes(1, 1);
@@ -425,6 +428,10 @@ fn probe(
     _ = fixed.is_last_allocation(block);
     _ = fixed.ownsBlock(block);
     _ = fixed.isLastAllocation(block);
+    let code: process::ExitCode = reallocError.into_error();
+    _ = code;
+    _ = reallocError.asExitCode();
+    _ = reallocResult.exit();
 }
 
 fn main() () {}
@@ -453,6 +460,9 @@ fn main() () {}
         "is_last_allocation",
         "ownsBlock",
         "isLastAllocation",
+        "into_error",
+        "asExitCode",
+        "exit",
     ] {
         assert!(
             stderr.contains(name),
