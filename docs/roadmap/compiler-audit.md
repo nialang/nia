@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 460 completed entries in this ledger.
+- Implementation batches: 461 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2612,6 +2612,12 @@ acceptance item only when its phase-wide evidence is complete.
       allocators, including resized arena backing chunks. An over-aligned
       delegating allocator regression exercises the default remap path and
       releases the complete original page mapping.
+- [x] Batch 461 collapses ArrayList ownership to explicit `Block` state. The
+      active allocation is owned only by `storageBlock`; failed replacement and
+      self-alias cleanup retain `replacementBlock` and `aliasBlock` respectively.
+      Duplicate slice/capacity fields and raw-slice `Block` reconstruction are
+      removed, while the allocator, ArrayList, intrinsic, and string matrices
+      pass (4/4, 12/12, 6/6, 4/4, and 3/3 respectively).
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

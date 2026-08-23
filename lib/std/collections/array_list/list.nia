@@ -8,11 +8,7 @@ where T: Sized
     items: &mut [T],
     capacity: usize,
     storageBlock: ?mem::Block,
-    replacementItems: &mut [T],
-    replacementCapacity: usize,
     replacementBlock: ?mem::Block,
-    aliasItems: &mut [T],
-    aliasCapacity: usize,
     aliasBlock: ?mem::Block,
 }
 
@@ -24,11 +20,7 @@ where T: Sized
             items: raw::danglingSlice[T](0),
             capacity: 0,
             storageBlock: null,
-            replacementItems: raw::danglingSlice[T](0),
-            replacementCapacity: 0,
             replacementBlock: null,
-            aliasItems: raw::danglingSlice[T](0),
-            aliasCapacity: 0,
             aliasBlock: null,
         }
     }
@@ -47,11 +39,7 @@ where T: Sized
             items: items,
             capacity: len,
             storageBlock: ?block,
-            replacementItems: raw::danglingSlice[T](0),
-            replacementCapacity: 0,
             replacementBlock: null,
-            aliasItems: raw::danglingSlice[T](0),
-            aliasCapacity: 0,
             aliasBlock: null,
         }
     }
@@ -199,7 +187,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retainReplacementItems(newItems, len, newBlock);
+                        self.retainReplacementBlock(newBlock);
                     },
                 }
                 return err!;
@@ -342,7 +330,7 @@ where T: Sized
                             _ = ok;
                         },
                         error! => {
-                            self.retainAliasItems(copy, values.len(), copyBlock);
+                            self.retainAliasBlock(copyBlock);
                         },
                     }
                     return err!;
@@ -354,7 +342,7 @@ where T: Sized
                     return !();
                 },
                 err! => {
-                    self.retainAliasItems(copy, values.len(), copyBlock);
+                    self.retainAliasBlock(copyBlock);
                     return err!;
                 },
             }
@@ -401,7 +389,7 @@ where T: Sized
                             _ = ok;
                         },
                         error! => {
-                            self.retainAliasItems(copy, values.len(), copyBlock);
+                            self.retainAliasBlock(copyBlock);
                         },
                     }
                     return err!;
@@ -413,7 +401,7 @@ where T: Sized
                     return !();
                 },
                 err! => {
-                    self.retainAliasItems(copy, values.len(), copyBlock);
+                    self.retainAliasBlock(copyBlock);
                     return err!;
                 },
             }
@@ -545,7 +533,7 @@ where T: Sized
                             _ = ok;
                         },
                         error! => {
-                            self.retainAliasItems(copy, items.len(), copyBlock);
+                            self.retainAliasBlock(copyBlock);
                         },
                     }
                     return err!;
@@ -557,7 +545,7 @@ where T: Sized
                     return !();
                 },
                 err! => {
-                    self.retainAliasItems(copy, items.len(), copyBlock);
+                    self.retainAliasBlock(copyBlock);
                     return err!;
                 },
             }
@@ -726,7 +714,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retainReplacementItems(newItems, targetCapacity, newBlock);
+                        self.retainReplacementBlock(newBlock);
                     },
                 }
                 return err!;
@@ -794,7 +782,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retainReplacementItems(newItems, capacity, newBlock);
+                        self.retainReplacementBlock(newBlock);
                     },
                 }
                 return err!;
@@ -822,22 +810,13 @@ where T: Sized
     }
 
     fn freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.replacementItems.len() == 0 or std::builtin::size[T]() == 0 {
-            self.replacementItems = raw::danglingSlice[T](0);
-            self.replacementCapacity = 0;
-            self.replacementBlock = null;
-            return !();
-        }
-        let layout = mem::Layout::array[T](self.replacementCapacity).?;
         let block = match self.replacementBlock {
             ?value => value,
-            null => mem::Block::init(self.replacementItems.ptrMut() as &mut u8, layout),
+            null => return !(),
         };
         match allocator.free(block) {
             !ok => {
                 _ = ok;
-                self.replacementItems = raw::danglingSlice[T](0);
-                self.replacementCapacity = 0;
                 self.replacementBlock = null;
                 !()
             },
@@ -851,22 +830,13 @@ where T: Sized
     }
 
     fn freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.aliasItems.len() == 0 or std::builtin::size[T]() == 0 {
-            self.aliasItems = raw::danglingSlice[T](0);
-            self.aliasCapacity = 0;
-            self.aliasBlock = null;
-            return !();
-        }
-        let layout = mem::Layout::array[T](self.aliasCapacity).?;
         let block = match self.aliasBlock {
             ?value => value,
-            null => mem::Block::init(self.aliasItems.ptrMut() as &mut u8, layout),
+            null => return !(),
         };
         match allocator.free(block) {
             !ok => {
                 _ = ok;
-                self.aliasItems = raw::danglingSlice[T](0);
-                self.aliasCapacity = 0;
                 self.aliasBlock = null;
                 !()
             },
@@ -874,15 +844,11 @@ where T: Sized
         }
     }
 
-    fn retainReplacementItems(&mut self, items: &mut [T], capacity: usize, block: mem::Block) () {
-        self.replacementItems = items;
-        self.replacementCapacity = capacity;
+    fn retainReplacementBlock(&mut self, block: mem::Block) () {
         self.replacementBlock = ?block;
     }
 
-    fn retainAliasItems(&mut self, items: &mut [T], capacity: usize, block: mem::Block) () {
-        self.aliasItems = items;
-        self.aliasCapacity = capacity;
+    fn retainAliasBlock(&mut self, block: mem::Block) () {
         self.aliasBlock = ?block;
     }
 
@@ -892,12 +858,12 @@ where T: Sized
     }
 
     fn allocatedBlock(&self) mem::Error!mem::Block {
+        if self.capacity == 0 {
+            return !mem::Block::empty(mem::Layout::array[T](0).?);
+        }
         match self.storageBlock {
             ?block => !block,
-            null => {
-                let layout = mem::Layout::array[T](self.capacity).?;
-                !mem::Block::init(self.items.ptrMut() as &mut u8, layout)
-            },
+            null => mem::Error::Invalid!,
         }
     }
 
