@@ -413,7 +413,9 @@ signals, not architecture goals.
   `free` fails before releasing the staging backing, transfer that owner to the
   destination and retry it before the next formatting operation and during
   destination cleanup; never leave the writer and destination as duplicate
-  owners.
+  owners. A string-to-slice ownership transfer must retire that pending staging
+  owner before transferring the text backing. If that pending release fails,
+  leave both owners attached to the source for retry.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.

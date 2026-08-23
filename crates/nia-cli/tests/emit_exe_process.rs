@@ -2415,6 +2415,44 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(60)!;
     }
 
+    let mut transferText = std::String::initCapacity(&mut cleanupAllocator, 32usize).exit().?;
+    transferText.append(&mut cleanupAllocator, &"move").exit().?;
+    cleanupAllocator.failNext();
+    match transferText.appendFormat(&mut cleanupAllocator, &" {}", &cleanupFormatArgs) {
+        !ok => {
+            _ = ok;
+            return process::exit(161)!;
+        },
+        std::TextFormatError::Allocation(mem::Error::Invalid)! => {},
+        error! => {
+            _ = error;
+            return process::exit(162)!;
+        },
+    }
+    cleanupAllocator.failNext();
+    match transferText.intoOwnedSlice(&mut cleanupAllocator) {
+        !unexpected => {
+            _ = unexpected;
+            return process::exit(163)!;
+        },
+        mem::Error::Invalid! => {},
+        error! => {
+            _ = error;
+            return process::exit(164)!;
+        },
+    }
+    if not transferText.equals(&"move") or cleanupAllocator.liveBlocks != 2usize {
+        return process::exit(165)!;
+    }
+    let mut transferredText = transferText.intoOwnedSlice(&mut cleanupAllocator).exit().?;
+    if not transferredText.asSlice().equals(&"move") {
+        return process::exit(166)!;
+    }
+    transferredText.deinit(&mut cleanupAllocator).exit().?;
+    if cleanupAllocator.liveBlocks != 0usize {
+        return process::exit(167)!;
+    }
+
     let mut path = std::Path::fromView(page, std::PathView::init(&"root")).exit().?;
     defer path.deinit(page).exit().?;
     path.joinComponent(page, &"child").exit().?;

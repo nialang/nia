@@ -15,6 +15,9 @@ The library follows a small set of ownership rules:
 - Ownership-transfer constructors consume an existing owner. Copying
   constructors accept an allocator and preserve typed allocation or validation
   failures.
+- `String::intoOwnedSlice` first retires any pending formatting staging owner;
+  a successful transfer therefore leaves no second allocation behind in the
+  source string.
 - Fallible cleanup attempts every independently owned resource and retains each
   allocation whose release fails. A partially completed collection `deinit` is
   cleanup-only state: retry `deinit` with the same allocator rather than using
