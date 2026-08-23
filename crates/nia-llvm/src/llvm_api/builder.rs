@@ -150,7 +150,7 @@ impl<'ctx> Builder<'ctx> {
         value: V,
     ) -> LlvmResult<InstructionValue<'ctx>> {
         let inst = self.build_store(ptr, value)?;
-        inst.set_volatile(true);
+        inst.set_volatile(true)?;
         Ok(inst)
     }
 
@@ -163,7 +163,7 @@ impl<'ctx> Builder<'ctx> {
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
         let value = self.build_load(ty, ptr, name)?;
         if let Some(inst) = value.as_instruction_value() {
-            inst.set_volatile(true);
+            inst.set_volatile(true)?;
         }
         Ok(value)
     }
@@ -477,7 +477,7 @@ impl<'ctx> Builder<'ctx> {
         };
         let value = StructValue::new(require_value(value, "atomic compare-exchange")?);
         if weak && let Some(inst) = value.as_instruction() {
-            inst.set_weak(true);
+            inst.set_weak(true)?;
         }
         Ok(value)
     }
@@ -2256,6 +2256,78 @@ mod tests {
                 "LLVM returned a null value while building test instruction".to_string()
             )
         );
+    }
+
+    #[test]
+    fn rejects_volatile_flag_on_non_memory_instruction() {
+        let context = Context::create();
+        let module = context.create_module("volatile-opcode").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context
+                    .void_type()
+                    .fn_type(&[context.i32_type().into()], false),
+                None,
+            )
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let operand = function
+            .get_nth_param(0)
+            .unwrap()
+            .unwrap()
+            .into_int_value()
+            .unwrap();
+        let value = builder.build_int_add(operand, operand, "add").unwrap();
+        let instruction = BasicValueEnum::from(value)
+            .as_instruction_value()
+            .expect("integer add should be an instruction");
+
+        let error = instruction
+            .set_volatile(true)
+            .expect_err("volatile flag on integer add");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("volatile flag requires a memory access")
+        ));
+    }
+
+    #[test]
+    fn rejects_weak_flag_on_non_compare_exchange_instruction() {
+        let context = Context::create();
+        let module = context.create_module("weak-opcode").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context
+                    .void_type()
+                    .fn_type(&[context.i32_type().into()], false),
+                None,
+            )
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let operand = function
+            .get_nth_param(0)
+            .unwrap()
+            .unwrap()
+            .into_int_value()
+            .unwrap();
+        let value = builder.build_int_add(operand, operand, "add").unwrap();
+        let instruction = BasicValueEnum::from(value)
+            .as_instruction_value()
+            .expect("integer add should be an instruction");
+
+        let error = instruction
+            .set_weak(true)
+            .expect_err("weak flag on integer add");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("weak flag requires an atomic compare-exchange")
+        ));
     }
 
     #[test]

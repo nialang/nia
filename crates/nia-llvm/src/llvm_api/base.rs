@@ -1764,14 +1764,33 @@ impl<'ctx> InstructionValue<'ctx> {
         Ok(())
     }
 
-    /// Marks a memory instruction volatile or non-volatile.
-    pub fn set_volatile(self, is_volatile: bool) {
+    /// Marks a load, store, atomic RMW, or compare-exchange instruction
+    /// volatile or non-volatile.
+    pub fn set_volatile(self, is_volatile: bool) -> LlvmResult<()> {
+        match self.get_opcode() {
+            LLVMOpcode::LLVMLoad
+            | LLVMOpcode::LLVMStore
+            | LLVMOpcode::LLVMAtomicRMW
+            | LLVMOpcode::LLVMAtomicCmpXchg => {}
+            _ => {
+                return Err(LlvmError::error(
+                    "LLVM volatile flag requires a memory access instruction",
+                ));
+            }
+        }
         unsafe { LLVMSetVolatile(self.raw, bool_to_llvm(is_volatile)) };
+        Ok(())
     }
 
     /// Sets the weak flag on an atomic compare-and-exchange instruction.
-    pub fn set_weak(self, is_weak: bool) {
+    pub fn set_weak(self, is_weak: bool) -> LlvmResult<()> {
+        if self.get_opcode() != LLVMOpcode::LLVMAtomicCmpXchg {
+            return Err(LlvmError::error(
+                "LLVM weak flag requires an atomic compare-exchange instruction",
+            ));
+        }
         unsafe { LLVMSetWeak(self.raw, bool_to_llvm(is_weak)) };
+        Ok(())
     }
 
     /// Returns the next instruction in the owning block.

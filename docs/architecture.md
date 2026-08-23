@@ -2737,6 +2737,13 @@ element before `LLVMConstArray2`. Their results are fallible, so static and
 vtable initialization propagates malformed element handles instead of relying
 on LLVM verifier diagnostics.
 
+Instruction flags are opcode-scoped at the wrapper boundary: volatile may be
+set only on load, store, atomic RMW, or compare-exchange instructions, and
+weak may be set only on compare-exchange. Both setters return `LlvmResult`,
+while atomic ordering remains a separate backend-validated contract because
+its legal combinations depend on load/store direction and compare-exchange
+success/failure relationships.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
