@@ -406,7 +406,9 @@ fn emit_u128_div_rem<'ctx>(
     signed: bool,
 ) -> Result<(), Diagnostic> {
     let i128_ty = context.i128_type();
-    let fn_ty = i128_ty.fn_type(&[i128_ty.into(), i128_ty.into()], false);
+    let fn_ty = i128_ty
+        .fn_type(&[i128_ty.into(), i128_ty.into()], false)
+        .map_err(diagnostic_from_llvm_error)?;
     let div = module
         .add_function(
             if signed { "__divti3" } else { "__udivti3" },
@@ -422,10 +424,12 @@ fn emit_u128_div_rem<'ctx>(
         )
         .map_err(diagnostic_from_llvm_error)?;
 
-    let divmod_ty = i128_ty.fn_type(
-        &[i128_ty.into(), i128_ty.into(), context.bool_type().into()],
-        false,
-    );
+    let divmod_ty = i128_ty
+        .fn_type(
+            &[i128_ty.into(), i128_ty.into(), context.bool_type().into()],
+            false,
+        )
+        .map_err(diagnostic_from_llvm_error)?;
     let divmod = module
         .add_function(
             if signed {

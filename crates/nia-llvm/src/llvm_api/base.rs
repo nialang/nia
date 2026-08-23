@@ -93,6 +93,11 @@ pub(super) fn bool_to_llvm(value: bool) -> i32 {
     if value { 1 } else { 0 }
 }
 
+fn function_param_count(params: usize) -> LlvmResult<u32> {
+    u32::try_from(params)
+        .map_err(|_| LlvmError::error("LLVM function type has too many parameters"))
+}
+
 pub(super) fn validate_alignment(bytes: u32) -> LlvmResult<()> {
     if bytes == 0 || !bytes.is_power_of_two() {
         return Err(LlvmError::error(
@@ -526,19 +531,24 @@ impl<'ctx> VoidType<'ctx> {
         self,
         params: &[BasicMetadataTypeEnum<'ctx>],
         variadic: bool,
-    ) -> FunctionType<'ctx> {
+    ) -> LlvmResult<FunctionType<'ctx>> {
+        let param_count = function_param_count(params.len())?;
         let mut params = params
             .iter()
             .map(|param| param.as_type_ref())
             .collect::<Vec<_>>();
-        FunctionType::new(unsafe {
+        let raw = unsafe {
             LLVMFunctionType(
                 self.as_type_ref(),
                 params.as_mut_ptr(),
-                params.len() as u32,
+                param_count,
                 bool_to_llvm(variadic),
             )
-        })
+        };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null function type"));
+        }
+        Ok(FunctionType::new(raw))
     }
 }
 
@@ -550,19 +560,24 @@ macro_rules! impl_basic_type_methods {
                 self,
                 params: &[BasicMetadataTypeEnum<'ctx>],
                 variadic: bool,
-            ) -> FunctionType<'ctx> {
+            ) -> LlvmResult<FunctionType<'ctx>> {
+                let param_count = function_param_count(params.len())?;
                 let mut params = params
                     .iter()
                     .map(|param| param.as_type_ref())
                     .collect::<Vec<_>>();
-                FunctionType::new(unsafe {
+                let raw = unsafe {
                     LLVMFunctionType(
                         self.as_type_ref(),
                         params.as_mut_ptr(),
-                        params.len() as u32,
+                        param_count,
                         bool_to_llvm(variadic),
                     )
-                })
+                };
+                if raw.is_null() {
+                    return Err(LlvmError::error("LLVM returned a null function type"));
+                }
+                Ok(FunctionType::new(raw))
             }
 
             /// Creates a fixed-size array of this element type.
@@ -1036,19 +1051,24 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         self,
         params: &[BasicMetadataTypeEnum<'ctx>],
         variadic: bool,
-    ) -> FunctionType<'ctx> {
+    ) -> LlvmResult<FunctionType<'ctx>> {
+        let param_count = function_param_count(params.len())?;
         let mut params = params
             .iter()
             .map(|param| param.as_type_ref())
             .collect::<Vec<_>>();
-        FunctionType::new(unsafe {
+        let raw = unsafe {
             LLVMFunctionType(
                 self.as_type_ref(),
                 params.as_mut_ptr(),
-                params.len() as u32,
+                param_count,
                 bool_to_llvm(variadic),
             )
-        })
+        };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null function type"));
+        }
+        Ok(FunctionType::new(raw))
     }
 
     /// Creates a fixed-width vector of this lane type.
@@ -1698,6 +1718,19 @@ mod tests {
             error,
             LlvmError::Error("pointer constant bitcast requires equal address spaces".to_string())
         );
+    }
+
+    #[test]
+    fn rejects_function_parameter_count_width_overflow() {
+        let count = u32::MAX as usize;
+        assert_eq!(function_param_count(count).unwrap(), u32::MAX);
+        if usize::BITS > u32::BITS {
+            let error = function_param_count(count + 1).expect_err("parameter count overflow");
+            assert_eq!(
+                error,
+                LlvmError::Error("LLVM function type has too many parameters".to_string())
+            );
+        }
     }
 
     #[test]

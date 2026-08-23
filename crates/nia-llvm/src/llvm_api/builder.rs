@@ -2267,7 +2267,8 @@ mod tests {
                 "test",
                 context
                     .void_type()
-                    .fn_type(&[context.i32_type().into()], false),
+                    .fn_type(&[context.i32_type().into()], false)
+                    .unwrap(),
                 None,
             )
             .unwrap();
@@ -2303,7 +2304,8 @@ mod tests {
                 "test",
                 context
                     .void_type()
-                    .fn_type(&[context.i32_type().into()], false),
+                    .fn_type(&[context.i32_type().into()], false)
+                    .unwrap(),
                 None,
             )
             .unwrap();
@@ -2339,7 +2341,8 @@ mod tests {
                 "test",
                 context
                     .void_type()
-                    .fn_type(&[context.i32_type().into()], false),
+                    .fn_type(&[context.i32_type().into()], false)
+                    .unwrap(),
                 None,
             )
             .unwrap();
@@ -2371,7 +2374,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("aggregate-index").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2392,7 +2399,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("aggregate-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2418,7 +2429,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("select-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2443,7 +2458,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("select-vector").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2470,7 +2489,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("vector-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2503,7 +2526,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("shuffle-mask").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2537,7 +2564,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("integer-extend").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2561,7 +2592,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("integer-truncate").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2585,7 +2620,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("switch-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let default = context.append_basic_block(function, "default").unwrap();
@@ -2615,7 +2654,8 @@ mod tests {
                 "test",
                 context
                     .void_type()
-                    .fn_type(&[context.i32_type().into()], false),
+                    .fn_type(&[context.i32_type().into()], false)
+                    .unwrap(),
                 None,
             )
             .unwrap();
@@ -2649,7 +2689,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("atomic-rmw-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2675,7 +2719,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("cmpxchg-order").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2704,7 +2752,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("store-order-setter").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2730,7 +2782,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("cmpxchg-set-order").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2765,7 +2821,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("fence-order").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2786,7 +2846,8 @@ mod tests {
         let module = context.create_module("call-arity").unwrap();
         let function_type = context
             .i32_type()
-            .fn_type(&[context.i32_type().into()], false);
+            .fn_type(&[context.i32_type().into()], false)
+            .unwrap();
         let function = module.add_function("callee", function_type, None).unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2807,7 +2868,8 @@ mod tests {
         let module = context.create_module("call-type").unwrap();
         let function_type = context
             .i32_type()
-            .fn_type(&[context.i32_type().into()], false);
+            .fn_type(&[context.i32_type().into()], false)
+            .unwrap();
         let function = module.add_function("callee", function_type, None).unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2832,7 +2894,8 @@ mod tests {
         let module = context.create_module("call-variadic").unwrap();
         let function_type = context
             .i32_type()
-            .fn_type(&[context.i32_type().into()], true);
+            .fn_type(&[context.i32_type().into()], true)
+            .unwrap();
         let function = module.add_function("callee", function_type, None).unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2852,7 +2915,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("bitcast-width").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2876,7 +2943,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("branch-condition").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let then_block = context.append_basic_block(function, "then").unwrap();
@@ -2898,7 +2969,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("return-type").unwrap();
         let function = module
-            .add_function("test", context.i32_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.i32_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2919,7 +2994,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("return-value").unwrap();
         let function = module
-            .add_function("test", context.i32_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.i32_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2939,7 +3018,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("return-void").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2960,7 +3043,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("integer-binary-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -2984,7 +3071,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("floating-binary-kind").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -3006,7 +3097,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("pointer-compare").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -3029,7 +3124,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("integer-unary-kind").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -3049,7 +3148,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("floating-unary-kind").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -3069,7 +3172,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("floating-compare-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -3094,10 +3201,18 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("branch-target").unwrap();
         let function = module
-            .add_function("source", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "source",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let other = module
-            .add_function("other", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "other",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let foreign = context.append_basic_block(other, "foreign").unwrap();
@@ -3118,7 +3233,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("phi-type").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let incoming = context.append_basic_block(function, "incoming").unwrap();
@@ -3141,10 +3260,18 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("phi-block").unwrap();
         let function = module
-            .add_function("source", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "source",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let other = module
-            .add_function("other", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "other",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let foreign = context.append_basic_block(other, "foreign").unwrap();
@@ -3167,7 +3294,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("load-alignment").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();
@@ -3188,7 +3319,11 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("bitcast-vector").unwrap();
         let function = module
-            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let builder = context.create_builder();

@@ -2789,6 +2789,10 @@ constant pointer bitcasts require equal address spaces; both constructors
 check LLVM's result before exposing the typed value. Static initializer lowering
 propagates these failures rather than relying on LLVM assertions.
 
+LLVM function-signature construction is fallible: parameter counts are checked
+against LLVM's `u32` ABI width and the returned type handle is validated before
+it reaches module, ABI, inline-assembly, or builtin lowering.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

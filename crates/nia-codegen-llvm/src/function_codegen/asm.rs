@@ -39,7 +39,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .context
                 .struct_type(tys, false)
                 .fn_type(&param_tys, false),
-        };
+        }
+        .map_err(|error| {
+            self.error(
+                self.function.span,
+                format!("failed to create inline assembly function type: {error:?}"),
+            )
+        })?;
         let has_sideeffects =
             asm.options.contains(&FunctionAsmOption::Volatile) || output_tys.is_empty();
         let inline_asm = self
