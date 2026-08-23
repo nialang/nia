@@ -2166,6 +2166,12 @@ acceptance item only when its phase-wide evidence is complete.
       `LLVMStructSetBody`; declaration lowering propagates failures. Wrapper
       regressions cover literal and redefinition attempts, with LLVM/codegen
       suites, workspace check, formatting, and strict Clippy passing.
+- [x] Batch 375 removes the LLVM vector-constant error classification bypass.
+      `VectorType::const_vector` now reports lane-count and lane-type
+      mismatches as `LlvmError::Error` and propagates element type-inspection
+      failures instead of collapsing them into ICEs. Wrapper regressions cover
+      both shape errors, with LLVM/codegen suites, workspace check, formatting,
+      and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

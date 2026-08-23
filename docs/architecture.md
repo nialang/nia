@@ -2751,6 +2751,10 @@ once before `LLVMStructSetBody`. Declaration lowering propagates the wrapper
 failure, so literal or already-defined struct handles cannot trigger an LLVM
 assertion through the safe API.
 
+Fixed-vector constant construction reports lane-count and lane-type violations
+as ordinary `LlvmError::Error` results, preserving the fallible API contract
+instead of classifying caller-provided shape mismatches as compiler ICEs.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
