@@ -2270,6 +2270,12 @@ acceptance item only when its phase-wide evidence is complete.
       unwrap valid test builders. A context regression covers the null builder
       guard, with LLVM/codegen suites, workspace check, formatting, and strict
       Clippy passing.
+- [x] Batch 393 closes the LLVM context-root allocation boundary.
+      `Context::create` now returns `LlvmResult` and validates the
+      `LLVMContextCreate` handle; the compiler-builtin object path propagates
+      the failure, while wrapper tests explicitly unwrap valid contexts. A
+      context regression covers the null root guard, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

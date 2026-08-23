@@ -381,7 +381,7 @@ pub(crate) fn emit_object(
     target: &TargetMachine,
     symbols: CompilerBuiltinSymbols,
 ) -> Result<Vec<u8>, Diagnostic> {
-    let context = Context::create();
+    let context = Context::create().map_err(diagnostic_from_llvm_error)?;
     let module = context
         .create_module("nia.compiler_builtins")
         .map_err(diagnostic_from_llvm_error)?;

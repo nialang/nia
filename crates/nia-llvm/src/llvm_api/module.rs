@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn rejects_global_initializer_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("global-init-type").unwrap();
         let global = module
             .add_global(context.i32_type().into(), None, "value")
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn preserves_global_address_space_in_pointer_type() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("global-address-space").unwrap();
         let global = module
             .add_global(context.i32_type().into(), Some(AddressSpace(3)), "value")
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_global_alignment_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("global-alignment").unwrap();
         let global = module
             .add_global(context.i32_type().into(), None, "value")

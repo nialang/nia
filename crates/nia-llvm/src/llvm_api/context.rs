@@ -46,13 +46,11 @@ pub struct Context {
 
 impl Context {
     /// Creates a fresh LLVM context.
-    ///
-    /// LLVM treats context allocation failure as unrecoverable; consequently
-    /// this is the one top-level wrapper constructor that asserts non-null.
-    pub fn create() -> Self {
+    pub fn create() -> LlvmResult<Self> {
         let raw = unsafe { LLVMContextCreate() };
-        assert!(!raw.is_null());
-        Self { raw }
+        Ok(Self {
+            raw: require_handle(raw, "context")?,
+        })
     }
 
     /// Creates an instruction builder owned by this context.
@@ -323,6 +321,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_null_context_before_wrapper_construction() {
+        let error = require_handle::<llvm_sys::LLVMContext>(std::ptr::null_mut(), "context")
+            .expect_err("null context handle");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null context handle".to_string())
+        );
+    }
+
+    #[test]
     fn rejects_null_opaque_struct_type_before_wrapper_construction() {
         let error =
             require_handle::<llvm_sys::LLVMType>(std::ptr::null_mut(), "opaque struct type")
@@ -347,7 +356,7 @@ mod tests {
 
     #[test]
     fn rejects_zero_width_custom_integer_types() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
 
         let error = context
             .custom_width_int_type(0)

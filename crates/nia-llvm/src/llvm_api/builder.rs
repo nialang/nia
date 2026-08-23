@@ -2275,7 +2275,7 @@ mod tests {
 
     #[test]
     fn rejects_volatile_flag_on_non_memory_instruction() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("volatile-opcode").unwrap();
         let function = module
             .add_function(
@@ -2312,7 +2312,7 @@ mod tests {
 
     #[test]
     fn rejects_weak_flag_on_non_compare_exchange_instruction() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("weak-opcode").unwrap();
         let function = module
             .add_function(
@@ -2349,7 +2349,7 @@ mod tests {
 
     #[test]
     fn rejects_alignment_on_non_memory_instruction() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("alignment-opcode").unwrap();
         let function = module
             .add_function(
@@ -2386,7 +2386,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_bounds_aggregate_index_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("aggregate-index").unwrap();
         let function = module
             .add_function(
@@ -2413,7 +2413,7 @@ mod tests {
 
     #[test]
     fn rejects_aggregate_insert_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("aggregate-type").unwrap();
         let function = module
             .add_function(
@@ -2445,7 +2445,7 @@ mod tests {
 
     #[test]
     fn rejects_select_arm_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("select-type").unwrap();
         let function = module
             .add_function(
@@ -2474,7 +2474,7 @@ mod tests {
 
     #[test]
     fn accepts_scalar_select_for_vector_values() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("select-vector").unwrap();
         let function = module
             .add_function(
@@ -2505,7 +2505,7 @@ mod tests {
 
     #[test]
     fn rejects_vector_insert_element_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("vector-type").unwrap();
         let function = module
             .add_function(
@@ -2542,7 +2542,7 @@ mod tests {
 
     #[test]
     fn rejects_shuffle_mask_with_non_i32_lanes_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("shuffle-mask").unwrap();
         let function = module
             .add_function(
@@ -2580,7 +2580,7 @@ mod tests {
 
     #[test]
     fn rejects_integer_extension_without_a_wider_target() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("integer-extend").unwrap();
         let function = module
             .add_function(
@@ -2608,7 +2608,7 @@ mod tests {
 
     #[test]
     fn rejects_integer_truncation_to_a_wider_target() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("integer-truncate").unwrap();
         let function = module
             .add_function(
@@ -2636,7 +2636,7 @@ mod tests {
 
     #[test]
     fn rejects_switch_case_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("switch-type").unwrap();
         let function = module
             .add_function(
@@ -2666,7 +2666,7 @@ mod tests {
 
     #[test]
     fn rejects_nonconstant_switch_case_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("switch-constant").unwrap();
         let function = module
             .add_function(
@@ -2705,7 +2705,7 @@ mod tests {
 
     #[test]
     fn rejects_non_integer_atomic_rmw_operand_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("atomic-rmw-type").unwrap();
         let function = module
             .add_function(
@@ -2735,7 +2735,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_cmpxchg_ordering_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("cmpxchg-order").unwrap();
         let function = module
             .add_function(
@@ -2768,7 +2768,7 @@ mod tests {
 
     #[test]
     fn rejects_acquire_ordering_on_store_instruction() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("store-order-setter").unwrap();
         let function = module
             .add_function(
@@ -2798,7 +2798,7 @@ mod tests {
 
     #[test]
     fn rejects_cmpxchg_success_ordering_incompatible_with_existing_failure() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("cmpxchg-set-order").unwrap();
         let function = module
             .add_function(
@@ -2837,7 +2837,7 @@ mod tests {
 
     #[test]
     fn rejects_monotonic_fence_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("fence-order").unwrap();
         let function = module
             .add_function(
@@ -2861,7 +2861,7 @@ mod tests {
 
     #[test]
     fn rejects_call_argument_count_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("call-arity").unwrap();
         let function_type = context
             .i32_type()
@@ -2883,7 +2883,7 @@ mod tests {
 
     #[test]
     fn rejects_call_argument_type_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("call-type").unwrap();
         let function_type = context
             .i32_type()
@@ -2909,7 +2909,7 @@ mod tests {
 
     #[test]
     fn rejects_variadic_call_below_fixed_arity_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("call-variadic").unwrap();
         let function_type = context
             .i32_type()
@@ -2931,7 +2931,7 @@ mod tests {
 
     #[test]
     fn rejects_bitcast_with_different_widths_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("bitcast-width").unwrap();
         let function = module
             .add_function(
@@ -2959,7 +2959,7 @@ mod tests {
 
     #[test]
     fn rejects_non_boolean_conditional_branch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("branch-condition").unwrap();
         let function = module
             .add_function(
@@ -2985,7 +2985,7 @@ mod tests {
 
     #[test]
     fn rejects_return_value_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("return-type").unwrap();
         let function = module
             .add_function(
@@ -3010,7 +3010,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_non_void_return_value_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("return-value").unwrap();
         let function = module
             .add_function(
@@ -3034,7 +3034,7 @@ mod tests {
 
     #[test]
     fn rejects_value_return_from_void_function_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("return-void").unwrap();
         let function = module
             .add_function(
@@ -3059,7 +3059,7 @@ mod tests {
 
     #[test]
     fn rejects_integer_binary_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("integer-binary-type").unwrap();
         let function = module
             .add_function(
@@ -3087,7 +3087,7 @@ mod tests {
 
     #[test]
     fn rejects_floating_binary_with_integer_operands_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("floating-binary-kind").unwrap();
         let function = module
             .add_function(
@@ -3113,7 +3113,7 @@ mod tests {
 
     #[test]
     fn accepts_pointer_equality_through_integer_compare_builder() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("pointer-compare").unwrap();
         let function = module
             .add_function(
@@ -3140,7 +3140,7 @@ mod tests {
 
     #[test]
     fn rejects_integer_unary_operation_with_float_value_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("integer-unary-kind").unwrap();
         let function = module
             .add_function(
@@ -3164,7 +3164,7 @@ mod tests {
 
     #[test]
     fn rejects_floating_unary_operation_with_integer_value_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("floating-unary-kind").unwrap();
         let function = module
             .add_function(
@@ -3188,7 +3188,7 @@ mod tests {
 
     #[test]
     fn rejects_floating_compare_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("floating-compare-type").unwrap();
         let function = module
             .add_function(
@@ -3217,7 +3217,7 @@ mod tests {
 
     #[test]
     fn rejects_cross_function_branch_target_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("branch-target").unwrap();
         let function = module
             .add_function(
@@ -3249,7 +3249,7 @@ mod tests {
 
     #[test]
     fn rejects_phi_incoming_type_mismatch_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("phi-type").unwrap();
         let function = module
             .add_function(
@@ -3276,7 +3276,7 @@ mod tests {
 
     #[test]
     fn rejects_cross_function_phi_incoming_block_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("phi-block").unwrap();
         let function = module
             .add_function(
@@ -3310,7 +3310,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_aligned_load_before_llvm_call() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("load-alignment").unwrap();
         let function = module
             .add_function(
@@ -3335,7 +3335,7 @@ mod tests {
 
     #[test]
     fn accepts_equal_width_vector_to_integer_bitcast() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let module = context.create_module("bitcast-vector").unwrap();
         let function = module
             .add_function(
