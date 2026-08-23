@@ -2151,8 +2151,14 @@ acceptance item only when its phase-wide evidence is complete.
       Volatile setters now accept only load/store/atomic-RMW/compare-exchange
       instructions, weak setters only compare-exchange, and both return
       `LlvmResult`; builder callers propagate failures. Wrapper regressions
-      cover invalid integer-add targets, while atomic ordering remains
-      explicitly backend-validated due to direction and cmpxchg relationships.
+      cover invalid integer-add targets. LLVM/codegen suites, workspace check,
+      formatting, and strict Clippy pass.
+- [x] Batch 373 closes the LLVM atomic-ordering setter boundary.
+      `InstructionValue::set_atomic_ordering` now validates load/store
+      direction, atomic-RMW and compare-exchange ordering classes, and the
+      current compare-exchange failure relationship before `LLVMSetOrdering`;
+      atomic codegen callers propagate failures. Wrapper regressions cover an
+      acquire store and an incompatible compare-exchange update, with
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.

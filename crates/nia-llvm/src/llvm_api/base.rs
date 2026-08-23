@@ -18,14 +18,14 @@ use llvm_sys::core::{
     LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal,
     LLVMConstVector, LLVMCountParamTypes, LLVMCountParams, LLVMCountStructElementTypes,
     LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator,
-    LLVMGetElementType, LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock,
-    LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetInstructionParent,
-    LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam,
-    LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType, LLVMGetTypeKind,
-    LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction,
-    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
-    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMSetWeak,
-    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
+    LLVMGetCmpXchgFailureOrdering, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
+    LLVMGetInstructionParent, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
+    LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType,
+    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType,
+    LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant,
+    LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile,
+    LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -277,6 +277,90 @@ impl From<AtomicOrdering> for LLVMAtomicOrdering {
             }
         }
     }
+}
+
+fn atomic_ordering_from_llvm(value: LLVMAtomicOrdering) -> AtomicOrdering {
+    match value {
+        LLVMAtomicOrdering::LLVMAtomicOrderingNotAtomic => AtomicOrdering::NotAtomic,
+        LLVMAtomicOrdering::LLVMAtomicOrderingUnordered => AtomicOrdering::Unordered,
+        LLVMAtomicOrdering::LLVMAtomicOrderingMonotonic => AtomicOrdering::Monotonic,
+        LLVMAtomicOrdering::LLVMAtomicOrderingAcquire => AtomicOrdering::Acquire,
+        LLVMAtomicOrdering::LLVMAtomicOrderingRelease => AtomicOrdering::Release,
+        LLVMAtomicOrdering::LLVMAtomicOrderingAcquireRelease => AtomicOrdering::AcquireRelease,
+        LLVMAtomicOrdering::LLVMAtomicOrderingSequentiallyConsistent => {
+            AtomicOrdering::SequentiallyConsistent
+        }
+    }
+}
+
+fn cmpxchg_failure_order_allowed(success: AtomicOrdering, failure: AtomicOrdering) -> bool {
+    match success {
+        AtomicOrdering::Monotonic => failure == AtomicOrdering::Monotonic,
+        AtomicOrdering::Acquire => {
+            matches!(failure, AtomicOrdering::Monotonic | AtomicOrdering::Acquire)
+        }
+        AtomicOrdering::Release => failure == AtomicOrdering::Monotonic,
+        AtomicOrdering::AcquireRelease => {
+            matches!(failure, AtomicOrdering::Monotonic | AtomicOrdering::Acquire)
+        }
+        AtomicOrdering::SequentiallyConsistent => matches!(
+            failure,
+            AtomicOrdering::Monotonic
+                | AtomicOrdering::Acquire
+                | AtomicOrdering::SequentiallyConsistent
+        ),
+        AtomicOrdering::NotAtomic | AtomicOrdering::Unordered => false,
+    }
+}
+
+fn validate_instruction_ordering(
+    opcode: LLVMOpcode,
+    ordering: AtomicOrdering,
+    cmpxchg_failure: Option<AtomicOrdering>,
+) -> LlvmResult<()> {
+    let allowed = match opcode {
+        LLVMOpcode::LLVMLoad => matches!(
+            ordering,
+            AtomicOrdering::NotAtomic
+                | AtomicOrdering::Unordered
+                | AtomicOrdering::Monotonic
+                | AtomicOrdering::Acquire
+                | AtomicOrdering::SequentiallyConsistent
+        ),
+        LLVMOpcode::LLVMStore => matches!(
+            ordering,
+            AtomicOrdering::NotAtomic
+                | AtomicOrdering::Unordered
+                | AtomicOrdering::Monotonic
+                | AtomicOrdering::Release
+                | AtomicOrdering::SequentiallyConsistent
+        ),
+        LLVMOpcode::LLVMAtomicRMW | LLVMOpcode::LLVMAtomicCmpXchg => matches!(
+            ordering,
+            AtomicOrdering::Monotonic
+                | AtomicOrdering::Acquire
+                | AtomicOrdering::Release
+                | AtomicOrdering::AcquireRelease
+                | AtomicOrdering::SequentiallyConsistent
+        ),
+        _ => false,
+    };
+    if !allowed {
+        return Err(LlvmError::error(
+            "LLVM atomic ordering is not valid for this instruction opcode",
+        ));
+    }
+    if opcode == LLVMOpcode::LLVMAtomicCmpXchg {
+        let failure = cmpxchg_failure.ok_or_else(|| {
+            LlvmError::error("LLVM compare-exchange failure ordering is unavailable")
+        })?;
+        if !cmpxchg_failure_order_allowed(ordering, failure) {
+            return Err(LlvmError::error(
+                "LLVM compare-exchange success ordering is incompatible with failure ordering",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1752,9 +1836,15 @@ impl<'ctx> InstructionValue<'ctx> {
         }
     }
 
-    /// Sets the instruction's atomic ordering.
-    pub fn set_atomic_ordering(self, ordering: AtomicOrdering) {
+    /// Sets the instruction's atomic ordering after validating opcode-specific
+    /// direction and compare-exchange success/failure constraints.
+    pub fn set_atomic_ordering(self, ordering: AtomicOrdering) -> LlvmResult<()> {
+        let opcode = self.get_opcode();
+        let failure = (opcode == LLVMOpcode::LLVMAtomicCmpXchg)
+            .then(|| atomic_ordering_from_llvm(unsafe { LLVMGetCmpXchgFailureOrdering(self.raw) }));
+        validate_instruction_ordering(opcode, ordering, failure)?;
         unsafe { LLVMSetOrdering(self.raw, ordering.into()) };
+        Ok(())
     }
 
     /// Sets the instruction's required byte alignment.
