@@ -36,6 +36,8 @@
 // Run/test steps keep argument strings in that pending owner. Dependency-edge
 // failure preserves the primary error while moving the popped step back to the
 // pending slot for cleanup retry.
+// Executable and static-archive install steps apply the same transaction to
+// their destination strings and producer dependency edge.
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 

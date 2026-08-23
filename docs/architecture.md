@@ -3324,6 +3324,10 @@ Run and test steps extend this transaction through dependency insertion. Their
 argument slots are attached before string allocation, and a failed dependency
 push moves the popped complete step back into the pending slot. The dependency
 error remains primary even when recursive step cleanup fails.
+Install steps for executables and static archives share the same dependency
+commit helper. Their name and destination are initialized on the pending step;
+producer-edge failure pops the committed record back into pending ownership and
+preserves the edge error over cleanup failures.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while

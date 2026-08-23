@@ -206,7 +206,7 @@ fn isRunRetainOom(error: build::Error) bool {
     match error {
         build::Error::Failure {
             operation: build::ErrorOperation::Retain,
-            subject: build::ErrorSubject::Step(1usize),
+            subject: build::ErrorSubject::Step(_),
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
         _ => false,
@@ -699,6 +699,32 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     }
     allocator.disableFailure();
     _ = api.addUncacheableStep(&"uncacheable", &"description").exit().?;
+    _ = api.addAggregateStep(&"install-capacity").exit().?;
+    let beforeInstall = allocator.activeAllocations;
+    allocator.failAfter(2usize);
+    allocator.failNextRetainedFrees(2usize);
+    match api.addInstallExecutableStep(
+        &"install",
+        executable,
+        build::BuildPathView::init(&"install/app"),
+    ) {
+        !handle => {
+            _ = handle;
+            return process::exit(75)!;
+        },
+        err! => if not isDependencyRetainOom(err) {
+            return process::exit(76)!;
+        },
+    }
+    if allocator.activeAllocations != beforeInstall + 2usize {
+        return process::exit(77)!;
+    }
+    allocator.disableFailure();
+    _ = api.addInstallExecutableStep(
+        &"install",
+        executable,
+        build::BuildPathView::init(&"install/app"),
+    ).exit().?;
     cleaned = true;
     api.deinit().exit().?;
     if allocator.activeAllocations != 0usize {

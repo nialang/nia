@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 480 completed entries in this ledger.
+- Implementation batches: 481 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2735,6 +2735,12 @@ acceptance item only when its phase-wide evidence is complete.
       composition preserves dependency OOM over three simultaneous release
       failures, retains two arguments plus their list and step name, and proves
       the next insertion can recursively retire them.
+- [x] Batch 481 makes executable and static-archive install steps pending-owner
+      transactions. Their kind-specific empty payloads retain step name and
+      destination before commit, and the shared explicit producer-dependency
+      completion path preserves edge errors over rollback cleanup. Fault
+      injection covers dependency OOM plus two simultaneous string-release
+      failures, retry, and final cleanup; the target suite covers both kinds.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
