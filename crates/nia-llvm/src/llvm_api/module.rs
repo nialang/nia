@@ -401,7 +401,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            global.as_pointer_value().get_type().address_space(),
+            global
+                .as_pointer_value()
+                .get_type()
+                .unwrap()
+                .address_space(),
             AddressSpace(3)
         );
     }

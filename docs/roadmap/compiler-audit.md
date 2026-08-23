@@ -2282,6 +2282,13 @@ acceptance item only when its phase-wide evidence is complete.
       wrappers. A shared zero-path regression covers both aggregate categories,
       with LLVM/codegen suites, workspace check, formatting, and strict Clippy
       passing.
+- [x] Batch 395 closes typed value type inspection.
+      Integer, float, pointer, struct, and array `get_type` methods now validate
+      `LLVMTypeOf` through the checked basic-type conversion and return
+      `LlvmResult`; wrapper bitcast checks and codegen callers propagate the
+      diagnostic. A typed-query regression covers all five value categories,
+      with LLVM/codegen suites, workspace check, formatting, and strict Clippy
+      passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

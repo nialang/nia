@@ -663,7 +663,7 @@ impl<'ctx> IntType<'ctx> {
 impl<'ctx> IntValue<'ctx> {
     /// Constant-folds a bitcast to another integer type.
     pub fn const_bitcast(self, target_ty: IntType<'ctx>) -> LlvmResult<IntValue<'ctx>> {
-        if self.get_type().bit_width() != target_ty.bit_width() {
+        if self.get_type()?.bit_width() != target_ty.bit_width() {
             return Err(LlvmError::error(
                 "integer constant bitcast requires equal source and target widths",
             ));
@@ -1310,27 +1310,27 @@ impl<'ctx> AggregateValue<'ctx> for ArrayValue<'ctx> {}
 
 impl<'ctx> IntValue<'ctx> {
     /// Returns this value's integer type.
-    pub fn get_type(self) -> IntType<'ctx> {
-        IntType::new(unsafe { LLVMTypeOf(self.raw) })
+    pub fn get_type(self) -> LlvmResult<IntType<'ctx>> {
+        BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?.into_int_type()
     }
 }
 
 impl<'ctx> FloatValue<'ctx> {
     /// Returns this value's floating-point type.
-    pub fn get_type(self) -> FloatType<'ctx> {
-        FloatType::new(unsafe { LLVMTypeOf(self.raw) })
+    pub fn get_type(self) -> LlvmResult<FloatType<'ctx>> {
+        BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?.into_float_type()
     }
 }
 
 impl<'ctx> PointerValue<'ctx> {
     /// Returns this value's opaque pointer type.
-    pub fn get_type(self) -> PointerType<'ctx> {
-        PointerType::new(unsafe { LLVMTypeOf(self.raw) })
+    pub fn get_type(self) -> LlvmResult<PointerType<'ctx>> {
+        BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?.into_pointer_type()
     }
 
     /// Constant-folds a pointer bitcast.
     pub fn const_bitcast(self, target_ty: PointerType<'ctx>) -> LlvmResult<PointerValue<'ctx>> {
-        if self.get_type().address_space() != target_ty.address_space() {
+        if self.get_type()?.address_space() != target_ty.address_space() {
             return Err(LlvmError::error(
                 "pointer constant bitcast requires equal address spaces",
             ));
@@ -1409,8 +1409,8 @@ impl<'ctx> PointerValue<'ctx> {
 
 impl<'ctx> StructValue<'ctx> {
     /// Returns this value's struct type.
-    pub fn get_type(self) -> StructType<'ctx> {
-        StructType::new(unsafe { LLVMTypeOf(self.raw) })
+    pub fn get_type(self) -> LlvmResult<StructType<'ctx>> {
+        BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?.into_struct_type()
     }
 
     /// Views the value as an instruction when it was produced by one.
@@ -1426,8 +1426,8 @@ impl<'ctx> StructValue<'ctx> {
 
 impl<'ctx> ArrayValue<'ctx> {
     /// Returns this value's fixed-size array type.
-    pub fn get_type(self) -> ArrayType<'ctx> {
-        ArrayType::new(unsafe { LLVMTypeOf(self.raw) })
+    pub fn get_type(self) -> LlvmResult<ArrayType<'ctx>> {
+        BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?.into_array_type()
     }
 }
 
@@ -1766,6 +1766,32 @@ mod tests {
 
         assert!(BasicTypeEnum::ArrayType(array).const_zero().is_ok());
         assert!(BasicTypeEnum::StructType(struct_ty).const_zero().is_ok());
+    }
+
+    #[test]
+    fn typed_value_type_queries_use_checked_conversion() {
+        let context = Context::create().unwrap();
+        let struct_ty = context.struct_type(&[], false).unwrap();
+        let array_ty = context.i8_type().array_type(0).unwrap();
+
+        assert_eq!(
+            context.i32_type().const_zero().get_type().unwrap(),
+            context.i32_type()
+        );
+        assert_eq!(
+            context.f32_type().const_zero().get_type().unwrap(),
+            context.f32_type()
+        );
+        assert_eq!(
+            context
+                .ptr_type(AddressSpace(2))
+                .const_null()
+                .get_type()
+                .unwrap(),
+            context.ptr_type(AddressSpace(2))
+        );
+        assert_eq!(struct_ty.const_zero().get_type().unwrap(), struct_ty);
+        assert_eq!(array_ty.const_zero().get_type().unwrap(), array_ty);
     }
 
     #[test]
