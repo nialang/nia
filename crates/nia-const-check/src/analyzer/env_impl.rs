@@ -1695,9 +1695,13 @@ impl Analyzer<'_> {
                             .to_string(),
                     });
                 };
+                let lane_count = usize::try_from(lanes).map_err(|_| ConstError {
+                    span,
+                    message: "builtin `splat` lane count is too large for the host".to_string(),
+                })?;
                 Ok(Some(ConstValue::Vector(vec![
                     args[0].clone();
-                    lanes as usize
+                    lane_count
                 ])))
             }
             BuiltinFunction::Extract => {

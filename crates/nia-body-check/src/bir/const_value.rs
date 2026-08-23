@@ -321,7 +321,7 @@ impl<'a> BodyChecker<'a> {
                 let nia_const_check::ConstValue::Vector(values) = value else {
                     return None;
                 };
-                if values.len() != lanes as usize {
+                if usize::try_from(lanes).ok()? != values.len() {
                     return None;
                 }
                 let lane_ty = self.primitive(elem);

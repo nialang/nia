@@ -1340,6 +1340,9 @@ wrapping on a narrower host.
 Backend function-body instantiation checks target-`usize` const-generic payloads
 before storing them in the IR's canonical `u64` representation; malformed IR
 crosses the existing structural-error boundary instead of truncating the value.
+Const vector validation and `splat` evaluation use the same checked lane-count
+conversion before allocating or comparing host vectors, so an unrepresentable
+semantic width cannot become a truncated allocation.
 
 Const struct literals have one typed surface: the source literal names a
 nominal type, and resolved const IR stores that type as a required field. The
