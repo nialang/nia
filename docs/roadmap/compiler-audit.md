@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 420 completed entries in this ledger.
+- Implementation batches: 421 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2413,6 +2413,10 @@ acceptance item only when its phase-wide evidence is complete.
       Small-page slot-byte multiplication and slot address derivation, plus
       large-header user-pointer offsets, now use checked operations; malformed
       metadata fails ownership/free/lookup closed.
+- [x] Batch 421 hardens Wyhash incremental state arithmetic. Total input length
+      now saturates on host overflow and 48-byte chunk boundaries use checked
+      index addition before slicing; hash vectors, hash-map, and string runtime
+      suites remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

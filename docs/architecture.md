@@ -3296,6 +3296,11 @@ counts, slot address derivation, and large-header user pointers. Corrupt or
 unrepresentable metadata is rejected by ownership/free/lookup paths rather than
 being converted into a wrapped pointer.
 
+Wyhash incremental state uses checked total-length and full-chunk index
+accumulation. Length overflow saturates the informational length field, while a
+non-representable chunk boundary stops chunk processing instead of wrapping a
+slice range.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
