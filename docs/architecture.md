@@ -2193,6 +2193,11 @@ buckets and a power-of-two count). Its quadratic group step performs explicit
 modulo addition before indexing, so host-width arithmetic cannot change the
 probe sequence through an intermediate overflow. Invalid cursor shapes are
 empty and cannot inspect control storage.
+Borrowed slice iterators use the same transactional state rule: `next` and
+`nextBack` validate element offset and address arithmetic before advancing
+their front or back bounds. An impossible address returns `null` without
+discarding an element, so a caller can retry or observe the unchanged
+remaining range.
 
 ### 9.5 `nia-function-lower`
 

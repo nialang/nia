@@ -377,6 +377,9 @@ signals, not architecture goals.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.
+- Treat fallible iterator address calculation as a transaction. Compute and
+  validate the candidate element address before committing front/back index
+  changes; failure must not silently consume an item.
 - Keep hash-table probe cursors closed over their allocated table shape. Validate
   the power-of-two/group-width precondition before deriving a mask, and perform
   probe-step modulo arithmetic without an overflowing host-width intermediate.
