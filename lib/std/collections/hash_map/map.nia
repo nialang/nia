@@ -23,15 +23,72 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     ctrl: &mut [u8],
     keys: &mut [K],
     values: &mut [V],
+    storageBlock: ?mem::Block,
     bucketCount: usize,
     len: usize,
     growthLeft: usize,
-    retiredCtrl: &mut [u8],
-    retiredKeys: &mut [K],
-    retiredValues: &mut [V],
-    retiredBucketCount: usize,
+    retiredStorageBlock: ?mem::Block,
     seed: u64,
     context: C,
+}
+
+struct StoragePlan {
+    layout: mem::Layout,
+    ctrlLen: usize,
+    keysOffset: usize,
+    valuesOffset: usize,
+}
+
+fn storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
+where K: Sized, V: Sized
+{
+    let ctrlLen = raw::ctrlAllocationLen(capacity).?;
+    let keyBytes = match std::builtin::size[K]().checked_mul(capacity) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let valueBytes = match std::builtin::size[V]().checked_mul(capacity) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let keysOffset = match ctrlLen.align_forward(std::builtin::align[K]()) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let afterKeys = match keysOffset.checked_add(keyBytes) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let valuesOffset = match afterKeys.align_forward(std::builtin::align[V]()) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let totalSize = match valuesOffset.checked_add(valueBytes) {
+        ?value => value,
+        null => return mem::Error::OutOfMemory!,
+    };
+    let mut blockAlign = std::builtin::align[u8]();
+    if std::builtin::align[K]() > blockAlign {
+        blockAlign = std::builtin::align[K]();
+    }
+    if std::builtin::align[V]() > blockAlign {
+        blockAlign = std::builtin::align[V]();
+    }
+    !StoragePlan {
+        layout: mem::Layout::init(totalSize, blockAlign).?,
+        ctrlLen,
+        keysOffset,
+        valuesOffset,
+    }
+}
+
+// Offsets are produced by `storagePlan` and stay within the one allocated
+// block. The block alignment is the maximum alignment of every typed view.
+fn storageItems[T](block: mem::Block, offset: usize, len: usize) &mut [T]
+where T: Sized
+{
+    let mut ptr = ((block.ptr() as usize) + offset) as &mut T;
+    &mut ptr[0..len]
 }
 
 extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
@@ -93,13 +150,11 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             ctrl: raw::danglingSlice[u8](),
             keys: raw::danglingSlice[K](),
             values: raw::danglingSlice[V](),
+            storageBlock: null,
             bucketCount: 0,
             len: 0,
             growthLeft: 0,
-            retiredCtrl: raw::danglingSlice[u8](),
-            retiredKeys: raw::danglingSlice[K](),
-            retiredValues: raw::danglingSlice[V](),
-            retiredBucketCount: 0,
+            retiredStorageBlock: null,
             seed: seed,
             context: context,
         }
@@ -680,19 +735,18 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             }
         }
 
-        self.retiredCtrl = self.ctrl;
-        self.retiredKeys = self.keys;
-        self.retiredValues = self.values;
-        self.retiredBucketCount = self.bucketCount;
+        self.retiredStorageBlock = self.storageBlock;
         self.ctrl = newMap.ctrl;
         self.keys = newMap.keys;
         self.values = newMap.values;
+        self.storageBlock = newMap.storageBlock;
         self.bucketCount = newMap.bucketCount;
         self.len = newMap.len;
         self.growthLeft = newMap.growthLeft;
         newMap.ctrl = raw::danglingSlice[u8]();
         newMap.keys = raw::danglingSlice[K]();
         newMap.values = raw::danglingSlice[V]();
+        newMap.storageBlock = null;
         newMap.bucketCount = 0;
         self.freeRetiredAllocations(allocator)
     }
@@ -715,61 +769,20 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn allocate(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
-        let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-        let ctrlLayout = mem::Layout::array[u8](ctrlLen).?;
-        let keysLayout = mem::Layout::array[K](capacity).?;
-        let valuesLayout = mem::Layout::array[V](capacity).?;
-        let ctrlBlock = allocator.alloc(ctrlLayout).?;
-
-        if keysLayout.isEmpty() {
+        let plan = storagePlan[K, V](capacity).?;
+        let storage = allocator.alloc(plan.layout).?;
+        self.ctrl = storageItems[u8](storage, 0, plan.ctrlLen);
+        if std::builtin::size[K]() == 0 {
             self.keys = raw::danglingLenSlice[K](capacity);
         } else {
-            match allocator.alloc(keysLayout) {
-                !keysBlock => {
-                    self.keys = keysBlock.asSlice[K]();
-                },
-                err! => {
-                    match allocator.free(ctrlBlock) {
-                        !ok => {
-                            _ = ok;
-                        },
-                        error! => {},
-                    }
-                    return err!;
-                },
-            }
+            self.keys = storageItems[K](storage, plan.keysOffset, capacity);
         }
-
-        if valuesLayout.isEmpty() {
+        if std::builtin::size[V]() == 0 {
             self.values = raw::danglingLenSlice[V](capacity);
         } else {
-            match allocator.alloc(valuesLayout) {
-                !valuesBlock => {
-                    self.values = valuesBlock.asSlice[V]();
-                },
-                err! => {
-                    if not keysLayout.isEmpty() {
-                        let keyBlock = mem::Block::init(self.keys.ptrMut() as &mut u8, keysLayout);
-                        match allocator.free(keyBlock) {
-                            !ok => {
-                                _ = ok;
-                            },
-                            error! => {},
-                        }
-                    }
-                    match allocator.free(ctrlBlock) {
-                        !ok => {
-                            _ = ok;
-                        },
-                        error! => {},
-                    }
-                    self.keys = raw::danglingSlice[K]();
-                    return err!;
-                },
-            }
+            self.values = storageItems[V](storage, plan.valuesOffset, capacity);
         }
-
-        self.ctrl = ctrlBlock.asSlice[u8]();
+        self.storageBlock = ?storage;
         raw::fillCtrl(self.ctrl, raw::ctrlEmpty);
         self.bucketCount = capacity;
         self.len = 0;
@@ -777,133 +790,30 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         !()
     }
 
-    // Successful frees relinquish their individual owners immediately. Failed
-    // slots stay attached so a caller can retry deinit without double-freeing.
+    // A failed release leaves the one combined ctrl/key/value owner attached
+    // so a caller can retry deinit without losing or double-freeing storage.
     fn freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut firstError: ?mem::Error = null;
-        if self.ctrl.len() != 0 {
-            let layout = mem::Layout::array[u8](self.ctrl.len()).?;
-            match allocator.free(mem::Block::init(self.ctrl.ptrMut() as &mut u8, layout)) {
-                !ok => {
-                    _ = ok;
-                    self.ctrl = raw::danglingSlice[u8]();
-                },
-                err! => {
-                    firstError = ?err;
-                },
-            }
-        }
-        if self.keys.len() != 0 {
-            let layout = mem::Layout::array[K](self.bucketCount).?;
-            if not layout.isEmpty() {
-                match allocator.free(mem::Block::init(self.keys.ptrMut() as &mut u8, layout)) {
-                    !ok => {
-                        _ = ok;
-                        self.keys = raw::danglingSlice[K]();
-                    },
-                    err! => {
-                        match firstError {
-                            ?value => {
-                                _ = value;
-                            },
-                            null => {
-                                firstError = ?err;
-                            },
-                        }
-                    },
-                }
-            }
-        }
-        if self.values.len() != 0 {
-            let layout = mem::Layout::array[V](self.bucketCount).?;
-            if not layout.isEmpty() {
-                match allocator.free(mem::Block::init(self.values.ptrMut() as &mut u8, layout)) {
-                    !ok => {
-                        _ = ok;
-                        self.values = raw::danglingSlice[V]();
-                    },
-                    err! => {
-                        match firstError {
-                            ?value => {
-                                _ = value;
-                            },
-                            null => {
-                                firstError = ?err;
-                            },
-                        }
-                    },
-                }
-            }
-        }
-        match firstError {
-            ?err => {
-                err!
-            },
-            null => {
+        match self.storageBlock {
+            ?block => {
+                allocator.free(block).?;
+                self.storageBlock = null;
+                self.ctrl = raw::danglingSlice[u8]();
+                self.keys = raw::danglingSlice[K]();
+                self.values = raw::danglingSlice[V]();
                 !()
             },
+            null => !(),
         }
     }
 
     fn freeRetiredAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut firstError: ?mem::Error = null;
-        if self.retiredCtrl.len() != 0 {
-            let layout = mem::Layout::array[u8](self.retiredCtrl.len()).?;
-            match allocator.free(mem::Block::init(self.retiredCtrl.ptrMut() as &mut u8, layout)) {
-                !ok => {
-                    _ = ok;
-                    self.retiredCtrl = raw::danglingSlice[u8]();
-                },
-                err! => { firstError = ?err; },
-            }
-        }
-        if self.retiredKeys.len() != 0 {
-            let layout = mem::Layout::array[K](self.retiredBucketCount).?;
-            if layout.isEmpty() {
-                self.retiredKeys = raw::danglingSlice[K]();
-            } else {
-                match allocator.free(mem::Block::init(self.retiredKeys.ptrMut() as &mut u8, layout)) {
-                    !ok => {
-                        _ = ok;
-                        self.retiredKeys = raw::danglingSlice[K]();
-                    },
-                    err! => {
-                        match firstError {
-                            ?value => { _ = value; },
-                            null => { firstError = ?err; },
-                        }
-                    },
-                }
-            }
-        }
-        if self.retiredValues.len() != 0 {
-            let layout = mem::Layout::array[V](self.retiredBucketCount).?;
-            if layout.isEmpty() {
-                self.retiredValues = raw::danglingSlice[V]();
-            } else {
-                match allocator.free(mem::Block::init(self.retiredValues.ptrMut() as &mut u8, layout)) {
-                    !ok => {
-                        _ = ok;
-                        self.retiredValues = raw::danglingSlice[V]();
-                    },
-                    err! => {
-                        match firstError {
-                            ?value => { _ = value; },
-                            null => { firstError = ?err; },
-                        }
-                    },
-                }
-            }
-        }
-        match firstError {
-            ?err => err!,
-            null => {
-                self.retiredCtrl = raw::danglingSlice[u8]();
-                self.retiredKeys = raw::danglingSlice[K]();
-                self.retiredValues = raw::danglingSlice[V]();
-                self.retiredBucketCount = 0;
+        match self.retiredStorageBlock {
+            ?block => {
+                allocator.free(block).?;
+                self.retiredStorageBlock = null;
                 !()
             },
+            null => !(),
         }
     }
 }

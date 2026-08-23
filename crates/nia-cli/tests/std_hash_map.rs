@@ -980,15 +980,6 @@ fn run(init: process::Init) mem::Error!() {
                 return err!;
             } },
     }
-    failAllocator.clearFailures();
-    failAllocator.failAllocAt = failAllocator.allocCount + 2;
-    match rollback.clone(&mut failAllocator) {
-        !cloned => { _ = cloned;
-                return mem::Error::Invalid!; },
-        err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
-                return err!;
-            } },
-    }
     if rollback.len() != 14 or rollback.containsKey(&99) {
         return mem::Error::Invalid!;
     }
@@ -1148,7 +1139,7 @@ fn run(init: process::Init) mem::Error!() {
             } },
     }
     let rehashFreeCountAfterFailure = rehashFreeCountAllocator.freeCount;
-    if rehashFreeCountAfterFailure != rehashFreeCountBefore + 3 {
+    if rehashFreeCountAfterFailure != rehashFreeCountBefore + 1 {
         return mem::Error::Invalid!;
     }
     key = 0;
@@ -1163,7 +1154,7 @@ fn run(init: process::Init) mem::Error!() {
     }
     rehashFreeCountAllocator.clearFailures();
     rehashFreeCountMap.deinit(&mut rehashFreeCountAllocator).?;
-    if rehashFreeCountAllocator.freeCount != rehashFreeCountAfterFailure + 4 {
+    if rehashFreeCountAllocator.freeCount != rehashFreeCountAfterFailure + 2 {
         return mem::Error::Invalid!;
     }
 
@@ -1184,7 +1175,7 @@ fn run(init: process::Init) mem::Error!() {
             } },
     }
     let failedDeinitFreeCount = deinitAllocator.freeCount;
-    if failedDeinitFreeCount != 3 {
+    if failedDeinitFreeCount != 1 {
         return mem::Error::Invalid!;
     }
     deinitAllocator.clearFailures();

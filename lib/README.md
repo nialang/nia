@@ -19,10 +19,10 @@ The library follows a small set of ownership rules:
   allocation whose release fails. A partially completed collection `deinit` is
   cleanup-only state: retry `deinit` with the same allocator rather than using
   the value again.
-- Hash-map rehash keeps the replaced control, key, and value storage as
-  map-owned retired allocations until each release succeeds. A failed retired
-  release leaves the active table usable but requires cleanup retry before a
-  later rehash or final `deinit`.
+- Hash-map control bytes, keys, and values share one aligned storage block.
+  Rehash keeps the replaced block as a map-owned retired allocation until its
+  release succeeds; a failed release leaves the active table usable but
+  requires cleanup retry before a later rehash or final `deinit`.
 - ArrayList replacement growth and shrink retain a failed temporary replacement
   owner for `deinit` retry instead of dropping it after an old-owner failure.
 - ArrayList self-aliasing append, insert, and replace operations retain failed
