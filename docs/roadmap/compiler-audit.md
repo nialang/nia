@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 413 completed entries in this ledger.
+- Implementation batches: 414 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2384,6 +2384,11 @@ acceptance item only when its phase-wide evidence is complete.
       produced by the freestanding startup runtime and expose their validated
       high-level views, but ordinary Nia code cannot fabricate an arbitrary
       process ABI record through public raw-pointer constructors.
+- [x] Batch 414 removes the public process raw-execution compatibility path.
+      `process::spawnRaw`, startup raw pointer getters, and argument/environment
+      view raw getters are deleted; `Command` is now the sole maintained public
+      spawn path, with process tests covering the same success, exit, and error
+      behavior through its checked ownership boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

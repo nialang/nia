@@ -244,11 +244,6 @@ pub(pkg) fn random(bytes: &mut [u8]) Error!() {
     platform::random(bytes).asOsError()
 }
 
-pub(pkg) fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
-    let pid = platform::spawn_raw(path, argv, envp).?;
-    !ProcessId::fromPlatform(pid)
-}
-
 pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
     let result = platform::spawn(path, argv, envp, options.platform()).?;
     !SpawnResult::fromPlatform(result)

@@ -225,14 +225,6 @@ extend StdIo {
     }
 }
 
-pub fn spawnRaw(path: &u8, argv: &&u8, envp: &&u8) Error!Child {
-    let pid = match os::spawnRaw(path, argv, envp) {
-        !value => value,
-        cause! => return commandSpawnError(cause)!,
-    };
-    !Child::init(pid)
-}
-
 fn spawnWithOptions(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
     let result = match os::spawn(path, argv, envp, options) {
         !value => value,

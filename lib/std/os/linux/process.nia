@@ -14,11 +14,6 @@ struct SpawnErrorRecord {
     code: i32,
 }
 
-pub fn spawn_raw(path: &u8, argv: &&u8, envp: &&u8) SpawnError!ProcessId {
-    let result = spawn(path, argv, envp, SpawnOptions::init()).?;
-    !result.pid()
-}
-
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
     let mut stdin_pipe = SpawnPipe::closed();
     let mut stdout_pipe = SpawnPipe::closed();

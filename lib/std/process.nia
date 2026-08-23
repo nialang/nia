@@ -23,7 +23,6 @@ using pkg::process::init;
 using pkg::process::pipe;
 using pkg::process::term;
 
-pub using command::spawnRaw;
 pub using exit::exit;
 pub using types::{
     Arg,
