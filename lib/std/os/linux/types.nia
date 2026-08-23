@@ -440,6 +440,16 @@ extend FileMetadata {
 }
 
 extend isize {
+    pub fn syscall_success(self) Errno!() {
+        if self < 0isize {
+            self.syscall_error()!
+        } else if self != 0isize {
+            Errno::Io!
+        } else {
+            !()
+        }
+    }
+
     pub fn syscall_error(self) Errno {
         if self >= 0isize or self == isize::MIN {
             return Errno::Io;

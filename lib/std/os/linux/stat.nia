@@ -115,11 +115,8 @@ fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileM
         mask as usize,
         &mut stx as usize,
     );
-    if ret < 0 {
-        ret.syscall_error()!
-    } else {
-        stx.as_metadata()
-    }
+    ret.syscall_success().?;
+    stx.as_metadata()
 }
 
 extend StatxTimestamp {
