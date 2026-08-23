@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 471 completed entries in this ledger.
+- Implementation batches: 472 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2679,6 +2679,12 @@ acceptance item only when its phase-wide evidence is complete.
       without temporary C strings. Fault injection proves five simultaneous
       free failures remain reachable and the original success/error outcome is
       published only after cleanup; owner-discarding `run` shortcuts are removed.
+- [x] Batch 472 makes build dependency-validation scratch explicit owners.
+      `Build` retains indegree and ready-list staging across validation calls,
+      attempts both cleanup releases, preserves cycle/validation failures over
+      cleanup errors, and retries failed scratch frees on the next pass or
+      `Build::deinit`. A fault-injected cycle regression covers two simultaneous
+      scratch free failures and complete eventual release.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

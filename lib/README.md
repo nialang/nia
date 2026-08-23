@@ -44,6 +44,10 @@ The library follows a small set of ownership rules:
 - Build graph cleanup releases a containing list only after all owning elements
   in that list have been released. Failed nested strings, paths, arguments, or
   imports remain reachable for a later `Build::deinit` retry.
+- Build dependency validation stores its indegree and ready-list scratch owners
+  on `Build`. Both releases are attempted after every validation pass; a
+  validation error remains primary and failed scratch frees remain retryable on
+  the next pass or `Build::deinit`.
 - File close paths treat the descriptor as consumed before the OS close result;
   cleanup defers must not issue a second close after a close error.
 - Temporary filesystem descriptors are closed after their owning operation. A

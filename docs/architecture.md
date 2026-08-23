@@ -3295,6 +3295,11 @@ Build graph cleanup applies the same ownership rule recursively: a list backing
 allocation is released only after every owning element succeeds. Failed nested
 arguments, environment entries, imports, targets, modules, and steps therefore
 remain reachable for a later cleanup retry.
+Build-plan dependency validation keeps its two scratch lists on the `Build`
+owner rather than on fallible defers. Validation always attempts both scratch
+releases; a cycle or other validation failure remains the primary error, while
+failed scratch releases stay attached for the next validation or final
+`Build::deinit` retry.
 On the receiving side, list counts are validated but never used to reserve
 typed Rust capacity before item bytes are parsed. This prevents malformed
 truncated drafts from turning a small count prefix into a large host allocation.

@@ -26,7 +26,7 @@ struct FaultAllocator {
     activeAllocations: usize,
     failAt: usize,
     failFree: bool,
-    failRetainedFree: bool,
+    retainedFreeFailures: usize,
 }
 
 extend FaultAllocator {
@@ -37,7 +37,7 @@ extend FaultAllocator {
             activeAllocations: 0usize,
             failAt: 0usize,
             failFree: false,
-            failRetainedFree: false,
+            retainedFreeFailures: 0usize,
         }
     }
 
@@ -54,7 +54,11 @@ extend FaultAllocator {
     }
 
     fn failNextRetainedFree(&mut self) () {
-        self.failRetainedFree = true;
+        self.failNextRetainedFrees(1usize);
+    }
+
+    fn failNextRetainedFrees(&mut self, count: usize) () {
+        self.retainedFreeFailures = count;
     }
 }
 
@@ -74,8 +78,8 @@ extend FaultAllocator : mem::Allocator {
     }
 
     fn free(&mut self, block: mem::Block) mem::Error!() {
-        if not block.isEmpty() and self.failRetainedFree {
-            self.failRetainedFree = false;
+        if not block.isEmpty() and self.retainedFreeFailures != 0usize {
+            self.retainedFreeFailures -= 1usize;
             return mem::Error::Invalid!;
         }
         self.backing.free(block).?;
@@ -214,6 +218,17 @@ fn isPlanValidationOom(error: build::Error) bool {
             subject: build::ErrorSubject::Dependencies,
             cause: build::ErrorCause::Memory(mem::Error::OutOfMemory),
         } => true,
+        _ => false,
+    }
+}
+
+fn isStepCycle(error: build::Error, step: usize, dependency: usize) bool {
+    match error {
+        build::Error::StepCycle {
+            step: actualStep,
+            dependency: actualDependency,
+        } => (actualStep == step and actualDependency == dependency)
+            or (actualStep == dependency and actualDependency == step),
         _ => false,
     }
 }
@@ -709,6 +724,64 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
     !()
 }
 
+fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() {
+    let mut allocator = FaultAllocator::init();
+    let emptyPath = fs::PathView::init(&"");
+    let target = testTarget(&"");
+    let mut api = build::Build::init(
+        &mut allocator,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        emptyPath,
+        target,
+        target,
+        build::OptimizationMode::O0,
+        1u32,
+        null,
+    ).exit().?;
+    let first = api.addAggregateStep(&"first").exit().?;
+    let second = api.addAggregateStep(&"second").exit().?;
+    api.setDefaultStep(first).exit().?;
+    api.dependOn(first, second).exit().?;
+    api.dependOn(second, first).exit().?;
+    let beforeValidate = allocator.activeAllocations;
+
+    allocator.failNextRetainedFrees(2usize);
+    match api.validatePlan() {
+        !ok => {
+            _ = ok;
+            return process::exit(48)!;
+        },
+        err! => if not isStepCycle(err, 0usize, 1usize) {
+            reportUnexpected(init, err).?;
+            return process::exit(49)!;
+        },
+    }
+    if allocator.activeAllocations != beforeValidate + 2usize {
+        return process::exit(50)!;
+    }
+
+    match api.validatePlan() {
+        !ok => {
+            _ = ok;
+            return process::exit(51)!;
+        },
+        err! => if not isStepCycle(err, 0usize, 1usize) {
+            return process::exit(52)!;
+        },
+    }
+    if allocator.activeAllocations != beforeValidate {
+        return process::exit(53)!;
+    }
+    api.deinit().exit().?;
+    if allocator.activeAllocations != 0usize {
+        return process::exit(54)!;
+    }
+    !()
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     checkInitRollback(init).?;
     checkTargetInitRollback(init, 7usize).?;
@@ -717,6 +790,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     checkRecordRollback(init).?;
     checkArgAssemblyRollback(init).?;
     checkCleanupRetryRetainsNestedOwners(init).?;
+    checkValidationScratchCleanupRetry(init).?;
     !()
 }
 "#,
