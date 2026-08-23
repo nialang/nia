@@ -25,6 +25,8 @@ The library follows a small set of ownership rules:
   later rehash or final `deinit`.
 - ArrayList replacement growth and shrink retain a failed temporary replacement
   owner for `deinit` retry instead of dropping it after an old-owner failure.
+- ArrayList self-aliasing append, insert, and replace operations retain failed
+  temporary copies separately from replacement storage.
 - Hash-map capacity counts logical entries, including slots made reusable by
   deletion. `insertAssumeCapacity` therefore requires `len < capacity`, not an
   unused physical empty-slot budget; it may reuse either an empty or deleted

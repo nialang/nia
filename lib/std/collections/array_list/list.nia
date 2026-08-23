@@ -7,8 +7,10 @@ where T: Sized
 {
     items: &mut [T],
     capacity: usize,
-    retiredItems: &mut [T],
-    retiredCapacity: usize,
+    replacementItems: &mut [T],
+    replacementCapacity: usize,
+    aliasItems: &mut [T],
+    aliasCapacity: usize,
 }
 
 extend[T] ArrayList[T]
@@ -18,8 +20,10 @@ where T: Sized
         Self {
             items: raw::danglingSlice[T](0),
             capacity: 0,
-            retiredItems: raw::danglingSlice[T](0),
-            retiredCapacity: 0,
+            replacementItems: raw::danglingSlice[T](0),
+            replacementCapacity: 0,
+            aliasItems: raw::danglingSlice[T](0),
+            aliasCapacity: 0,
         }
     }
 
@@ -33,8 +37,10 @@ where T: Sized
         Self {
             items,
             capacity: items.len(),
-            retiredItems: raw::danglingSlice[T](0),
-            retiredCapacity: 0,
+            replacementItems: raw::danglingSlice[T](0),
+            replacementCapacity: 0,
+            aliasItems: raw::danglingSlice[T](0),
+            aliasCapacity: 0,
         }
     }
 
@@ -44,7 +50,16 @@ where T: Sized
             !ok => { _ = ok; },
             err! => { firstError = ?err; },
         }
-        match self.freeRetiredItems(allocator) {
+        match self.freeReplacementItems(allocator) {
+            !ok => { _ = ok; },
+            err! => {
+                match firstError {
+                    ?value => { _ = value; },
+                    null => { firstError = ?err; },
+                }
+            },
+        }
+        match self.freeAliasItems(allocator) {
             !ok => { _ = ok; },
             err! => {
                 match firstError {
@@ -121,7 +136,7 @@ where T: Sized
     }
 
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
-        self.freeRetiredItems(allocator).?;
+        self.freePendingItems(allocator).?;
         let len = self.len();
         if std::builtin::size[T]() == 0 {
             self.items = raw::danglingSlice[T](0);
@@ -167,8 +182,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retiredItems = newItems;
-                        self.retiredCapacity = len;
+                        self.retainReplacementItems(newItems, len);
                     },
                 }
                 return err!;
@@ -291,6 +305,7 @@ where T: Sized
     }
 
     pub fn insertSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
+        self.freePendingItems(allocator).?;
         if index > self.len() {
             return mem::Error::Invalid!;
         }
@@ -308,13 +323,23 @@ where T: Sized
                         !ok => {
                             _ = ok;
                         },
-                        error! => {},
+                        error! => {
+                            self.retainAliasItems(copy, values.len());
+                        },
                     }
                     return err!;
                 },
             }
-            allocator.free(copyBlock).?;
-            return !();
+            match allocator.free(copyBlock) {
+                !ok => {
+                    _ = ok;
+                    return !();
+                },
+                err! => {
+                    self.retainAliasItems(copy, values.len());
+                    return err!;
+                },
+            }
         }
 
         self.insertStableSlice(allocator, index, values)
@@ -327,6 +352,7 @@ where T: Sized
         count: usize,
         values: &[T],
     ) mem::Error!() {
+        self.freePendingItems(allocator).?;
         if start > self.len() {
             return mem::Error::Invalid!;
         }
@@ -356,13 +382,23 @@ where T: Sized
                         !ok => {
                             _ = ok;
                         },
-                        error! => {},
+                        error! => {
+                            self.retainAliasItems(copy, values.len());
+                        },
                     }
                     return err!;
                 },
             }
-            allocator.free(copyBlock).?;
-            return !();
+            match allocator.free(copyBlock) {
+                !ok => {
+                    _ = ok;
+                    return !();
+                },
+                err! => {
+                    self.retainAliasItems(copy, values.len());
+                    return err!;
+                },
+            }
         }
 
         self.replaceRangeStable(allocator, start, count, values)
@@ -457,7 +493,7 @@ where T: Sized
     }
 
     pub fn ensureTotalCapacity(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
-        self.freeRetiredItems(allocator).?;
+        self.freePendingItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();
         }
@@ -466,7 +502,7 @@ where T: Sized
     }
 
     fn ensureTotalCapacityPrecise(&mut self, allocator: &mut mem::Allocator, newCapacity: usize) mem::Error!() {
-        self.freeRetiredItems(allocator).?;
+        self.freePendingItems(allocator).?;
         if newCapacity <= self.capacity() {
             return !();
         }
@@ -475,6 +511,7 @@ where T: Sized
     }
 
     pub fn appendSlice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!() {
+        self.freePendingItems(allocator).?;
         if self.slicePointsIntoAllocation(items) {
             let copyLayout = mem::Layout::array[T](items.len()).?;
             let copyBlock = allocator.alloc(copyLayout).?;
@@ -489,13 +526,23 @@ where T: Sized
                         !ok => {
                             _ = ok;
                         },
-                        error! => {},
+                        error! => {
+                            self.retainAliasItems(copy, items.len());
+                        },
                     }
                     return err!;
                 },
             }
-            allocator.free(copyBlock).?;
-            return !();
+            match allocator.free(copyBlock) {
+                !ok => {
+                    _ = ok;
+                    return !();
+                },
+                err! => {
+                    self.retainAliasItems(copy, items.len());
+                    return err!;
+                },
+            }
         }
 
         self.appendStableSlice(allocator, items)
@@ -615,7 +662,7 @@ where T: Sized
     }
 
     pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
-        self.freeRetiredItems(allocator).?;
+        self.freePendingItems(allocator).?;
         let targetCapacity = if minCapacity > self.len() {
             minCapacity
         } else {
@@ -660,8 +707,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retiredItems = newItems;
-                        self.retiredCapacity = targetCapacity;
+                        self.retainReplacementItems(newItems, targetCapacity);
                     },
                 }
                 return err!;
@@ -700,7 +746,7 @@ where T: Sized
     }
 
     fn growToCapacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!() {
-        self.freeRetiredItems(allocator).?;
+        self.freePendingItems(allocator).?;
         if std::builtin::size[T]() == 0 {
             self.capacity = usize::MAX;
             return !();
@@ -729,8 +775,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retiredItems = newItems;
-                        self.retiredCapacity = capacity;
+                        self.retainReplacementItems(newItems, capacity);
                     },
                 }
                 return err!;
@@ -756,22 +801,55 @@ where T: Sized
         }
     }
 
-    fn freeRetiredItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.retiredItems.len() == 0 or std::builtin::size[T]() == 0 {
-            self.retiredItems = raw::danglingSlice[T](0);
-            self.retiredCapacity = 0;
+    fn freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        if self.replacementItems.len() == 0 or std::builtin::size[T]() == 0 {
+            self.replacementItems = raw::danglingSlice[T](0);
+            self.replacementCapacity = 0;
             return !();
         }
-        let layout = mem::Layout::array[T](self.retiredCapacity).?;
-        match allocator.free(mem::Block::init(self.retiredItems.ptrMut() as &mut u8, layout)) {
+        let layout = mem::Layout::array[T](self.replacementCapacity).?;
+        match allocator.free(mem::Block::init(self.replacementItems.ptrMut() as &mut u8, layout)) {
             !ok => {
                 _ = ok;
-                self.retiredItems = raw::danglingSlice[T](0);
-                self.retiredCapacity = 0;
+                self.replacementItems = raw::danglingSlice[T](0);
+                self.replacementCapacity = 0;
                 !()
             },
             err! => err!,
         }
+    }
+
+    fn freePendingItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        self.freeReplacementItems(allocator).?;
+        self.freeAliasItems(allocator)
+    }
+
+    fn freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        if self.aliasItems.len() == 0 or std::builtin::size[T]() == 0 {
+            self.aliasItems = raw::danglingSlice[T](0);
+            self.aliasCapacity = 0;
+            return !();
+        }
+        let layout = mem::Layout::array[T](self.aliasCapacity).?;
+        match allocator.free(mem::Block::init(self.aliasItems.ptrMut() as &mut u8, layout)) {
+            !ok => {
+                _ = ok;
+                self.aliasItems = raw::danglingSlice[T](0);
+                self.aliasCapacity = 0;
+                !()
+            },
+            err! => err!,
+        }
+    }
+
+    fn retainReplacementItems(&mut self, items: &mut [T], capacity: usize) () {
+        self.replacementItems = items;
+        self.replacementCapacity = capacity;
+    }
+
+    fn retainAliasItems(&mut self, items: &mut [T], capacity: usize) () {
+        self.aliasItems = items;
+        self.aliasCapacity = capacity;
     }
 
     fn allocatedItems(&mut self) &mut [T] {

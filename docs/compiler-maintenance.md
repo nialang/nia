@@ -375,6 +375,9 @@ signals, not architecture goals.
   old-owner release fails and cleanup of that new backing also fails. Keep both
   owners reachable for `deinit`; never assume a best-effort rollback freed the
   replacement.
+- Self-aliasing collection operations need a distinct temporary-copy owner;
+  do not reuse the replacement slot when a grow/shrink failure can already
+  retain another allocation.
 - For consuming close APIs, clear the cleanup flag before the syscall. A failed
   close may still consume the descriptor, so a defer retry can only mask the
   original error with `BadFd`.

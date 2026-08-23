@@ -729,6 +729,48 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if allocator.freeCount != 9 {
         return process::exit(10)!;
     }
+
+    let mut aliasList = std::ArrayList[i32]::init();
+    aliasList.reserveExact(&mut allocator, 8).exit().?;
+    aliasList.appendSliceAssumeCapacity(&[1, 2, 3, 4]);
+    let alias = &aliasList.asSlice()[1..3];
+    allocator.failNextFrees(1);
+    match aliasList.appendSlice(&mut allocator, alias) {
+        !ok => { _ = ok; return process::exit(11)!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return process::exit(12)!;
+            } },
+    }
+    if aliasList.len() != 6 or aliasList.asSlice()[4] != 2 or aliasList.asSlice()[5] != 3 {
+        return process::exit(13)!;
+    }
+    let aliasFreeCount = allocator.freeCount;
+    allocator.failNextFrees(0);
+    aliasList.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != aliasFreeCount + 2 {
+        return process::exit(14)!;
+    }
+
+    let mut aliasRollback = std::ArrayList[i32]::init();
+    aliasRollback.reserveExact(&mut allocator, 4).exit().?;
+    aliasRollback.appendSliceAssumeCapacity(&[5, 6, 7, 8]);
+    let rollbackAlias = &aliasRollback.asSlice()[1..3];
+    allocator.failNextFrees(3);
+    match aliasRollback.appendSlice(&mut allocator, rollbackAlias) {
+        !ok => { _ = ok; return process::exit(15)!; },
+        err! => { if err as i32 != mem::Error::Invalid as i32 {
+                return process::exit(16)!;
+            } },
+    }
+    if aliasRollback.len() != 4 or aliasRollback.asSlice()[0] != 5 or aliasRollback.asSlice()[3] != 8 {
+        return process::exit(17)!;
+    }
+    let rollbackFreeCount = allocator.freeCount;
+    allocator.failNextFrees(0);
+    aliasRollback.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != rollbackFreeCount + 3 {
+        return process::exit(18)!;
+    }
     !()
 }
 "#,
