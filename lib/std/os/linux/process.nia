@@ -272,6 +272,8 @@ pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
         ret.syscall_error()!
     } else if ret == 0 {
         !null
+    } else if ret != pid.raw() as isize {
+        Errno::Io!
     } else {
         !(?WaitStatus::init(status))
     }
@@ -295,6 +297,8 @@ fn wait_with_options(pid: ProcessId, options: usize) Errno!WaitStatus {
     let ret = wait4(pid, &mut status, options);
     if ret < 0 {
         ret.syscall_error()!
+    } else if ret != pid.raw() as isize {
+        Errno::Io!
     } else {
         !WaitStatus::init(status)
     }
