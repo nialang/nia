@@ -2660,6 +2660,67 @@ mod tests {
     }
 
     #[test]
+    fn rejects_acquire_ordering_on_store_instruction() {
+        let context = Context::create();
+        let module = context.create_module("store-order-setter").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let store = builder
+            .build_store(
+                context.ptr_type(Default::default()).const_null(),
+                context.i32_type().const_zero(),
+            )
+            .unwrap();
+
+        let error = store
+            .set_atomic_ordering(AtomicOrdering::Acquire)
+            .expect_err("acquire store ordering");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("not valid for this instruction opcode")
+        ));
+    }
+
+    #[test]
+    fn rejects_cmpxchg_success_ordering_incompatible_with_existing_failure() {
+        let context = Context::create();
+        let module = context.create_module("cmpxchg-set-order").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let ptr = context.ptr_type(Default::default()).const_null();
+        let value = context.i32_type().const_zero();
+        let cmpxchg = builder
+            .build_cmpxchg(
+                ptr,
+                value,
+                value,
+                AtomicOrdering::SequentiallyConsistent,
+                AtomicOrdering::SequentiallyConsistent,
+                false,
+            )
+            .unwrap();
+        let instruction = cmpxchg
+            .as_instruction()
+            .expect("cmpxchg should be an instruction");
+
+        let error = instruction
+            .set_atomic_ordering(AtomicOrdering::Release)
+            .expect_err("release ordering with seq-cst failure");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("incompatible with failure ordering")
+        ));
+    }
+
+    #[test]
     fn rejects_monotonic_fence_before_llvm_call() {
         let context = Context::create();
         let module = context.create_module("fence-order").unwrap();

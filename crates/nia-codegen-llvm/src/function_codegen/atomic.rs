@@ -104,7 +104,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(inst) = value.as_instruction_value() else {
             return Err(self.error(expr.span, "atomic load did not produce an instruction"));
         };
-        inst.set_atomic_ordering(llvm_atomic_order(order));
+        inst.set_atomic_ordering(llvm_atomic_order(order))
+            .map_err(|_| self.error(expr.span, "failed to set atomic load ordering"))?;
         Ok(value)
     }
 
@@ -123,7 +124,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_store(ptr, value)
             .map_err(|_| self.error(expr.span, "failed to build atomic store"))?;
-        inst.set_atomic_ordering(llvm_atomic_order(order));
+        inst.set_atomic_ordering(llvm_atomic_order(order))
+            .map_err(|_| self.error(expr.span, "failed to set atomic store ordering"))?;
         Ok(())
     }
 

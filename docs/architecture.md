@@ -2740,9 +2740,10 @@ on LLVM verifier diagnostics.
 Instruction flags are opcode-scoped at the wrapper boundary: volatile may be
 set only on load, store, atomic RMW, or compare-exchange instructions, and
 weak may be set only on compare-exchange. Both setters return `LlvmResult`,
-while atomic ordering remains a separate backend-validated contract because
-its legal combinations depend on load/store direction and compare-exchange
-success/failure relationships.
+and atomic ordering is checked against load/store direction, atomic-RMW
+requirements, and the current compare-exchange failure ordering before the
+setter enters LLVM. Backend validation still owns source-level atomic place and
+value typing.
 
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
