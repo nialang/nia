@@ -394,6 +394,9 @@ signals, not architecture goals.
   non-negative/positive sign and the target `i32` width before constructing
   typed handles; validate kernel-filled pipe descriptors through the same
   boundary.
+- For syscalls whose ABI promises zero on success, require exactly zero before
+  publishing success. Identity-returning calls such as `dup2` must also match
+  the requested destination rather than merely being non-negative.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

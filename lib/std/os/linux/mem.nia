@@ -27,11 +27,7 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
 
 fn raw_unmap_pages(ptr: &mut u8, len: usize) Errno!() {
     let ret = syscall::syscall3(syscall::munmap, ptr as usize, len, 0);
-    if ret < 0 {
-        ret.syscall_error()!
-    } else {
-        !()
-    }
+    ret.syscall_success()
 }
 
 pub fn page_size() usize {

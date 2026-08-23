@@ -227,11 +227,7 @@ fn apply_cwd(options: SpawnOptions) Errno!() {
     match options.cwd() {
         ?path => {
             let ret = syscall::syscall1(syscall::chdir, path as usize);
-            if ret < 0 {
-                ret.syscall_error()!
-            } else {
-                !()
-            }
+            ret.syscall_success()
         },
         null => {
             !()
@@ -259,6 +255,8 @@ fn dup_to(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
     let ret = syscall::syscall2(syscall::dup2, from.raw() as usize, to.raw() as usize);
     if ret < 0 {
         ret.syscall_error()!
+    } else if ret != to.raw() as isize {
+        Errno::Io!
     } else {
         !()
     }
@@ -288,11 +286,7 @@ pub fn kill(pid: ProcessId) Errno!() {
 
 pub fn kill_with(pid: ProcessId, signal: i32) Errno!() {
     let ret = syscall::syscall2(syscall::kill, pid.raw() as usize, signal as usize);
-    if ret < 0 {
-        ret.syscall_error()!
-    } else {
-        !()
-    }
+    ret.syscall_success()
 }
 
 fn wait_with_options(pid: ProcessId, options: usize) Errno!WaitStatus {
