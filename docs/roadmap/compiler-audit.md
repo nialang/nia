@@ -2058,6 +2058,13 @@ acceptance item only when its phase-wide evidence is complete.
       acquire-release, and sequentially-consistent contract. A malformed
       monotonic-fence regression plus LLVM/codegen suites, workspace check,
       formatting, and strict Clippy pass.
+- [x] Batch 357 closes the LLVM call-argument boundary. `build_call` and
+      `build_indirect_call` now validate fixed arity, variadic minimum arity,
+      and every fixed argument's LLVM type against the `FunctionType` before
+      entering `LLVMBuildCall2`; opaque indirect-callee provenance remains in
+      backend validation. Wrapper regressions cover fixed-arity, fixed-type,
+      and variadic-underflow failures, with LLVM/codegen suites, workspace
+      check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

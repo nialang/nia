@@ -258,6 +258,7 @@ impl<'ctx> Builder<'ctx> {
         args: &[BasicMetadataValueEnum<'ctx>],
         name: &str,
     ) -> LlvmResult<CallSiteValue<'ctx>> {
+        validate_call_arguments(function_type, args)?;
         let name = if function_type.get_return_type()?.is_none() {
             ""
         } else {
@@ -1288,6 +1289,36 @@ impl<'ctx> Builder<'ctx> {
     }
 }
 
+fn validate_call_arguments(
+    function_type: FunctionType<'_>,
+    args: &[BasicMetadataValueEnum<'_>],
+) -> LlvmResult<()> {
+    let parameters = function_type.get_param_types()?;
+    let fixed_count = parameters.len();
+    if function_type.is_variadic() {
+        if args.len() < fixed_count {
+            return Err(LlvmError::error(format!(
+                "variadic call expects at least {fixed_count} arguments, got {}",
+                args.len()
+            )));
+        }
+    } else if args.len() != fixed_count {
+        return Err(LlvmError::error(format!(
+            "call expects exactly {fixed_count} arguments, got {}",
+            args.len()
+        )));
+    }
+    for (index, (expected, argument)) in parameters.iter().zip(args.iter()).enumerate() {
+        let actual = argument.get_type()?;
+        if actual != *expected {
+            return Err(LlvmError::error(format!(
+                "call argument {index} type does not match function parameter"
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl<'ctx> Drop for Builder<'ctx> {
     fn drop(&mut self) {
         unsafe { LLVMDisposeBuilder(self.raw) };
@@ -2158,6 +2189,73 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("fence requires acquire")
+        ));
+    }
+
+    #[test]
+    fn rejects_call_argument_count_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("call-arity").unwrap();
+        let function_type = context
+            .i32_type()
+            .fn_type(&[context.i32_type().into()], false);
+        let function = module.add_function("callee", function_type, None).unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_call(function, &[], "invalid")
+            .expect_err("fixed-arity call with missing argument");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("expects exactly 1 arguments")
+        ));
+    }
+
+    #[test]
+    fn rejects_call_argument_type_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("call-type").unwrap();
+        let function_type = context
+            .i32_type()
+            .fn_type(&[context.i32_type().into()], false);
+        let function = module.add_function("callee", function_type, None).unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_call(
+                function,
+                &[context.i64_type().const_zero().into()],
+                "invalid",
+            )
+            .expect_err("fixed-arity call with mismatched argument type");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("argument 0 type does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_variadic_call_below_fixed_arity_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("call-variadic").unwrap();
+        let function_type = context
+            .i32_type()
+            .fn_type(&[context.i32_type().into()], true);
+        let function = module.add_function("callee", function_type, None).unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_call(function, &[], "invalid")
+            .expect_err("variadic call below fixed arity");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("variadic call expects at least 1 arguments")
         ));
     }
 }
