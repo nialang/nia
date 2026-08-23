@@ -3293,6 +3293,9 @@ instead of publishing an unterminated slice.
 Linux process waits validate the positive `wait4` return against the requested
 child pid before publishing a `WaitStatus`; a mismatched successful return is
 treated as `Io` rather than attaching another process's status to the child.
+Linux syscall error conversion also validates the raw negative return before
+narrowing it to `Errno`: non-negative values, `isize::MIN`, and magnitudes above
+the Linux errno range become `Io` instead of wrapping into an unrelated code.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.

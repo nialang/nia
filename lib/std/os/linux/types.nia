@@ -12,6 +12,7 @@ pub const resolve_beneath: u64 = 0x08u64;
 pub const close_on_exec: i32 = 0o2000000;
 pub const wait_no_hang: usize = 1usize;
 pub const sigterm: i32 = 15;
+const max_syscall_errno: isize = 4095isize;
 
 pub enum Errno: i32 {
     PermissionDenied = 1,
@@ -419,6 +420,13 @@ extend FileMetadata {
 
 extend isize {
     pub fn syscall_error(self) Errno {
-        Errno::from_code((0isize - self) as i32)
+        if self >= 0isize or self == isize::MIN {
+            return Errno::Io;
+        }
+        let magnitude = 0isize - self;
+        if magnitude > max_syscall_errno {
+            return Errno::Io;
+        }
+        Errno::from_code(magnitude as i32)
     }
 }
