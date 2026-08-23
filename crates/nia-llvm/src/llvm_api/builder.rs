@@ -931,6 +931,11 @@ impl<'ctx> Builder<'ctx> {
         rhs: FloatValue<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
+        validate_binary_operands(
+            lhs.as_value_ref(),
+            rhs.as_value_ref(),
+            BinaryOperandKind::Floating,
+        )?;
         let name = to_c_string(name)?;
         let value = unsafe {
             LLVMBuildFCmp(
@@ -2854,6 +2859,31 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("floating unary operation requires")
+        ));
+    }
+
+    #[test]
+    fn rejects_floating_compare_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("floating-compare-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_float_compare(
+                FloatPredicate::OEQ,
+                context.f32_type().const_zero(),
+                context.f64_type().const_zero(),
+                "invalid",
+            )
+            .expect_err("floating comparison type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("identical types")
         ));
     }
 

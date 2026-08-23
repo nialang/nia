@@ -2701,6 +2701,8 @@ The shared unary builders apply the same category boundary: integer negation
 and bitwise-not accept only integer scalar/vector values, while floating
 negation accepts only floating scalar/vector values. The typed unary builders
 already encode those categories in their `IntValue` and `FloatValue` handles.
+Typed floating comparison now also checks operand type identity, preventing
+different scalar precisions from reaching `LLVMBuildFCmp`.
 
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the

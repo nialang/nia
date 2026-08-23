@@ -2103,6 +2103,11 @@ acceptance item only when its phase-wide evidence is complete.
       existing narrow value handles. Regressions cover both cross-category
       failures, with LLVM/codegen suites, workspace check, formatting, and
       strict Clippy passing.
+- [x] Batch 364 closes the typed LLVM floating-comparison boundary.
+      `build_float_compare` now reuses the binary operand validator so both
+      operands must have identical floating scalar/vector LLVM types before
+      `LLVMBuildFCmp`; a precision-mismatch regression plus LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
