@@ -419,6 +419,10 @@ signals, not architecture goals.
   imports are appended as empty owners to a reserved imports list, then
   initialized in place; this lets module cleanup retain the nested list whenever
   any import field release fails. Do not recreate a detached clone helper.
+- Pending union records must establish the active kind before retaining payload
+  owners. Generated-file and uncacheable steps use distinct empty constructors,
+  reserve the steps list first, and initialize name/payload in place so cleanup
+  always reads the active union member and can retry every failed owner.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a

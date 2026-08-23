@@ -149,6 +149,8 @@ extend Build {
             selectedStep: null,
             planValidated: false,
             steps: collections::ArrayList[Step]::init(),
+            pendingStep: Step::initAggregate(0usize),
+            hasPendingStep: false,
             dependencies: collections::ArrayList[StepDependency]::init(),
             packages: collections::ArrayList[Package]::init(),
             pendingPackage: Package::init(0usize),
@@ -248,6 +250,7 @@ extend Build {
         rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
         rememberCleanupError(&mut firstError, self.cleanupPendingExecutable());
         let mut elementError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.cleanupPendingStep());
         let mut index = self.steps.len();
         while index != 0 {
             index -= 1;
@@ -421,15 +424,17 @@ extend Build {
     }
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        let mut payload = UncacheableStep::init(self.allocator, description, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            payload.deinit(self.allocator, handle.index()).?;
-        };
-        let result = self.addStepRecord(name, StepKind::Uncacheable, StepPayload { uncacheable: payload }).?;
-        transferred = true;
-        !result
+        self.preparePendingStep(name, StepKind::Uncacheable).?;
+        match self.pendingStep.initializeUncacheable(self.allocator, name, description) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
+        }
+        self.commitPendingStep()
     }
 
     pub fn addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
@@ -440,14 +445,22 @@ extend Build {
                 subject: Subject::Step(handle.index()),
             }!;
         }
-        let mut payload = GeneratedFileStep::init(self.allocator, output, contents, handle.index()).?;
-        let mut transferred = false;
-        defer if not transferred {
-            payload.deinit(self.allocator, handle.index()).?;
-        };
-        let result = self.addStepRecord(name, StepKind::GeneratedFile, StepPayload { generatedFile: payload }).?;
-        transferred = true;
-        !result
+        self.preparePendingStep(name, StepKind::GeneratedFile).?;
+        match self.pendingStep.initializeGeneratedFile(
+            self.allocator,
+            name,
+            output,
+            contents,
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
+        }
+        self.commitPendingStep()
     }
 
     pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
@@ -1684,6 +1697,7 @@ extend Build {
     }
 
     fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
+        self.cleanupPendingStep().?;
         if not isValidStableName(name) {
             return Error::Invalid {
                 operation: Operation::Validate,
@@ -1710,6 +1724,54 @@ extend Build {
         transferred = true;
         self.planValidated = false;
         !handle
+    }
+
+    fn preparePendingStep(&mut self, name: &[char], kind: StepKind) Error!() {
+        self.cleanupPendingStep().?;
+        if not isValidStableName(name) {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!;
+        }
+        match self.findStep(name) {
+            ?old => {
+                _ = old;
+                return Error::Invalid {
+                    operation: Operation::Validate,
+                    subject: Subject::Step(self.steps.len()),
+                }!;
+            },
+            null => {},
+        }
+        self.steps.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Steps).?;
+        self.pendingStep = if kind == StepKind::GeneratedFile {
+            Step::initGeneratedFile(self.steps.len())
+        } else {
+            Step::initUncacheable(self.steps.len())
+        };
+        self.hasPendingStep = true;
+        !()
+    }
+
+    fn commitPendingStep(&mut self) Error!StepHandle {
+        if not self.hasPendingStep {
+            return Error::Internal(Operation::Initialize)!;
+        }
+        let handle = StepHandle::init(self.ownerId, self.steps.len());
+        self.steps.appendAssumeCapacity(self.pendingStep);
+        self.hasPendingStep = false;
+        self.planValidated = false;
+        !handle
+    }
+
+    fn cleanupPendingStep(&mut self) Error!() {
+        if not self.hasPendingStep {
+            return !();
+        }
+        self.pendingStep.deinit(self.allocator).?;
+        self.hasPendingStep = false;
+        !()
     }
 }
 
@@ -1814,9 +1876,13 @@ extend AggregateStep {
 }
 
 extend UncacheableStep {
-    fn init(allocator: &mut mem::Allocator, description: &[char], index: usize) Error!UncacheableStep {
-        let owned = string::String::fromSlice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !Self { description: owned }
+    fn init() UncacheableStep {
+        Self { description: string::String::init() }
+    }
+
+    fn initialize(&mut self, allocator: &mut mem::Allocator, description: &[char], index: usize) Error!() {
+        self.description = string::String::fromSlice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -1825,24 +1891,23 @@ extend UncacheableStep {
 }
 
 extend GeneratedFileStep {
-    fn init(
+    fn init() GeneratedFileStep {
+        GeneratedFileStep {
+            output: string::String::init(),
+            contents: collections::ArrayList[u8]::init(),
+        }
+    }
+
+    fn initialize(
+        &mut self,
         allocator: &mut mem::Allocator,
         output: BuildPathView,
         contents: &[u8],
         index: usize,
-    ) Error!GeneratedFileStep {
-        let mut generated: GeneratedFileStep = GeneratedFileStep {
-            output: string::String::init(),
-            contents: collections::ArrayList[u8]::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            generated.deinit(allocator, index).?;
-        };
-        generated.output = string::String::fromSlice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        generated.contents.appendSlice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        transferred = true;
-        !generated
+    ) Error!() {
+        self.output = string::String::fromSlice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        self.contents.appendSlice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -2354,6 +2419,54 @@ extend ExternalCommandStep {
 }
 
 extend Step {
+    fn initAggregate(index: usize) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: StepKind::Aggregate,
+            payload: StepPayload { aggregate: AggregateStep::init() },
+        }
+    }
+
+    fn initGeneratedFile(index: usize) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: StepKind::GeneratedFile,
+            payload: StepPayload { generatedFile: GeneratedFileStep::init() },
+        }
+    }
+
+    fn initUncacheable(index: usize) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: StepKind::Uncacheable,
+            payload: StepPayload { uncacheable: UncacheableStep::init() },
+        }
+    }
+
+    fn initializeGeneratedFile(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        output: BuildPathView,
+        contents: &[u8],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.payload.generatedFile.initialize(allocator, output, contents, self.index)
+    }
+
+    fn initializeUncacheable(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        description: &[char],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.payload.uncacheable.initialize(allocator, description, self.index)
+    }
+
     fn init(
         allocator: &mut mem::Allocator,
         name: &[char],

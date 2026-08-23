@@ -396,6 +396,8 @@ pub struct Build {
     selectedStep: ?StepHandle,
     planValidated: bool,
     steps: collections::ArrayList[Step],
+    pendingStep: Step,
+    hasPendingStep: bool,
     dependencies: collections::ArrayList[StepDependency],
     packages: collections::ArrayList[Package],
     pendingPackage: Package,
