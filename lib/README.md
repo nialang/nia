@@ -42,6 +42,9 @@ The library follows a small set of ownership rules:
 - Temporary filesystem descriptors are closed after their owning operation. A
   failed operation remains the primary error; after success, the first close
   error is returned while every later descriptor is still attempted.
+- Spawn handshake descriptors are consumed and closed exactly once after the
+  handshake result is known. EOF plus close failure is reported as setup error;
+  an earlier handshake/read error remains the primary cause.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

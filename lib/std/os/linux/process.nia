@@ -77,7 +77,7 @@ pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnErro
                 return SpawnError::Setup(Errno::Io)!;
             },
         };
-        match read_spawn_error(error_read, pid).? {
+        match read_spawn_error(error_read).? {
             ?spawn_error => {
                 reap_spawn_failure(pid);
                 spawn_error!
@@ -127,8 +127,7 @@ fn write_spawn_error(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno)
     }
 }
 
-fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?SpawnError {
-    defer _ = fd.close();
+fn read_spawn_error(fd: types::FileDescriptor) SpawnError! ?SpawnError {
     let mut record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
     let mut read_len = 0usize;
@@ -141,20 +140,41 @@ fn read_spawn_error(fd: types::FileDescriptor, pid: ProcessId) SpawnError! ?Spaw
                 continue;
             },
             error! => {
-                reap_spawn_failure(pid);
-                return SpawnError::Setup(error)!;
+                return finish_spawn_error(fd, SpawnError::Setup(error)!);
             },
         };
         if amount == 0usize {
             if read_len == 0usize {
-                return !null;
+                return finish_spawn_error(fd, !null);
             }
-            reap_spawn_failure(pid);
-            return SpawnError::Setup(Errno::Io)!;
+            return finish_spawn_error(fd, SpawnError::Setup(Errno::Io)!);
         }
         read_len += amount;
     }
-    !(?SpawnError::from_stage(record.stage(), record.errno()))
+    finish_spawn_error(fd, !(?SpawnError::from_stage(record.stage(), record.errno())))
+}
+
+fn finish_spawn_error(
+    fd: types::FileDescriptor,
+    result: SpawnError! ?SpawnError,
+) SpawnError! ?SpawnError {
+    match result {
+        !value => {
+            match fd.close() {
+                !ok => {
+                    _ = ok;
+                    !value
+                },
+                error! => {
+                    SpawnError::Setup(error)!
+                },
+            }
+        },
+        error! => {
+            _ = fd.close();
+            error!
+        },
+    }
 }
 
 fn reap_spawn_failure(pid: ProcessId) () {

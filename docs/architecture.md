@@ -3279,7 +3279,9 @@ Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries
 interrupted writes; the parent retries interrupted reads and reaps a failed
 child with an EINTR-safe wait loop. EOF before any record remains the sole
-successful-exec signal. Once a public `Child` records an exited status, pipe
+successful-exec signal. The parent then closes the consumed handshake read
+descriptor exactly once: EOF plus a close failure becomes a setup error, while
+an incomplete or malformed handshake retains its primary error. Once a public `Child` records an exited status, pipe
 cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
 the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.
