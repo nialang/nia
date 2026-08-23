@@ -305,6 +305,17 @@ extend GeneralPurposeAllocator {
                 return Error::OutOfMemory!;
             },
         };
+        let usedCount = match page.usedCount.checked_add(1usize) {
+            ?value => {
+                value
+            },
+            null => {
+                return Error::OutOfMemory!;
+            },
+        };
+        if usedCount > page.slotCount {
+            return Error::Invalid!;
+        }
         page.freeList = slot.next;
         let ptr = match smallSlotUserPtr(slot, layout.align()) {
             ?value => {
@@ -321,7 +332,7 @@ extend GeneralPurposeAllocator {
         slot.align = layout.align();
         slot.allocated = true;
         slot.next = null;
-        page.usedCount += 1;
+        page.usedCount = usedCount;
         page.usedBytes = saturatingAdd(page.usedBytes, layout.size());
         !Block::init(ptr, layout)
     }
@@ -716,7 +727,14 @@ fn smallSlotSize(layout: Layout) ?usize {
     };
     let needed = maxUsize(neededSize, layout.align());
     while slotSize < needed {
-        slotSize = slotSize * 2;
+        slotSize = match slotSize.checked_mul(2usize) {
+            ?value => {
+                value
+            },
+            null => {
+                return null;
+            },
+        };
     }
     if slotSize >= os::pageSize() {
         null
