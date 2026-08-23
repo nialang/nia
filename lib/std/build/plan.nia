@@ -615,8 +615,7 @@ extend Build {
         rememberPrimary(&mut primary, writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan));
         rememberPrimary(&mut primary, file.sync().asBuildError(Operation::Publish, Subject::BuildPlan));
         // File::close consumes its handle before the syscall, even when the
-        // syscall reports an error. Disable the fallback before calling it so
-        // defer cannot turn the original close failure into a second BadFd.
+        // syscall reports an error, so this close is attempted exactly once.
         rememberPrimary(&mut primary, file.close().asBuildError(Operation::Release, Subject::BuildPlan));
         match primary {
             ?error => return error!,
