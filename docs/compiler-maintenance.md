@@ -381,6 +381,10 @@ signals, not architecture goals.
 - For consuming close APIs, clear the cleanup flag before the syscall. A failed
   close may still consume the descriptor, so a defer retry can only mask the
   original error with `BadFd`.
+- For an operation that owns temporary descriptors, perform the main operation
+  first and then close every descriptor explicitly. Preserve the main operation
+  error when it failed; otherwise return the first close error. Chained cleanup
+  must still attempt later descriptors after an earlier close failure.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.

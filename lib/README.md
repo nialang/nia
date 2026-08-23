@@ -39,6 +39,9 @@ The library follows a small set of ownership rules:
   imports remain reachable for a later `Build::deinit` retry.
 - File close paths treat the descriptor as consumed before the OS close result;
   cleanup defers must not issue a second close after a close error.
+- Temporary filesystem descriptors are closed after their owning operation. A
+  failed operation remains the primary error; after success, the first close
+  error is returned while every later descriptor is still attempted.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

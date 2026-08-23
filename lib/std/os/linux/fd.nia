@@ -267,8 +267,8 @@ pub fn create_dir_at_beneath(
         0,
         true,
     ).?;
-    defer _ = parent_handle.close();
-    create_dir_at(parent_handle, name, permissions)
+    let result = create_dir_at(parent_handle, name, permissions);
+    result.close_after(parent_handle.close())
 }
 
 pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!() {
@@ -303,12 +303,12 @@ pub fn delete_at_beneath(
         0,
         true,
     ).?;
-    defer _ = parent_handle.close();
-    if directory {
+    let result = if directory {
         delete_dir_at(parent_handle, name)
     } else {
         delete_file_at(parent_handle, name)
-    }
+    };
+    result.close_after(parent_handle.close())
 }
 
 pub fn rename_at(
@@ -346,8 +346,7 @@ pub fn rename_at_beneath(
         0,
         true,
     ).?;
-    defer _ = old_parent_handle.close();
-    let new_parent_handle = open_at_beneath(
+    let new_parent_handle = match open_at_beneath(
         new_dir,
         new_parent,
         OpenMode::ReadOnly,
@@ -357,14 +356,24 @@ pub fn rename_at_beneath(
         false,
         0,
         true,
-    ).?;
-    defer _ = new_parent_handle.close();
-    rename_at(
+    ) {
+        !handle => {
+            handle
+        },
+        error! => {
+            _ = old_parent_handle.close();
+            return error!;
+        },
+    };
+    let result = rename_at(
         old_parent_handle,
         old_name,
         new_parent_handle,
         new_name,
-    )
+    );
+    result
+        .close_after(old_parent_handle.close())
+        .close_after(new_parent_handle.close())
 }
 
 pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {

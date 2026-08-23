@@ -95,11 +95,7 @@ pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool
     } else {
         let handle = FileDescriptor::from_syscall(ret).?;
         let result = metadata_fd(handle);
-        match handle.close() {
-            !ok => { _ = ok; },
-            error! => { _ = error; },
-        }
-        result
+        result.close_after(handle.close())
     }
 }
 
