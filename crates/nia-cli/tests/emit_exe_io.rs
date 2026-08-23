@@ -627,6 +627,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if not expect_error(writer.print(&"{:.{}}", &[&flag, &bad_width]), fmt::Error::InvalidTemplate) {
         return process::exit(27)!;
     }
+    if not expect_error(
+        writer.print(&"{:999999999999999999999999999999}", &[&value]),
+        fmt::Error::InvalidTemplate,
+    ) {
+        return process::exit(28)!;
+    }
+    if not expect_error(
+        writer.print(&"{:.999999999999999999999999999999}", &[&value]),
+        fmt::Error::InvalidTemplate,
+    ) {
+        return process::exit(29)!;
+    }
     !()
 }
 "#,
