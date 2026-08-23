@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 464 completed entries in this ledger.
+- Implementation batches: 465 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2633,6 +2633,12 @@ acceptance item only when its phase-wide evidence is complete.
       clear release pointer and length together with logical size, preventing
       repeated cleanup or source-owner cleanup after transfer from releasing
       the same block twice.
+- [x] Batch 465 makes ArrayList empty-state cleanup owner-driven. A present
+      `storageBlock` is released during `deinit` and `intoOwnedSlice` even when
+      logical length, capacity, or element size is zero; empty-state transitions
+      now clear the owner only after that release succeeds. An allocator-backed
+      executable regression proves both adopted empty lists and empty ownership
+      transfers release a non-empty block exactly once.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

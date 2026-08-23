@@ -139,22 +139,21 @@ where T: Sized
     pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         self.freePendingItems(allocator).?;
         let len = self.len();
-        if std::builtin::size[T]() == 0 {
+        let layout = mem::Layout::array[T](len).?;
+        if std::builtin::size[T]() == 0 or self.capacity() == 0 {
+            match self.storageBlock {
+                ?block => {
+                    allocator.free(block).?;
+                },
+                null => {},
+            }
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
             self.storageBlock = null;
-            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
-        }
-
-        if self.capacity() == 0 {
-            self.items = raw::danglingSlice[T](0);
-            self.capacity = 0;
-            self.storageBlock = null;
-            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
+            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(layout), len);
         }
 
         let oldBlock = self.allocatedBlock().?;
-        let layout = mem::Layout::array[T](len).?;
         if len == 0 {
             allocator.free(oldBlock).?;
             self.items = raw::danglingSlice[T](0);
@@ -793,10 +792,10 @@ where T: Sized
     }
 
     fn freeItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        if self.capacity() == 0 or std::builtin::size[T]() == 0 {
-            return !();
-        }
-        let block = self.allocatedBlock().?;
+        let block = match self.storageBlock {
+            ?value => value,
+            null => return !(),
+        };
         match allocator.free(block) {
             !ok => {
                 _ = ok;
