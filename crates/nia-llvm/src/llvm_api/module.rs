@@ -365,4 +365,22 @@ mod tests {
             LlvmError::Error("LLVM returned a null function handle".to_string())
         );
     }
+
+    #[test]
+    fn rejects_global_initializer_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("global-init-type").unwrap();
+        let global = module
+            .add_global(context.i32_type().into(), None, "value")
+            .unwrap();
+        let initializer = context.i64_type().const_zero();
+
+        let error = global
+            .set_initializer(&initializer)
+            .expect_err("global initializer type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("initializer type does not match")
+        ));
+    }
 }

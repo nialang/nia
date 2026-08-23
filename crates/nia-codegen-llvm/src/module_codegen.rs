@@ -269,7 +269,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(|_| self.error(span, "promoted allocation alignment is too large"))?;
             global.set_alignment(align);
         }
-        global.set_initializer(&value);
+        global
+            .set_initializer(&value)
+            .map_err(Self::diagnostic_from_llvm_error)?;
         self.promoted_allocations
             .borrow_mut()
             .insert(allocation, pointee_ty);

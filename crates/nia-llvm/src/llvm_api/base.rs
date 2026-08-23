@@ -1525,8 +1525,16 @@ impl<'ctx> GlobalValue<'ctx> {
     }
 
     /// Sets the global's initializer.
-    pub fn set_initializer<V: BasicValue<'ctx>>(self, value: &V) {
+    pub fn set_initializer<V: BasicValue<'ctx>>(self, value: &V) -> LlvmResult<()> {
+        let global_type = BasicTypeEnum::new(unsafe { LLVMGlobalGetValueType(self.raw) })?;
+        let value_type = BasicTypeEnum::new(unsafe { LLVMTypeOf(value.as_value_ref()) })?;
+        if value_type != global_type {
+            return Err(LlvmError::error(
+                "global initializer type does not match the global type",
+            ));
+        }
         unsafe { LLVMSetInitializer(self.raw, value.as_value_ref()) };
+        Ok(())
     }
 
     /// Marks whether writes to the global are forbidden after initialization.

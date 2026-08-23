@@ -2119,6 +2119,12 @@ acceptance item only when its phase-wide evidence is complete.
       codegen caller propagates failures. Type and cross-function block
       regressions plus LLVM/codegen suites, workspace check, formatting, and
       strict Clippy pass.
+- [x] Batch 367 closes the LLVM global-initializer type boundary.
+      `GlobalValue::set_initializer` is now fallible and compares the value's
+      LLVM type with the declared global type before `LLVMSetInitializer`; all
+      codegen callers propagate wrapper failures. A mismatched-initializer
+      regression plus LLVM/codegen suites, workspace check, formatting, and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
