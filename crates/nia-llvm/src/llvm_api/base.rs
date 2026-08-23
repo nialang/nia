@@ -655,8 +655,11 @@ impl<'ctx> IntType<'ctx> {
     }
 
     /// Creates an undefined value of this type.
-    pub fn get_undef(self) -> IntValue<'ctx> {
-        IntValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
+    pub fn get_undef(self) -> LlvmResult<IntValue<'ctx>> {
+        Ok(IntValue::new(require_value(
+            unsafe { LLVMGetUndef(self.as_type_ref()) },
+            "undefined integer value",
+        )?))
     }
 }
 
@@ -704,8 +707,11 @@ impl<'ctx> FloatType<'ctx> {
     }
 
     /// Creates an undefined value of this type.
-    pub fn get_undef(self) -> FloatValue<'ctx> {
-        FloatValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
+    pub fn get_undef(self) -> LlvmResult<FloatValue<'ctx>> {
+        Ok(FloatValue::new(require_value(
+            unsafe { LLVMGetUndef(self.as_type_ref()) },
+            "undefined floating-point value",
+        )?))
     }
 }
 
@@ -731,8 +737,11 @@ impl<'ctx> PointerType<'ctx> {
     }
 
     /// Creates an undefined pointer value.
-    pub fn get_undef(self) -> PointerValue<'ctx> {
-        PointerValue::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
+    pub fn get_undef(self) -> LlvmResult<PointerValue<'ctx>> {
+        Ok(PointerValue::new(require_value(
+            unsafe { LLVMGetUndef(self.as_type_ref()) },
+            "undefined pointer value",
+        )?))
     }
 
     /// Creates an array constant from pointer elements of this type.
@@ -1811,6 +1820,15 @@ mod tests {
             struct_ty
         );
         assert_eq!(array_ty.const_zero().unwrap().get_type().unwrap(), array_ty);
+    }
+
+    #[test]
+    fn typed_scalar_undef_queries_use_checked_conversion() {
+        let context = Context::create().unwrap();
+
+        assert!(context.i32_type().get_undef().is_ok());
+        assert!(context.f32_type().get_undef().is_ok());
+        assert!(context.ptr_type(AddressSpace(3)).get_undef().is_ok());
     }
 
     #[test]
