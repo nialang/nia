@@ -149,7 +149,7 @@ extend ArenaAllocator : Allocator {
 
     pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
-            ?Block::init(block.ptr(), newLayout)
+            ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
             ?Block::empty(newLayout)
         } else {
@@ -323,7 +323,7 @@ extend ArenaAllocator {
             },
         };
         if self.child.resize(chunk.block, newLayout) {
-            chunk.block = Block::init(chunk.block.ptr(), newLayout);
+            chunk.block = chunk.block.withLayout(newLayout);
             true
         } else {
             false

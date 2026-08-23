@@ -2178,6 +2178,11 @@ primary cause; if releasing the replacement also fails, `Rollback` carries that
 replacement `Block` and its cleanup error so callers can retry both owners
 explicitly. The allocator receives the original block by value, so the caller
 retains that original owner while handling the error.
+Successful `resize`/`remap` changes only the block's logical layout. The
+canonical `Block::withLayout` transition preserves its release pointer and
+length; default and concrete allocator remap paths must not rebuild a block from
+the exposed pointer. Arena backing-chunk growth applies the same rule after a
+child allocator resizes the containing block.
 Collection cleanup follows the same explicit-owner rule. A `HashMap` stores its
 control bytes, keys, and values as aligned views into one allocation block;
 `deinit` therefore has one owner to release and retains that block unchanged on

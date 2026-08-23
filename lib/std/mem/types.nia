@@ -84,6 +84,10 @@ extend Block {
         Self { ptr, layout, releasePtr, releaseSize }
     }
 
+    pub(pkg) fn withLayout(&self, layout: Layout) Block {
+        Block::initWithRelease(self.ptr, layout, self.releasePtr, self.releaseSize)
+    }
+
     pub fn empty(layout: Layout) Block {
         Block::init(layout.align() as &mut u8, layout)
     }

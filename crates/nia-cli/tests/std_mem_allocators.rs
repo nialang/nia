@@ -843,6 +843,82 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_mem_default_remap_preserves_release_range() {
+    let root = temp_dir("emit_exe_std_mem_default_remap_preserves_release_range");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::mem;
+using std::process;
+
+struct ResizeOnlyPageAllocator {
+    page: mem::PageAllocator,
+}
+
+extend ResizeOnlyPageAllocator {
+    fn init() ResizeOnlyPageAllocator {
+        Self { page: mem::PageAllocator::init() }
+    }
+}
+
+extend ResizeOnlyPageAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.page.alloc(layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        self.page.free(block)
+    }
+
+    fn resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+        block.align() == newLayout.align()
+            and block.size() != 0
+            and newLayout.size() != 0
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut allocator = ResizeOnlyPageAllocator::init();
+    let initial = mem::Layout::init(64, 8192).exit().?;
+    let resized = mem::Layout::init(32, 8192).exit().?;
+    let block = allocator.alloc(initial).exit().?;
+    if block.ptr() as usize % 8192 != 0 {
+        return process::exit(1)!;
+    }
+    let remapped = match allocator.remap(block, resized) {
+        ?value => value,
+        null => return process::exit(2)!,
+    };
+    if remapped.ptr() as usize != block.ptr() as usize or remapped.size() != 32 {
+        return process::exit(3)!;
+    }
+    allocator.free(remapped).exit().?;
+    !()
+}
+"#,
+    )
+    .expect("write default remap release owner source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("compile default remap release owner");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run default remap release owner");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_allocator_realloc_from_empty_block() {
     let root = temp_dir("emit_exe_std_mem_allocator_realloc_from_empty_block");
     let main = root.join("main.nia");

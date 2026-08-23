@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 459 completed entries in this ledger.
+- Implementation batches: 460 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2606,6 +2606,12 @@ acceptance item only when its phase-wide evidence is complete.
       explicit raw-integer boundary so closure escape analysis sees only the
       callable view. They no longer reconstruct release ownership from the
       value pointer and logical layout after an over-aligned mapping.
+- [x] Batch 460 preserves release owners across allocator layout transitions.
+      `Block::withLayout` is now the canonical successful resize/remap operation
+      for the trait default, page, general-purpose, arena, and fixed-buffer
+      allocators, including resized arena backing chunks. An over-aligned
+      delegating allocator regression exercises the default remap path and
+      releases the complete original page mapping.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

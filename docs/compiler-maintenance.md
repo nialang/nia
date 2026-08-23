@@ -467,6 +467,10 @@ signals, not architecture goals.
   slice. Transfer APIs consume `SliceAllocation[T]`; cleanup failure leaves the
   owner and its release range attached for retry. Do not add raw-slice ownership
   constructors or reconstruct a release block from pointer plus logical length.
+- Treat successful allocator resize/remap as a logical-layout transition on the
+  existing `Block`. Use the canonical layout-preserving helper so the release
+  pointer and length survive default remap, concrete wrappers, and resized arena
+  backing chunks; never replace the owner with `Block::init(block.ptr(), ...)`.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

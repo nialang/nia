@@ -63,6 +63,9 @@ The library follows a small set of ownership rules:
 - Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
   and replacement releases fail, its `Rollback` variant carries the replacement
   block and cleanup error so callers can retry the still-owned allocations.
+- Successful allocator remap changes only a block's logical layout. Default and
+  concrete remap paths preserve the original release pointer and length, as do
+  arena backing-chunk resizes.
 - `Allocator::allocSlice` returns a `SliceAllocation[T]` owner instead of a raw
   slice. `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
   `Block`, and `ArrayList`/`String` owner-transfer APIs consume that typed owner.

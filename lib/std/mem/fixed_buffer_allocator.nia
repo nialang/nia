@@ -160,7 +160,7 @@ extend FixedBufferAllocator : Allocator {
 
     pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
         if self.resize(block, newLayout) {
-            ?Block::init(block.ptr(), newLayout)
+            ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
             ?Block::empty(newLayout)
         } else {
