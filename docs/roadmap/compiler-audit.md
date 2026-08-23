@@ -2023,6 +2023,12 @@ acceptance item only when its phase-wide evidence is complete.
       reject insertion values whose LLVM type differs from the selected field
       before entering the FFI. Malformed-index and type-mismatch wrapper tests
       plus the full LLVM/codegen suites, workspace check, and strict Clippy pass.
+- [x] Batch 351 closes the LLVM select/vector builder type boundary. Select
+      conditions now require scalar `i1` or shape-matched `i1` vectors with
+      identical arms; vector extract/insert operations validate integer indices
+      and element types; shuffle inputs must match and masks must use `i32`
+      lanes. Wrapper regressions cover arm, element, and mask mismatches, and
+      the full LLVM/codegen suites, workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
