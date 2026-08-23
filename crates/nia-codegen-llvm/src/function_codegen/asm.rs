@@ -38,6 +38,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .module
                 .context
                 .struct_type(tys, false)
+                .map_err(|error| {
+                    self.error(
+                        self.function.span,
+                        format!("failed to create inline assembly result type: {error:?}"),
+                    )
+                })?
                 .fn_type(&param_tys, false),
         }
         .map_err(|error| {

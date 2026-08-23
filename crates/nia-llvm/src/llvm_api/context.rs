@@ -235,19 +235,24 @@ impl Context {
         &'ctx self,
         fields: &[BasicTypeEnum<'ctx>],
         packed: bool,
-    ) -> StructType<'ctx> {
+    ) -> LlvmResult<StructType<'ctx>> {
+        let field_count = checked_u32_count(fields.len(), "LLVM struct type has too many fields")?;
         let mut fields = fields
             .iter()
             .map(|field| field.as_type_ref())
             .collect::<Vec<_>>();
-        StructType::new(unsafe {
+        let raw = unsafe {
             LLVMStructTypeInContext(
                 self.raw,
                 fields.as_mut_ptr(),
-                fields.len() as u32,
+                field_count,
                 bool_to_llvm(packed),
             )
-        })
+        };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null struct type"));
+        }
+        Ok(StructType::new(raw))
     }
 
     /// Creates a named opaque struct whose body may be supplied later.

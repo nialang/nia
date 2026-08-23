@@ -632,7 +632,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 })
             })
             .collect::<Result<Vec<BasicTypeEnum<'ctx>>, _>>()?;
-        let ty = self.module.context.struct_type(&types, true);
+        let ty = self
+            .module
+            .context
+            .struct_type(&types, true)
+            .map_err(|error| {
+                self.error(
+                    span,
+                    format!("failed to create promoted storage type: {error:?}"),
+                )
+            })?;
         Ok(PromotedConstValue::packed(
             ty.const_named_struct(&values)
                 .map_err(|error| error.diagnostic())?

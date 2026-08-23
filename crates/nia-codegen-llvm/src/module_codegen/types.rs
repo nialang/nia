@@ -380,33 +380,39 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn slice_type(&self, span: Span) -> Result<StructType<'ctx>, Diagnostic> {
         let len_ty = self.integer_llvm_type(PrimitiveTy::Usize, span)?;
-        Ok(self.context.struct_type(
-            &[
-                self.context.ptr_type(Default::default()).into(),
-                len_ty.into(),
-            ],
-            false,
-        ))
+        self.context
+            .struct_type(
+                &[
+                    self.context.ptr_type(Default::default()).into(),
+                    len_ty.into(),
+                ],
+                false,
+            )
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
-    pub(crate) fn trait_object_type(&self) -> StructType<'ctx> {
-        self.context.struct_type(
-            &[
-                self.context.ptr_type(Default::default()).into(),
-                self.context.ptr_type(Default::default()).into(),
-            ],
-            false,
-        )
+    pub(crate) fn trait_object_type(&self) -> Result<StructType<'ctx>, Diagnostic> {
+        self.context
+            .struct_type(
+                &[
+                    self.context.ptr_type(Default::default()).into(),
+                    self.context.ptr_type(Default::default()).into(),
+                ],
+                false,
+            )
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
-    pub(crate) fn callable_type(&self) -> StructType<'ctx> {
-        self.context.struct_type(
-            &[
-                self.context.ptr_type(Default::default()).into(),
-                self.context.ptr_type(Default::default()).into(),
-            ],
-            false,
-        )
+    pub(crate) fn callable_type(&self) -> Result<StructType<'ctx>, Diagnostic> {
+        self.context
+            .struct_type(
+                &[
+                    self.context.ptr_type(Default::default()).into(),
+                    self.context.ptr_type(Default::default()).into(),
+                ],
+                false,
+            )
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     pub(crate) fn llvm_basic_type_in(
@@ -424,7 +430,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 )
             )
         {
-            return Ok(self.context.struct_type(&[], false).into());
+            return self
+                .context
+                .struct_type(&[], false)
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error);
         }
         match self.ty_kind(ty) {
             Some(TyKind::Tuple(elems)) => {
@@ -432,14 +442,20 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .iter()
                     .map(|elem| self.llvm_basic_type_in(*elem, span))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(self.context.struct_type(&fields, false).into())
+                self.context
+                    .struct_type(&fields, false)
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)
             }
             Some(TyKind::ClosureState { captures, .. }) => {
                 let fields = captures
                     .iter()
                     .map(|capture| self.llvm_basic_type_in(*capture, span))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(self.context.struct_type(&fields, false).into())
+                self.context
+                    .struct_type(&fields, false)
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)
             }
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
             Some(TyKind::Vector { elem, lanes }) => self.vector_type(*elem, *lanes, span),
@@ -449,8 +465,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::FunctionPointer { .. },
             ) => Ok(self.context.ptr_type(Default::default()).into()),
             Some(TyKind::Slice { .. }) => Ok(self.slice_type(span)?.into()),
-            Some(TyKind::TraitObject { .. }) => Ok(self.trait_object_type().into()),
-            Some(TyKind::Callable { .. }) => Ok(self.callable_type().into()),
+            Some(TyKind::TraitObject { .. }) => self.trait_object_type().map(Into::into),
+            Some(TyKind::Callable { .. }) => self.callable_type().map(Into::into),
             Some(TyKind::Range { kind, bound }) => self.range_type(*kind, *bound, span),
             Some(TyKind::Optional { elem }) => self.optional_type(*elem, span),
             Some(TyKind::ErrorUnion { error, value }) => {
@@ -514,7 +530,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         let Some(bound) = bound else {
-            return Ok(self.context.struct_type(&[], false).into());
+            return self
+                .context
+                .struct_type(&[], false)
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error);
         };
         let bound_ty = self.llvm_basic_type(bound, span)?;
         let fields = match kind {
@@ -526,7 +546,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             | nia_ty::RangeTyKind::ToInclusive => vec![bound_ty],
             nia_ty::RangeTyKind::Full => Vec::new(),
         };
-        Ok(self.context.struct_type(&fields, false).into())
+        self.context
+            .struct_type(&fields, false)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     pub(crate) fn optional_type(
@@ -582,10 +605,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map(Into::into)
             .map_err(Self::diagnostic_from_llvm_error)?;
         let storage = self.union_storage_type(storage_size, storage_align, span)?;
-        Ok(self
-            .context
+        self.context
             .struct_type(&[tag, padding, storage], false)
-            .into())
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn tagged_union_type(
@@ -604,7 +627,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             max_size = max_size.max(layout.size);
         }
         let storage = self.union_storage_type(max_size, max_align, span)?;
-        Ok(self.context.struct_type(&[tag_ty, storage], false).into())
+        self.context
+            .struct_type(&[tag_ty, storage], false)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     pub(crate) fn union_storage_type(
@@ -614,7 +640,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         if size == 0 {
-            return Ok(self.context.struct_type(&[], false).into());
+            return self
+                .context
+                .struct_type(&[], false)
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error);
         }
         let align_ty = self.union_alignment_type(align, span)?;
         let align_size = align;
@@ -634,7 +664,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .map_err(Self::diagnostic_from_llvm_error)?,
             );
         }
-        Ok(self.context.struct_type(&fields, false).into())
+        self.context
+            .struct_type(&fields, false)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn primitive_type(

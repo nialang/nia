@@ -2240,6 +2240,12 @@ acceptance item only when its phase-wide evidence is complete.
       DIBuilder struct and union metadata constructors now checked-convert
       element counts to LLVM's `u32` width before FFI. LLVM/codegen suites,
       workspace check, formatting, and strict Clippy pass.
+- [x] Batch 388 closes the LLVM context-local struct type boundary.
+      `Context::struct_type` now checks field-count conversion to LLVM's
+      `u32` width and rejects a null `LLVMStructTypeInContext` result. All
+      module/function lowering and wrapper-test callers propagate or explicitly
+      unwrap valid construction results. LLVM/codegen suites, workspace check,
+      formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

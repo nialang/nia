@@ -860,7 +860,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "missing trait object vtable"));
         };
         let metadata = vtable.as_pointer_value();
-        let trait_object_ty = self.module.trait_object_type();
+        let trait_object_ty = self.module.trait_object_type()?;
         let result = trait_object_ty.get_undef();
         let result = self
             .builder
@@ -889,7 +889,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "missing generated closure entry function"));
         };
         let state = self.emit_expr(state)?.into_pointer_value()?;
-        let result = self.module.callable_type().get_undef();
+        let result = self.module.callable_type()?.get_undef();
         let result = self
             .builder
             .build_insert_value(result, state, 0, "callable.state")
@@ -940,7 +940,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let value = value
             .into_struct_value()
             .map_err(|_| self.error(span, "trait object upcast source is not a trait object"))?;
-        let trait_object_ty = self.module.trait_object_type();
+        let trait_object_ty = self.module.trait_object_type()?;
         let object_ptr = self
             .builder
             .build_extract_value(value, 0, "traitobj.ptr")

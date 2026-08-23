@@ -1572,7 +1572,9 @@ mod tests {
     #[test]
     fn rejects_struct_constant_field_count_mismatch() {
         let context = Context::create();
-        let struct_ty = context.struct_type(&[context.i32_type().into()], false);
+        let struct_ty = context
+            .struct_type(&[context.i32_type().into()], false)
+            .unwrap();
 
         let error = struct_ty
             .const_named_struct(&[])
@@ -1587,7 +1589,9 @@ mod tests {
     #[test]
     fn rejects_struct_constant_field_type_mismatch() {
         let context = Context::create();
-        let struct_ty = context.struct_type(&[context.i32_type().into()], false);
+        let struct_ty = context
+            .struct_type(&[context.i32_type().into()], false)
+            .unwrap();
 
         let error = struct_ty
             .const_named_struct(&[context.i64_type().const_zero().into()])
@@ -1617,7 +1621,7 @@ mod tests {
     #[test]
     fn rejects_setting_body_on_literal_struct() {
         let context = Context::create();
-        let struct_ty = context.struct_type(&[], false);
+        let struct_ty = context.struct_type(&[], false).unwrap();
 
         let error = struct_ty
             .set_body(&[context.i32_type().into()], false)
