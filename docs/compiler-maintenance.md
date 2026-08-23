@@ -352,6 +352,12 @@ signals, not architecture goals.
 - For multi-allocation collection cleanup, detach each owner only after its
   allocator release succeeds. Preserve failed slots for a cleanup retry and do
   not advertise partially deinitialized state as an empty reusable collection.
+- Apply the same transaction rule to single allocation owners. `Allocated` and
+  `CallableAllocation` must clear their owner fields only after `free` returns
+  success; a release error must leave the original block retryable.
+- Keep public allocation-owner constructors on the `std::mem` facade. Do not
+  publish a type while leaving its only construction extension in a
+  package-private implementation module.
 - For collections whose elements own allocations, retain the collection
   backing whenever any element cleanup fails. Releasing the element storage
   would discard the only metadata capable of retrying the residual owner.

@@ -220,6 +220,85 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_mem_allocated_release_failure_can_retry() {
+    let root = temp_dir("emit_exe_std_mem_allocated_release_failure_can_retry");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::mem;
+using std::process;
+
+struct FailOnceAllocator {
+    backing: mem::PageAllocator,
+    failNextFree: bool,
+}
+
+extend FailOnceAllocator {
+    fn init() FailOnceAllocator {
+        Self { backing: mem::PageAllocator::init(), failNextFree: false }
+    }
+
+    fn failNext(&mut self) () {
+        self.failNextFree = true;
+    }
+}
+
+extend FailOnceAllocator : mem::Allocator {
+    fn alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.backing.alloc(layout)
+    }
+
+    fn free(&mut self, block: mem::Block) mem::Error!() {
+        if self.failNextFree and not block.isEmpty() {
+            self.failNextFree = false;
+            return mem::Error::Invalid!;
+        }
+        self.backing.free(block)
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut allocator = FailOnceAllocator::init();
+    let mut owned = mem::allocValue[u64](&mut allocator, 42u64).exit().?;
+    allocator.failNext();
+    match owned.deinit(&mut allocator) {
+        !ok => {
+            _ = ok;
+            return process::exit(1)!;
+        },
+        mem::Error::Invalid! => {},
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+    }
+    owned.deinit(&mut allocator).exit().?;
+    !()
+}
+"#,
+    )
+    .expect("write emitted allocator retry source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe allocator retry");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted allocator retry executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn std_mem_obsolete_allocator_spellings_are_absent() {
     let root = temp_dir("std_mem_obsolete_allocator_spellings_are_absent");
     let main = root.join("main.nia");

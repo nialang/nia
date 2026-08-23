@@ -25,3 +25,9 @@ pub using allocator::Allocator;
 pub using fixed_buffer_allocator::FixedBufferAllocator;
 pub using general_purpose_allocator::{DeinitStatus, GeneralPurposeAllocator};
 pub using page_allocator::PageAllocator;
+
+pub fn allocValue[T](allocator: &mut Allocator, value: T) Error!Allocated[T]
+where T: Sized
+{
+    allocation::allocValue[T](allocator, value)
+}

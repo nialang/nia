@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 440 completed entries in this ledger.
+- Implementation batches: 441 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2495,6 +2495,11 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Batch 440 hardens empty Linux process vectors. Null argv/envp vectors are
       represented as empty views, and null individual entries are rejected
       before C-string construction rather than being dereferenced.
+- [x] Batch 441 makes single allocation-owner cleanup retryable and removes an
+      unreachable public constructor path. `Allocated` and
+      `CallableAllocation` now retain pointer/size/alignment state until
+      allocator release succeeds, while `mem::allocValue` is exposed from the
+      public facade and covered by a release-failure/retry executable case.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
