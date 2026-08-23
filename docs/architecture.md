@@ -1326,6 +1326,10 @@ records the sliced element type and known length so the result can feed field
 access, indexing, and generic const call inference without becoming a
 runtime slice.
 
+All host collection lengths entering this semantic `u64` array-length surface
+use checked conversions. A length that cannot be represented is rejected or
+left unknown, never truncated into a mismatching accepted const type.
+
 Const struct literals have one typed surface: the source literal names a
 nominal type, and resolved const IR stores that type as a required field. The
 checker substitutes its generic arguments into field signatures, infers
