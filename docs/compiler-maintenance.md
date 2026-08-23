@@ -415,6 +415,10 @@ signals, not architecture goals.
   its strings. Cleanup must attempt the list, output name, and name even when an
   earlier release fails, retaining all failed owners for the next insertion or
   final graph cleanup.
+- Nested graph records must be attached before their first allocation. Module
+  imports are appended as empty owners to a reserved imports list, then
+  initialized in place; this lets module cleanup retain the nested list whenever
+  any import field release fails. Do not recreate a detached clone helper.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a

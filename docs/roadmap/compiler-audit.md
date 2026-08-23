@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 477 completed entries in this ledger.
+- Implementation batches: 478 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2715,6 +2715,13 @@ acceptance item only when its phase-wide evidence is complete.
       target. Fault injection fails the nested list allocation, rejects both
       string releases, verifies neither cleanup is skipped, then retries the
       insertion and final graph cleanup successfully.
+- [x] Batch 478 makes module and import insertion recursively owner-driven. The
+      module and imports lists reserve before empty import records are appended
+      and initialized in place; the partial module remains attached to `Build`
+      across any nested failure. The detached `cloneModuleImports` rollback
+      chain is removed. Fault injection preserves outer and nested list backing
+      plus two failed import field owners, then retries insertion and final
+      cleanup successfully.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

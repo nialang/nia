@@ -3312,6 +3312,10 @@ Executable targets add one nested owner to this protocol: the retained static-
 archive handle list. Its list backing and both target strings remain in the
 pending executable until cleanup succeeds or an infallible append transfers
 the complete record.
+Module insertion applies the protocol recursively. The module list and imports
+list reserve first, empty owned-import records are appended before their name
+and path are retained, and the entire partial module remains on `Build` until
+nested cleanup succeeds or the complete module transfers.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while

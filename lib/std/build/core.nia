@@ -154,6 +154,13 @@ extend Build {
             pendingPackage: Package::init(0usize),
             hasPendingPackage: false,
             modules: collections::ArrayList[Module]::init(),
+            pendingModule: Module::init(
+                0usize,
+                ModuleSourceRoot::Package,
+                PackageHandle::init(ownerId, 0usize),
+                defaultOptimization,
+            ),
+            hasPendingModule: false,
             executables: collections::ArrayList[ExecutableTarget]::init(),
             pendingExecutable: ExecutableTarget::init(
                 0usize,
@@ -236,6 +243,7 @@ extend Build {
         rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
         rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan));
         rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
+        rememberCleanupError(&mut firstError, self.cleanupPendingModule());
         rememberCleanupError(&mut firstError, self.cleanupPendingObject());
         rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
         rememberCleanupError(&mut firstError, self.cleanupPendingExecutable());
@@ -798,6 +806,7 @@ extend Build {
     // Build-rooted source paths are generated inputs and gain producer edges
     // during complete-graph validation.
     pub fn addModule(&mut self, options: ModuleOptions) Error!ModuleHandle {
+        self.cleanupPendingModule().?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
 
         if options.sourceRoot == ModuleSourceRoot::Package {
@@ -844,21 +853,45 @@ extend Build {
             ?optimization => optimization,
             null => self.defaultOptimization,
         };
-        let mut moduleRecord = Module::init(
-            self.allocator,
-            options,
-            optimization,
+        self.modules.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Modules).?;
+        self.pendingModule = Module::init(
             handle.index(),
+            options.sourceRoot,
+            match options.package {
+                ?package => package,
+                null => PackageHandle::init(self.ownerId, 0usize),
+            },
+            optimization,
+        );
+        self.hasPendingModule = true;
+        match self.pendingModule.initialize(
+            self.allocator,
+            options.name,
+            options.rootSource,
+            options.imports,
             self.ownerId,
-        ).?;
-        let mut transferred = false;
-        defer if not transferred {
-            moduleRecord.deinit(self.allocator).?;
-        };
-        self.modules.push(self.allocator, moduleRecord).asBuildError(Operation::Retain, Subject::Modules).?;
-        transferred = true;
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingModule();
+                return primary!;
+            },
+        }
+        self.modules.appendAssumeCapacity(self.pendingModule);
+        self.hasPendingModule = false;
         self.planValidated = false;
         !handle
+    }
+
+    fn cleanupPendingModule(&mut self) Error!() {
+        if not self.hasPendingModule {
+            return !();
+        }
+        self.pendingModule.deinit(self.allocator).?;
+        self.hasPendingModule = false;
+        !()
     }
 
     pub fn addExecutable(&mut self, options: ExecutableOptions) Error!ExecutableHandle {
@@ -2628,33 +2661,41 @@ extend Package {
 
 extend Module {
     fn init(
-        allocator: &mut mem::Allocator,
-        options: ModuleOptions,
-        optimization: OptimizationMode,
         index: usize,
-        ownerId: usize,
-    ) Error!Module {
-        let mut moduleRecord: Module = Module {
+        sourceRoot: ModuleSourceRoot,
+        package: PackageHandle,
+        optimization: OptimizationMode,
+    ) Module {
+        Module {
             index: index,
             name: string::String::init(),
-            sourceRoot: options.sourceRoot,
-            package: match options.package {
-                ?package => package,
-                null => PackageHandle::init(ownerId, 0),
-            },
+            sourceRoot: sourceRoot,
+            package: package,
             rootSource: fs::Path::init(),
             optimization: optimization,
             imports: collections::ArrayList[OwnedModuleImport]::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            moduleRecord.deinit(allocator).?;
-        };
-        moduleRecord.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Module(index)).?;
-        moduleRecord.rootSource = fs::Path::fromView(allocator, options.rootSource).asBuildError(Operation::Retain, Subject::Module(index)).?;
-        moduleRecord.imports = cloneModuleImports(allocator, options.imports, ownerId).?;
-        transferred = true;
-        !moduleRecord
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        rootSource: fs::PathView,
+        imports: ?&[ModuleImport],
+        ownerId: usize,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Module(self.index)).?;
+        self.rootSource = fs::Path::fromView(allocator, rootSource).asBuildError(Operation::Retain, Subject::Module(self.index)).?;
+        let items = if imports is ?values { values } else { &[] };
+        self.imports.reserve(allocator, items.len()).asBuildError(Operation::Retain, Subject::Modules).?;
+        let mut index: usize = 0;
+        for &import in items.iter() {
+            self.imports.appendAssumeCapacity(OwnedModuleImport::init(import, index, ownerId));
+            self.imports.asMutSlice()[index].initialize(allocator, import).?;
+            index += 1;
+        }
+        !()
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
@@ -2711,12 +2752,11 @@ extend ModuleImport {
 
 extend OwnedModuleImport {
     fn init(
-        allocator: &mut mem::Allocator,
         import: ModuleImport,
         index: usize,
         ownerId: usize,
-    ) Error!OwnedModuleImport {
-        let mut owned: OwnedModuleImport = OwnedModuleImport {
+    ) OwnedModuleImport {
+        OwnedModuleImport {
             index: index,
             name: string::String::init(),
             sourceRoot: import.sourceRoot,
@@ -2725,15 +2765,13 @@ extend OwnedModuleImport {
                 null => PackageHandle::init(ownerId, 0),
             },
             path: fs::Path::init(),
-        };
-        let mut transferred = false;
-        defer if not transferred {
-            owned.deinit(allocator).?;
-        };
-        owned.name = string::String::fromSlice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
-        owned.path = fs::Path::fromView(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
-        transferred = true;
-        !owned
+        }
+    }
+
+    fn initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
+        self.name = string::String::fromSlice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(self.index)).?;
+        self.path = fs::Path::fromView(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(self.index)).?;
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
@@ -3197,58 +3235,6 @@ fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
         null => {},
     }
     !()
-}
-
-fn cloneModuleImports(
-    allocator: &mut mem::Allocator,
-    imports: ?&[ModuleImport],
-    ownerId: usize,
-) Error!collections::ArrayList[OwnedModuleImport] {
-    let items = if imports is ?values {
-        values
-    } else {
-        &[]
-    };
-    let mut owned = collections::ArrayList[OwnedModuleImport]::initCapacity(
-        allocator,
-        items.len(),
-    ).asBuildError(Operation::Retain, Subject::Modules).?;
-    let mut transferred = false;
-    defer if not transferred {
-        deinitModuleImports(&mut owned, allocator).?;
-    };
-    let mut index: usize = 0;
-    for &import in items.iter() {
-        let mut ownedImport = OwnedModuleImport::init(allocator, import, index, ownerId).?;
-        let mut importTransferred = false;
-        defer if not importTransferred {
-            ownedImport.deinit(allocator).?;
-        };
-        owned.push(allocator, ownedImport).asBuildError(Operation::Retain, Subject::ModuleImport(index)).?;
-        importTransferred = true;
-        index += 1;
-    }
-    transferred = true;
-    !owned
-}
-
-fn deinitModuleImports(
-    imports: &mut collections::ArrayList[OwnedModuleImport],
-    allocator: &mut mem::Allocator,
-) Error!() {
-    let mut firstError: ?Error = null;
-    let mut elementError: ?Error = null;
-    let mut index = imports.len();
-    while index != 0 {
-        index -= 1;
-        rememberCleanupError(&mut elementError, imports.asMutSlice()[index].deinit(allocator));
-    }
-    if elementError is null {
-        rememberCleanupError(&mut firstError, imports.deinit(allocator).asBuildError(Operation::Release, Subject::Modules));
-    } else {
-        rememberCleanupError(&mut firstError, cleanupResult(elementError));
-    }
-    cleanupResult(firstError)
 }
 
 fn isValidModuleImportName(name: &[char]) bool {
