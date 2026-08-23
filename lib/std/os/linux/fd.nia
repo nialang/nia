@@ -152,7 +152,9 @@ pub fn pipe_close_on_exec() Errno!Pipe {
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !Pipe::init(FileDescriptor::init(fds[0]), FileDescriptor::init(fds[1]))
+        let read = FileDescriptor::from_kernel(fds[0]).?;
+        let write = FileDescriptor::from_kernel(fds[1]).?;
+        !Pipe::init(read, write)
     }
 }
 
@@ -210,7 +212,7 @@ pub fn open_at(
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !FileDescriptor::init(ret as i32)
+        !FileDescriptor::from_syscall(ret).?
     }
 }
 
@@ -257,7 +259,7 @@ pub fn open_at_beneath(
     if ret < 0 {
         ret.syscall_error()!
     } else {
-        !FileDescriptor::init(ret as i32)
+        !FileDescriptor::from_syscall(ret).?
     }
 }
 

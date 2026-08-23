@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 434 completed entries in this ledger.
+- Implementation batches: 435 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2474,6 +2474,10 @@ acceptance item only when its phase-wide evidence is complete.
       required to be negative and within the errno range before negation and
       narrowing; non-negative, minimum-integer, and oversized magnitudes fail
       closed as `Io`.
+- [x] Batch 435 centralizes Linux descriptor and fork-result validation.
+      Successful syscall returns now require non-negative `i32`-representable
+      descriptors, forked child ids require positive `i32`-representable pids,
+      and kernel-filled pipe descriptors use the same checked boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -3296,6 +3296,10 @@ treated as `Io` rather than attaching another process's status to the child.
 Linux syscall error conversion also validates the raw negative return before
 narrowing it to `Errno`: non-negative values, `isize::MIN`, and magnitudes above
 the Linux errno range become `Io` instead of wrapping into an unrelated code.
+Successful Linux descriptor and fork results pass through checked constructors:
+kernel-returned descriptors must be non-negative and fit `i32`, while a forked
+child pid must be positive and fit `i32`. Malformed results fail before a typed
+handle or child identity is published.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
