@@ -2755,6 +2755,12 @@ Fixed-vector constant construction reports lane-count and lane-type violations
 as ordinary `LlvmError::Error` results, preserving the fallible API contract
 instead of classifying caller-provided shape mismatches as compiler ICEs.
 
+Instruction alignment uses the same opcode boundary: only alloca, load, store,
+atomic RMW, and compare-exchange instructions may receive alignment metadata.
+`InstructionValue::set_alignment` rejects all other opcodes before
+`LLVMSetAlignment`, while global alignment remains separately validated by the
+global wrapper.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

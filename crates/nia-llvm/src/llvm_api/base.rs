@@ -1925,6 +1925,18 @@ impl<'ctx> InstructionValue<'ctx> {
     /// Sets the instruction's required byte alignment.
     pub fn set_alignment(self, bytes: u32) -> LlvmResult<()> {
         validate_alignment(bytes)?;
+        match self.get_opcode() {
+            LLVMOpcode::LLVMAlloca
+            | LLVMOpcode::LLVMLoad
+            | LLVMOpcode::LLVMStore
+            | LLVMOpcode::LLVMAtomicRMW
+            | LLVMOpcode::LLVMAtomicCmpXchg => {}
+            _ => {
+                return Err(LlvmError::error(
+                    "LLVM alignment requires a memory instruction",
+                ));
+            }
+        }
         unsafe { LLVMSetAlignment(self.raw, bytes) };
         Ok(())
     }

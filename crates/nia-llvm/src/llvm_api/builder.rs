@@ -2331,6 +2331,42 @@ mod tests {
     }
 
     #[test]
+    fn rejects_alignment_on_non_memory_instruction() {
+        let context = Context::create();
+        let module = context.create_module("alignment-opcode").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context
+                    .void_type()
+                    .fn_type(&[context.i32_type().into()], false),
+                None,
+            )
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(block);
+        let operand = function
+            .get_nth_param(0)
+            .unwrap()
+            .unwrap()
+            .into_int_value()
+            .unwrap();
+        let value = builder.build_int_add(operand, operand, "add").unwrap();
+        let instruction = BasicValueEnum::from(value)
+            .as_instruction_value()
+            .expect("integer add should be an instruction");
+
+        let error = instruction
+            .set_alignment(4)
+            .expect_err("alignment on integer add");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("alignment requires a memory instruction")
+        ));
+    }
+
+    #[test]
     fn rejects_out_of_bounds_aggregate_index_before_llvm_call() {
         let context = Context::create();
         let module = context.create_module("aggregate-index").unwrap();
