@@ -2263,6 +2263,13 @@ acceptance item only when its phase-wide evidence is complete.
       handle before typed construction and retains its fallible API. A context
       regression covers the shared null-handle guard, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 392 closes LLVM instruction-builder allocation.
+      `Context::create_builder` now returns `LlvmResult` and validates the
+      `LLVMCreateBuilderInContext` handle; function, adapter, and compiler
+      builtin lowering propagate failures, while wrapper tests explicitly
+      unwrap valid test builders. A context regression covers the null builder
+      guard, with LLVM/codegen suites, workspace check, formatting, and strict
+      Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

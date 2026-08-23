@@ -556,7 +556,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ),
                 ));
             };
-            let mut codegen = FunctionCodegen::new(self, function, llvm_function);
+            let mut codegen = FunctionCodegen::new(self, function, llvm_function)?;
             codegen.emit_function_body(function_body)?;
         }
         for &index in self.partition.function_instance_definitions() {
@@ -602,7 +602,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ),
                 },
                 llvm_function,
-            );
+            )?;
             codegen.emit_function_body(function_body)?;
         }
         for &index in self.partition.closure_entry_definitions() {
@@ -639,7 +639,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     closure_owner: entry.key.owner.clone(),
                 },
                 llvm_function,
-            );
+            )?;
             codegen.emit_function_body(&entry.function_body)?;
         }
         Ok(())

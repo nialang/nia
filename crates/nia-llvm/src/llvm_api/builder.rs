@@ -2288,7 +2288,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let operand = function
             .get_nth_param(0)
@@ -2325,7 +2325,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let operand = function
             .get_nth_param(0)
@@ -2362,7 +2362,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let operand = function
             .get_nth_param(0)
@@ -2396,7 +2396,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let aggregate_ty = context
             .struct_type(&[context.i32_type().into()], false)
@@ -2423,7 +2423,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let aggregate_ty = context
             .struct_type(&[context.i32_type().into()], false)
@@ -2455,7 +2455,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
 
         let error = builder
@@ -2484,7 +2484,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let vector = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
@@ -2515,7 +2515,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let vector = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
@@ -2552,7 +2552,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
         let vector = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
@@ -2590,7 +2590,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
 
         let error = builder
@@ -2618,7 +2618,7 @@ mod tests {
             )
             .unwrap();
         let block = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(block);
 
         let error = builder
@@ -2648,7 +2648,7 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let default = context.append_basic_block(function, "default").unwrap();
         let case_block = context.append_basic_block(function, "case").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2681,7 +2681,7 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let default = context.append_basic_block(function, "default").unwrap();
         let case_block = context.append_basic_block(function, "case").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let nonconstant = function
             .get_nth_param(0)
@@ -2715,7 +2715,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let ptr = context.ptr_type(Default::default()).const_null();
 
@@ -2745,7 +2745,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let ptr = context.ptr_type(Default::default()).const_null();
         let value = context.i32_type().const_zero();
@@ -2778,7 +2778,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let store = builder
             .build_store(
@@ -2808,7 +2808,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let ptr = context.ptr_type(Default::default()).const_null();
         let value = context.i32_type().const_zero();
@@ -2847,7 +2847,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2869,7 +2869,7 @@ mod tests {
             .unwrap();
         let function = module.add_function("callee", function_type, None).unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2891,7 +2891,7 @@ mod tests {
             .unwrap();
         let function = module.add_function("callee", function_type, None).unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2917,7 +2917,7 @@ mod tests {
             .unwrap();
         let function = module.add_function("callee", function_type, None).unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2941,7 +2941,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2971,7 +2971,7 @@ mod tests {
         let entry = context.append_basic_block(function, "entry").unwrap();
         let then_block = context.append_basic_block(function, "then").unwrap();
         let else_block = context.append_basic_block(function, "else").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -2995,7 +2995,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let value = context.i64_type().const_zero();
@@ -3020,7 +3020,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -3044,7 +3044,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let value = context.i32_type().const_zero();
@@ -3069,7 +3069,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -3097,7 +3097,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let lhs: BasicValueEnum<'_> = context.i32_type().const_zero().into();
@@ -3123,7 +3123,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let pointer_ty = context.ptr_type(Default::default());
 
@@ -3150,7 +3150,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -3174,7 +3174,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -3198,7 +3198,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -3235,7 +3235,7 @@ mod tests {
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let foreign = context.append_basic_block(other, "foreign").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
 
         let error = builder
@@ -3260,7 +3260,7 @@ mod tests {
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let incoming = context.append_basic_block(function, "incoming").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let phi = builder.build_phi(context.i32_type(), "phi").unwrap();
         let value = context.i64_type().const_zero();
@@ -3294,7 +3294,7 @@ mod tests {
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
         let foreign = context.append_basic_block(other, "foreign").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let phi = builder.build_phi(context.i32_type(), "phi").unwrap();
         let value = context.i32_type().const_zero();
@@ -3320,7 +3320,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let pointer = context.ptr_type(Default::default()).const_null();
 
@@ -3345,7 +3345,7 @@ mod tests {
             )
             .unwrap();
         let entry = context.append_basic_block(function, "entry").unwrap();
-        let builder = context.create_builder();
+        let builder = context.create_builder().unwrap();
         builder.position_at_end(entry);
         let vector = BasicTypeEnum::from(context.bool_type())
             .vector_type(4)

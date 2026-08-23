@@ -88,7 +88,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let function_ty = self.function_pointer_type_in(params, *return_type, false, span)?;
         let name = format!("{}__fn_adapter", entry.symbol);
         let adapter = self.add_internal_helper_function(&name, function_ty)?;
-        let builder = self.context.create_builder();
+        let builder = self
+            .context
+            .create_builder()
+            .map_err(Self::diagnostic_from_llvm_error)?;
         let block = self.context.append_basic_block(adapter, "entry")?;
         builder.position_at_end(block);
 
@@ -751,7 +754,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.trait_object_adapters.borrow().len()
         );
         let adapter = self.add_internal_helper_function(&name, function_ty)?;
-        let builder = self.context.create_builder();
+        let builder = self
+            .context
+            .create_builder()
+            .map_err(Self::diagnostic_from_llvm_error)?;
         let entry = self.context.append_basic_block(adapter, "entry")?;
         builder.position_at_end(entry);
         let mut param_index = 0;
