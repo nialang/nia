@@ -196,6 +196,10 @@ it does not make a reset implicit.
   Allocators with separately fallible backing ownership must return `false` so
   default `realloc` creates an empty block and frees the old owner; otherwise
   empty-block `free` semantics strand metadata and report a false leak.
+- Default `Allocator::realloc` must return a typed rollback error when the old
+  block release fails and cleanup of the replacement also fails. That error must
+  retain the replacement `Block` and both error identities; never reduce a
+  two-owner failure to a bare allocation error or silently drop the replacement.
 - A close-on-exec spawn error pipe is a protocol, not an ordinary best-effort
   write. Retry interrupted fixed-record reads/writes, distinguish EOF only
   after zero record bytes, and reap every failed child with an EINTR-safe wait.

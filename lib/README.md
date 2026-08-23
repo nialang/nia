@@ -58,6 +58,9 @@ The library follows a small set of ownership rules:
 - General-purpose allocator rollback retains a pending child block if malformed
   metadata is rejected but its release fails; later allocation or `deinit`
   retries that owner and keeps it visible in capacity/emptiness accounting.
+- Default `Allocator::realloc` reports a typed `ReallocError`. When both the old
+  and replacement releases fail, its `Rollback` variant carries the replacement
+  block and cleanup error so callers can retry the still-owned allocations.
 - Staged string formatting preserves format and UTF-8 errors over temporary
   writer cleanup failures; cleanup allocation errors are reported only when
   formatting itself succeeds. A backing whose `free` failed before release is

@@ -294,3 +294,29 @@ extend[T] mem::Error!T {
         self.cast_error()
     }
 }
+
+extend mem::ReallocError : error::IntoError[ExitCode] {
+    const fn into_error(self) ExitCode {
+        match self {
+            mem::ReallocError::Allocation(cause) => cause.asExitCode(),
+            mem::ReallocError::OldFree(cause) => cause.asExitCode(),
+            mem::ReallocError::Rollback {
+                primary,
+                replacement: _,
+                replacementError: _,
+            } => primary.asExitCode(),
+        }
+    }
+}
+
+extend mem::ReallocError {
+    pub const fn asExitCode(self) ExitCode {
+        self.into_error()
+    }
+}
+
+extend[T] mem::ReallocError!T {
+    pub fn exit(self) ExitCode!T {
+        self.cast_error()
+    }
+}

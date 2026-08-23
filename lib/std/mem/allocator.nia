@@ -3,6 +3,16 @@ using pkg::slice;
 
 using types::{Block, Error, Layout};
 
+pub enum ReallocError {
+    Allocation(Error),
+    OldFree(Error),
+    Rollback {
+        primary: Error,
+        replacement: Block,
+        replacementError: Error,
+    },
+}
+
 pub trait Allocator {
     fn alloc(&mut self, layout: Layout) Error!Block;
 
@@ -26,25 +36,36 @@ pub trait Allocator {
         }
     }
 
-    fn realloc(&mut self, block: Block, newLayout: Layout) Error!Block {
+    // A rollback error carries the replacement block when both fallible frees
+    // fail. The caller still owns the original block passed by value.
+    fn realloc(&mut self, block: Block, newLayout: Layout) ReallocError!Block {
         if self.remap(block, newLayout) is ?newBlock {
             return !newBlock;
         }
-        let newBlock = self.alloc(newLayout).?;
+        let newBlock = match self.alloc(newLayout) {
+            !value => value,
+            error! => return ReallocError::Allocation(error)!,
+        };
         block.copyPrefixTo(newBlock);
         match self.free(block) {
             !ok => {
                 _ = ok;
                 !newBlock
             },
-            err! => {
+            oldError! => {
                 match self.free(newBlock) {
                     !ok => {
                         _ = ok;
                     },
-                    error! => {},
+                    replacementError! => {
+                        return ReallocError::Rollback {
+                            primary: oldError,
+                            replacement: newBlock,
+                            replacementError: replacementError,
+                        }!;
+                    },
                 }
-                err!
+                ReallocError::OldFree(oldError)!
             },
         }
     }
