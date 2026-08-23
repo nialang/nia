@@ -58,6 +58,10 @@ The library follows a small set of ownership rules:
 - Executable insertion extends the pending target to cover its static-archive
   handle-list backing. Cleanup attempts the list and both strings, retains every
   failed owner, and blocks the next executable insertion until retry succeeds.
+- Module insertion owns the partial module and all appended import slots on
+  `Build`. The outer and nested lists reserve before initialization; failed
+  import name/path cleanup retains both fields and the containing imports
+  backing for recursive retry.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

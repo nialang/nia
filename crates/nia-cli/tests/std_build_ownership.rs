@@ -480,6 +480,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
     ];
     let beforeModule = allocator.activeAllocations;
     allocator.failAfter(6usize);
+    allocator.failNextRetainedFrees(2usize);
     match api.addModule(
         build::ModuleOptions::init(&"root", fs::PathView::init(&rootSource)).withImports(&imports[..]),
     ) {
@@ -493,7 +494,9 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
             }
         },
     }
-    if allocator.activeAllocations != beforeModule {
+    // The outer module list, nested imports list, and both rejected import
+    // fields remain attached to Build until the next insertion retries cleanup.
+    if allocator.activeAllocations != beforeModule + 4usize {
         return process::exit(6)!;
     }
 
