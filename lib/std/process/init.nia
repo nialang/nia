@@ -3,7 +3,7 @@ using pkg::process::types;
 using types::{Args, Env, Init};
 
 extend Init {
-    pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
+    pub(pkg) fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
         Self { argc: argc, argv: argv, envp: envp }
     }
 
