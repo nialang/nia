@@ -2108,6 +2108,11 @@ acceptance item only when its phase-wide evidence is complete.
       operands must have identical floating scalar/vector LLVM types before
       `LLVMBuildFCmp`; a precision-mismatch regression plus LLVM/codegen suites,
       workspace check, formatting, and strict Clippy pass.
+- [x] Batch 365 closes the LLVM CFG-target boundary. Unconditional/conditional
+      branches and switches now require every destination block to belong to
+      the current insertion block's function before FFI entry. A cross-function
+      target regression plus LLVM/codegen suites, workspace check, formatting,
+      and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

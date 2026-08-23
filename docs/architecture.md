@@ -2704,6 +2704,11 @@ already encode those categories in their `IntValue` and `FloatValue` handles.
 Typed floating comparison now also checks operand type identity, preventing
 different scalar precisions from reaching `LLVMBuildFCmp`.
 
+Branch and switch builders verify that every destination block belongs to the
+function owning the current insertion block. Cross-function block handles are
+therefore rejected before `LLVMBuildBr`, `LLVMBuildCondBr`, or
+`LLVMBuildSwitch`, instead of relying on module verification.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
