@@ -1619,7 +1619,7 @@ mod tests {
 
     #[test]
     fn rejects_struct_constant_field_count_mismatch() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let struct_ty = context
             .struct_type(&[context.i32_type().into()], false)
             .unwrap();
@@ -1636,7 +1636,7 @@ mod tests {
 
     #[test]
     fn rejects_struct_constant_field_type_mismatch() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let struct_ty = context
             .struct_type(&[context.i32_type().into()], false)
             .unwrap();
@@ -1653,7 +1653,7 @@ mod tests {
 
     #[test]
     fn rejects_constant_array_element_type_mismatch() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
 
         let error = context
             .i32_type()
@@ -1668,7 +1668,7 @@ mod tests {
 
     #[test]
     fn rejects_setting_body_on_literal_struct() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let struct_ty = context.struct_type(&[], false).unwrap();
 
         let error = struct_ty
@@ -1683,7 +1683,7 @@ mod tests {
 
     #[test]
     fn rejects_setting_body_after_opaque_struct_is_defined() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let struct_ty = context.opaque_struct_type("defined").unwrap();
         struct_ty
             .set_body(&[context.i32_type().into()], false)
@@ -1701,7 +1701,7 @@ mod tests {
 
     #[test]
     fn reports_constant_vector_lane_count_as_api_error() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let vector_ty = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
             .unwrap();
@@ -1718,7 +1718,7 @@ mod tests {
 
     #[test]
     fn reports_constant_vector_lane_type_as_api_error() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let vector_ty = BasicTypeEnum::from(context.i32_type())
             .vector_type(1)
             .unwrap();
@@ -1735,7 +1735,7 @@ mod tests {
 
     #[test]
     fn rejects_zero_lane_fixed_vector_types() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
 
         let error = BasicTypeEnum::from(context.i32_type())
             .vector_type(0)
@@ -1749,7 +1749,7 @@ mod tests {
 
     #[test]
     fn accepts_zero_length_fixed_array_types() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
 
         let array = BasicTypeEnum::from(context.i8_type())
             .array_type(0)
@@ -1760,7 +1760,7 @@ mod tests {
 
     #[test]
     fn rejects_integer_constant_bitcast_width_mismatch() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
 
         let error = context
             .i32_type()
@@ -1778,7 +1778,7 @@ mod tests {
 
     #[test]
     fn rejects_pointer_constant_bitcast_address_space_mismatch() {
-        let context = Context::create();
+        let context = Context::create().unwrap();
         let source = context.ptr_type(AddressSpace(1)).const_null();
 
         let error = source

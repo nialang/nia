@@ -2828,6 +2828,11 @@ checks `LLVMCreateBuilderInContext` before constructing `Builder`; function,
 adapter, and compiler-builtin lowering propagate allocation failures instead of
 retaining an assertion-only compatibility path.
 
+The context lifetime root is fallible too. `Context::create` checks the
+`LLVMContextCreate` handle before exposing the owner, and the compiler-builtin
+object path propagates that allocation diagnostic rather than treating a null
+root as an unrecoverable typed-wrapper assertion.
+
 Aggregate constant constructors use the same result-handle guard. Typed array,
 vector, named-struct, and byte-string constants reject null LLVM values before
 wrapping them, and codegen propagates those failures through static and promoted

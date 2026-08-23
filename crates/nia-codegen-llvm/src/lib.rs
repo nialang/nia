@@ -665,7 +665,8 @@ fn emit_llvm_ir_partition(
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let context =
-        time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
+        time_codegen_module_stage(options.timings, "context", &module.name, Context::create)
+            .map_err(|error| vec![error.diagnostic()])?;
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
             ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
@@ -738,7 +739,8 @@ fn emit_native_object_partition(
     })
     .map_err(|error| vec![error.diagnostic()])?;
     let context =
-        time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
+        time_codegen_module_stage(options.timings, "context", &module.name, Context::create)
+            .map_err(|error| vec![error.diagnostic()])?;
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
             ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
