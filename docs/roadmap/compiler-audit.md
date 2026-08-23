@@ -2147,6 +2147,13 @@ acceptance item only when its phase-wide evidence is complete.
       `LlvmResult`; static and vtable initialization propagate failures.
       Wrapper regressions cover an element-type mismatch, with LLVM/codegen
       suites, workspace check, formatting, and strict Clippy passing.
+- [x] Batch 372 closes the LLVM instruction-flag opcode boundary.
+      Volatile setters now accept only load/store/atomic-RMW/compare-exchange
+      instructions, weak setters only compare-exchange, and both return
+      `LlvmResult`; builder callers propagate failures. Wrapper regressions
+      cover invalid integer-add targets, while atomic ordering remains
+      explicitly backend-validated due to direction and cmpxchg relationships.
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
