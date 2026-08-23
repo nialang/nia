@@ -106,8 +106,9 @@ pub struct DirEntry {
     name: &[u8],
 }
 
-// DirIterator does not own the directory handle or caller-provided buffer.
+// DirIterator borrows the directory owner and caller-provided buffer.
 pub struct DirIterator {
+    dir: &Dir,
     reader: os::DirectoryReader,
 }
 
@@ -184,8 +185,8 @@ extend DirEntry {
 }
 
 extend DirIterator {
-    pub(pkg) fn init(reader: os::DirectoryReader) DirIterator {
-        Self { reader: reader }
+    pub(pkg) fn init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
+        Self { dir: dir, reader: reader }
     }
 }
 
@@ -193,7 +194,14 @@ extend DirIterator : Iterator {
     type Item = Error!DirEntry;
 
     pub fn next(&mut self) ?(Error!DirEntry) {
-        let entry = match self.reader.next() {
+        if self.reader.isDone() {
+            return null;
+        }
+        let handle = match self.dir.borrowHandle() {
+            !value => value,
+            error! => return ?(error!),
+        };
+        let entry = match self.reader.next(handle) {
             ?result => {
                 result.as_fs_error()
             },

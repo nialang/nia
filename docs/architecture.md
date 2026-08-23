@@ -3363,6 +3363,17 @@ truncated drafts from turning a small count prefix into a large host allocation.
 The standard filesystem close API consumes its descriptor before issuing the OS
 close. Build-plan publication clears its fallback flag before the explicit
 close, preserving the first close error without a second `BadFd` attempt.
+Filesystem I/O and directory adapters do not snapshot the integer descriptor
+from an owning `File` or `Dir`. They borrow that owner and resolve its optional
+handle before each underlying descriptor access. Closing the owner thus makes
+the next required OS read, write, or iterator refill return `BadFd` even if the
+kernel has already reused the same descriptor number for another object.
+Already buffered input remains readable and a fully exhausted directory
+iterator remains fused. Because Nia does not have a borrow checker, the caller
+remains responsible for keeping the owner storage alive and at a stable address
+for the adapter lifetime. Directory refill also commits its cursor and end
+offset only after `getdents` succeeds; a failed refill keeps the prior batch
+exhausted instead of replaying consumed entries.
 Linux directory containment helpers follow the same rule for their temporary
 parent descriptors: the filesystem operation is evaluated before cleanup, all
 opened parents are closed exactly once, and a successful operation exposes the

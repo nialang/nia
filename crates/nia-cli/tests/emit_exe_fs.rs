@@ -1047,6 +1047,156 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_fs_owner_adapters_reject_reused_descriptors() {
+    let root = temp_dir("emit_exe_std_fs_owner_adapters_reject_reused_descriptors");
+    let writer_path = root.join("writer-replacement.txt");
+    let reader_path = root.join("reader-replacement.txt");
+    std::fs::write(root.join("reader-original.txt"), b"a").expect("write original reader file");
+    std::fs::write(&reader_path, b"b").expect("write replacement reader file");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fs;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut original = fs::File::create(
+        fs::PathView::init(&"writer-original.txt"),
+        fs::CreateOptions::init(),
+    ).exit().?;
+    let mut writeBuffer: [u8; 8] = [0; 8];
+    let mut writer = original.writer(&mut writeBuffer[..]).exit().?;
+    writer.writeAll(&b"old").exit().?;
+    original.close().exit().?;
+
+    let mut replacement = fs::File::create(
+        fs::PathView::init(&"writer-replacement.txt"),
+        fs::CreateOptions::init(),
+    ).exit().?;
+    match writer.flush() {
+        !ok => {
+            _ = ok;
+            return process::exit(1)!;
+        },
+        error! => {
+            if error != fs::Error::BadFd {
+                return process::exit(2)!;
+            }
+        },
+    }
+    if writer.len() != 3usize or not writer.buffered().equals(&b"old") {
+        return process::exit(3)!;
+    }
+    replacement.close().exit().?;
+
+    let mut readOriginal = fs::File::open(
+        fs::PathView::init(&"reader-original.txt"),
+        fs::OpenOptions::readOnly(),
+    ).exit().?;
+    let mut readBuffer: [u8; 8] = [0; 8];
+    let mut reader = readOriginal.reader(&mut readBuffer[..]).exit().?;
+    readOriginal.close().exit().?;
+
+    let mut readReplacement = fs::File::open(
+        fs::PathView::init(&"reader-replacement.txt"),
+        fs::OpenOptions::readOnly(),
+    ).exit().?;
+    let mut byte: [u8; 1] = [0];
+    match reader.read(&mut byte[..]) {
+        !count => {
+            _ = count;
+            return process::exit(4)!;
+        },
+        error! => {
+            if error != fs::Error::BadFd {
+                return process::exit(5)!;
+            }
+        },
+    }
+    if reader.len() != 0usize {
+        return process::exit(6)!;
+    }
+    readReplacement.close().exit().?;
+
+    let mut cwd = fs::Dir::cwd().exit().?;
+    cwd.createDir(
+        fs::RelativePathView::fromText(&"dir-original").exit().?,
+        fs::CreateDirOptions::init(),
+    ).exit().?;
+    cwd.createDir(
+        fs::RelativePathView::fromText(&"dir-replacement").exit().?,
+        fs::CreateDirOptions::init(),
+    ).exit().?;
+    let mut dirOriginal = cwd.openDir(
+        fs::RelativePathView::fromText(&"dir-original").exit().?,
+        fs::OpenDirOptions::init(),
+    ).exit().?;
+    let mut entryBuffer: [u8; 256] = [0; 256];
+    let mut entries = dirOriginal.entries(&mut entryBuffer[..]).exit().?;
+    dirOriginal.close().exit().?;
+    let mut dirReplacement = cwd.openDir(
+        fs::RelativePathView::fromText(&"dir-replacement").exit().?,
+        fs::OpenDirOptions::init(),
+    ).exit().?;
+    match entries.next() {
+        ?result => {
+            match result {
+                !entry => {
+                    _ = entry;
+                    return process::exit(7)!;
+                },
+                error! => {
+                    if error != fs::Error::BadFd {
+                        return process::exit(8)!;
+                    }
+                },
+            }
+        },
+        null => {
+            return process::exit(9)!;
+        },
+    }
+    dirReplacement.close().exit().?;
+    cwd.deleteDir(fs::RelativePathView::fromText(&"dir-original").exit().?).exit().?;
+    cwd.deleteDir(fs::RelativePathView::fromText(&"dir-replacement").exit().?).exit().?;
+    cwd.close().exit().?;
+    !()
+}
+"#,
+    )
+    .expect("write file adapter descriptor identity source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe file adapter descriptor identity");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run file adapter descriptor identity executable");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(
+        std::fs::read(&writer_path).expect("read writer replacement"),
+        b""
+    );
+    assert_eq!(
+        std::fs::read(&reader_path).expect("read reader replacement"),
+        b"b"
+    );
+}
+
+#[test]
 fn emit_exe_std_fs_dir_close_marks_handle_closed() {
     let root = temp_dir("emit_exe_std_fs_dir_close_marks_handle_closed");
     let main = root.join("main.nia");
