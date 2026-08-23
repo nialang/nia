@@ -69,6 +69,9 @@ The library follows a small set of ownership rules:
   list before initialization. If dependency insertion fails after step commit,
   rollback moves the popped step into the pending slot; cleanup failure cannot
   replace the dependency error or discard its name/arguments.
+- Executable and static-archive install steps retain their step name and
+  destination in kind-specific pending payloads. Producer-edge failure remains
+  primary while rollback keeps both strings reachable for retry.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

@@ -579,16 +579,7 @@ extend Build {
             },
         }
         let result = self.commitPendingStep().?;
-        match self.dependOn(result, producer) {
-            !ok => {
-                _ = ok;
-                !result
-            },
-            primary! => {
-                _ = self.rollbackLastStep();
-                primary!
-            },
-        }
+        self.finishStepDependency(result, producer)
     }
 
     pub fn addInstallExecutableStep(
@@ -611,30 +602,20 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!,
         };
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        let mut payload = InstallExecutableStep::init(
+        self.prepareInstallExecutableStep(name, target).?;
+        match self.pendingStep.initializeInstallExecutable(
             self.allocator,
-            target,
-            destination,
-            handle.index(),
-        ).?;
-        let mut transferred = false;
-        defer if not transferred {
-            payload.deinit(self.allocator, handle.index()).?;
-        };
-        let result = self.addStepRecord(
             name,
-            StepKind::InstallExecutable,
-            StepPayload { installExecutable: payload },
-        ).?;
-        transferred = true;
-        let mut committed = false;
-        defer if not committed {
-            self.rollbackLastStep().?;
-        };
-        self.dependOn(result, producer).?;
-        committed = true;
-        !result
+            destination,
+        ) {
+            !ok => _ = ok,
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
+        }
+        let result = self.commitPendingStep().?;
+        self.finishStepDependency(result, producer)
     }
 
     pub fn addInstallStaticArchiveStep(
@@ -657,30 +638,20 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!,
         };
-        let handle = StepHandle::init(self.ownerId, self.steps.len());
-        let mut payload = InstallStaticArchiveStep::init(
+        self.prepareInstallStaticArchiveStep(name, target).?;
+        match self.pendingStep.initializeInstallStaticArchive(
             self.allocator,
-            target,
-            destination,
-            handle.index(),
-        ).?;
-        let mut transferred = false;
-        defer if not transferred {
-            payload.deinit(self.allocator, handle.index()).?;
-        };
-        let result = self.addStepRecord(
             name,
-            StepKind::InstallStaticArchive,
-            StepPayload { installStaticArchive: payload },
-        ).?;
-        transferred = true;
-        let mut committed = false;
-        defer if not committed {
-            self.rollbackLastStep().?;
-        };
-        self.dependOn(result, producer).?;
-        committed = true;
-        !result
+            destination,
+        ) {
+            !ok => _ = ok,
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
+        }
+        let result = self.commitPendingStep().?;
+        self.finishStepDependency(result, producer)
     }
 
     pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
@@ -1756,6 +1727,28 @@ extend Build {
         !()
     }
 
+    fn prepareInstallExecutableStep(
+        &mut self,
+        name: &[char],
+        target: ExecutableHandle,
+    ) Error!() {
+        self.prepareStepSlot(name).?;
+        self.pendingStep = Step::initInstallExecutable(self.steps.len(), target);
+        self.hasPendingStep = true;
+        !()
+    }
+
+    fn prepareInstallStaticArchiveStep(
+        &mut self,
+        name: &[char],
+        target: StaticArchiveHandle,
+    ) Error!() {
+        self.prepareStepSlot(name).?;
+        self.pendingStep = Step::initInstallStaticArchive(self.steps.len(), target);
+        self.hasPendingStep = true;
+        !()
+    }
+
     fn prepareStepSlot(&mut self, name: &[char]) Error!() {
         self.cleanupPendingStep().?;
         if not isValidStableName(name) {
@@ -1787,6 +1780,23 @@ extend Build {
         self.hasPendingStep = false;
         self.planValidated = false;
         !handle
+    }
+
+    fn finishStepDependency(
+        &mut self,
+        step: StepHandle,
+        dependency: StepHandle,
+    ) Error!StepHandle {
+        match self.dependOn(step, dependency) {
+            !ok => {
+                _ = ok;
+                !step
+            },
+            primary! => {
+                _ = self.rollbackLastStep();
+                primary!
+            },
+        }
     }
 
     fn cleanupPendingStep(&mut self) Error!() {
@@ -1977,20 +1987,19 @@ extend RunOptions {
 }
 
 extend InstallExecutableStep {
-    fn init(
-        allocator: &mut mem::Allocator,
-        target: ExecutableHandle,
-        destination: BuildPathView,
-        index: usize,
-    ) Error!InstallExecutableStep {
-        let owned = string::String::fromSlice(
+    fn init(target: ExecutableHandle) InstallExecutableStep {
+        Self {
+            target: target,
+            destination: string::String::init(),
+        }
+    }
+
+    fn initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
+        self.destination = string::String::fromSlice(
             allocator,
             destination.text(),
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !Self {
-            target: target,
-            destination: owned,
-        }
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -1999,20 +2008,19 @@ extend InstallExecutableStep {
 }
 
 extend InstallStaticArchiveStep {
-    fn init(
-        allocator: &mut mem::Allocator,
-        target: StaticArchiveHandle,
-        destination: BuildPathView,
-        index: usize,
-    ) Error!InstallStaticArchiveStep {
-        let owned = string::String::fromSlice(
+    fn init(target: StaticArchiveHandle) InstallStaticArchiveStep {
+        Self {
+            target: target,
+            destination: string::String::init(),
+        }
+    }
+
+    fn initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
+        self.destination = string::String::fromSlice(
             allocator,
             destination.text(),
         ).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        !Self {
-            target: target,
-            destination: owned,
-        }
+        !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
@@ -2475,6 +2483,24 @@ extend Step {
         }
     }
 
+    fn initInstallExecutable(index: usize, target: ExecutableHandle) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: StepKind::InstallExecutable,
+            payload: StepPayload { installExecutable: InstallExecutableStep::init(target) },
+        }
+    }
+
+    fn initInstallStaticArchive(index: usize, target: StaticArchiveHandle) Step {
+        Self {
+            index: index,
+            name: string::String::init(),
+            kind: StepKind::InstallStaticArchive,
+            payload: StepPayload { installStaticArchive: InstallStaticArchiveStep::init(target) },
+        }
+    }
+
     fn initializeGeneratedFile(
         &mut self,
         allocator: &mut mem::Allocator,
@@ -2504,6 +2530,26 @@ extend Step {
     ) Error!() {
         self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.runExecutable.initialize(allocator, arguments, self.index)
+    }
+
+    fn initializeInstallExecutable(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        destination: BuildPathView,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.payload.installExecutable.initialize(allocator, destination, self.index)
+    }
+
+    fn initializeInstallStaticArchive(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        destination: BuildPathView,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.payload.installStaticArchive.initialize(allocator, destination, self.index)
     }
 
     fn init(

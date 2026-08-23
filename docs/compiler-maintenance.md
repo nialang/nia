@@ -427,6 +427,10 @@ signals, not architecture goals.
   `rollbackLastStep` moves it into `Build.pendingStep` before cleanup. Run/test
   dependency errors stay primary over rollback failures, while argument list,
   argument strings, and step name remain reachable for the next operation.
+- Use the same pending-step and explicit dependency completion path for install
+  actions. Executable and static-archive destination strings must not have a
+  separate fallible defer or a cleanup error that replaces producer-edge
+  failure.
 - Treat plan-encoding bytes as a `Build`-owned publication buffer. Do not hide
   its release in a fallible defer; retain it through encoding and file
   publication, preserve the first writer/flush/sync/close error, and retry a
