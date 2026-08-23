@@ -48,6 +48,10 @@ The library follows a small set of ownership rules:
   path, target component, and requested-step string. `finish` must be retried
   after a cleanup failure; it exposes the complete `Build` or primary
   initialization error only when partial cleanup is complete.
+- Package graph insertion reserves the containing list first and initializes a
+  `Build`-owned pending record. A failed package field release remains attached
+  for retry by the next insertion or `Build::deinit`; no local rollback defer
+  can discard it.
 - Build dependency validation stores its indegree and ready-list scratch owners
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on

@@ -3300,6 +3300,10 @@ Build construction is also an explicit transaction. `Build::init` returns a
 result. `finish` retries every retained path, target component, and requested
 step after allocator release failure, and transfers the complete `Build` or
 publishes the primary error only after cleanup succeeds.
+Package insertion extends that transaction boundary into graph mutation. The
+package list reserves its slot before field retention, while `Build` owns the
+pending package until both name and root are initialized. Failed rollback keeps
+that pending record reachable for the next insertion or final deinitialization.
 Build-plan dependency validation keeps its two scratch lists on the `Build`
 owner rather than on fallible defers. Validation always attempts both scratch
 releases; a cycle or other validation failure remains the primary error, while
