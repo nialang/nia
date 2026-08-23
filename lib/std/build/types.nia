@@ -371,6 +371,15 @@ pub struct BuildPaths {
     toolchainResourceRoot: fs::Path,
 }
 
+// BuildInitAttempt retains every partially initialized owner until finish can
+// either transfer the complete Build or cleanly publish the initialization
+// error. A cleanup failure leaves the attempt retryable.
+pub struct BuildInitAttempt {
+    build: Build,
+    primary: ?error::Error,
+    active: bool,
+}
+
 // `Build` owns the mutable declaration graph. Validation covers the complete
 // graph, including unselected components, before the plan draft is published.
 pub struct Build {
