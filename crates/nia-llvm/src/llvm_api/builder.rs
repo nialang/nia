@@ -2450,6 +2450,7 @@ mod tests {
         builder.position_at_end(block);
         let vector = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
+            .unwrap()
             .const_zero()
             .unwrap();
 
@@ -2476,6 +2477,7 @@ mod tests {
         builder.position_at_end(block);
         let vector = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
+            .unwrap()
             .const_zero()
             .unwrap()
             .into_vector_value()
@@ -2508,12 +2510,14 @@ mod tests {
         builder.position_at_end(block);
         let vector = BasicTypeEnum::from(context.i32_type())
             .vector_type(2)
+            .unwrap()
             .const_zero()
             .unwrap()
             .into_vector_value()
             .unwrap();
         let mask = BasicTypeEnum::from(context.i64_type())
             .vector_type(2)
+            .unwrap()
             .const_zero()
             .unwrap()
             .into_vector_value()
@@ -3191,6 +3195,7 @@ mod tests {
         builder.position_at_end(entry);
         let vector = BasicTypeEnum::from(context.bool_type())
             .vector_type(4)
+            .unwrap()
             .const_zero()
             .unwrap();
 

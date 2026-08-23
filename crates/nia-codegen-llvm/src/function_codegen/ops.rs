@@ -451,8 +451,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|error| {
                 self.error(span, format!("failed to create wide shift type: {error:?}"))
             })?;
-        let wide_ty: BasicTypeEnum<'ctx> =
-            BasicTypeEnum::from(wide_int_ty).vector_type(lanes).into();
+        let wide_ty: BasicTypeEnum<'ctx> = BasicTypeEnum::from(wide_int_ty)
+            .vector_type(lanes)
+            .map_err(|error| {
+                self.error(
+                    span,
+                    format!("failed to create wide vector type: {error:?}"),
+                )
+            })?
+            .into();
         let wide_lhs = if elem.is_signed_integer() {
             self.builder
                 .build_basic_int_s_extend(lhs, wide_ty, "shift.lhs.wide")
@@ -784,6 +791,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .into_vector_value()?;
         let mask = BasicTypeEnum::from(self.module.context.i32_type())
             .vector_type(lanes)
+            .map_err(|error| {
+                self.error(
+                    span,
+                    format!("failed to create vector splat mask type: {error:?}"),
+                )
+            })?
             .const_zero()
             .map_err(|_| self.error(span, "failed to create vector splat mask"))?
             .into_vector_value()?;

@@ -561,6 +561,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .into_vector_value()?;
         let mask = BasicTypeEnum::from(self.module.context.i32_type())
             .vector_type(lanes)
+            .map_err(|error| {
+                self.error(
+                    expr.span,
+                    format!("failed to create splat mask type: {error:?}"),
+                )
+            })?
             .const_zero()
             .map_err(|_| self.error(expr.span, "failed to create splat mask"))?
             .into_vector_value()?;

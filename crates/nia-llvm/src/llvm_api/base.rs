@@ -1035,8 +1035,17 @@ impl<'ctx> BasicTypeEnum<'ctx> {
     }
 
     /// Creates a fixed-width vector of this lane type.
-    pub fn vector_type(self, len: u32) -> VectorType<'ctx> {
-        VectorType::new(unsafe { LLVMVectorType(self.as_type_ref(), len) })
+    pub fn vector_type(self, len: u32) -> LlvmResult<VectorType<'ctx>> {
+        if len == 0 {
+            return Err(LlvmError::error(
+                "LLVM fixed vector type requires at least one lane",
+            ));
+        }
+        let raw = unsafe { LLVMVectorType(self.as_type_ref(), len) };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null vector type"));
+        }
+        Ok(VectorType::new(raw))
     }
 
     /// Reports whether this enum contains a pointer type.
@@ -1576,7 +1585,9 @@ mod tests {
     #[test]
     fn reports_constant_vector_lane_count_as_api_error() {
         let context = Context::create();
-        let vector_ty = BasicTypeEnum::from(context.i32_type()).vector_type(2);
+        let vector_ty = BasicTypeEnum::from(context.i32_type())
+            .vector_type(2)
+            .unwrap();
 
         let error = vector_ty
             .const_vector(&[context.i32_type().const_zero().into()])
@@ -1591,7 +1602,9 @@ mod tests {
     #[test]
     fn reports_constant_vector_lane_type_as_api_error() {
         let context = Context::create();
-        let vector_ty = BasicTypeEnum::from(context.i32_type()).vector_type(1);
+        let vector_ty = BasicTypeEnum::from(context.i32_type())
+            .vector_type(1)
+            .unwrap();
 
         let error = vector_ty
             .const_vector(&[context.i64_type().const_zero().into()])
@@ -1601,6 +1614,20 @@ mod tests {
             error,
             LlvmError::Error(message) if message.contains("constant vector lane 0 type does not match")
         ));
+    }
+
+    #[test]
+    fn rejects_zero_lane_fixed_vector_types() {
+        let context = Context::create();
+
+        let error = BasicTypeEnum::from(context.i32_type())
+            .vector_type(0)
+            .expect_err("zero-lane fixed vector type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM fixed vector type requires at least one lane".to_string())
+        );
     }
 
     #[test]

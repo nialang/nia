@@ -651,7 +651,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if lanes == 0 {
             return Err(self.error(span, "SIMD vector type requires at least one lane"));
         }
-        Ok(self.primitive_type(elem, span)?.vector_type(lanes).into())
+        self.primitive_type(elem, span)?
+            .vector_type(lanes)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     pub(super) fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
@@ -907,9 +910,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             8 => Ok(self.context.i64_type().into()),
             16 => Ok(self.context.i128_type().into()),
             align if align.is_power_of_two() && align <= u64::from(u32::MAX) => {
-                Ok(BasicTypeEnum::from(self.context.i8_type())
+                BasicTypeEnum::from(self.context.i8_type())
                     .vector_type(align as u32)
-                    .into())
+                    .map(Into::into)
+                    .map_err(Self::diagnostic_from_llvm_error)
             }
             _ => Err(self.error(span, format!("unsupported union alignment {align}"))),
         }
