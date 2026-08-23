@@ -2358,6 +2358,10 @@ acceptance item only when its phase-wide evidence is complete.
       lengths to semantic `u64`, failing closed or preserving the original form
       when the conversion is unavailable; body-check/backend-lower/LLVM suites,
       workspace check, formatting, and strict Clippy pass.
+- [x] Batch 409 closes LLVM vector lane host-width narrowing.
+      Promoted vector constants now checked-convert semantic `u32` lane counts
+      to host `usize` before materialization, with a conversion regression and
+      LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -1440,6 +1440,10 @@ fn checked_tuple_field_index(index: usize) -> Option<u32> {
     u32::try_from(index).ok()
 }
 
+fn checked_vector_lane_count(lanes: u32) -> Option<usize> {
+    usize::try_from(lanes).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1468,6 +1472,14 @@ mod tests {
         assert_eq!(checked_tuple_field_index(max), Some(u32::MAX));
         if usize::BITS > u32::BITS {
             assert_eq!(checked_tuple_field_index(max + 1), None);
+        }
+    }
+
+    #[test]
+    fn vector_lane_count_conversion_is_checked() {
+        assert_eq!(checked_vector_lane_count(1), Some(1));
+        if usize::BITS < u32::BITS {
+            assert_eq!(checked_vector_lane_count(u32::MAX), None);
         }
     }
 }
