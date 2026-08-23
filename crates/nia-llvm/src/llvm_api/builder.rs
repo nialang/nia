@@ -1085,6 +1085,7 @@ impl<'ctx> Builder<'ctx> {
         value: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_unary_operand(value.as_value_ref(), BinaryOperandKind::Integer)?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe { LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
@@ -1095,6 +1096,7 @@ impl<'ctx> Builder<'ctx> {
         value: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_unary_operand(value.as_value_ref(), BinaryOperandKind::Floating)?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe { LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
@@ -1105,6 +1107,7 @@ impl<'ctx> Builder<'ctx> {
         value: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_unary_operand(value.as_value_ref(), BinaryOperandKind::Integer)?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe { LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
@@ -2065,6 +2068,27 @@ fn validate_binary_operands(
     Ok(())
 }
 
+fn validate_unary_operand(value: LLVMValueRef, kind: BinaryOperandKind) -> LlvmResult<()> {
+    let ty = require_type(unsafe { LLVMTypeOf(value) }, "unary operand")?;
+    let valid = match kind {
+        BinaryOperandKind::Integer | BinaryOperandKind::IntegerComparison => {
+            is_integer_bin_type(ty)
+        }
+        BinaryOperandKind::Floating => is_floating_bin_type(ty),
+    };
+    if !valid {
+        return Err(LlvmError::error(match kind {
+            BinaryOperandKind::Integer | BinaryOperandKind::IntegerComparison => {
+                "LLVM integer unary operation requires integer scalar or vector types"
+            }
+            BinaryOperandKind::Floating => {
+                "LLVM floating unary operation requires floating scalar or vector types"
+            }
+        }));
+    }
+    Ok(())
+}
+
 fn is_integer_bin_type(ty: LLVMTypeRef) -> bool {
     match unsafe { LLVMGetTypeKind(ty) } {
         LLVMTypeKind::LLVMIntegerTypeKind => true,
@@ -2791,6 +2815,46 @@ mod tests {
             )
             .unwrap();
         assert!(value.is_int_value());
+    }
+
+    #[test]
+    fn rejects_integer_unary_operation_with_float_value_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("integer-unary-kind").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_basic_not(context.f32_type().const_zero().into(), "invalid")
+            .expect_err("integer unary operation with float value");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("integer unary operation requires")
+        ));
+    }
+
+    #[test]
+    fn rejects_floating_unary_operation_with_integer_value_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("floating-unary-kind").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_basic_float_neg(context.i32_type().const_zero().into(), "invalid")
+            .expect_err("floating unary operation with integer value");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("floating unary operation requires")
+        ));
     }
 
     #[test]

@@ -2697,6 +2697,11 @@ floating operation or combine differently shaped operands. The shared integer
 comparison helper separately permits same-address-space pointer equality and
 inequality, which LLVM's `icmp` defines in addition to integer comparison.
 
+The shared unary builders apply the same category boundary: integer negation
+and bitwise-not accept only integer scalar/vector values, while floating
+negation accepts only floating scalar/vector values. The typed unary builders
+already encode those categories in their `IntValue` and `FloatValue` handles.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
