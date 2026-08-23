@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 428 completed entries in this ledger.
+- Implementation batches: 429 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2448,6 +2448,11 @@ acceptance item only when its phase-wide evidence is complete.
       validate the final component after the loop, preserving rejection of
       empty/current/parent components without incrementing `len` at the end.
       Build-plan owner and standard build-case coverage remain green.
+- [x] Batch 429 hardens UTF-8 view state transitions. Decoded byte widths now
+      pass through checked in-slice advancement, scalar counts use checked
+      accumulation, and iterators fail closed if advancement or remaining-count
+      subtraction is not representable. Existing Unicode, string, formatting,
+      and process text workflows preserve their behavior.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
