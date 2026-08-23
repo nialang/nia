@@ -2052,6 +2052,12 @@ acceptance item only when its phase-wide evidence is complete.
       success/failure ordering combinations before FFI entry. Wrapper tests
       cover a floating RMW operand and invalid cmpxchg ordering; LLVM/codegen
       suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 356 closes the LLVM fence ordering boundary. `build_fence` now
+      rejects unordered, monotonic, and non-atomic orderings before
+      `LLVMBuildFence`, matching the backend validator's acquire/release,
+      acquire-release, and sequentially-consistent contract. A malformed
+      monotonic-fence regression plus LLVM/codegen suites, workspace check,
+      formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

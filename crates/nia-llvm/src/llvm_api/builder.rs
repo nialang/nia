@@ -405,6 +405,7 @@ impl<'ctx> Builder<'ctx> {
         sync_scope: i32,
         name: &str,
     ) -> LlvmResult<InstructionValue<'ctx>> {
+        validate_fence_ordering(ordering)?;
         let name = to_c_string(name)?;
         let instruction =
             unsafe { LLVMBuildFence(self.raw, ordering.into(), sync_scope, name.as_ptr()) };
@@ -1513,6 +1514,21 @@ fn validate_atomic_rmw(
     Ok(())
 }
 
+fn validate_fence_ordering(ordering: AtomicOrdering) -> LlvmResult<()> {
+    if !matches!(
+        ordering,
+        AtomicOrdering::Acquire
+            | AtomicOrdering::Release
+            | AtomicOrdering::AcquireRelease
+            | AtomicOrdering::SequentiallyConsistent
+    ) {
+        return Err(LlvmError::error(
+            "LLVM fence requires acquire, release, acquire-release, or sequentially-consistent ordering",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_cmpxchg(
     expected: LLVMValueRef,
     desired: LLVMValueRef,
@@ -2122,6 +2138,26 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("ordering combination is invalid")
+        ));
+    }
+
+    #[test]
+    fn rejects_monotonic_fence_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("fence-order").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_fence(AtomicOrdering::Monotonic, 0, "invalid")
+            .expect_err("monotonic fence ordering");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("fence requires acquire")
         ));
     }
 }

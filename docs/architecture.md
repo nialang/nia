@@ -2656,6 +2656,10 @@ its failure ordering must be legal relative to success. Opaque pointer
 pointee/provenance facts remain owned by backend validation because LLVM does
 not expose them through the typed pointer handle.
 
+Fence construction is checked separately: LLVM fences accept only acquire,
+release, acquire-release, or sequentially consistent ordering. The wrapper
+rejects unordered, monotonic, and non-atomic values before `LLVMBuildFence`.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
