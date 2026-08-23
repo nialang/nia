@@ -140,6 +140,10 @@ The library follows a small set of ownership rules:
 - Successful allocator remap changes only a block's logical layout. Default and
   concrete remap paths preserve the original release pointer and length, as do
   arena backing-chunk resizes.
+- Arena cleanup detaches used and free chunk lists, attempts every child-block
+  release, and links each failed owner back into the arena free list. A later
+  `deinit` retries only those residual chunks; one failed release must not hide
+  a later chunk or erase retained capacity.
 - `Allocator::allocSlice` returns a `SliceAllocation[T]` owner instead of a raw
   slice. `asSlice` and `asMutSlice` borrow its view, `deinit` releases the exact
   `Block` even for a zero-length view, and `ArrayList`/`String` owner-transfer

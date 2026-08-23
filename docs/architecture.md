@@ -2190,6 +2190,11 @@ canonical `Block::withLayout` transition preserves its release pointer and
 length; default and concrete allocator remap paths must not rebuild a block from
 the exposed pointer. Arena backing-chunk growth applies the same rule after a
 child allocator resizes the containing block.
+Arena destruction detaches both used and free chunk lists, attempts every child
+block release, and links only failed chunks back into the allocator's free list
+with reset cursors. Capacity therefore continues to account for every residual
+owner, and a later `deinit` retries only those chunks instead of revisiting
+already released blocks or losing the tail after the first error.
 Collection cleanup follows the same explicit-owner rule. A `HashMap` stores its
 control bytes, keys, and values as aligned views into one allocation block;
 `deinit` therefore has one owner to release and retains that block unchanged on
