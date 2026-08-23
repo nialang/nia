@@ -40,6 +40,9 @@ The library follows a small set of ownership rules:
   attached by the owning module.
 - Generic I/O adapters preserve the wrapped reader or writer's invalid-transfer
   error identity while rejecting impossible byte counts before mutating state.
+- Slice iterators validate checked element offsets and addresses before moving
+  their front or back bounds; an impossible address returns `null` without
+  consuming the pending element.
 - Callback parameters are borrowed for the duration of a call unless an API
   explicitly returns an owner such as `mem::CallableAllocation`.
 - `mem::allocValue` is the public construction boundary for allocator-backed

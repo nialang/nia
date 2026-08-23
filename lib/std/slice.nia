@@ -103,8 +103,8 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            self.len -= 1;
-            let offset = match self.len.checked_mul(std::builtin::size[T]()) {
+            let backIndex = self.len - 1;
+            let offset = match backIndex.checked_mul(std::builtin::size[T]()) {
                 ?value => value,
                 null => return null,
             };
@@ -112,6 +112,7 @@ where T: Sized
                 ?value => value,
                 null => return null,
             };
+            self.len = backIndex;
             ?(address as &T)
         }
     }
@@ -148,8 +149,8 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            self.len -= 1;
-            let offset = match self.len.checked_mul(std::builtin::size[T]()) {
+            let backIndex = self.len - 1;
+            let offset = match backIndex.checked_mul(std::builtin::size[T]()) {
                 ?value => value,
                 null => return null,
             };
@@ -157,6 +158,7 @@ where T: Sized
                 ?value => value,
                 null => return null,
             };
+            self.len = backIndex;
             ?(address as &mut T)
         }
     }
