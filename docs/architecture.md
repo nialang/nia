@@ -1337,6 +1337,9 @@ cannot be represented, so optimization never changes the accepted shape.
 LLVM vector constant materialization also checks the semantic lane count before
 using it as a host `usize` loop bound, failing with a diagnostic instead of
 wrapping on a narrower host.
+Backend function-body instantiation checks target-`usize` const-generic payloads
+before storing them in the IR's canonical `u64` representation; malformed IR
+crosses the existing structural-error boundary instead of truncating the value.
 
 Const struct literals have one typed surface: the source literal names a
 nominal type, and resolved const IR stores that type as a required field. The

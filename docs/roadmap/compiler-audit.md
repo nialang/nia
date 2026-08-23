@@ -2362,6 +2362,11 @@ acceptance item only when its phase-wide evidence is complete.
       Promoted vector constants now checked-convert semantic `u32` lane counts
       to host `usize` before materialization, with a conversion regression and
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 410 closes backend target-`usize` const narrowing.
+      Function-body instantiation now checked-converts `u128` const-generic
+      payloads before storing canonical `u64` `usize` values, routing overflow
+      through the invalid-IR boundary; backend-lower/LLVM suites, workspace
+      check, formatting, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
