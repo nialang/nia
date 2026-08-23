@@ -113,6 +113,8 @@ struct NonEmptyZeroAllocator {
     freeCount: usize,
 }
 
+struct Empty {}
+
 extend NonEmptyZeroAllocator {
     fn init() NonEmptyZeroAllocator {
         Self { backing: mem::PageAllocator::init(), freeCount: 0 }
@@ -150,6 +152,35 @@ fn check_zero_length_slice_releases_block_owner() process::ExitCode!() {
     !()
 }
 
+fn check_zero_sized_value_releases_block_owner() process::ExitCode!() {
+    let mut allocator = NonEmptyZeroAllocator::init();
+    let mut owned = mem::allocValue[Empty](&mut allocator, {}).exit().?;
+    owned.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 1 {
+        return process::exit(1)!;
+    }
+    owned.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 1 {
+        return process::exit(2)!;
+    }
+
+    let mut callableStorage = mem::allocValue[Empty](&mut allocator, {}).exit().?;
+    let mut callableOwner = callableStorage.intoCallable(42u8);
+    callableStorage.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 1 or callableOwner.callback() != 42u8 {
+        return process::exit(3)!;
+    }
+    callableOwner.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 2 {
+        return process::exit(4)!;
+    }
+    callableOwner.deinit(&mut allocator).exit().?;
+    if allocator.freeCount != 2 {
+        return process::exit(5)!;
+    }
+    !()
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     check_page_allocator_allocates().?;
@@ -158,6 +189,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     check_layout_rejects_array_size_overflow().?;
     check_allocator_can_allocate_typed_slices().?;
     check_zero_length_slice_releases_block_owner().?;
+    check_zero_sized_value_releases_block_owner().?;
     !()
 }
 "#,

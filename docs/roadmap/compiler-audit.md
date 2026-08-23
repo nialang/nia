@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 467 completed entries in this ledger.
+- Implementation batches: 468 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2651,6 +2651,12 @@ acceptance item only when its phase-wide evidence is complete.
       failed retry leaves the source intact. The process executable regression
       covers failed and successful retries, then verifies both allocations are
       released.
+- [x] Batch 468 preserves allocator-returned layouts in single typed owners.
+      `Allocated` and `CallableAllocation` now carry the actual Block size and
+      alignment rather than rebuilding them from the typed value layout, so a
+      zero-sized value backed by a non-empty custom allocation is released
+      exactly once before and after callable transfer. The allocator executable
+      regression covers both owner forms and repeated cleanup.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
