@@ -3261,6 +3261,9 @@ Process execution likewise has one maintained `Command` lowering path. The
 former public `process::spawnRaw` escape hatch and process-view raw pointer
 getters are removed, so callers cannot bypass argument/environment encoding or
 the spawn error-handshake and ownership rules.
+`Env` records the count of the startup `envp` vector once at its package-owned
+construction boundary; iteration and lookup do not rescan the unbounded pointer
+array on every operation.
 
 The public `std::io::Reader` and `Writer` contracts require every implementation
 to report no more bytes than the slice supplied to that call. Trait defaults and
