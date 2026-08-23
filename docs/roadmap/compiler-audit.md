@@ -2328,6 +2328,10 @@ acceptance item only when its phase-wide evidence is complete.
       now checked-convert host lengths to LLVM's `u64` count ABI through
       `checked_u64_count`; a width regression covers the shared helper, with
       LLVM/codegen suites, workspace check, formatting, and strict Clippy pass.
+- [x] Batch 403 removes duplicate LLVM `u32` count conversions.
+      Struct-body and phi-incoming wrappers now use the shared
+      `checked_u32_count` helper directly, eliminating parallel conversion and
+      error paths while preserving the existing LLVM/codegen coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

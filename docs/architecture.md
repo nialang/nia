@@ -2813,6 +2813,10 @@ byte lengths, so these paths cannot silently truncate host `usize` values.
 Debug-info struct and union element lists use the same checked conversion
 before DIBuilder calls.
 
+Struct-body and phi-incoming validation use that helper directly rather than
+maintaining duplicate `u32::try_from` error paths, keeping LLVM count guards
+centralized as new wrapper operations are audited.
+
 Context-local struct type construction follows the same fallible boundary:
 `Context::struct_type` checks the field count against LLVM's `u32` ABI width
 and validates the `LLVMStructTypeInContext` result before exposing a typed
