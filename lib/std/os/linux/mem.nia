@@ -20,6 +20,8 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
     );
     if ret < 0 {
         ret.syscall_error()!
+    } else if ret == 0isize {
+        Errno::Io!
     } else {
         !((ret as usize) as &mut u8)
     }

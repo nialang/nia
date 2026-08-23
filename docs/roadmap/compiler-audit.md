@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 437 completed entries in this ledger.
+- Implementation batches: 438 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2485,6 +2485,9 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Batch 437 closes the remaining Linux `pipe2` success boundary. The
       syscall must return exactly zero before its kernel-filled descriptor pair
       is consumed; positive anomalies now fail as `Io`.
+- [x] Batch 438 closes the Linux anonymous `mmap` null-address boundary. A zero
+      success return is rejected before conversion to a mutable reference;
+      non-zero mappings retain the existing checked range-trimming behavior.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
