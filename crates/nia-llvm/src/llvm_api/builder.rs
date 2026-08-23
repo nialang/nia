@@ -13,16 +13,15 @@ use llvm_sys::core::{
     LLVMBuildFDiv, LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI,
     LLVMBuildFRem, LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp,
     LLVMBuildInsertElement, LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2,
-    LLVMBuildMemCpy, LLVMBuildMemMove, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot,
-    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrToInt, LLVMBuildRet,
-    LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
-    LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
-    LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
-    LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
-    LLVMCountStructElementTypes, LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType,
-    LLVMGetInsertBlock, LLVMGetIntTypeWidth, LLVMGetTypeKind, LLVMGetVectorSize,
-    LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2,
-    LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot, LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast,
+    LLVMBuildPtrToInt, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt,
+    LLVMBuildSIToFP, LLVMBuildSRem, LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector,
+    LLVMBuildStore, LLVMBuildStructGEP2, LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc,
+    LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor,
+    LLVMBuildZExt, LLVMClearInsertionPosition, LLVMCountStructElementTypes, LLVMDisposeBuilder,
+    LLVMGetArrayLength2, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetIntTypeWidth,
+    LLVMGetTypeKind, LLVMGetVectorSize, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
+    LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -396,70 +395,6 @@ impl<'ctx> Builder<'ctx> {
                 name.as_ptr(),
             )
         })
-    }
-
-    /// Copies `size` bytes between non-overlapping regions.
-    pub fn build_memcpy(
-        &self,
-        dest: PointerValue<'ctx>,
-        dest_align: u32,
-        src: PointerValue<'ctx>,
-        src_align: u32,
-        size: IntValue<'ctx>,
-    ) -> LlvmResult<PointerValue<'ctx>> {
-        let value = unsafe {
-            LLVMBuildMemCpy(
-                self.raw,
-                dest.as_value_ref(),
-                dest_align,
-                src.as_value_ref(),
-                src_align,
-                size.as_value_ref(),
-            )
-        };
-        Ok(PointerValue::new(require_value(value, "memcpy")?))
-    }
-
-    /// Fills `size` bytes with the low byte of `value`.
-    pub fn build_memset(
-        &self,
-        dest: PointerValue<'ctx>,
-        align: u32,
-        value: IntValue<'ctx>,
-        size: IntValue<'ctx>,
-    ) -> LlvmResult<PointerValue<'ctx>> {
-        let value = unsafe {
-            LLVMBuildMemSet(
-                self.raw,
-                dest.as_value_ref(),
-                value.as_value_ref(),
-                size.as_value_ref(),
-                align,
-            )
-        };
-        Ok(PointerValue::new(require_value(value, "memset")?))
-    }
-
-    /// Copies `size` bytes between regions that may overlap.
-    pub fn build_memmove(
-        &self,
-        dest: PointerValue<'ctx>,
-        dest_align: u32,
-        src: PointerValue<'ctx>,
-        src_align: u32,
-        size: IntValue<'ctx>,
-    ) -> LlvmResult<PointerValue<'ctx>> {
-        let value = unsafe {
-            LLVMBuildMemMove(
-                self.raw,
-                dest.as_value_ref(),
-                dest_align,
-                src.as_value_ref(),
-                src_align,
-                size.as_value_ref(),
-            )
-        };
-        Ok(PointerValue::new(require_value(value, "memmove")?))
     }
 
     /// Emits an atomic fence with the selected ordering and sync scope.
