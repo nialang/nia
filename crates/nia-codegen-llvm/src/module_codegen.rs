@@ -523,7 +523,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .and_then(|bits| u32::try_from(bits).ok())
             .filter(|bits| matches!(bits, 8 | 16 | 32 | 64 | 128))
             .ok_or_else(|| self.error(span, "target pointer width is not an LLVM integer width"))?;
-        Ok(self.context.custom_width_int_type(bits))
+        self.context
+            .custom_width_int_type(bits)
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {

@@ -3195,7 +3195,7 @@ mod tests {
             .unwrap();
 
         let value = builder
-            .build_bit_cast(vector, context.custom_width_int_type(4), "valid")
+            .build_bit_cast(vector, context.custom_width_int_type(4).unwrap(), "valid")
             .unwrap();
         assert!(value.is_int_value());
     }

@@ -680,7 +680,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             ));
         }
         let vector = self.emit_expr(vector)?;
-        let packed_ty = self.module.context.custom_width_int_type(lanes);
+        let packed_ty = self
+            .module
+            .context
+            .custom_width_int_type(lanes)
+            .map_err(|error| {
+                self.error(
+                    expr.span,
+                    format!("failed to create bitmask type: {error:?}"),
+                )
+            })?;
         let packed = self
             .builder
             .build_bit_cast(vector, packed_ty, "bitmask.pack")

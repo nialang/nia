@@ -12,9 +12,9 @@ use llvm_sys::core::{
     LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMCreateStringAttribute, LLVMDisposeMemoryBuffer,
     LLVMDisposeModule, LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm,
     LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext,
-    LLVMInt64TypeInContext, LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext,
-    LLVMPointerTypeInContext, LLVMStructCreateNamed, LLVMStructTypeInContext,
-    LLVMVoidTypeInContext,
+    LLVMInt64TypeInContext, LLVMInt128TypeInContext, LLVMIntTypeInContext,
+    LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext, LLVMStructCreateNamed,
+    LLVMStructTypeInContext, LLVMVoidTypeInContext,
 };
 use llvm_sys::prelude::LLVMContextRef;
 
@@ -195,12 +195,21 @@ impl Context {
 
     /// Returns this context's 128-bit integer type.
     pub fn i128_type<'ctx>(&'ctx self) -> IntType<'ctx> {
-        self.custom_width_int_type(128)
+        IntType::new(unsafe { LLVMInt128TypeInContext(self.raw) })
     }
 
     /// Returns an integer type with exactly `bits` bits.
-    pub fn custom_width_int_type<'ctx>(&'ctx self, bits: u32) -> IntType<'ctx> {
-        IntType::new(unsafe { LLVMIntTypeInContext(self.raw, bits) })
+    pub fn custom_width_int_type<'ctx>(&'ctx self, bits: u32) -> LlvmResult<IntType<'ctx>> {
+        if bits == 0 {
+            return Err(LlvmError::error(
+                "LLVM custom integer type requires a non-zero bit width",
+            ));
+        }
+        let raw = unsafe { LLVMIntTypeInContext(self.raw, bits) };
+        if raw.is_null() {
+            return Err(LlvmError::error("LLVM returned a null custom integer type"));
+        }
+        Ok(IntType::new(raw))
     }
 
     /// Returns this context's IEEE-754 single-precision type.
@@ -307,6 +316,20 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null module handle".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_zero_width_custom_integer_types() {
+        let context = Context::create();
+
+        let error = context
+            .custom_width_int_type(0)
+            .expect_err("zero-width integer type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM custom integer type requires a non-zero bit width".to_string())
         );
     }
 }
