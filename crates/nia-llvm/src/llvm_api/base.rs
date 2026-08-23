@@ -1586,6 +1586,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_null_function_value_type_before_wrapper_construction() {
+        let error =
+            require_function_type(std::ptr::null_mut()).expect_err("null function value type");
+
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM returned a null function type".to_string())
+        );
+    }
+
+    #[test]
     fn rejects_null_basic_value_before_llvm_inspection() {
         let error = BasicValueEnum::new(std::ptr::null_mut()).expect_err("null value");
 
@@ -1943,8 +1954,8 @@ impl<'ctx> FunctionValue<'ctx> {
     }
 
     /// Returns the function signature type.
-    pub fn get_type(self) -> FunctionType<'ctx> {
-        FunctionType::new(unsafe { LLVMGlobalGetValueType(self.raw) })
+    pub fn get_type(self) -> LlvmResult<FunctionType<'ctx>> {
+        require_function_type(unsafe { LLVMGlobalGetValueType(self.raw) })
     }
 
     /// Attaches `attribute` at the selected function location.
@@ -1975,6 +1986,13 @@ impl<'ctx> FunctionValue<'ctx> {
     pub fn set_subprogram(self, subprogram: DISubprogram<'ctx>) {
         unsafe { LLVMSetSubprogram(self.raw, subprogram.raw) };
     }
+}
+
+fn require_function_type<'ctx>(raw: LLVMTypeRef) -> LlvmResult<FunctionType<'ctx>> {
+    if raw.is_null() {
+        return Err(LlvmError::error("LLVM returned a null function type"));
+    }
+    Ok(FunctionType::new(raw))
 }
 
 impl<'ctx> AsValueRef for FunctionValue<'ctx> {

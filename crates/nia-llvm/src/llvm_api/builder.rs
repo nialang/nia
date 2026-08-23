@@ -244,7 +244,7 @@ impl<'ctx> Builder<'ctx> {
         args: &[BasicMetadataValueEnum<'ctx>],
         name: &str,
     ) -> LlvmResult<CallSiteValue<'ctx>> {
-        self.build_call2(function.get_type(), function.as_value_ref(), args, name)
+        self.build_call2(function.get_type()?, function.as_value_ref(), args, name)
     }
 
     /// Calls a function pointer using the explicit signature.
@@ -1459,7 +1459,7 @@ fn validate_return(
     let function = block
         .get_parent()
         .ok_or_else(|| LlvmError::error("return insertion block has no parent function"))?;
-    let expected = function.get_type().get_return_type()?;
+    let expected = function.get_type()?.get_return_type()?;
     match (expected, value) {
         (None, None) => Ok(()),
         (None, Some(_)) => Err(LlvmError::error(

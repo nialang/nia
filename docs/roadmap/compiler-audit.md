@@ -2252,6 +2252,12 @@ acceptance item only when its phase-wide evidence is complete.
       returns `LlvmResult` and all codegen callers propagate it. A wrapper
       regression covers the shared null-value guard, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 390 closes LLVM function-value signature inspection.
+      `FunctionValue::get_type` now rejects a null `LLVMGlobalGetValueType`
+      result and returns `LlvmResult`; direct-call and return validation
+      propagate the failure. A wrapper regression covers the null type guard,
+      with LLVM/codegen suites, workspace check, formatting, and strict Clippy
+      passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
