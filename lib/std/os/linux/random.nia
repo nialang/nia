@@ -16,7 +16,7 @@ pub fn random(bytes: &mut [u8]) Errno!() {
             return err!;
         }
         let n = ret as usize;
-        if n == 0usize {
+        if n == 0usize or n > chunk.len() {
             return Errno::Io!;
         }
         done += n;

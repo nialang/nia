@@ -23,7 +23,11 @@ extend FileDescriptor {
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !(ret as usize)
+            let amount = ret as usize;
+            if amount > bytes.len() {
+                return Errno::Io!;
+            }
+            !amount
         }
     }
 
@@ -33,7 +37,11 @@ extend FileDescriptor {
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !(ret as usize)
+            let amount = ret as usize;
+            if amount > bytes.len() {
+                return Errno::Io!;
+            }
+            !amount
         }
     }
 
@@ -113,7 +121,11 @@ extend FileDescriptor {
         if ret < 0 {
             ret.syscall_error()!
         } else {
-            !(ret as usize)
+            let amount = ret as usize;
+            if amount > buffer.len() {
+                return Errno::Io!;
+            }
+            !amount
         }
     }
 }

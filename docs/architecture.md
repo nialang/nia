@@ -3264,6 +3264,10 @@ the spawn error-handshake and ownership rules.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
+Linux byte-transfer wrappers also validate successful syscall counts against
+the caller-provided slice before returning them. A kernel or ABI anomaly that
+reports more bytes than requested is converted to `Errno::Io` rather than
+advancing an adapter cursor beyond its owned buffer.
 
 The public `std::io::Reader` and `Writer` contracts require every implementation
 to report no more bytes than the slice supplied to that call. Trait defaults and
