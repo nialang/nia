@@ -21,7 +21,8 @@ use llvm_sys::prelude::LLVMContextRef;
 use super::{
     AddressSpace, ArrayValue, AsTypeRef, AsValueRef, Attribute, BasicBlock, BasicTypeEnum, Builder,
     FloatType, FunctionType, FunctionValue, InlineAsmDialect, IntType, LlvmError, LlvmResult,
-    Module, PointerType, PointerValue, StructType, VoidType, bool_to_llvm, to_c_string,
+    Module, PointerType, PointerValue, StructType, VoidType, bool_to_llvm, checked_u32_count,
+    to_c_string,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -152,13 +153,15 @@ impl Context {
 
     /// Creates a string attribute and rejects a null LLVM result.
     pub fn create_string_attribute(&self, key: &str, value: &str) -> LlvmResult<Attribute> {
+        let key_len = checked_u32_count(key.len(), "LLVM string attribute key is too long")?;
+        let value_len = checked_u32_count(value.len(), "LLVM string attribute value is too long")?;
         Attribute::new(unsafe {
             LLVMCreateStringAttribute(
                 self.raw,
                 key.as_ptr() as *const _,
-                key.len() as u32,
+                key_len,
                 value.as_ptr() as *const _,
-                value.len() as u32,
+                value_len,
             )
         })
     }

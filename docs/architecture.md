@@ -2801,6 +2801,10 @@ Instruction builders checked-convert dynamic slice counts before emitting GEP,
 call, or switch instructions. Switch target validation keeps the default and
 case blocks separate, avoiding an unchecked `case_count + 1` allocation.
 
+The shared `checked_u32_count` helper now covers all fallible wrapper slice
+counts, including struct-body fields, phi incoming edges, and string attribute
+byte lengths, so these paths cannot silently truncate host `usize` values.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary
