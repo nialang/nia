@@ -2231,6 +2231,11 @@ acceptance item only when its phase-wide evidence is complete.
       unchecked `case_count + 1` capacity expression. A shared conversion
       regression plus LLVM/codegen suites, workspace check, formatting, and
       strict Clippy pass.
+- [x] Batch 386 closes fallible LLVM wrapper slice-count truncation.
+      Struct-body fields, phi incoming edges, and string-attribute key/value
+      lengths now use the shared checked `u32` conversion before FFI; existing
+      width regressions cover the shared helper, with LLVM/codegen suites,
+      workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

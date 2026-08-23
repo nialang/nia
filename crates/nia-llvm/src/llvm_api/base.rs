@@ -93,13 +93,8 @@ pub(super) fn bool_to_llvm(value: bool) -> i32 {
     if value { 1 } else { 0 }
 }
 
-fn function_param_count(params: usize) -> LlvmResult<u32> {
-    u32::try_from(params)
-        .map_err(|_| LlvmError::error("LLVM function type has too many parameters"))
-}
-
-fn gep_index_count(indices: usize) -> LlvmResult<u32> {
-    u32::try_from(indices).map_err(|_| LlvmError::error("LLVM GEP has too many indices"))
+pub(super) fn checked_u32_count(count: usize, message: &str) -> LlvmResult<u32> {
+    u32::try_from(count).map_err(|_| LlvmError::error(message))
 }
 
 pub(super) fn validate_alignment(bytes: u32) -> LlvmResult<()> {
@@ -536,7 +531,8 @@ impl<'ctx> VoidType<'ctx> {
         params: &[BasicMetadataTypeEnum<'ctx>],
         variadic: bool,
     ) -> LlvmResult<FunctionType<'ctx>> {
-        let param_count = function_param_count(params.len())?;
+        let param_count =
+            checked_u32_count(params.len(), "LLVM function type has too many parameters")?;
         let mut params = params
             .iter()
             .map(|param| param.as_type_ref())
@@ -565,7 +561,8 @@ macro_rules! impl_basic_type_methods {
                 params: &[BasicMetadataTypeEnum<'ctx>],
                 variadic: bool,
             ) -> LlvmResult<FunctionType<'ctx>> {
-                let param_count = function_param_count(params.len())?;
+                let param_count =
+                    checked_u32_count(params.len(), "LLVM function type has too many parameters")?;
                 let mut params = params
                     .iter()
                     .map(|param| param.as_type_ref())
@@ -753,6 +750,8 @@ impl<'ctx> StructType<'ctx> {
                 "LLVM struct body can only be assigned once to an opaque struct",
             ));
         }
+        let field_count = u32::try_from(fields.len())
+            .map_err(|_| LlvmError::error("LLVM struct body has too many fields"))?;
         let mut fields = fields
             .iter()
             .map(|field| field.as_type_ref())
@@ -761,7 +760,7 @@ impl<'ctx> StructType<'ctx> {
             LLVMStructSetBody(
                 self.as_type_ref(),
                 fields.as_mut_ptr(),
-                fields.len() as u32,
+                field_count,
                 bool_to_llvm(packed),
             )
         };
@@ -803,7 +802,10 @@ impl<'ctx> StructType<'ctx> {
         }
         for (index, value) in values.iter().enumerate() {
             let field_ty = self
-                .get_field_type_at_index(index as u32)
+                .get_field_type_at_index(
+                    u32::try_from(index)
+                        .map_err(|_| LlvmError::error("struct field index exceeds LLVM width"))?,
+                )
                 .ok_or_else(|| LlvmError::error("struct field disappeared during inspection"))??;
             let value_ty = value.get_type()?;
             if value_ty != field_ty {
@@ -1056,7 +1058,8 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         params: &[BasicMetadataTypeEnum<'ctx>],
         variadic: bool,
     ) -> LlvmResult<FunctionType<'ctx>> {
-        let param_count = function_param_count(params.len())?;
+        let param_count =
+            checked_u32_count(params.len(), "LLVM function type has too many parameters")?;
         let mut params = params
             .iter()
             .map(|param| param.as_type_ref())
@@ -1325,7 +1328,7 @@ impl<'ctx> PointerValue<'ctx> {
         pointee_ty: T,
         indices: &[IntValue<'ctx>],
     ) -> LlvmResult<PointerValue<'ctx>> {
-        let index_count = gep_index_count(indices.len())?;
+        let index_count = checked_u32_count(indices.len(), "LLVM GEP has too many indices")?;
         let mut indices = indices
             .iter()
             .map(|index| index.as_value_ref())
@@ -1356,7 +1359,7 @@ impl<'ctx> PointerValue<'ctx> {
         pointee_ty: T,
         indices: &[IntValue<'ctx>],
     ) -> LlvmResult<PointerValue<'ctx>> {
-        let index_count = gep_index_count(indices.len())?;
+        let index_count = checked_u32_count(indices.len(), "LLVM GEP has too many indices")?;
         let mut indices = indices
             .iter()
             .map(|index| index.as_value_ref())
@@ -1739,9 +1742,13 @@ mod tests {
     #[test]
     fn rejects_function_parameter_count_width_overflow() {
         let count = u32::MAX as usize;
-        assert_eq!(function_param_count(count).unwrap(), u32::MAX);
+        assert_eq!(
+            checked_u32_count(count, "LLVM function type has too many parameters").unwrap(),
+            u32::MAX
+        );
         if usize::BITS > u32::BITS {
-            let error = function_param_count(count + 1).expect_err("parameter count overflow");
+            let error = checked_u32_count(count + 1, "LLVM function type has too many parameters")
+                .expect_err("parameter count overflow");
             assert_eq!(
                 error,
                 LlvmError::Error("LLVM function type has too many parameters".to_string())
@@ -1752,9 +1759,13 @@ mod tests {
     #[test]
     fn rejects_gep_index_count_width_overflow() {
         let count = u32::MAX as usize;
-        assert_eq!(gep_index_count(count).unwrap(), u32::MAX);
+        assert_eq!(
+            checked_u32_count(count, "LLVM GEP has too many indices").unwrap(),
+            u32::MAX
+        );
         if usize::BITS > u32::BITS {
-            let error = gep_index_count(count + 1).expect_err("GEP index count overflow");
+            let error = checked_u32_count(count + 1, "LLVM GEP has too many indices")
+                .expect_err("GEP index count overflow");
             assert_eq!(
                 error,
                 LlvmError::Error("LLVM GEP has too many indices".to_string())
@@ -2221,12 +2232,14 @@ impl<'ctx> PhiValue<'ctx> {
             .iter()
             .map(|(_, block)| block.raw)
             .collect::<Vec<_>>();
+        let incoming_count = u32::try_from(incoming.len())
+            .map_err(|_| LlvmError::error("LLVM phi has too many incoming values"))?;
         unsafe {
             LLVMAddIncoming(
                 self.raw,
                 values.as_mut_ptr(),
                 blocks.as_mut_ptr(),
-                incoming.len() as u32,
+                incoming_count,
             )
         };
         Ok(())

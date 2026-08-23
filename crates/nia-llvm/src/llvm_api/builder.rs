@@ -1649,8 +1649,7 @@ fn require_value(raw: LLVMValueRef, operation: &str) -> LlvmResult<LLVMValueRef>
 }
 
 fn checked_llvm_count(count: usize, operation: &str) -> LlvmResult<u32> {
-    u32::try_from(count)
-        .map_err(|_| LlvmError::error(format!("LLVM {operation} count exceeds u32")))
+    super::checked_u32_count(count, &format!("LLVM {operation} count exceeds u32"))
 }
 
 fn require_type(raw: LLVMTypeRef, operation: &str) -> LlvmResult<LLVMTypeRef> {
