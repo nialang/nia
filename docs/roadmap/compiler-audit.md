@@ -2172,6 +2172,12 @@ acceptance item only when its phase-wide evidence is complete.
       failures instead of collapsing them into ICEs. Wrapper regressions cover
       both shape errors, with LLVM/codegen suites, workspace check, formatting,
       and strict Clippy passing.
+- [x] Batch 376 closes the LLVM instruction-alignment opcode boundary.
+      `InstructionValue::set_alignment` now accepts only alloca, load, store,
+      atomic-RMW, and compare-exchange opcodes before `LLVMSetAlignment`;
+      global alignment remains separately validated. A wrapper regression covers
+      an invalid integer-add target, with LLVM/codegen suites, workspace check,
+      formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
