@@ -6,7 +6,7 @@ pub fn allocateOffset(
     allocator: &mut mem::Allocator,
     base: i32,
 ) mem::Error!mem::CallableAllocation[&mut Fn(i32) i32] {
-    let mut allocated = allocator.allocValue(\[base] value: i32 -> { base + value }).?;
+    let mut allocated = mem::allocValue(allocator, \[base] value: i32 -> { base + value }).?;
     let mut state = allocated.valueMut();
     let callback: &mut Fn(i32) i32 = &mut state.*;
     !allocated.intoCallable(callback)

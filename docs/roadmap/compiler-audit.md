@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 457 completed entries in this ledger.
+- Implementation batches: 458 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2593,6 +2593,12 @@ acceptance item only when its phase-wide evidence is complete.
       constructors plus `freeSlice` are removed. The focused allocator,
       ArrayList, intrinsic, and string executable matrices pass; the full
       driver build-case ledger remains independently tracked below.
+- [x] Batch 458 removes stale allocator API usage from executable fixtures.
+      Closure cases now call the documented `mem::allocValue` facade after the
+      package-private allocator extension was retired. Their backend-finalization
+      baselines, along with the dual-stage const, payload-enum, and trait-object
+      cases affected by the public std demand graph, now match the current
+      implementation. The complete `nia-driver --lib` suite passes 646/646.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

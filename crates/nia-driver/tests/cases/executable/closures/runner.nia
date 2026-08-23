@@ -26,7 +26,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer owned.deinit(&mut allocator).exit().?;
     let ownedResult = owned.callback()(8);
 
-    let mut noCapture = allocator.allocValue(\value: i32 -> { value + 2 }).exit().?;
+    let mut noCapture = mem::allocValue(&mut allocator, \value: i32 -> { value + 2 }).exit().?;
     let mut noCaptureState = noCapture.valueMut();
     let noCaptureView: &mut Fn(i32) i32 = &mut noCaptureState.*;
     let mut noCaptureOwner = noCapture.intoCallable(noCaptureView);
@@ -35,7 +35,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
 
     let mut emptyStorage: [u8; 0] = [];
     let mut emptyAllocator = mem::FixedBufferAllocator::init(&mut emptyStorage[..]);
-    let failedAsExpected = match emptyAllocator.allocValue(\[base] value: i32 -> { base + value }) {
+    let failedAsExpected = match mem::allocValue(&mut emptyAllocator, \[base] value: i32 -> { base + value }) {
         mem::Error::OutOfMemory! => true,
         !mut unexpected => {
             unexpected.deinit(&mut emptyAllocator).exit().?;
