@@ -355,6 +355,10 @@ signals, not architecture goals.
 - For multi-allocation collection cleanup, detach each owner only after its
   allocator release succeeds. Preserve failed slots for a cleanup retry and do
   not advertise partially deinitialized state as an empty reusable collection.
+- Treat hash-table replacement storage as another owner group. During rehash,
+  publish the new table only after transferring the old control/key/value
+  slices to a map-owned retired state; failed retired frees remain attached,
+  block later rehash until cleanup succeeds, and are retried by `deinit`.
 - Apply the same transaction rule to single allocation owners. `Allocated` and
   `CallableAllocation` must clear their owner fields only after `free` returns
   success; a release error must leave the original block retryable.

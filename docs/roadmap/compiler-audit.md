@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 443 completed entries in this ledger.
+- Implementation batches: 444 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2509,6 +2509,13 @@ acceptance item only when its phase-wide evidence is complete.
       classification while retaining the existing pre-mutation count checks;
       the malicious transfer-count executable distinguishes these errors from
       ordinary end-of-stream and short-write failures through every adapter.
+- [x] Batch 444 makes hash-map rehash replacement storage retryable. Replaced
+      control, key, and value allocations are retained as map-owned retired
+      slices until each fallible release succeeds; later rehashes retry that
+      retired group before publishing another table, and `deinit` attempts both
+      active and retired owners. The HashMap executable regression proves an
+      injected old-control free failure leaves all entries usable and releases
+      the residual owner during final cleanup.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

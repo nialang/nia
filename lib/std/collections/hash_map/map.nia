@@ -26,6 +26,10 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     bucketCount: usize,
     len: usize,
     growthLeft: usize,
+    retiredCtrl: &mut [u8],
+    retiredKeys: &mut [K],
+    retiredValues: &mut [V],
+    retiredBucketCount: usize,
     seed: u64,
     context: C,
 }
@@ -92,6 +96,10 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             bucketCount: 0,
             len: 0,
             growthLeft: 0,
+            retiredCtrl: raw::danglingSlice[u8](),
+            retiredKeys: raw::danglingSlice[K](),
+            retiredValues: raw::danglingSlice[V](),
+            retiredBucketCount: 0,
             seed: seed,
             context: context,
         }
@@ -109,14 +117,33 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        self.freeAllocations(allocator).?;
-        self.ctrl = raw::danglingSlice[u8]();
-        self.keys = raw::danglingSlice[K]();
-        self.values = raw::danglingSlice[V]();
-        self.bucketCount = 0;
-        self.len = 0;
-        self.growthLeft = 0;
-        !()
+        let mut firstError: ?mem::Error = null;
+        match self.freeAllocations(allocator) {
+            !ok => { _ = ok; },
+            err! => { firstError = ?err; },
+        }
+        match self.freeRetiredAllocations(allocator) {
+            !ok => { _ = ok; },
+            err! => {
+                match firstError {
+                    ?value => { _ = value; },
+                    null => { firstError = ?err; },
+                }
+            },
+        }
+
+        match firstError {
+            ?err => err!,
+            null => {
+                self.ctrl = raw::danglingSlice[u8]();
+                self.keys = raw::danglingSlice[K]();
+                self.values = raw::danglingSlice[V]();
+                self.bucketCount = 0;
+                self.len = 0;
+                self.growthLeft = 0;
+                !()
+            },
+        }
     }
 
     pub fn len(&self) usize {
@@ -641,6 +668,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     fn rehashToBuckets(&mut self, allocator: &mut mem::Allocator, target: usize) mem::Error!() {
+        self.freeRetiredAllocations(allocator).?;
         let mut newMap = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
         newMap.allocate(allocator, target).?;
 
@@ -652,13 +680,10 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             }
         }
 
-        let mut oldMap = HashMapWithContext[K, V, C]::initContextSeed(self.context, self.seed);
-        oldMap.ctrl = self.ctrl;
-        oldMap.keys = self.keys;
-        oldMap.values = self.values;
-        oldMap.bucketCount = self.bucketCount;
-        oldMap.len = self.len;
-        oldMap.growthLeft = self.growthLeft;
+        self.retiredCtrl = self.ctrl;
+        self.retiredKeys = self.keys;
+        self.retiredValues = self.values;
+        self.retiredBucketCount = self.bucketCount;
         self.ctrl = newMap.ctrl;
         self.keys = newMap.keys;
         self.values = newMap.values;
@@ -669,7 +694,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         newMap.keys = raw::danglingSlice[K]();
         newMap.values = raw::danglingSlice[V]();
         newMap.bucketCount = 0;
-        oldMap.freeAllocations(allocator)
+        self.freeRetiredAllocations(allocator)
     }
 
     fn insertExisting(&mut self, key: K, value: V) () {
@@ -815,6 +840,68 @@ where K: Sized, V: Sized, C: HashMapContext[K]
                 err!
             },
             null => {
+                !()
+            },
+        }
+    }
+
+    fn freeRetiredAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
+        let mut firstError: ?mem::Error = null;
+        if self.retiredCtrl.len() != 0 {
+            let layout = mem::Layout::array[u8](self.retiredCtrl.len()).?;
+            match allocator.free(mem::Block::init(self.retiredCtrl.ptrMut() as &mut u8, layout)) {
+                !ok => {
+                    _ = ok;
+                    self.retiredCtrl = raw::danglingSlice[u8]();
+                },
+                err! => { firstError = ?err; },
+            }
+        }
+        if self.retiredKeys.len() != 0 {
+            let layout = mem::Layout::array[K](self.retiredBucketCount).?;
+            if layout.isEmpty() {
+                self.retiredKeys = raw::danglingSlice[K]();
+            } else {
+                match allocator.free(mem::Block::init(self.retiredKeys.ptrMut() as &mut u8, layout)) {
+                    !ok => {
+                        _ = ok;
+                        self.retiredKeys = raw::danglingSlice[K]();
+                    },
+                    err! => {
+                        match firstError {
+                            ?value => { _ = value; },
+                            null => { firstError = ?err; },
+                        }
+                    },
+                }
+            }
+        }
+        if self.retiredValues.len() != 0 {
+            let layout = mem::Layout::array[V](self.retiredBucketCount).?;
+            if layout.isEmpty() {
+                self.retiredValues = raw::danglingSlice[V]();
+            } else {
+                match allocator.free(mem::Block::init(self.retiredValues.ptrMut() as &mut u8, layout)) {
+                    !ok => {
+                        _ = ok;
+                        self.retiredValues = raw::danglingSlice[V]();
+                    },
+                    err! => {
+                        match firstError {
+                            ?value => { _ = value; },
+                            null => { firstError = ?err; },
+                        }
+                    },
+                }
+            }
+        }
+        match firstError {
+            ?err => err!,
+            null => {
+                self.retiredCtrl = raw::danglingSlice[u8]();
+                self.retiredKeys = raw::danglingSlice[K]();
+                self.retiredValues = raw::danglingSlice[V]();
+                self.retiredBucketCount = 0;
                 !()
             },
         }
