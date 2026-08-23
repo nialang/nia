@@ -317,7 +317,12 @@ extend TextFormatWriter {
                     null => !(),
                 }
             },
-            error! => TextFormatError::Allocation(error)!,
+            error! => {
+                match primary {
+                    ?cause => cause!,
+                    null => TextFormatError::Allocation(error)!,
+                }
+            },
         }
     }
 

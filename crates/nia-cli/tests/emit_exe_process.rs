@@ -2356,6 +2356,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(50)!;
     }
 
+    cleanupAllocator.failNext();
+    match cleanupText.appendFormat(&mut cleanupAllocator, &"{}", &invalidFormatArgs) {
+        !ok => {
+            _ = ok;
+            return process::exit(51)!;
+        },
+        std::TextFormatError::InvalidUtf8(std::unicode::Utf8DecodeError::InvalidLeadingByte)! => {},
+        error! => {
+            _ = error;
+            return process::exit(52)!;
+        },
+    }
+    if not cleanupText.equals(&"base") {
+        return process::exit(53)!;
+    }
+
     let mut path = std::Path::fromView(page, std::PathView::init(&"root")).exit().?;
     defer path.deinit(page).exit().?;
     path.joinComponent(page, &"child").exit().?;

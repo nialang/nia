@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 451 completed entries in this ledger.
+- Implementation batches: 452 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2554,6 +2554,12 @@ acceptance item only when its phase-wide evidence is complete.
       retried before later allocation, and retried by `deinit`. The malformed
       large-header executable now injects a first-free failure and proves the
       pending block is released by cleanup retry.
+- [x] Batch 452 preserves primary string-format errors over staging cleanup.
+      `TextFormatWriter::finish` now returns the format/UTF-8 error when its
+      temporary byte-buffer deinit also fails, while still exposing cleanup
+      allocation errors after successful formatting. The process executable
+      string matrix covers overlapping invalid-UTF8 plus cleanup failure and
+      rollback of the destination text.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

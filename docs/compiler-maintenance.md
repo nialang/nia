@@ -392,6 +392,9 @@ signals, not architecture goals.
   first and then close every descriptor explicitly. Preserve the main operation
   error when it failed; otherwise return the first close error. Chained cleanup
   must still attempt later descriptors after an earlier close failure.
+- Formatting helpers that stage temporary output must apply the same precedence:
+  preserve the primary format/encoding error when staging cleanup also fails,
+  and report the cleanup allocation error only when staging itself succeeded.
 - Audit hash-table capacity APIs against logical `len`, tombstones, and physical
   empty-slot growth independently. Deletion must make assume-capacity insertion
   legal without allowing an exhausted growth counter to underflow.
