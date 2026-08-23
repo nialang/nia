@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 439 completed entries in this ledger.
+- Implementation batches: 440 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2492,6 +2492,9 @@ acceptance item only when its phase-wide evidence is complete.
       now materializes `Args` and `Env` once and stores those validated views;
       `argc()`, `args()`, and `env()` no longer retain or rescan raw startup
       pointers after the package-owned boundary.
+- [x] Batch 440 hardens empty Linux process vectors. Null argv/envp vectors are
+      represented as empty views, and null individual entries are rejected
+      before C-string construction rather than being dereferenced.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
