@@ -520,7 +520,11 @@ extend GeneralPurposeAllocator {
             match current {
                 mut ?header => {
                     let next = header.next;
-                    if largeHeaderUserPtr(header) as usize == block.ptr() as usize {
+                    let userPtr = match largeHeaderUserPtr(header) {
+                        ?value => value,
+                        null => return Error::Invalid!,
+                    };
+                    if userPtr as usize == block.ptr() as usize {
                         if header.magic != largeMagic {
                             return Error::Invalid!;
                         }
@@ -605,8 +609,15 @@ extend GeneralPurposeAllocator {
         while true {
             match current {
                 ?header => {
-                    if largeHeaderUserPtr(header) as usize == ptr as usize {
-                        return ?header;
+                    match largeHeaderUserPtr(header) {
+                        ?userPtr => {
+                            if userPtr as usize == ptr as usize {
+                                return ?header;
+                            }
+                        },
+                        null => {
+                            return null;
+                        },
                     }
                     current = header.next;
                 },
@@ -740,7 +751,11 @@ fn smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
     if addr < payloadBase {
         return false;
     }
-    let pageEnd = match payloadBase.checked_add(page.slotCount * page.slotSize) {
+    let slotBytes = match page.slotCount.checked_mul(page.slotSize) {
+        ?value => value,
+        null => return false,
+    };
+    let pageEnd = match payloadBase.checked_add(slotBytes) {
         ?value => {
             value
         },
@@ -769,7 +784,15 @@ fn smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
     if index >= page.slotCount {
         null
     } else {
-        ?((payloadBase + index * page.slotSize) as &mut SmallSlot)
+        let slotOffset = match index.checked_mul(page.slotSize) {
+            ?value => value,
+            null => return null,
+        };
+        let slotAddr = match payloadBase.checked_add(slotOffset) {
+            ?value => value,
+            null => return null,
+        };
+        ?(slotAddr as &mut SmallSlot)
     }
 }
 
@@ -834,9 +857,12 @@ fn isNullLargeHeader(header: ?&mut LargeHeader) bool {
     }
 }
 
-fn largeHeaderUserPtr(header: &mut LargeHeader) &mut u8 {
+fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
-    (headerAddr + std::builtin::size[LargeHeader]()) as &mut u8
+    match headerAddr.checked_add(std::builtin::size[LargeHeader]()) {
+        ?value => ?(value as &mut u8),
+        null => null,
+    }
 }
 
 fn maxUsize(left: usize, right: usize) usize {

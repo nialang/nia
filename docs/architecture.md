@@ -3291,6 +3291,11 @@ addition. Allocation, growth, last-allocation, and ownership checks all fail
 closed if the chunk header offset cannot be represented by the host address
 width.
 
+The general-purpose allocator applies the same rule to small-page slot-byte
+counts, slot address derivation, and large-header user pointers. Corrupt or
+unrepresentable metadata is rejected by ownership/free/lookup paths rather than
+being converted into a wrapped pointer.
+
 ## 14. Diagnostics
 
 Every phase returns diagnostics instead of panicking on user source errors.
