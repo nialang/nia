@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 429 completed entries in this ledger.
+- Implementation batches: 430 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2453,6 +2453,11 @@ acceptance item only when its phase-wide evidence is complete.
       accumulation, and iterators fail closed if advancement or remaining-count
       subtraction is not representable. Existing Unicode, string, formatting,
       and process text workflows preserve their behavior.
+- [x] Batch 430 centralizes Linux `dirent64` record validation. Entry decoding
+      and next-offset advancement now share checked record/type/name bounds;
+      empty or unterminated names are rejected instead of treating padding as
+      filename bytes. The complete filesystem executable matrix preserves real
+      directory iteration and error behavior.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

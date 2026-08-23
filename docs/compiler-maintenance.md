@@ -374,6 +374,9 @@ signals, not architecture goals.
 - UTF-8 iterators must validate decoded-width advancement against the borrowed
   slice before committing state. Treat a failed advancement or remaining-count
   decrement as a terminal invalidation, rather than exposing wrapped indices.
+- Parse variable-length syscall records once and share the validated bounds
+  between payload construction and cursor advancement. Required terminators
+  belong to that boundary; record padding is not payload.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

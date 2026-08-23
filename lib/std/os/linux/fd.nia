@@ -1,6 +1,7 @@
 using pkg::os::linux::syscall;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
+using pkg::math;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
@@ -15,6 +16,13 @@ const dirent_type_blk: u8 = 6u8;
 const dirent_type_reg: u8 = 8u8;
 const dirent_type_lnk: u8 = 10u8;
 const dirent_type_sock: u8 = 12u8;
+
+struct ParsedDirent {
+    recordEnd: usize,
+    typeIndex: usize,
+    nameStart: usize,
+    nameEnd: usize,
+}
 
 extend FileDescriptor {
     pub fn write_some(&self, bytes: &[u8]) Errno!usize {
@@ -396,27 +404,24 @@ pub fn rename_at_beneath(
 }
 
 pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
-    if offset >= buffer.len() {
-        return null;
-    }
-    let remaining = buffer.len() - offset;
-    if remaining < linux_dirent64_name_offset + 1usize {
-        return null;
-    }
-
-    let reclen = dirent_reclen(buffer, offset);
-    if reclen <= linux_dirent64_name_offset or reclen > remaining {
-        return null;
-    }
-
-    let name_len = dirent_name_len(buffer, offset, reclen);
+    let parsed = match parseDirent(buffer, offset) {
+        ?value => value,
+        null => return null,
+    };
     ?DirectoryEntry::init(
-        dirent_kind(buffer[offset + linux_dirent64_type_offset]),
-        & buffer[(offset + linux_dirent64_name_offset)..(offset + linux_dirent64_name_offset + name_len)],
+        dirent_kind(buffer[parsed.typeIndex]),
+        &buffer[parsed.nameStart..parsed.nameEnd],
     )
 }
 
 pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
+    match parseDirent(buffer, offset) {
+        ?parsed => ?parsed.recordEnd,
+        null => null,
+    }
+}
+
+fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     if offset >= buffer.len() {
         return null;
     }
@@ -427,25 +432,38 @@ pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
 
     let reclen = dirent_reclen(buffer, offset);
     if reclen <= linux_dirent64_name_offset or reclen > remaining {
-        null
-    } else {
-        ?(offset + reclen)
+        return null;
+    }
+    let recordEnd = match offset.checked_add(reclen) {
+        ?value => value,
+        null => return null,
+    };
+    let typeIndex = match offset.checked_add(linux_dirent64_type_offset) {
+        ?value => value,
+        null => return null,
+    };
+    let nameStart = match offset.checked_add(linux_dirent64_name_offset) {
+        ?value => value,
+        null => return null,
+    };
+    let mut nameEnd = nameStart;
+    while nameEnd < recordEnd and buffer[nameEnd] != 0u8 {
+        nameEnd += 1usize;
+    }
+    if nameEnd == nameStart or nameEnd == recordEnd {
+        return null;
+    }
+    ?ParsedDirent {
+        recordEnd: recordEnd,
+        typeIndex: typeIndex,
+        nameStart: nameStart,
+        nameEnd: nameEnd,
     }
 }
 
 fn dirent_reclen(buffer: &[u8], offset: usize) usize {
     (buffer[offset + linux_dirent64_reclen_offset] as usize)
         | ((buffer[offset + linux_dirent64_reclen_offset + 1usize] as usize) << 8usize)
-}
-
-fn dirent_name_len(buffer: &[u8], offset: usize, reclen: usize) usize {
-    let start = offset + linux_dirent64_name_offset;
-    let end = offset + reclen;
-    let mut len = 0usize;
-    while start + len < end and buffer[start + len] != 0u8 {
-        len += 1usize;
-    }
-    len
 }
 
 fn dirent_kind(value: u8) FileKind {

@@ -3279,6 +3279,10 @@ UTF-8 views likewise commit a decoded width only through a checked advancement
 within the borrowed byte slice. Iterator state fails closed if a mutated backing
 slice or malformed internal state would make that advancement or remaining-count
 decrement unrepresentable.
+Linux directory iteration parses each `linux_dirent64` once into checked record,
+type, and name bounds shared by entry construction and cursor advancement. A
+record without a non-empty NUL-terminated name is rejected as invalid instead
+of exposing record padding as a filesystem name.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.
