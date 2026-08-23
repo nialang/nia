@@ -56,6 +56,11 @@ The library follows a small set of ownership rules:
 - Spawn handshake descriptors are consumed and closed exactly once after the
   handshake result is known. EOF plus close failure is reported as setup error;
   an earlier handshake/read error remains the primary cause.
+- `Command::spawn` returns a `SpawnAttempt` owner. Its `finish` operation tries
+  every argv/envp/path staging release and returns a cleanup error while keeping
+  the pending `Child` or spawn error attached for retry; only complete cleanup
+  exposes that outcome. Custom-allocator attempts require the same allocator on
+  each retry. Owner-discarding `run` shortcuts are not part of the API.
 - Errors retain their domain cause. `IntoError` is for reviewed, infallible
   propagation; contextual operation, path, subject, and cleanup information is
   attached by the owning module.

@@ -3333,7 +3333,15 @@ Linux process spawning uses a close-on-exec pipe as a fixed-size child-to-parent
 error handshake. The child writes the complete stage/errno record and retries
 interrupted writes; the parent retries interrupted reads and reaps a failed
 child with an EINTR-safe wait loop. EOF before any record remains the sole
-successful-exec signal. The parent then closes the consumed handshake read
+successful-exec signal. Command lowering writes path, arguments, and environment
+text directly into its final staging lists; it does not create per-value
+temporary C-string owners. `Command::spawn` returns an explicit `SpawnAttempt`
+that owns all five staging lists plus the pending `Child` or primary spawn
+error. `finish` attempts every release, retains failed list owners and the
+outcome for retry, and publishes the outcome only after cleanup succeeds.
+Custom-allocator attempts take the same allocator again on every `finish` call.
+The owner-discarding `run` and `runWithAllocator` conveniences are removed.
+The parent then closes the consumed handshake read
 descriptor exactly once: EOF plus a close failure becomes a setup error, while
 an incomplete or malformed handshake retains its primary error. Once a public `Child` records an exited status, pipe
 cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
