@@ -395,4 +395,5 @@ pub struct Build {
     staticArchives: collections::ArrayList[StaticArchiveTarget],
     validationIndegree: collections::ArrayList[usize],
     validationReady: collections::ArrayList[usize],
+    planEncoding: collections::ArrayList[u8],
 }

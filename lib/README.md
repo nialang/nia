@@ -48,6 +48,10 @@ The library follows a small set of ownership rules:
   on `Build`. Both releases are attempted after every validation pass; a
   validation error remains primary and failed scratch frees remain retryable on
   the next pass or `Build::deinit`.
+- Build-plan encoding stores its byte backing on `Build` until publication and
+  cleanup complete. Writer, flush, sync, and close errors keep the first
+  operation error; a failed backing free remains retryable for the next draft
+  or `Build::deinit`.
 - File close paths treat the descriptor as consumed before the OS close result;
   cleanup defers must not issue a second close after a close error.
 - Temporary filesystem descriptors are closed after their owning operation. A
