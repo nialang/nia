@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-23):
+Current snapshot (2026-08-24):
 
-- Implementation batches: 456 completed entries in this ledger.
+- Implementation batches: 457 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2585,6 +2585,14 @@ acceptance item only when its phase-wide evidence is complete.
       `PageAllocator::free` unmaps that range once. Prefix/suffix best-effort
       unmaps and their swallowed cleanup errors are removed; the allocator
       executable matrix still passes the over-aligned mapping/realloc cases.
+- [x] Batch 457 preserves typed slice allocation owners. `Allocator::allocSlice`
+      now returns `SliceAllocation[T]`, whose borrowed views and `deinit` retain
+      the original `Block`; `ArrayList` and `String` transfer that owner without
+      reconstructing release metadata. Replacement and self-alias rollback
+      paths retain their real `Block` owners, and raw-slice ownership
+      constructors plus `freeSlice` are removed. The focused allocator,
+      ArrayList, intrinsic, and string executable matrices pass; the full
+      driver build-case ledger remains independently tracked below.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

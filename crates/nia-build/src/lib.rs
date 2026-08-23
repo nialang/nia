@@ -933,22 +933,22 @@ pub fn main(init: process::Init) process::ExitCode!() {
         }.asExitCode()!;
     }
     let configLen = configLen64 as usize;
-    let configBytes = allocator.allocSlice[u8](configLen).asBuildError(
+    let mut configBytes = allocator.allocSlice[u8](configLen).asBuildError(
         build::ErrorOperation::Retain,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
-    defer allocator.freeSlice(configBytes).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    defer configBytes.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
     let mut readBuffer: [u8; 4096] = [0; 4096];
     let mut configReader = configFile.reader(&mut readBuffer).asBuildError(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
-    configReader.readExact(configBytes).asBuildError(
+    configReader.readExact(configBytes.asMutSlice()).asBuildError(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
 
-    let mut envelope = ConfigCursor::init(configBytes);
+    let mut envelope = ConfigCursor::init(configBytes.asSlice());
     if not envelope.take(8).reportAndExit(init).?.equals(&b"__NIA_RUNNER_CONFIG_MAGIC__")
         or envelope.u32().reportAndExit(init).? != __NIA_RUNNER_CONFIG_SCHEMA_VERSION__u32
     {

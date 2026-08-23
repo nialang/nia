@@ -19,13 +19,10 @@ using std::process;
 fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     match allocator.allocSlice[i32](0) {
-        !items => { if items.len() != 0 {
+        mut !allocation => { if allocation.len() != 0 or allocation.asSlice().len() != 0 {
                     return process::exit(2)!;
                 }
-                match allocator.freeSlice[i32](items) {
-                    !ok => { _ = ok; },
-                    error! => { return process::exit(3)!; },
-                } },
+                allocation.deinit(&mut allocator).exit().?; },
         error! => { return process::exit(1)!; },
     }
     !()
@@ -34,13 +31,10 @@ fn check_allocator_preserves_empty_slice_len() process::ExitCode!() {
 fn check_allocator_preserves_zero_sized_slice_len() process::ExitCode!() {
     let mut allocator = mem::PageAllocator::init();
     match allocator.allocSlice[()](4) {
-        !items => { if items.len() != 4 {
+        mut !allocation => { if allocation.len() != 4 or allocation.asSlice().len() != 4 {
                     return process::exit(2)!;
                 }
-                match allocator.freeSlice[()](items) {
-                    !ok => { _ = ok; },
-                    error! => { return process::exit(3)!; },
-                } },
+                allocation.deinit(&mut allocator).exit().?; },
         error! => { return process::exit(1)!; },
     }
     !()

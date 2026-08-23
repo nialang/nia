@@ -2189,6 +2189,13 @@ allocation is still active. Self-aliasing append/insert/replace operations use
 a separate alias-copy owner for the same reason. `deinit` attempts active,
 replacement, and alias-copy slices independently, so overlapping failures
 cannot strand either allocation.
+Typed slice ownership follows the same boundary: `Allocator::allocSlice` keeps
+the complete `Block` alongside its logical length, while `asSlice` and
+`asMutSlice` expose only borrowed views. `ArrayList::toOwnedSlice`/
+`intoOwnedSlice` and `String::intoOwnedSlice` transfer that owner directly;
+there is no raw-slice adoption path that would require reconstructing release
+metadata from an address and logical length. Replacement and alias-copy
+rollback owners retain their original `Block` until a retrying `free` succeeds.
 Rehash applies the same transaction rule to replacement storage: the old
 storage block becomes a retired owner on the map before the new table is
 published. If its release fails, the active table remains usable while the

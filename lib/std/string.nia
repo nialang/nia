@@ -53,13 +53,6 @@ extend String {
         }
     }
 
-    pub fn fromOwnedSlice(text: &mut [char]) String {
-        Self {
-            text: collections::ArrayList[char]::fromOwnedSlice(text),
-            formatBytes: collections::ArrayList[u8]::init(),
-        }
-    }
-
     pub fn fromSlice(allocator: &mut mem::Allocator, text: &[char]) mem::Error!String {
         let mut out = String::initCapacity(allocator, text.len()).?;
         out.append(allocator, text).?;
@@ -242,7 +235,7 @@ extend String {
         self.text.appendSliceAssumeCapacity(text)
     }
 
-    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [char] {
+    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[char] {
         self.text.intoOwnedSlice(allocator)
     }
 }

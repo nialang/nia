@@ -4,7 +4,7 @@ using build_script;
 
 fn use_allocator(allocator: &mut mem::Allocator) mem::Error!() {
     let mut bytes = allocator.allocSlice[u8](4).?;
-    allocator.freeSlice[u8](bytes).?;
+    bytes.deinit(allocator).?;
     !()
 }
 

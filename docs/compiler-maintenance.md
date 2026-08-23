@@ -461,6 +461,10 @@ signals, not architecture goals.
   the complete mmap range remains the release owner. Keep that release range in
   the allocator block and unmap it exactly once; do not trim prefix/suffix
   pages through best-effort calls that can strand a residual mapping.
+- Typed slice owners must retain the allocator `Block`, not only a borrowed
+  slice. Transfer APIs consume `SliceAllocation[T]`; cleanup failure leaves the
+  owner and its release range attached for retry. Do not add raw-slice ownership
+  constructors or reconstruct a release block from pointer plus logical length.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget

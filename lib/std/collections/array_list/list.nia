@@ -7,10 +7,13 @@ where T: Sized
 {
     items: &mut [T],
     capacity: usize,
+    storageBlock: ?mem::Block,
     replacementItems: &mut [T],
     replacementCapacity: usize,
+    replacementBlock: ?mem::Block,
     aliasItems: &mut [T],
     aliasCapacity: usize,
+    aliasBlock: ?mem::Block,
 }
 
 extend[T] ArrayList[T]
@@ -20,10 +23,13 @@ where T: Sized
         Self {
             items: raw::danglingSlice[T](0),
             capacity: 0,
+            storageBlock: null,
             replacementItems: raw::danglingSlice[T](0),
             replacementCapacity: 0,
+            replacementBlock: null,
             aliasItems: raw::danglingSlice[T](0),
             aliasCapacity: 0,
+            aliasBlock: null,
         }
     }
 
@@ -33,14 +39,20 @@ where T: Sized
         !list
     }
 
-    pub fn fromOwnedSlice(items: &mut [T]) ArrayList[T] {
+    pub fn fromOwnedAllocation(allocation: mem::SliceAllocation[T]) ArrayList[T] {
+        let len = allocation.len();
+        let block = allocation.intoBlock();
+        let items = raw::blockItems[T](block, len);
         Self {
-            items,
-            capacity: items.len(),
+            items: items,
+            capacity: len,
+            storageBlock: ?block,
             replacementItems: raw::danglingSlice[T](0),
             replacementCapacity: 0,
+            replacementBlock: null,
             aliasItems: raw::danglingSlice[T](0),
             aliasCapacity: 0,
+            aliasBlock: null,
         }
     }
 
@@ -73,6 +85,7 @@ where T: Sized
             null => {
                 self.items = raw::danglingSlice[T](0);
                 self.capacity = 0;
+                self.storageBlock = null;
                 !()
             },
         }
@@ -135,35 +148,39 @@ where T: Sized
         self.items = &mut ptr[0..0];
     }
 
-    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
+    pub fn intoOwnedSlice(&mut self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         self.freePendingItems(allocator).?;
         let len = self.len();
         if std::builtin::size[T]() == 0 {
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
-            return !raw::danglingSlice[T](len);
+            self.storageBlock = null;
+            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
         }
 
         if self.capacity() == 0 {
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
-            return !raw::danglingSlice[T](len);
+            self.storageBlock = null;
+            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
         }
 
         let oldBlock = self.allocatedBlock().?;
+        let layout = mem::Layout::array[T](len).?;
         if len == 0 {
             allocator.free(oldBlock).?;
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
-            return !raw::danglingSlice[T](0);
+            self.storageBlock = null;
+            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(layout), 0);
         }
 
-        let layout = mem::Layout::array[T](len).?;
         match allocator.remap(oldBlock, layout) {
             ?block => {
                 self.items = raw::danglingSlice[T](0);
                 self.capacity = 0;
-                return !raw::blockItems[T](block, len);
+                self.storageBlock = null;
+                return !mem::SliceAllocation[T]::fromBlock(block, len);
             },
             null => {
             },
@@ -182,7 +199,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retainReplacementItems(newItems, len);
+                        self.retainReplacementItems(newItems, len, newBlock);
                     },
                 }
                 return err!;
@@ -190,20 +207,21 @@ where T: Sized
         }
         self.items = raw::danglingSlice[T](0);
         self.capacity = 0;
-        !newItems
+        self.storageBlock = null;
+        !mem::SliceAllocation[T]::fromBlock(newBlock, len)
     }
 
-    pub fn toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
+    pub fn toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         let len = self.len();
         if len == 0 or std::builtin::size[T]() == 0 {
-            return !raw::danglingSlice[T](len);
+            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
         }
 
         let layout = mem::Layout::array[T](len).?;
         let block = allocator.alloc(layout).?;
         let mut out = raw::blockItems[T](block, len);
         _ = out.copyFrom(self.asSlice());
-        !out
+        !mem::SliceAllocation[T]::fromBlock(block, len)
     }
 
     pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
@@ -324,7 +342,7 @@ where T: Sized
                             _ = ok;
                         },
                         error! => {
-                            self.retainAliasItems(copy, values.len());
+                            self.retainAliasItems(copy, values.len(), copyBlock);
                         },
                     }
                     return err!;
@@ -336,7 +354,7 @@ where T: Sized
                     return !();
                 },
                 err! => {
-                    self.retainAliasItems(copy, values.len());
+                    self.retainAliasItems(copy, values.len(), copyBlock);
                     return err!;
                 },
             }
@@ -383,7 +401,7 @@ where T: Sized
                             _ = ok;
                         },
                         error! => {
-                            self.retainAliasItems(copy, values.len());
+                            self.retainAliasItems(copy, values.len(), copyBlock);
                         },
                     }
                     return err!;
@@ -395,7 +413,7 @@ where T: Sized
                     return !();
                 },
                 err! => {
-                    self.retainAliasItems(copy, values.len());
+                    self.retainAliasItems(copy, values.len(), copyBlock);
                     return err!;
                 },
             }
@@ -527,7 +545,7 @@ where T: Sized
                             _ = ok;
                         },
                         error! => {
-                            self.retainAliasItems(copy, items.len());
+                            self.retainAliasItems(copy, items.len(), copyBlock);
                         },
                     }
                     return err!;
@@ -539,7 +557,7 @@ where T: Sized
                     return !();
                 },
                 err! => {
-                    self.retainAliasItems(copy, items.len());
+                    self.retainAliasItems(copy, items.len(), copyBlock);
                     return err!;
                 },
             }
@@ -681,6 +699,7 @@ where T: Sized
             allocator.free(oldBlock).?;
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
+            self.storageBlock = null;
             return !();
         }
 
@@ -707,7 +726,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retainReplacementItems(newItems, targetCapacity);
+                        self.retainReplacementItems(newItems, targetCapacity, newBlock);
                     },
                 }
                 return err!;
@@ -775,7 +794,7 @@ where T: Sized
                         _ = ok;
                     },
                     error! => {
-                        self.retainReplacementItems(newItems, capacity);
+                        self.retainReplacementItems(newItems, capacity, newBlock);
                     },
                 }
                 return err!;
@@ -795,6 +814,7 @@ where T: Sized
                 _ = ok;
                 self.items = raw::danglingSlice[T](0);
                 self.capacity = 0;
+                self.storageBlock = null;
                 !()
             },
             err! => err!,
@@ -805,14 +825,20 @@ where T: Sized
         if self.replacementItems.len() == 0 or std::builtin::size[T]() == 0 {
             self.replacementItems = raw::danglingSlice[T](0);
             self.replacementCapacity = 0;
+            self.replacementBlock = null;
             return !();
         }
         let layout = mem::Layout::array[T](self.replacementCapacity).?;
-        match allocator.free(mem::Block::init(self.replacementItems.ptrMut() as &mut u8, layout)) {
+        let block = match self.replacementBlock {
+            ?value => value,
+            null => mem::Block::init(self.replacementItems.ptrMut() as &mut u8, layout),
+        };
+        match allocator.free(block) {
             !ok => {
                 _ = ok;
                 self.replacementItems = raw::danglingSlice[T](0);
                 self.replacementCapacity = 0;
+                self.replacementBlock = null;
                 !()
             },
             err! => err!,
@@ -828,28 +854,36 @@ where T: Sized
         if self.aliasItems.len() == 0 or std::builtin::size[T]() == 0 {
             self.aliasItems = raw::danglingSlice[T](0);
             self.aliasCapacity = 0;
+            self.aliasBlock = null;
             return !();
         }
         let layout = mem::Layout::array[T](self.aliasCapacity).?;
-        match allocator.free(mem::Block::init(self.aliasItems.ptrMut() as &mut u8, layout)) {
+        let block = match self.aliasBlock {
+            ?value => value,
+            null => mem::Block::init(self.aliasItems.ptrMut() as &mut u8, layout),
+        };
+        match allocator.free(block) {
             !ok => {
                 _ = ok;
                 self.aliasItems = raw::danglingSlice[T](0);
                 self.aliasCapacity = 0;
+                self.aliasBlock = null;
                 !()
             },
             err! => err!,
         }
     }
 
-    fn retainReplacementItems(&mut self, items: &mut [T], capacity: usize) () {
+    fn retainReplacementItems(&mut self, items: &mut [T], capacity: usize, block: mem::Block) () {
         self.replacementItems = items;
         self.replacementCapacity = capacity;
+        self.replacementBlock = ?block;
     }
 
-    fn retainAliasItems(&mut self, items: &mut [T], capacity: usize) () {
+    fn retainAliasItems(&mut self, items: &mut [T], capacity: usize, block: mem::Block) () {
         self.aliasItems = items;
         self.aliasCapacity = capacity;
+        self.aliasBlock = ?block;
     }
 
     fn allocatedItems(&mut self) &mut [T] {
@@ -858,8 +892,13 @@ where T: Sized
     }
 
     fn allocatedBlock(&self) mem::Error!mem::Block {
-        let layout = mem::Layout::array[T](self.capacity).?;
-        !mem::Block::init(self.items.ptrMut() as &mut u8, layout)
+        match self.storageBlock {
+            ?block => !block,
+            null => {
+                let layout = mem::Layout::array[T](self.capacity).?;
+                !mem::Block::init(self.items.ptrMut() as &mut u8, layout)
+            },
+        }
     }
 
     fn setAllocatedBlock(&mut self, block: mem::Block, capacity: usize) () {
@@ -867,6 +906,7 @@ where T: Sized
         let mut items = raw::blockItems[T](block, capacity);
         self.items = &mut items[0..len];
         self.capacity = capacity;
+        self.storageBlock = ?block;
     }
 
     fn slicePointsIntoAllocation(&self, items: &[T]) bool {

@@ -13,6 +13,13 @@ pub enum ReallocError {
     },
 }
 
+pub struct SliceAllocation[T]
+where T: Sized
+{
+    block: Block,
+    len: usize,
+}
+
 pub trait Allocator {
     fn alloc(&mut self, layout: Layout) Error!Block;
 
@@ -77,28 +84,48 @@ pub trait Allocator {
 }
 
 extend Allocator {
-    pub fn allocSlice[T](&mut self, len: usize) Error!&mut [T]
+    pub fn allocSlice[T](&mut self, len: usize) Error!SliceAllocation[T]
     where T: Sized
     {
         let layout = Layout::array[T](len).?;
-        if layout.isEmpty() {
-            return !danglingSlice[T](len);
-        }
-        match self.alloc(layout) {
-            !block => {
-                !block.asSlice[T]()
-            },
-            err! => {
-                err!
-            },
-        }
+        let block = self.alloc(layout).?;
+        !SliceAllocation[T] { block, len }
+    }
+}
+
+extend[T] SliceAllocation[T]
+where T: Sized
+{
+    pub(pkg) fn fromBlock(block: Block, len: usize) SliceAllocation[T] {
+        Self { block, len }
     }
 
-    pub fn freeSlice[T](&mut self, slice: &mut [T]) Error!()
-    where T: Sized
-    {
-        let layout = Layout::array[T](slice.len()).?;
-        self.free(Block::init(slice.ptrMut() as &mut u8, layout))
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub(pkg) fn intoBlock(self) Block {
+        self.block
+    }
+
+    pub fn asSlice(&self) &[T] {
+        let ptr = self.block.ptr() as &mut T;
+        &ptr[0..self.len]
+    }
+
+    pub fn asMutSlice(&mut self) &mut [T] {
+        let mut ptr = self.block.ptr() as &mut T;
+        &mut ptr[0..self.len]
+    }
+
+    pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {
+        if self.len == 0 {
+            return !();
+        }
+        let block = self.block;
+        allocator.free(block).?;
+        self.len = 0;
+        !()
     }
 }
 
