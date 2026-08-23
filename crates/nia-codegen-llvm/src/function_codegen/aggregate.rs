@@ -288,7 +288,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(expr.span, "failed to store union relocation pointer"))?;
             let align = u32::try_from(self.module.source.layouts.target.pointer_align)
                 .map_err(|_| self.error(expr.span, "artifact pointer alignment is too large"))?;
-            store.set_alignment(align);
+            store
+                .set_alignment(align)
+                .map_err(|_| self.error(expr.span, "failed to set relocation pointer alignment"))?;
         }
         Ok(())
     }

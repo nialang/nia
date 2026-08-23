@@ -32,7 +32,7 @@ use super::{
     BasicMetadataValueEnum, BasicType, BasicTypeEnum, BasicValue, BasicValueEnum, CallSiteValue,
     Context, DILocation, FloatPredicate, FloatType, FloatValue, FunctionType, FunctionValue,
     InstructionValue, IntPredicate, IntType, IntValue, LlvmError, LlvmResult, PhiValue,
-    PointerType, PointerValue, StructValue, VectorValue, to_c_string,
+    PointerType, PointerValue, StructValue, VectorValue, to_c_string, validate_alignment,
 };
 /// Owned LLVM instruction builder tied to its originating context.
 ///
@@ -135,9 +135,10 @@ impl<'ctx> Builder<'ctx> {
         align: u32,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_alignment(align)?;
         let value = self.build_load(ty, ptr, name)?;
         if let Some(inst) = value.as_instruction_value() {
-            inst.set_alignment(align);
+            inst.set_alignment(align)?;
         }
         Ok(value)
     }
@@ -2985,6 +2986,27 @@ mod tests {
         assert!(matches!(
             error,
             LlvmError::Error(message) if message.contains("must belong to the phi's function")
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_aligned_load_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("load-alignment").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let pointer = context.ptr_type(Default::default()).const_null();
+
+        let error = builder
+            .build_aligned_load(context.i32_type(), pointer, 3, "invalid")
+            .expect_err("non-power-of-two load alignment");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("non-zero power of two")
         ));
     }
 

@@ -2722,6 +2722,10 @@ Global declaration address spaces are no longer ignored: `Module::add_global`
 uses LLVM's address-space-aware constructor when supplied, and `PointerType`
 exposes the resulting numeric address space for boundary checks.
 
+Alignment setters and aligned loads reject zero or non-power-of-two byte
+alignments before entering LLVM. Their callers now propagate the fallible
+wrapper result, keeping malformed alignment metadata out of emitted IR.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

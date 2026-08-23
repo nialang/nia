@@ -267,7 +267,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(layout) = layout {
             let align = u32::try_from(layout.align)
                 .map_err(|_| self.error(span, "promoted allocation alignment is too large"))?;
-            global.set_alignment(align);
+            global
+                .set_alignment(align)
+                .map_err(Self::diagnostic_from_llvm_error)?;
         }
         global
             .set_initializer(&value)
