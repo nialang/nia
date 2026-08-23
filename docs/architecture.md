@@ -2177,6 +2177,10 @@ attempts its control, key, and value releases independently, detaches only the
 successfully freed allocation slots, and retains failed slots for a later retry
 with the same allocator. After a cleanup error the map is cleanup-only state;
 ordinary lookup or mutation is not supported until ownership is fully retired.
+`ArrayList` replacement growth and shrink paths retain a newly allocated
+replacement slice if cleanup of that temporary owner fails after the original
+allocation is still active. Its `deinit` attempts active and retired slices
+independently, so a double-free failure cannot strand either allocation.
 Rehash applies the same transaction rule to replacement storage: the old
 control, key, and value allocations become retired owners on the map before
 the new table is published. If any retired release fails, the active table
