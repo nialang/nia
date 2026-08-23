@@ -72,6 +72,20 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
     };
     let mapped = raw_map_pages(map_len).?;
     let mapped_addr = mapped as usize;
+    match mapped_addr.checked_add(map_len) {
+        ?value => {
+            _ = value;
+        },
+        null => {
+            match raw_unmap_pages(mapped, map_len) {
+                !ok => {
+                    _ = ok;
+                },
+                error! => {},
+            }
+            return Errno::OutOfRange!;
+        },
+    }
     let mut result_addr: usize;
     match mapped_addr.align_forward(align) {
         ?value => {
@@ -95,7 +109,19 @@ pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {
 
     let remaining_len = map_len - drop_len;
     if remaining_len > aligned_len {
-        let suffix = (result_addr + aligned_len) as &mut u8;
+        let suffixAddr = match result_addr.checked_add(aligned_len) {
+            ?value => value,
+            null => {
+                match raw_unmap_pages(mapped, map_len) {
+                    !ok => {
+                        _ = ok;
+                    },
+                    error! => {},
+                }
+                return Errno::OutOfRange!;
+            },
+        };
+        let suffix = suffixAddr as &mut u8;
         raw_unmap_pages(suffix, remaining_len - aligned_len).?;
     }
 

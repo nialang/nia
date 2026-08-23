@@ -3313,6 +3313,9 @@ Build owner IDs use an atomic exhaustion latch in addition to the monotonic
 counter. If the host `usize` identity space reaches its reserved boundary,
 future Build initialization fails closed instead of allowing a wrapped owner to
 alias a live handle from an earlier Build.
+Linux page mapping validates both the mapped-range end and the aligned suffix
+address before trimming prefix/suffix pages. An unrepresentable virtual-range
+calculation releases the whole mapping and returns `OutOfRange`.
 
 ## 14. Diagnostics
 
