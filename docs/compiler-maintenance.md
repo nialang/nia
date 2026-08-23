@@ -521,6 +521,12 @@ signals, not architecture goals.
 - For repeated path validators, keep the terminal component outside the scan
   loop. A `<= len` loop that increments after its end sentinel can wrap a
   maximum-width index even when every component is valid.
+- Before growing an owned path or string, identify an input slice borrowed from
+  that same logical text by offset. Reconstruct it from the replacement storage
+  after reserve succeeds; never carry the old pointer across allocator growth.
+  Reserve the complete mutation first, then use assume-capacity operations so
+  allocation failure cannot commit only a separator or prefix. Prefer offset
+  rebasing over a temporary allocation when the source is within the same text.
 - UTF-8 iterators must validate decoded-width advancement against the borrowed
   slice before committing state. Treat a failed advancement or remaining-count
   decrement as a terminal invalidation, rather than exposing wrapped indices.

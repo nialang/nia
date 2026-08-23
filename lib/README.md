@@ -12,6 +12,10 @@ The library follows a small set of ownership rules:
   destruction or hidden allocator state to these values.
 - Borrowed forms use views such as `&[T]`, `fs::PathView`, and `CStringView`.
   A view never extends the lifetime of its backing storage.
+- `fs::Path::joinComponent` supports components borrowed from its own text. It
+  records their logical offset before growth, rebuilds the slice after any
+  allocation move, and commits only after reserving the complete joined length.
+  The operation does not retain a temporary allocation owner.
 - Ownership-transfer constructors consume an existing owner. Copying
   constructors accept an allocator and preserve typed allocation or validation
   failures.

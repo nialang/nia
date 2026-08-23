@@ -3389,6 +3389,13 @@ before entering the syscall layer. The obsolete `*WithAllocator` filesystem
 entry points and the unreachable allocation arm of `OperationError` are absent,
 so neither a failed operation nor a successfully returned handle can be lost to
 a temporary path release error.
+`fs::Path::joinComponent` treats a component borrowed from the destination text
+as an offset, not as a pointer that survives allocation growth. It validates
+the complete combined length, records any logical source range, and reserves
+capacity before mutation. After a successful move it reconstructs the aliased
+slice from the new storage and commits the separator plus component with
+infallible assume-capacity operations. Allocation failure leaves the path
+unchanged, and successful self-append introduces no temporary allocation owner.
 Allocator-owned `Allocated` and `CallableAllocation` values follow the inverse
 ordering: they retain the value pointer, logical layout, and the allocator
 block's complete release pointer/length until `free` succeeds. Release pointer
