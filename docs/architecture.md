@@ -2793,6 +2793,12 @@ LLVM function-signature construction is fallible: parameter counts are checked
 against LLVM's `u32` ABI width and the returned type handle is validated before
 it reaches module, ABI, inline-assembly, or builtin lowering.
 
+Function values also expose their signatures through a fallible inspection
+boundary. `FunctionValue::get_type` rejects a null `LLVMGlobalGetValueType`
+result before constructing `FunctionType`; direct-call and return-shape
+validation propagate this failure instead of triggering a typed-handle
+assertion.
+
 Constant GEP constructors apply the same discipline: index counts are checked
 against LLVM's `u32` width and null constant results become `LlvmResult` errors;
 static address initialization propagates the failure.
