@@ -608,6 +608,11 @@ impl<'ctx> Builder<'ctx> {
         rhs: IntValue<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
+        validate_binary_operands(
+            lhs.as_value_ref(),
+            rhs.as_value_ref(),
+            BinaryOperandKind::Integer,
+        )?;
         let name = to_c_string(name)?;
         let value = unsafe {
             LLVMBuildICmp(
@@ -628,7 +633,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildAdd, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildAdd,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Subtracts integer scalars or vectors.
@@ -638,7 +650,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildSub, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildSub,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Multiplies integer scalars or vectors.
@@ -648,7 +667,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildMul, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildMul,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Performs signed division on integer scalars or vectors.
@@ -658,7 +684,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildSDiv, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildSDiv,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Performs unsigned division on integer scalars or vectors.
@@ -668,7 +701,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildUDiv, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildUDiv,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Computes signed remainder on integer scalars or vectors.
@@ -678,7 +718,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildSRem, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildSRem,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Computes unsigned remainder on integer scalars or vectors.
@@ -688,7 +735,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildURem, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildURem,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Computes bitwise AND on integer scalars or vectors.
@@ -698,7 +752,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildAnd, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildAnd,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Computes bitwise OR on integer scalars or vectors.
@@ -708,7 +769,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildOr, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildOr,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Computes bitwise XOR on integer scalars or vectors.
@@ -718,7 +786,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildXor, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildXor,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Shifts integer scalars or vectors left.
@@ -728,7 +803,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildShl, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildShl,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Shifts integer scalars or vectors right logically.
@@ -738,7 +820,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildLShr, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildLShr,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Shifts integer scalars or vectors right arithmetically.
@@ -748,7 +837,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildAShr, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildAShr,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Integer,
+        )
     }
 
     /// Compares integer scalars or vectors with `predicate`.
@@ -759,6 +855,12 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let kind = if matches!(pred, IntPredicate::EQ | IntPredicate::NE) {
+            BinaryOperandKind::IntegerComparison
+        } else {
+            BinaryOperandKind::Integer
+        };
+        validate_binary_operands(lhs.as_value_ref(), rhs.as_value_ref(), kind)?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildICmp(
@@ -849,7 +951,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildFAdd, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildFAdd,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Floating,
+        )
     }
 
     /// Subtracts floating-point scalars or vectors.
@@ -859,7 +968,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildFSub, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildFSub,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Floating,
+        )
     }
 
     /// Multiplies floating-point scalars or vectors.
@@ -869,7 +985,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildFMul, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildFMul,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Floating,
+        )
     }
 
     /// Divides floating-point scalars or vectors.
@@ -879,7 +1002,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildFDiv, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildFDiv,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Floating,
+        )
     }
 
     /// Computes remainder on floating-point scalars or vectors.
@@ -889,7 +1019,14 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        build_basic_bin(self.raw, LLVMBuildFRem, lhs, rhs, name)
+        build_basic_bin(
+            self.raw,
+            LLVMBuildFRem,
+            lhs,
+            rhs,
+            name,
+            BinaryOperandKind::Floating,
+        )
     }
 
     /// Performs an ordered comparison on floating-point scalars or vectors.
@@ -900,6 +1037,11 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        validate_binary_operands(
+            lhs.as_value_ref(),
+            rhs.as_value_ref(),
+            BinaryOperandKind::Floating,
+        )?;
         let name = to_c_string(name)?;
         BasicValueEnum::new(unsafe {
             LLVMBuildFCmp(
@@ -1749,6 +1891,11 @@ fn build_int_bin<'ctx>(
     rhs: IntValue<'ctx>,
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
+    validate_binary_operands(
+        lhs.as_value_ref(),
+        rhs.as_value_ref(),
+        BinaryOperandKind::Integer,
+    )?;
     let name = to_c_string(name)?;
     let value = unsafe {
         f(
@@ -1838,6 +1985,11 @@ fn build_float_bin<'ctx>(
     rhs: FloatValue<'ctx>,
     name: &str,
 ) -> LlvmResult<FloatValue<'ctx>> {
+    validate_binary_operands(
+        lhs.as_value_ref(),
+        rhs.as_value_ref(),
+        BinaryOperandKind::Floating,
+    )?;
     let name = to_c_string(name)?;
     let value = unsafe {
         f(
@@ -1856,7 +2008,9 @@ fn build_basic_bin<'ctx>(
     lhs: BasicValueEnum<'ctx>,
     rhs: BasicValueEnum<'ctx>,
     name: &str,
+    kind: BinaryOperandKind,
 ) -> LlvmResult<BasicValueEnum<'ctx>> {
+    validate_binary_operands(lhs.as_value_ref(), rhs.as_value_ref(), kind)?;
     let name = to_c_string(name)?;
     BasicValueEnum::new(unsafe {
         f(
@@ -1866,6 +2020,77 @@ fn build_basic_bin<'ctx>(
             name.as_ptr(),
         )
     })
+}
+
+#[derive(Clone, Copy)]
+enum BinaryOperandKind {
+    Integer,
+    IntegerComparison,
+    Floating,
+}
+
+fn validate_binary_operands(
+    lhs: LLVMValueRef,
+    rhs: LLVMValueRef,
+    kind: BinaryOperandKind,
+) -> LlvmResult<()> {
+    let lhs_ty = require_type(unsafe { LLVMTypeOf(lhs) }, "binary left operand")?;
+    let rhs_ty = require_type(unsafe { LLVMTypeOf(rhs) }, "binary right operand")?;
+    if lhs_ty != rhs_ty {
+        return Err(LlvmError::error(
+            "LLVM binary operands must have identical types",
+        ));
+    }
+    let valid = match kind {
+        BinaryOperandKind::Integer => is_integer_bin_type(lhs_ty),
+        BinaryOperandKind::IntegerComparison => {
+            is_integer_bin_type(lhs_ty)
+                || unsafe { LLVMGetTypeKind(lhs_ty) } == LLVMTypeKind::LLVMPointerTypeKind
+        }
+        BinaryOperandKind::Floating => is_floating_bin_type(lhs_ty),
+    };
+    if !valid {
+        return Err(LlvmError::error(match kind {
+            BinaryOperandKind::Integer => {
+                "LLVM integer binary operation requires integer scalar or vector types"
+            }
+            BinaryOperandKind::IntegerComparison => {
+                "LLVM integer comparison requires integer or pointer operands"
+            }
+            BinaryOperandKind::Floating => {
+                "LLVM floating binary operation requires floating scalar or vector types"
+            }
+        }));
+    }
+    Ok(())
+}
+
+fn is_integer_bin_type(ty: LLVMTypeRef) -> bool {
+    match unsafe { LLVMGetTypeKind(ty) } {
+        LLVMTypeKind::LLVMIntegerTypeKind => true,
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind => unsafe {
+            let element = LLVMGetElementType(ty);
+            !element.is_null() && LLVMGetTypeKind(element) == LLVMTypeKind::LLVMIntegerTypeKind
+        },
+        _ => false,
+    }
+}
+
+fn is_floating_bin_type(ty: LLVMTypeRef) -> bool {
+    let is_scalar = |ty| {
+        matches!(
+            unsafe { LLVMGetTypeKind(ty) },
+            LLVMTypeKind::LLVMFloatTypeKind | LLVMTypeKind::LLVMDoubleTypeKind
+        )
+    };
+    match unsafe { LLVMGetTypeKind(ty) } {
+        LLVMTypeKind::LLVMFloatTypeKind | LLVMTypeKind::LLVMDoubleTypeKind => true,
+        LLVMTypeKind::LLVMVectorTypeKind | LLVMTypeKind::LLVMScalableVectorTypeKind => unsafe {
+            let element = LLVMGetElementType(ty);
+            !element.is_null() && is_scalar(element)
+        },
+        _ => false,
+    }
 }
 
 fn cast_int<'ctx>(
@@ -2497,6 +2722,75 @@ mod tests {
             error,
             LlvmError::Error(message) if message.contains("cannot carry a value")
         ));
+    }
+
+    #[test]
+    fn rejects_integer_binary_type_mismatch_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("integer-binary-type").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let error = builder
+            .build_int_add(
+                context.i32_type().const_zero(),
+                context.i64_type().const_zero(),
+                "invalid",
+            )
+            .expect_err("integer binary type mismatch");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("identical types")
+        ));
+    }
+
+    #[test]
+    fn rejects_floating_binary_with_integer_operands_before_llvm_call() {
+        let context = Context::create();
+        let module = context.create_module("floating-binary-kind").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+
+        let lhs: BasicValueEnum<'_> = context.i32_type().const_zero().into();
+        let rhs: BasicValueEnum<'_> = context.i32_type().const_zero().into();
+        let error = builder
+            .build_basic_float_add(lhs, rhs, "invalid")
+            .expect_err("floating binary with integer operands");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("floating binary operation requires")
+        ));
+    }
+
+    #[test]
+    fn accepts_pointer_equality_through_integer_compare_builder() {
+        let context = Context::create();
+        let module = context.create_module("pointer-compare").unwrap();
+        let function = module
+            .add_function("test", context.void_type().fn_type(&[], false), None)
+            .unwrap();
+        let entry = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder();
+        builder.position_at_end(entry);
+        let pointer_ty = context.ptr_type(Default::default());
+
+        let value = builder
+            .build_basic_int_compare(
+                IntPredicate::EQ,
+                pointer_ty.const_null().into(),
+                pointer_ty.const_null().into(),
+                "valid",
+            )
+            .unwrap();
+        assert!(value.is_int_value());
     }
 
     #[test]

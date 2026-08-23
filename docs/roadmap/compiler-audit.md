@@ -2089,6 +2089,14 @@ acceptance item only when its phase-wide evidence is complete.
       return LLVM types before `LLVMBuildRet` or `LLVMBuildRetVoid`. Wrapper
       regressions cover all three malformed shapes, with LLVM/codegen suites,
       workspace check, formatting, and strict Clippy passing.
+- [x] Batch 362 closes the LLVM binary-operand boundary. Typed and shared
+      integer/floating arithmetic, bitwise, shift, and comparison builders now
+      require identical operand LLVM types and the correct integer/floating
+      scalar-or-vector category before FFI entry; shared integer equality and
+      inequality retain LLVM's valid same-address-space pointer comparison
+      contract. Regressions cover a scalar width mismatch, an integer value
+      routed to floating arithmetic, and pointer equality, with LLVM/codegen
+      suites, workspace check, formatting, and strict Clippy passing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
