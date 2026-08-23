@@ -21,11 +21,11 @@ use llvm_sys::core::{
     LLVMGetElementType, LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock,
     LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetInstructionParent,
     LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam,
-    LLVMGetParamTypes, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
-    LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct,
-    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
-    LLVMSetSection, LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
-    LLVMTypeOf, LLVMVectorType,
+    LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType, LLVMGetTypeKind,
+    LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType, LLVMIsAInstruction,
+    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVolatile, LLVMSetWeak,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -543,6 +543,11 @@ impl<'ctx> FloatType<'ctx> {
 }
 
 impl<'ctx> PointerType<'ctx> {
+    /// Returns this opaque pointer type's numeric address space.
+    pub fn address_space(self) -> AddressSpace {
+        AddressSpace(unsafe { LLVMGetPointerAddressSpace(self.as_type_ref()) })
+    }
+
     /// Creates a null pointer constant.
     pub fn const_zero(self) -> PointerValue<'ctx> {
         self.const_null()
