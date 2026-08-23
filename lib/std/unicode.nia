@@ -1,5 +1,6 @@
 using pkg::iter;
 using pkg::iter::range;
+using pkg::math;
 
 pub struct Utf8Scalar {
     bytes: [u8; 4],
@@ -65,8 +66,14 @@ extend Utf8View {
         let mut byteIndex: usize = 0;
         while byteIndex < bytes.len() {
             let decoded = decodeUtf8First(&bytes[byteIndex..]).?;
-            byteIndex += decoded.byteLen();
-            scalarCount += 1;
+            byteIndex = match nextByteIndex(byteIndex, decoded.byteLen(), bytes.len()) {
+                ?next => next,
+                null => return Utf8DecodeError::Truncated!,
+            };
+            scalarCount = match scalarCount.checked_add(1) {
+                ?next => next,
+                null => return Utf8DecodeError::InvalidScalar!,
+            };
         }
         !Utf8View { bytes: bytes, scalarCount: scalarCount }
     }
@@ -132,9 +139,38 @@ extend Utf8ViewIter : Iterator {
                 return null;
             },
         };
-        self.byteIndex += decoded.byteLen();
-        self.remaining -= 1;
+        self.byteIndex = match nextByteIndex(self.byteIndex, decoded.byteLen(), self.bytes.len()) {
+            ?next => next,
+            null => {
+                self.byteIndex = self.bytes.len();
+                self.remaining = 0;
+                return null;
+            },
+        };
+        self.remaining = match self.remaining.checked_sub(1) {
+            ?remaining => remaining,
+            null => {
+                self.byteIndex = self.bytes.len();
+                self.remaining = 0;
+                return null;
+            },
+        };
         ?decoded.scalar()
+    }
+}
+
+fn nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
+    match current.checked_add(width) {
+        ?next => {
+            if next <= limit {
+                ?next
+            } else {
+                null
+            }
+        },
+        null => {
+            null
+        },
     }
 }
 

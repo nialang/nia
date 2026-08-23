@@ -3275,6 +3275,10 @@ Build path validators scan separators only while the index is strictly inside
 the slice and validate the final component after the loop. They do not perform
 an extra end-of-slice increment, so a maximum-width path length cannot wrap a
 temporary index after successful validation.
+UTF-8 views likewise commit a decoded width only through a checked advancement
+within the borrowed byte slice. Iterator state fails closed if a mutated backing
+slice or malformed internal state would make that advancement or remaining-count
+decrement unrepresentable.
 `Env` records the count of the startup `envp` vector once at its package-owned
 construction boundary; iteration and lookup do not rescan the unbounded pointer
 array on every operation.

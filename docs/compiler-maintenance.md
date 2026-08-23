@@ -371,6 +371,9 @@ signals, not architecture goals.
 - For repeated path validators, keep the terminal component outside the scan
   loop. A `<= len` loop that increments after its end sentinel can wrap a
   maximum-width index even when every component is valid.
+- UTF-8 iterators must validate decoded-width advancement against the borrowed
+  slice before committing state. Treat a failed advancement or remaining-count
+  decrement as a terminal invalidation, rather than exposing wrapped indices.
 - Treat build-plan counts as untrusted protocol fields: check aggregate and
   derived additions before narrowing to wire integers, and reject oversized
   payload lengths before writing their prefixes. Enforce the total byte budget
