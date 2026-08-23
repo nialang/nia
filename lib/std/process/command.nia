@@ -18,6 +18,7 @@ using types::{
     Error,
     SpawnAttempt,
     SpawnError,
+    SpawnStage,
     SpawnOutcome,
     SpawnStorage,
     StdIo,
@@ -157,7 +158,7 @@ extend Command {
         &self,
         allocator: &mut mem::Allocator,
         storage: &mut SpawnStorage,
-    ) Error!Child {
+    ) Error!() {
         match self.environment {
             CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
             CommandEnvironment::Inherit(env) => { _ = env; },
@@ -211,7 +212,8 @@ extend Command {
             },
             null => {},
         }
-        spawnWithOptions(bytes.ptr(), storage.argv.asSlice().ptr(), envp, options)
+        storage.nativeSpawn = ?os::spawn(bytes.ptr(), storage.argv.asSlice().ptr(), envp, options);
+        !()
     }
 }
 
@@ -223,18 +225,23 @@ extend SpawnStorage {
             environmentBytes: collections::ArrayList[u8]::init(),
             environmentPointers: collections::ArrayList[&u8]::init(),
             cwdBytes: collections::ArrayList[u8]::init(),
+            nativeSpawn: null,
             outcome: null,
         }
     }
 
     fn execute(&mut self, command: &Command, allocator: &mut mem::Allocator) () {
         self.outcome = ?match command.executeSpawn(allocator, self) {
-            !child => SpawnOutcome::Success(child),
+            !ok => {
+                _ = ok;
+                return;
+            },
             cause! => SpawnOutcome::Failure(cause),
         };
     }
 
     fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
+        let nativeResult = self.finishNativeSpawn();
         let mut firstError: ?mem::Error = null;
         rememberSpawnCleanupError(&mut firstError, self.cwdBytes.deinit(allocator));
         rememberSpawnCleanupError(&mut firstError, self.environmentPointers.deinit(allocator));
@@ -244,6 +251,12 @@ extend SpawnStorage {
         if firstError is ?cause {
             return Error::Allocation(cause)!;
         }
+        match nativeResult {
+            !ok => {
+                _ = ok;
+            },
+            cause! => return cause!,
+        }
         let outcome = match self.outcome {
             ?value => value,
             null => return Error::SpawnSetup(SystemError::Invalid)!,
@@ -252,6 +265,33 @@ extend SpawnStorage {
         match outcome {
             SpawnOutcome::Success(child) => !child,
             SpawnOutcome::Failure(cause) => cause!,
+        }
+    }
+
+    fn finishNativeSpawn(&mut self) Error!() {
+        let mut attempt = match self.nativeSpawn {
+            ?value => value,
+            null => return !(),
+        };
+        self.nativeSpawn = null;
+        match attempt.finish() {
+            !result => {
+                self.outcome = ?SpawnOutcome::Success(Child::fromSpawnResult(result));
+                !()
+            },
+            os::SpawnError::Reap { stage, primary, cause, pid }! => {
+                self.nativeSpawn = ?attempt;
+                Error::Spawn(SpawnError::Reap {
+                    stage: commandSpawnStage(stage),
+                    primary: SystemError::fromOs(primary),
+                    cause: SystemError::fromOs(cause),
+                    pid: child::processIdFromOs(pid),
+                })!
+            },
+            cause! => {
+                self.outcome = ?SpawnOutcome::Failure(commandSpawnError(cause));
+                !()
+            },
         }
     }
 }
@@ -306,14 +346,6 @@ extend StdIo {
             StdIo::Pipe => os::StdIo::Pipe,
         }
     }
-}
-
-fn spawnWithOptions(path: &u8, argv: &&u8, envp: &&u8, options: os::SpawnOptions) Error!Child {
-    let result = match os::spawn(path, argv, envp, options) {
-        !value => value,
-        cause! => return commandSpawnError(cause)!,
-    };
-    !Child::fromSpawnResult(result)
 }
 
 fn appendArgument(
@@ -468,6 +500,24 @@ fn commandSpawnError(cause: os::SpawnError) Error {
         os::SpawnError::Exec(system) => {
             Error::Spawn(SpawnError::Exec(SystemError::fromOs(system)))
         },
+        os::SpawnError::Reap { stage, primary, cause, pid } => {
+            Error::Spawn(SpawnError::Reap {
+                stage: commandSpawnStage(stage),
+                primary: SystemError::fromOs(primary),
+                cause: SystemError::fromOs(cause),
+                pid: child::processIdFromOs(pid),
+            })
+        },
+    }
+}
+
+fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
+    match stage {
+        os::SpawnStage::Setup => SpawnStage::Setup,
+        os::SpawnStage::Stdio => SpawnStage::Stdio,
+        os::SpawnStage::Cwd => SpawnStage::Cwd,
+        os::SpawnStage::Exec => SpawnStage::Exec,
+        _ => SpawnStage::Setup,
     }
 }
 

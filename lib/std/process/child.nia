@@ -4,6 +4,10 @@ using pkg::process::types;
 
 using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, SystemError, Term};
 
+pub(pkg) fn processIdFromOs(pid: os::ProcessId) ProcessId {
+    ProcessId::fromRaw(pid.raw())
+}
+
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
         Self {

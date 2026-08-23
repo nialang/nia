@@ -182,6 +182,7 @@ extend SpawnError : error::IntoError[ExitCode] {
             SpawnError::Stdio(cause) => cause.asExitCode(),
             SpawnError::Cwd(cause) => cause.asExitCode(),
             SpawnError::Exec(cause) => cause.asExitCode(),
+            SpawnError::Reap { stage: _, primary: _, cause, pid: _ } => cause.asExitCode(),
         }
     }
 }

@@ -500,6 +500,11 @@ signals, not architecture goals.
   untransferred end on every return path. Descriptor close errors must not
   replace a primary spawn/handshake error; after exec succeeds, do not return a
   plain cleanup error that cannot carry the still-live child owner.
+- Keep failed-child reaping inside the spawn attempt. Retry `EINTR`; if another
+  `wait4` error occurs, report the pid, primary spawn stage/cause, and reap cause
+  without detaching any of them from the attempt. A later `finish` must retry
+  that same pid, and the original spawn error becomes observable only after the
+  owner is reaped. Treat `ECHILD` as terminal because no waitable owner remains.
 - Materialize startup process views once. Long-lived `Init` values should store
   validated `Args`/`Env` records, not raw `argv`/`envp` pointers that force later
   rescans or recreate the ABI boundary on every accessor.

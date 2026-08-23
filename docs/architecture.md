@@ -3407,6 +3407,15 @@ cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
 the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.
 
+Failed-child reaping is also owner-driven. The native spawn attempt retains the
+pid and primary stage/cause until an EINTR-safe `wait4` completes. Any other
+reap failure is reported with that complete metadata while the same attempt
+remains available to the next high-level `finish`; only successful reaping
+publishes the original spawn error. `ECHILD` is the terminal no-owner state,
+since the kernel confirms that no waitable child remains. This keeps command
+staging cleanup independent: every allocation release is still attempted even
+when the native reap remains pending.
+
 String formatting uses an analogous staged-output transaction. A temporary
 byte writer cleanup is always attempted. A format or UTF-8 error remains primary
 when that cleanup reports an allocation error; the cleanup error is surfaced only

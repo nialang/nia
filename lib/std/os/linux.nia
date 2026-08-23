@@ -25,9 +25,11 @@ pub using types::{
     OpenMode,
     ProcessId,
     SeekWhence,
+    SpawnAttempt,
     SpawnError,
     SpawnOptions,
     SpawnResult,
+    SpawnStage,
     StdIo,
     Timestamp,
     WaitStatus,
@@ -151,7 +153,7 @@ pub fn random(bytes: &mut [u8]) Errno!() {
     random_impl::random(bytes)
 }
 
-pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnError!SpawnResult {
+pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     process::spawn(path, argv, envp, options)
 }
 

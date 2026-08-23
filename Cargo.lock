@@ -294,6 +294,7 @@ dependencies = [
 name = "nia-cli"
 version = "0.4.3"
 dependencies = [
+ "libc",
  "nia-build",
  "nia-compat",
  "nia-driver",
