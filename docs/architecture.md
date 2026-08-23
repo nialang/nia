@@ -2797,6 +2797,10 @@ Constant GEP constructors apply the same discipline: index counts are checked
 against LLVM's `u32` width and null constant results become `LlvmResult` errors;
 static address initialization propagates the failure.
 
+Instruction builders checked-convert dynamic slice counts before emitting GEP,
+call, or switch instructions. Switch target validation keeps the default and
+case blocks separate, avoiding an unchecked `case_count + 1` allocation.
+
 `Builder::build_switch` validates every case before creating the instruction:
 case values must be constant integers whose LLVM type exactly matches the
 switch selector. This keeps the C API's `LLVMAddCase` contract out of ordinary

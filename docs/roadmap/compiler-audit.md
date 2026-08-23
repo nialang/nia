@@ -2225,6 +2225,12 @@ acceptance item only when its phase-wide evidence is complete.
       propagates failures. An index-count regression covers the conversion
       boundary, with LLVM/codegen suites, workspace check, formatting, and
       strict Clippy passing.
+- [x] Batch 385 closes remaining LLVM builder slice-count truncation.
+      GEP indices, call arguments, and switch cases now checked-convert to
+      LLVM's `u32` width before FFI. Switch target validation also avoids an
+      unchecked `case_count + 1` capacity expression. A shared conversion
+      regression plus LLVM/codegen suites, workspace check, formatting, and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
