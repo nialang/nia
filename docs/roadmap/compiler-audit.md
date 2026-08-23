@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-23):
 
-- Implementation batches: 445 completed entries in this ledger.
+- Implementation batches: 446 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2521,6 +2521,10 @@ acceptance item only when its phase-wide evidence is complete.
       address derivation succeeds, matching the existing `next` behavior for
       both immutable and mutable iterators; an impossible address cannot drop a
       pending element.
+- [x] Batch 446 closes the remaining large-allocation base offset check.
+      `GeneralPurposeAllocator::allocLarge` now checked-adds the backing base
+      and header size before alignment; a malformed child-allocator address is
+      released and reported as `OutOfMemory` instead of wrapping into metadata.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
