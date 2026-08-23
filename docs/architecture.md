@@ -3309,6 +3309,10 @@ Build package handles reserve index zero for the root package. Additional
 package indices use checked `len + 1` allocation and report the build memory
 failure boundary if the host index space is exhausted; they cannot alias the
 root through wraparound.
+Build owner IDs use an atomic exhaustion latch in addition to the monotonic
+counter. If the host `usize` identity space reaches its reserved boundary,
+future Build initialization fails closed instead of allowing a wrapped owner to
+alias a live handle from an earlier Build.
 
 ## 14. Diagnostics
 
