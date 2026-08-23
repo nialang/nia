@@ -3246,6 +3246,15 @@ cleanup attempts every still-owned stdin/stdout/stderr handle and returns only
 the first close error, so one failing close cannot strand later handles behind
 the cached status fast path.
 
+`std::CStringView` stores its validated byte length alongside the borrowed
+pointer. Bounded byte slices are admitted only through `fromBytes`, while an
+owned `CString` constructs its view from its already-owned length. The process
+startup adapter has one package-private `fromTerminatedPtr` boundary for the
+freestanding argv/envp ABI, whose contract supplies a NUL terminator; the old
+public `fromPtrUnchecked` constructor and its unbounded public view path are
+removed. Consequently normal consumers cannot manufacture a C-string view
+without either a bounded validation or an explicit runtime-owned boundary.
+
 The public `std::io::Reader` and `Writer` contracts require every implementation
 to report no more bytes than the slice supplied to that call. Trait defaults and
 all standard adapters validate this boundary before advancing a cursor,

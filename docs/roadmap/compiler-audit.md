@@ -2372,6 +2372,13 @@ acceptance item only when its phase-wide evidence is complete.
       const-vector materialization, now checked-convert semantic lane counts to
       host `usize`; const/body/LLVM suites, workspace check, formatting, and
       strict Clippy pass.
+- [x] Batch 412 removes the public unchecked formatting and C-string view
+      compatibility paths. Formatting now has one checked template dispatcher;
+      `CStringView` stores its validated length, bounded `fromBytes` and owned
+      views avoid repeated raw-pointer scans, and only the package-private
+      process-startup adapter accepts the runtime's NUL-terminated argv/envp
+      pointers. `nia-cli` formatting/process executable suites and the loader
+      facade regressions, workspace check, and strict Clippy validation pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

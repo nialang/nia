@@ -68,7 +68,10 @@ fn query_loader_loads_reexported_std_type_module_dependencies() {
 using std::CStringView;
 
 fn main() () {
-_ = CStringView::fromPtrUnchecked(&0u8);
+match CStringView::fromBytes(b"nia\0") {
+    !value => { _ = value; },
+    error! => { _ = error; },
+}
 }
 "#,
     );
