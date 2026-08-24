@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 501 completed entries in this ledger.
+- Implementation batches: 502 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2883,6 +2883,13 @@ acceptance item only when its phase-wide evidence is complete.
       before backend range validation. Owner endpoint tests and a real ELF
       cover const and runtime `i128::MIN` alongside the full-width `u128`
       boundary.
+- [x] Batch 502 makes const float-to-integer casts preserve the full target
+      range. Width-derived half-open powers-of-two replace rounded floating
+      views of integer maxima, and casts now construct target-signed `IntConst`
+      values without a saturating `i128` intermediate. Owner boundary tests
+      cover signed, unsigned, malformed-width, and exclusive endpoints; the
+      real 128-bit ELF observes the correct embedded `2^127f64 as u128` const
+      result.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -18,6 +18,7 @@ using std::process;
 const DECIMAL_MAX: u128 = 340282366920938463463374607431768211455u128;
 const HEX_MAX: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffffu128;
 const SIGNED_MIN: i128 = -170141183460469231731687303715884105728i128;
+const FLOAT_TO_U128: u128 = 170141183460469231731687303715884105728.0f64 as u128;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -30,6 +31,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if SIGNED_MIN != i128::MIN or -170141183460469231731687303715884105728i128 != i128::MIN {
         return process::exit(3)!;
+    }
+    if FLOAT_TO_U128 != (1u128 << 127u128) {
+        return process::exit(4)!;
     }
     !()
 }

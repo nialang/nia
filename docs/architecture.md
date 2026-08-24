@@ -679,6 +679,12 @@ canonicalizes that endpoint builtin call to one signed integer constant so
 Function IR and backend validation never observe an out-of-range positive
 `i128` operand.
 
+Const float-to-integer casts validate against half-open powers-of-two bounds
+derived from the target width: signed values use `[-2^(N-1), 2^(N-1))` and
+unsigned values use `[0, 2^N)`. They construct `IntConst` in the target
+signedness directly; an intermediate `i128` would silently saturate valid wide
+`u128` results because floating representations round integer maxima upward.
+
 `tokenize` emits significant tokens plus one terminal EOF; `tokenize_lossless`
 also retains contiguous whitespace and line-comment trivia. Both use half-open
 UTF-8 byte spans. Lexical failures remain in-band `Error` tokens so parsing can

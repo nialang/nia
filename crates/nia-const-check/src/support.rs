@@ -148,15 +148,21 @@ pub(crate) fn cast_float_to_integer(
     value: f64,
     ty: PrimitiveTy,
     pointer_width: u32,
-) -> Option<i128> {
+) -> Option<IntConst> {
     if !value.is_finite() {
         return None;
     }
-    let (min, max) = primitive_integer_range_for_target(ty, pointer_width)?;
-    if value < min as f64 || value > max as f64 {
+    let (bits, signed) = primitive_integer_layout(ty, pointer_width)?;
+    if !(1..=128).contains(&bits) {
         return None;
     }
-    Some(value.trunc() as i128)
+    if signed {
+        let limit = 2.0_f64.powi(i32::try_from(bits - 1).ok()?);
+        (value >= -limit && value < limit).then(|| IntConst::from_i128(value.trunc() as i128))
+    } else {
+        let upper_exclusive = 2.0_f64.powi(i32::try_from(bits).ok()?);
+        (value >= 0.0 && value < upper_exclusive).then(|| IntConst::unsigned(value.trunc() as u128))
+    }
 }
 
 pub(crate) fn primitive_integer_range_for_target(
@@ -263,4 +269,35 @@ pub(crate) fn float_literal_suffix_ty(text: &str) -> Option<PrimitiveTy> {
 
 fn numeric_literal_suffix(text: &str) -> Option<&str> {
     nia_literals::numeric_literal_suffix(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn float_to_integer_casts_use_half_open_power_of_two_bounds() {
+        let two_to_127 = 2.0_f64.powi(127);
+        let two_to_128 = 2.0_f64.powi(128);
+
+        assert_eq!(
+            cast_float_to_integer(two_to_127, PrimitiveTy::U128, 64),
+            Some(IntConst::unsigned(1_u128 << 127))
+        );
+        assert_eq!(
+            cast_float_to_integer(two_to_127, PrimitiveTy::I128, 64),
+            None
+        );
+        assert_eq!(
+            cast_float_to_integer(-two_to_127, PrimitiveTy::I128, 64),
+            Some(IntConst::signed(i128::MIN))
+        );
+        assert_eq!(
+            cast_float_to_integer(two_to_128, PrimitiveTy::U128, 64),
+            None
+        );
+        assert_eq!(cast_float_to_integer(-0.5, PrimitiveTy::U128, 64), None);
+        assert_eq!(cast_float_to_integer(0.0, PrimitiveTy::Usize, 0), None);
+        assert_eq!(cast_float_to_integer(0.0, PrimitiveTy::Usize, 129), None);
+    }
 }

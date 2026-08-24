@@ -73,6 +73,10 @@ and other expected failures use explicit result and diagnostic channels.
   an already signed `i128::MIN`, which is an overflow. Normalize the endpoint
   builtin call before Function IR rather than weakening backend literal range
   validation for an otherwise invalid positive `i128`.
+- Validate float-to-integer const casts with an exclusive power-of-two upper
+  bound for the concrete target width, then construct the target-signed
+  `IntConst` directly. Do not compare against integer maxima converted to float
+  or route unsigned results through a saturating signed host cast.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.
