@@ -635,3 +635,71 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_owned_iterator_adapters_expose_constructors() {
+    let root = temp_dir("emit_exe_std_owned_iterator_adapters_expose_constructors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut take = iter::Take[iter::Range[i32]]::init(
+        iter::Range[i32]::init(1, 5),
+        2,
+    );
+    match take.next() {
+        ?value => if value != 1 { return process::exit(1)!; },
+        null => return process::exit(2)!,
+    }
+    match take.next() {
+        ?value => if value != 2 { return process::exit(3)!; },
+        null => return process::exit(4)!,
+    }
+    if take.next() is ?_ { return process::exit(5)!; }
+
+    let mut rev = iter::Rev[iter::RangeInclusive[i32]]::init(
+        iter::RangeInclusive[i32]::init(1, 3),
+    );
+    match rev.next() {
+        ?value => if value != 3 { return process::exit(6)!; },
+        null => return process::exit(7)!,
+    }
+    match rev.nextBack() {
+        ?value => if value != 1 { return process::exit(8)!; },
+        null => return process::exit(9)!,
+    }
+    match rev.next() {
+        ?value => if value != 2 { return process::exit(10)!; },
+        null => return process::exit(11)!,
+    }
+    if rev.next() is ?_ { return process::exit(12)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe owned iterator constructors");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
