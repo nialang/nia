@@ -166,9 +166,16 @@ impl<'a> BodyChecker<'a> {
                 }
                 match op {
                     UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
-                        let expected = if matches!(op, UnaryOp::Neg) {
+                        let signed_integer_literal_ty = if matches!(op, UnaryOp::Neg)
+                            && matches!(inner.kind, ExprKind::Integer(_))
+                        {
                             integer_literal_suffix_ty(expr)
                                 .map(|primitive| self.primitive(primitive))
+                        } else {
+                            None
+                        };
+                        let expected = if matches!(op, UnaryOp::Neg) {
+                            signed_integer_literal_ty
                                 .or_else(|| {
                                     float_literal_suffix_ty(expr)
                                         .map(|primitive| self.primitive(primitive))
@@ -177,9 +184,19 @@ impl<'a> BodyChecker<'a> {
                         } else {
                             expected_ref_target
                         };
-                        let inner_ty = self.check_expr_with_expected(inner, expected);
+                        let inner_ty = if let Some(suffix_ty) = signed_integer_literal_ty {
+                            self.check_integer_literal_range(expr, suffix_ty, "literal suffix");
+                            self.record_expr_node_type(inner, suffix_ty);
+                            suffix_ty
+                        } else {
+                            self.check_expr_with_expected(inner, expected)
+                        };
                         if let Some(expected) = expected {
-                            self.expect_expr_type(inner, expected, inner_ty, "unary operator");
+                            if signed_integer_literal_ty.is_some() {
+                                self.expect_type(inner.span, expected, inner_ty, "unary operator");
+                            } else {
+                                self.expect_expr_type(inner, expected, inner_ty, "unary operator");
+                            }
                         }
                         self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }

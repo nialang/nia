@@ -68,6 +68,11 @@ and other expected failures use explicit result and diagnostic channels.
   remain unary expressions. Carry signedness plus complete bits in `IntConst`
   after lowering, and test source-literal representability against the target
   primitive and pointer width without narrowing through `i128`.
+- Negate an unsigned source magnitude before interpreting signed bits so the
+  `i128::MIN` endpoint remains representable. Keep this distinct from negating
+  an already signed `i128::MIN`, which is an overflow. Normalize the endpoint
+  builtin call before Function IR rather than weakening backend literal range
+  validation for an otherwise invalid positive `i128`.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.

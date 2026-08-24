@@ -35,6 +35,47 @@ fn lowers_body_to_entry_block_with_tail() {
 }
 
 #[test]
+fn canonicalizes_i128_min_unary_literal_before_function_ir_validation() {
+    let span = Span::default();
+    let ty = primitive_ty(PrimitiveTy::I128);
+    let body = TypedBody {
+        span,
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Call {
+                callee: TypedCallee::BuiltinOperator(BuiltinOperator {
+                    trait_id: BuiltinTrait::Neg,
+                    op: nia_sema_ir::BuiltinOperatorOp::Unary(nia_ast::UnaryOp::Neg),
+                }),
+                args: vec![TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Integer(
+                        "170141183460469231731687303715884105728i128".to_string(),
+                    ),
+                }],
+            },
+        })),
+        ty,
+    };
+
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
+    let FunctionTerminator::Tail {
+        value: Some(value), ..
+    } = &function_body.blocks[0].terminator
+    else {
+        panic!("expected value tail");
+    };
+    assert!(matches!(
+        &value.kind,
+        FunctionExprKind::Integer(text) if text == "-170141183460469231731687303715884105728"
+    ));
+}
+
+#[test]
 fn lowers_struct_pattern_bindings_through_nominal_field_projection() {
     let span = Span::default();
     let ty = test_ty();

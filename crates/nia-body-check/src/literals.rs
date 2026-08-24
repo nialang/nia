@@ -2,23 +2,54 @@
 use nia_ast::{Expr, ExprKind, StringLiteral, UnaryOp};
 use nia_ty::PrimitiveTy;
 
-pub(super) fn integer_literal_value(expr: &Expr) -> Option<nia_ty::IntConst> {
+pub(super) enum IntegerLiteralRangeValue {
+    Representable(nia_ty::IntConst),
+    BelowI128Min(u128),
+}
+
+impl IntegerLiteralRangeValue {
+    pub(super) fn fits_primitive_int(&self, primitive: PrimitiveTy, pointer_width: u32) -> bool {
+        match self {
+            Self::Representable(value) => value.fits_primitive_int(primitive, pointer_width),
+            Self::BelowI128Min(_) => false,
+        }
+    }
+
+    pub(super) fn display(&self) -> String {
+        match self {
+            Self::Representable(value) if value.is_signed() => value
+                .as_i128()
+                .expect("signed integer constant")
+                .to_string(),
+            Self::Representable(value) => value.bits().to_string(),
+            Self::BelowI128Min(magnitude) => format!("-{magnitude}"),
+        }
+    }
+}
+
+pub(super) fn integer_literal_value(expr: &Expr) -> Option<IntegerLiteralRangeValue> {
     match &expr.kind {
         ExprKind::Integer(text) => nia_literals::eval_int_literal(text)
             .ok()
-            .map(nia_ty::IntConst::unsigned),
+            .map(nia_ty::IntConst::unsigned)
+            .map(IntegerLiteralRangeValue::Representable),
         ExprKind::Unary {
             op: UnaryOp::Neg,
             expr,
         } => {
             let magnitude = nia_literals::eval_int_literal(integer_literal_text(expr)?).ok()?;
-            if magnitude == 1_u128 << 127 {
-                Some(nia_ty::IntConst::signed(i128::MIN))
+            if magnitude > 1_u128 << 127 {
+                Some(IntegerLiteralRangeValue::BelowI128Min(magnitude))
+            } else if magnitude == 1_u128 << 127 {
+                Some(IntegerLiteralRangeValue::Representable(
+                    nia_ty::IntConst::signed(i128::MIN),
+                ))
             } else {
                 i128::try_from(magnitude)
-                    .ok()?
+                    .expect("magnitude below the signed endpoint")
                     .checked_neg()
                     .map(nia_ty::IntConst::signed)
+                    .map(IntegerLiteralRangeValue::Representable)
             }
         }
         _ => None,
