@@ -263,3 +263,113 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_range_types_expose_canonical_constructors() {
+    let root = temp_dir("emit_exe_std_range_types_expose_canonical_constructors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : iter::Step {
+    fn forwardChecked(self) ?Counter {
+        if self.value == 5 { null } else { ?Counter { value: self.value + 1 } }
+    }
+}
+
+extend Counter : iter::StepBack {
+    fn backwardChecked(self) ?Counter {
+        if self.value == 0 { null } else { ?Counter { value: self.value - 1 } }
+    }
+}
+
+extend Counter : Eq[Counter] {
+    fn eq(&self, other: &Counter) bool { self.value == other.value }
+    fn ne(&self, other: &Counter) bool { self.value != other.value }
+}
+
+extend Counter : Ord[Counter] {
+    fn lt(&self, other: &Counter) bool { self.value < other.value }
+    fn le(&self, other: &Counter) bool { self.value <= other.value }
+    fn gt(&self, other: &Counter) bool { self.value > other.value }
+    fn ge(&self, other: &Counter) bool { self.value >= other.value }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut half = iter::Range[Counter]::init(
+        Counter { value: 1 },
+        Counter { value: 4 },
+    );
+    match half.next() {
+        ?value => if value.value != 1 { return process::exit(1)!; },
+        null => return process::exit(2)!,
+    }
+    match half.nextBack() {
+        ?value => if value.value != 3 { return process::exit(3)!; },
+        null => return process::exit(4)!,
+    }
+    match half.next() {
+        ?value => if value.value != 2 { return process::exit(5)!; },
+        null => return process::exit(6)!,
+    }
+    if half.next() is ?_ { return process::exit(7)!; }
+
+    let mut inclusive = iter::RangeInclusive[Counter]::init(
+        Counter { value: 2 },
+        Counter { value: 3 },
+    );
+    match inclusive.nextBack() {
+        ?value => if value.value != 3 { return process::exit(8)!; },
+        null => return process::exit(9)!,
+    }
+    match inclusive.next() {
+        ?value => if value.value != 2 { return process::exit(10)!; },
+        null => return process::exit(11)!,
+    }
+    if inclusive.next() is ?_ { return process::exit(12)!; }
+
+    let mut empty = iter::RangeInclusive[Counter]::init(
+        Counter { value: 4 },
+        Counter { value: 3 },
+    );
+    if empty.next() is ?_ { return process::exit(13)!; }
+
+    let mut from = iter::RangeFrom[Counter]::init(Counter { value: 5 });
+    match from.next() {
+        ?value => if value.value != 5 { return process::exit(14)!; },
+        null => return process::exit(15)!,
+    }
+    if from.next() is ?_ { return process::exit(16)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std range constructors");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

@@ -25,7 +25,7 @@ pub struct RangeFrom[T] {
 }
 
 extend[T] Range[T] {
-    fn init(start: T, end: T) Range[T] {
+    pub fn init(start: T, end: T) Range[T] {
         Self { start, end }
     }
 
@@ -99,7 +99,7 @@ where T: Step + Ord[T]
 extend[T] RangeInclusive[T]
 where T: Ord[T]
 {
-    fn init(start: T, end: T) RangeInclusive[T] {
+    pub fn init(start: T, end: T) RangeInclusive[T] {
         Self { current: start, end, done: start > end }
     }
 
@@ -180,7 +180,7 @@ where T: Step + Ord[T] + Eq[T]
 }
 
 extend[T] RangeFrom[T] {
-    fn init(start: T) RangeFrom[T] {
+    pub fn init(start: T) RangeFrom[T] {
         Self { current: start, done: false }
     }
 
