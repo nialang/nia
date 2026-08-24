@@ -2717,6 +2717,10 @@ When body checking materializes accepted static initializers into
 lowered through the same `nia-const-ir` surface and evaluated through a
 single static-initializer helper. That helper is part of static data
 materialization, not a general backend escape hatch for reinterpreting AST.
+The checked destination type is threaded through this lowering for scalar and
+aggregate paths. Integer target propagation records signedness without
+truncating the complete `IntConst` bit pattern; explicit source casts retain
+the separate responsibility for destination-width masking.
 
 `StaticInit` is the data-initialization boundary and remains separate from
 function IR.
