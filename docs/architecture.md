@@ -3155,6 +3155,9 @@ definitions split the floating value at `2^64`, convert only to native `u64`,
 and reconstruct the result bits, so compiling the helper cannot recursively
 request itself. The exact requested-symbol flags participate in the builtins
 definition fingerprint, and unrelated programs do not emit the synthetic unit.
+Signed `f32`/`f64` to `i128` casts use the paired `__fixsfti` and `__fixdfti`
+symbols and the same magnitude core, selecting two's-complement negation only
+after the unsigned magnitude has been reconstructed.
 
 Every emitted unit also carries a `CodegenUnitFingerprint`, which is content
 identity rather than location identity. Its encoder is explicitly versioned

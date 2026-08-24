@@ -47,6 +47,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if wide32 as u128 != (1u128 << 100u128) {
         return process::exit(7)!;
     }
+    let signedSmall = -123456789.0f64 as i128;
+    if signedSmall != -123456789i128 {
+        return process::exit(8)!;
+    }
+    let signedWide = -170141183460469231731687303715884105728.0f64 as i128;
+    if signedWide != i128::MIN {
+        return process::exit(9)!;
+    }
+    let signed32 = -12345.0f32 as i128;
+    if signed32 != -12345i128 {
+        return process::exit(10)!;
+    }
     !()
 }
 "#,

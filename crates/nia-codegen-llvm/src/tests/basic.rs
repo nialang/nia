@@ -847,8 +847,8 @@ fn divrem(value: u128, by: u128) u128 {
 }
 
 #[test]
-fn emits_compiler_builtins_for_float_to_u128_casts() {
-    let root = temp_dir("emits_compiler_builtins_for_float_to_u128_casts");
+fn emits_compiler_builtins_for_wide_float_casts() {
+    let root = temp_dir("emits_compiler_builtins_for_wide_float_casts");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -859,6 +859,14 @@ fn from32(value: f32) u128 {
 
 fn from64(value: f64) u128 {
     value as u128
+}
+
+fn signedFrom32(value: f32) i128 {
+    value as i128
+}
+
+fn signedFrom64(value: f64) i128 {
+    value as i128
 }
 "#,
     )
@@ -880,7 +888,7 @@ fn from64(value: f64) u128 {
             .filter(|input| input.object.unit == CodegenUnitId::CompilerBuiltins)
             .count(),
         1,
-        "f32 and f64 casts must share one compiler-builtins object"
+        "signed and unsigned f32/f64 casts must share one compiler-builtins object"
     );
 }
 
