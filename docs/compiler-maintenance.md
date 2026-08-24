@@ -82,6 +82,10 @@ and other expected failures use explicit result and diagnostic channels.
   Function IR, include every requested symbol in the builtins fingerprint, and
   implement wide conversions from native-width operations so their definitions
   cannot lower back into the same unresolved helper.
+- Keep signed and unsigned wide conversion symbols paired in the same owner;
+  signed conversion should normalize magnitude first and apply two's-complement
+  negation afterward, preserving the `i128::MIN` endpoint without a signed
+  conversion helper recursion.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.

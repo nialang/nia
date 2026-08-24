@@ -8,7 +8,7 @@ use nia_function_ir::{
     FunctionSliceRange, FunctionTerminator,
 };
 use nia_llvm::{
-    Context, IntPredicate, LlvmError,
+    Context, FloatPredicate, IntPredicate, LlvmError,
     module::Linkage,
     target::TargetMachine,
     values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue},
@@ -29,11 +29,18 @@ pub(crate) struct CompilerBuiltinSymbols {
     pub(crate) i128_div_rem: bool,
     pub(crate) u128_from_f32: bool,
     pub(crate) u128_from_f64: bool,
+    pub(crate) i128_from_f32: bool,
+    pub(crate) i128_from_f64: bool,
 }
 
 impl CompilerBuiltinSymbols {
     pub(crate) fn any(self) -> bool {
-        self.u128_div_rem || self.i128_div_rem || self.u128_from_f32 || self.u128_from_f64
+        self.u128_div_rem
+            || self.i128_div_rem
+            || self.u128_from_f32
+            || self.u128_from_f64
+            || self.i128_from_f32
+            || self.i128_from_f64
     }
 }
 
@@ -311,15 +318,23 @@ impl CompilerBuiltinCollector {
         source_ty: nia_ids::InternedTyId,
         target_ty: nia_ids::InternedTyId,
     ) {
-        if !matches!(
-            index.ty_kind(target_ty),
-            Some(TyKind::Primitive(PrimitiveTy::U128))
-        ) {
-            return;
-        }
-        match index.ty_kind(source_ty) {
-            Some(TyKind::Primitive(PrimitiveTy::F32)) => self.symbols.u128_from_f32 = true,
-            Some(TyKind::Primitive(PrimitiveTy::F64)) => self.symbols.u128_from_f64 = true,
+        match (index.ty_kind(source_ty), index.ty_kind(target_ty)) {
+            (
+                Some(TyKind::Primitive(PrimitiveTy::F32)),
+                Some(TyKind::Primitive(PrimitiveTy::U128)),
+            ) => self.symbols.u128_from_f32 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::F64)),
+                Some(TyKind::Primitive(PrimitiveTy::U128)),
+            ) => self.symbols.u128_from_f64 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::F32)),
+                Some(TyKind::Primitive(PrimitiveTy::I128)),
+            ) => self.symbols.i128_from_f32 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::F64)),
+                Some(TyKind::Primitive(PrimitiveTy::I128)),
+            ) => self.symbols.i128_from_f64 = true,
             _ => {}
         }
     }
@@ -422,10 +437,16 @@ pub(crate) fn emit_object(
         emit_u128_div_rem(&context, &module, true)?;
     }
     if symbols.u128_from_f32 {
-        emit_u128_from_float(&context, &module, PrimitiveTy::F32)?;
+        emit_i128_from_float(&context, &module, PrimitiveTy::F32, false)?;
     }
     if symbols.u128_from_f64 {
-        emit_u128_from_float(&context, &module, PrimitiveTy::F64)?;
+        emit_i128_from_float(&context, &module, PrimitiveTy::F64, false)?;
+    }
+    if symbols.i128_from_f32 {
+        emit_i128_from_float(&context, &module, PrimitiveTy::F32, true)?;
+    }
+    if symbols.i128_from_f64 {
+        emit_i128_from_float(&context, &module, PrimitiveTy::F64, true)?;
     }
     module.verify().map_err(diagnostic_from_llvm_error)?;
     target
@@ -433,17 +454,18 @@ pub(crate) fn emit_object(
         .map_err(diagnostic_from_llvm_error)
 }
 
-fn emit_u128_from_float<'ctx>(
+fn emit_i128_from_float<'ctx>(
     context: &'ctx Context,
     module: &nia_llvm::module::Module<'ctx>,
     source: PrimitiveTy,
+    signed: bool,
 ) -> Result<(), Diagnostic> {
     let source_ty = match source {
         PrimitiveTy::F32 => context.f32_type(),
         PrimitiveTy::F64 => context.f64_type(),
         _ => {
             return Err(diagnostic_from_llvm_error(LlvmError::ice(
-                "u128 float conversion builtin requires f32 or f64",
+                "i128 float conversion builtin requires f32 or f64",
             )));
         }
     };
@@ -455,6 +477,8 @@ fn emit_u128_from_float<'ctx>(
     let function = module
         .add_function(
             match source {
+                PrimitiveTy::F32 if signed => "__fixsfti",
+                PrimitiveTy::F64 if signed => "__fixdfti",
                 PrimitiveTy::F32 => "__fixunssfti",
                 PrimitiveTy::F64 => "__fixunsdfti",
                 _ => unreachable!("source primitive checked above"),
@@ -476,11 +500,36 @@ fn emit_u128_from_float<'ctx>(
         .map_err(diagnostic_from_llvm_error)?
         .into_float_value()
         .map_err(diagnostic_from_llvm_error)?;
+    let (magnitude, is_negative) = if signed {
+        let is_negative = builder
+            .build_float_compare(
+                FloatPredicate::OLT,
+                value,
+                source_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+                "is_negative",
+            )
+            .map_err(diagnostic_from_llvm_error)?;
+        let negative = builder
+            .build_float_neg(value, "negative")
+            .map_err(diagnostic_from_llvm_error)?;
+        let magnitude = builder
+            .build_select(
+                is_negative.into(),
+                negative.into(),
+                value.into(),
+                "magnitude",
+            )
+            .and_then(|value| value.into_float_value())
+            .map_err(diagnostic_from_llvm_error)?;
+        (magnitude, Some(is_negative))
+    } else {
+        (value, None)
+    };
     let two_to_64 = source_ty
         .const_float(18_446_744_073_709_551_616.0)
         .map_err(diagnostic_from_llvm_error)?;
     let high_float = builder
-        .build_float_div(value, two_to_64, "high.float")
+        .build_float_div(magnitude, two_to_64, "high.float")
         .map_err(diagnostic_from_llvm_error)?;
     let high = builder
         .build_float_to_unsigned_int(high_float, i64_ty, "high")
@@ -492,7 +541,7 @@ fn emit_u128_from_float<'ctx>(
         .build_float_mul(high_as_float, two_to_64, "high.value")
         .map_err(diagnostic_from_llvm_error)?;
     let low_float = builder
-        .build_float_sub(value, high_value, "low.float")
+        .build_float_sub(magnitude, high_value, "low.float")
         .map_err(diagnostic_from_llvm_error)?;
     let low = builder
         .build_float_to_unsigned_int(low_float, i64_ty, "low")
@@ -506,9 +555,25 @@ fn emit_u128_from_float<'ctx>(
     let low = builder
         .build_int_z_extend(low, i128_ty, "low.wide")
         .map_err(diagnostic_from_llvm_error)?;
-    let result = builder
+    let magnitude = builder
         .build_or(high, low, "result")
         .map_err(diagnostic_from_llvm_error)?;
+    let result = if let Some(is_negative) = is_negative {
+        let negative = builder
+            .build_int_neg(magnitude, "result.negative")
+            .map_err(diagnostic_from_llvm_error)?;
+        builder
+            .build_select(
+                is_negative.into(),
+                negative.into(),
+                magnitude.into(),
+                "result.signed",
+            )
+            .and_then(|value| value.into_int_value())
+            .map_err(diagnostic_from_llvm_error)?
+    } else {
+        magnitude
+    };
     builder
         .build_return(Some(&result))
         .map_err(diagnostic_from_llvm_error)?;
