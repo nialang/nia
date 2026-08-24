@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::ConstFloatSemantics;
+use crate::{ConstFloatSemantics, ConstIntegerSemantics};
 
 pub(super) fn eval_assign_expr_flow(
     span: Span,
@@ -12,7 +12,7 @@ pub(super) fn eval_assign_expr_flow(
         assign_target_writeback_value(span, &assign.lhs, rhs, env)?
     } else {
         let (lhs, path) = eval_assign_target_value(span, &assign.lhs, env)?;
-        let value = eval_compound_assignment_value(span, lhs, assign.op, rhs, None)?;
+        let value = eval_compound_assignment_value(span, lhs, assign.op, rhs, None, None)?;
         assign_target_writeback_value_with_path(span, &assign.lhs, &path, value, env)?
     };
     env.assign_local(span, &assign.lhs, value)?;
@@ -35,6 +35,7 @@ pub(super) fn eval_resolved_assign_expr_flow(
             assign.op(),
             rhs,
             env.resolved_assignment_float_semantics(assign),
+            env.resolved_assignment_integer_semantics(assign),
         )?;
         resolved_assign_target_writeback_value_with_path(span, assign.lhs(), &path, value, env)?
     };
@@ -48,12 +49,22 @@ fn eval_compound_assignment_value(
     op: ConstAssignOp,
     rhs: ConstValue,
     float_semantics: Option<ConstFloatSemantics>,
+    integer_semantics: Option<ConstIntegerSemantics>,
 ) -> Result<ConstValue, ConstError> {
     let op = assign_op_binary(op).ok_or_else(|| ConstError {
         span,
         message: "unsupported const assignment operator".to_string(),
     })?;
     match (lhs, rhs) {
+        (ConstValue::Int(lhs), ConstValue::Int(rhs)) => {
+            let value = match integer_semantics {
+                Some(semantics) => eval_typed_binary_int(lhs, op, rhs, semantics),
+                None => eval_binary_int(lhs, op, rhs),
+            };
+            value
+                .map(ConstValue::Int)
+                .map_err(|message| ConstError { span, message })
+        }
         (ConstValue::Float(lhs), ConstValue::Float(rhs)) => {
             eval_typed_binary_float(lhs, op, rhs, float_semantics)
                 .map_err(|message| ConstError { span, message })

@@ -1168,6 +1168,10 @@ matching primitive const values; and simple integer arithmetic and bit
 operations. Float operations use the resolved primitive precision at each
 operation boundary (`f32` executes as binary32 rather than host `f64`), so
 constant folding agrees with runtime arithmetic before later casts or writes.
+Resolved compound assignments likewise obtain the concrete primitive from the
+target leaf (including aggregate field/index paths) and evaluate integer
+operations at that width and signedness before writeback; otherwise a narrow
+operation such as `u8 += 1` could bypass its runtime overflow boundary.
 It also evaluates visible `const fn` bodies represented as
 const semantic bodies. AST lowering is performed by callers such as
 `nia-const-check`, `nia-body-check`, static validation, or the early target

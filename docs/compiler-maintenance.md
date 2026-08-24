@@ -86,6 +86,10 @@ and other expected failures use explicit result and diagnostic channels.
   every data initializer. Target propagation may normalize integer signedness
   while preserving the complete `IntConst` bit pattern; explicit source casts
   remain the only boundary that masks to a narrower integer width.
+- Resolved compound assignments must query the concrete primitive at the target
+  leaf, including field and index paths, and apply its integer width and
+  signedness before writeback. A final assignment conversion is too late:
+  `u8 += 1` must diagnose the intermediate overflow just as runtime code does.
 - Treat LLVM-emitted wide arithmetic/conversion libcalls as reachable compiler
   builtins, not implicit host linker dependencies. Collect them from typed
   Function IR, include every requested symbol in the builtins fingerprint, and
