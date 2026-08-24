@@ -2940,6 +2940,12 @@ acceptance item only when its phase-wide evidence is complete.
       narrow overflow diagnostics aligned with runtime behavior. A driver
       regression covers local, field, and indexed `u8 += 1u8` targets; the early,
       unresolved evaluator retains its intentionally type-free arithmetic path.
+- [x] Batch 510 aligns scalar const values with static initializer products.
+      Static admission and Body lowering now accept and preserve named integer,
+      float, and boolean const payloads across local, module, imported, and
+      nested-static bindings. Recovery `StaticInit::Zero` cannot be published
+      anywhere in a Body-lowered initializer tree; owner tests and a driver
+      codegen regression cover the complete scalar boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -2726,6 +2726,11 @@ aggregate paths. Integer target propagation records signedness without
 truncating the complete `IntConst` bit pattern; explicit source casts retain
 the separate responsibility for destination-width masking.
 
+Named compile-time scalar values use the same boundary: integer, float, and
+boolean const payloads are copied into their corresponding `StaticInit` variant
+for local, module, and imported bindings. `StaticInit::Zero` is reserved for
+diagnostic recovery and cannot be published as a successful initializer.
+
 `StaticInit` is the data-initialization boundary and remains separate from
 function IR.
 

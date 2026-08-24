@@ -18,11 +18,11 @@ impl<'a> BodyChecker<'a> {
     /// Lower a static initializer only when this lowering pass accepts it.
     ///
     /// The low-level lowering routines deliberately return `StaticInit::Zero`
-    /// after recording a diagnostic so that aggregate traversal can recover
-    /// and continue reporting independent errors. That recovery value is not
-    /// a valid product, however: publishing it would leak a fake initializer
-    /// into reachability or executable Body IR. Treat diagnostics emitted by
-    /// this call as a transaction boundary and discard the value on failure.
+    /// as a recovery value so aggregate traversal can continue reporting
+    /// independent errors. That placeholder is not a valid product, however:
+    /// publishing it would leak a fake initializer into reachability or
+    /// executable Body IR. Treat both new diagnostics and any recovery value in
+    /// the initializer tree as transaction failure.
     pub(crate) fn lower_global_static_init_checked(
         &mut self,
         expr: &Expr,
@@ -30,7 +30,29 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<StaticInit> {
         let diagnostics_before = self.diagnostics.len();
         let init = self.lower_global_static_init(expr, ty);
-        (self.diagnostics.len() == diagnostics_before).then_some(init)
+        (self.diagnostics.len() == diagnostics_before && !Self::contains_static_recovery(&init))
+            .then_some(init)
+    }
+
+    fn contains_static_recovery(init: &StaticInit) -> bool {
+        match init {
+            StaticInit::Zero => true,
+            StaticInit::Array(values) => values.iter().any(Self::contains_static_recovery),
+            StaticInit::Repeat { value, .. } => Self::contains_static_recovery(value),
+            StaticInit::Struct(fields) => fields
+                .iter()
+                .any(|field| Self::contains_static_recovery(&field.value)),
+            StaticInit::Int(_)
+            | StaticInit::Float(_)
+            | StaticInit::Bool(_)
+            | StaticInit::Char(_)
+            | StaticInit::Byte(_)
+            | StaticInit::Chars(_)
+            | StaticInit::Bytes(_)
+            | StaticInit::NullPtr
+            | StaticInit::AddrOfGlobal { .. }
+            | StaticInit::AddrOfFunction { .. } => false,
+        }
     }
 
     pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
@@ -93,8 +115,10 @@ impl<'a> BodyChecker<'a> {
                 if let Some(BuiltinValue::Usize(value)) = self.builtin_value(expr) {
                     return StaticInit::Int(IntConst::unsigned(*value as u128));
                 }
-                if let Some(value) = self.static_const_int(expr) {
-                    return StaticInit::Int(value);
+                if let Some(value) = self.static_const_value(expr)
+                    && let Some(init) = Self::lower_static_scalar_const_value(value)
+                {
+                    return init;
                 }
                 StaticInit::Zero
             }
@@ -516,24 +540,28 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn static_const_int(&self, expr: &Expr) -> Option<IntConst> {
+    fn static_const_value(&self, expr: &Expr) -> Option<nia_const_check::ConstValue> {
         if let Some(global_id) = self.global_const_use(expr) {
-            return match self.global_const_value(global_id)? {
-                nia_const_check::ConstValue::Int(value) => Some(value),
-                _ => None,
-            };
+            return self.global_const_value(global_id);
         }
         if let Some(local_id) = self.local_const_use(expr) {
-            return match self
-                .const_eval
-                .values
-                .get(&nia_const_check::ConstKey::Local(local_id))?
-            {
-                nia_const_check::ConstValue::Int(value) => Some(*value),
-                _ => None,
-            };
+            return Some(
+                self.const_eval
+                    .values
+                    .get(&nia_const_check::ConstKey::Local(local_id))?
+                    .clone(),
+            );
         }
         None
+    }
+
+    fn lower_static_scalar_const_value(value: nia_const_check::ConstValue) -> Option<StaticInit> {
+        match value {
+            nia_const_check::ConstValue::Int(value) => Some(StaticInit::Int(value)),
+            nia_const_check::ConstValue::Float(value) => Some(StaticInit::Float(value.to_string())),
+            nia_const_check::ConstValue::Bool(value) => Some(StaticInit::Bool(value)),
+            _ => None,
+        }
     }
 }
 

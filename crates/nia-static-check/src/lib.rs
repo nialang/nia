@@ -284,7 +284,7 @@ impl StaticChecker<'_> {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
                     Some(ValueNameResolution::Def(def_id)) if self.is_const(def_id) => {
-                        if self.global_const_integer(def_id) {
+                        if self.global_const_is_static_scalar(def_id) {
                             None
                         } else {
                             Some("const value is not representable as static initializer data")
@@ -293,7 +293,7 @@ impl StaticChecker<'_> {
                     Some(ValueNameResolution::External(global_id))
                         if self.global_def_kind(global_id) == Some(DefKind::Const) =>
                     {
-                        if self.global_const_integer_id(global_id) {
+                        if self.global_const_is_static_scalar_id(global_id) {
                             None
                         } else {
                             Some("const value is not representable as static initializer data")
@@ -303,7 +303,7 @@ impl StaticChecker<'_> {
                 },
                 Some(LocalUse::Unresolved) | None => None,
                 Some(LocalUse::Local(local_id)) => {
-                    if self.local_const_integer(local_id) {
+                    if self.local_const_is_static_scalar(local_id) {
                         None
                     } else if self
                         .locals
@@ -328,7 +328,7 @@ impl StaticChecker<'_> {
                 } else if let Some(global_id) = self.qualified_value(expr)
                     && self.global_def_kind(global_id) == Some(DefKind::Const)
                 {
-                    self.global_const_integer_id(global_id)
+                    self.global_const_is_static_scalar_id(global_id)
                         .then_some(())
                         .map_or(
                             Some("const value is not representable as static initializer data"),
@@ -589,22 +589,31 @@ impl StaticChecker<'_> {
         )
     }
 
-    fn local_const_integer(&self, local_id: nia_ids::LocalId) -> bool {
-        matches!(
-            self.const_eval.values.get(&ConstKey::Local(local_id)),
-            Some(ConstValue::Int(_))
-        )
+    fn local_const_is_static_scalar(&self, local_id: nia_ids::LocalId) -> bool {
+        self.const_eval
+            .values
+            .get(&ConstKey::Local(local_id))
+            .is_some_and(Self::const_value_is_static_scalar)
     }
 
-    fn global_const_integer(&self, def_id: DefId) -> bool {
-        self.global_const_integer_id(GlobalDefId {
+    fn global_const_is_static_scalar(&self, def_id: DefId) -> bool {
+        self.global_const_is_static_scalar_id(GlobalDefId {
             module_id: self.defs.module_id,
             def_id,
         })
     }
 
-    fn global_const_integer_id(&self, global_id: GlobalDefId) -> bool {
-        matches!(self.const_value(global_id), Some(ConstValue::Int(_)))
+    fn global_const_is_static_scalar_id(&self, global_id: GlobalDefId) -> bool {
+        self.const_value(global_id)
+            .as_ref()
+            .is_some_and(Self::const_value_is_static_scalar)
+    }
+
+    fn const_value_is_static_scalar(value: &ConstValue) -> bool {
+        matches!(
+            value,
+            ConstValue::Int(_) | ConstValue::Float(_) | ConstValue::Bool(_)
+        )
     }
 
     fn const_value(&self, global_id: GlobalDefId) -> Option<ConstValue> {
@@ -1045,6 +1054,31 @@ static mut double: f64 = -2.25;
             r#"
 const base = 20;
 static mut value: i32 = base + 2;
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn accepts_scalar_const_values_in_static_initializers() {
+        let checked = check(
+            r#"
+const single: f32 = 1.5f32;
+const enabled: bool = true;
+const letter: char = 'A';
+const byte: u8 = b'B';
+
+static mut singleCopy: f32 = single;
+static mut enabledCopy: bool = enabled;
+static mut letterCopy: char = letter;
+static mut byteCopy: u8 = byte;
+
+fn nested() i32 {
+    const local: f64 = -2.25f64;
+    static mut copy: f64 = local;
+    copy as i32
+}
 "#,
         );
 

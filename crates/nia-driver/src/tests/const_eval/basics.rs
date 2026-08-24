@@ -71,6 +71,78 @@ static mut value: i32 = base + 2;
 }
 
 #[test]
+fn scalar_const_values_drive_static_initializers() {
+    let root = temp_dir("scalar_const_values_drive_static_initializers");
+    write(
+        &root.join("main.nia"),
+        r#"
+module values;
+using entry::values;
+
+const localFloat: f32 = 1.5f32;
+const localBool: bool = true;
+const localChar: char = 'A';
+const localByte: u8 = b'B';
+
+static mut single: f32 = localFloat;
+static mut enabled: bool = localBool;
+static mut letter: char = localChar;
+static mut byte: u8 = localByte;
+static mut double: f64 = values::importedFloat;
+static mut disabled: bool = values::importedBool;
+
+fn nested() i32 {
+    const local: f32 = 3.5f32;
+    static mut value: f32 = local;
+    value as i32
+}
+"#,
+    );
+    write(
+        &root.join("values.nia"),
+        r#"
+pub const importedFloat: f64 = -2.25f64;
+pub const importedBool: bool = false;
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let global_init = |name| {
+        main_module
+            .globals
+            .iter()
+            .find(|global| global.name == sym(name))
+            .unwrap_or_else(|| panic!("{name} global"))
+            .init
+            .clone()
+    };
+    assert_eq!(global_init("single"), Some(StaticInit::Float("1.5".into())));
+    assert_eq!(global_init("enabled"), Some(StaticInit::Bool(true)));
+    assert_eq!(
+        global_init("letter"),
+        Some(StaticInit::Int(IntConst::unsigned(65)))
+    );
+    assert_eq!(
+        global_init("byte"),
+        Some(StaticInit::Int(IntConst::unsigned(66)))
+    );
+    assert_eq!(
+        global_init("double"),
+        Some(StaticInit::Float("-2.25".into()))
+    );
+    assert_eq!(global_init("disabled"), Some(StaticInit::Bool(false)));
+    assert_eq!(global_init("value"), Some(StaticInit::Float("3.5".into())));
+}
+
+#[test]
 fn const_values_drive_array_lengths() {
     let root = temp_dir("const_values_drive_array_lengths");
     write(

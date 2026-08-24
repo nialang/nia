@@ -90,6 +90,11 @@ and other expected failures use explicit result and diagnostic channels.
   leaf, including field and index paths, and apply its integer width and
   signedness before writeback. A final assignment conversion is too late:
   `u8 += 1` must diagnose the intermediate overflow just as runtime code does.
+- Static initializer admission and lowering must agree on the complete scalar
+  set represented by `StaticInit`. Named const values of integer, float, and
+  boolean type (including local and imported bindings) must lower to their
+  actual payload; a recovery `Zero` is never a publishable initializer, even
+  when an earlier checker already reported the source error.
 - Treat LLVM-emitted wide arithmetic/conversion libcalls as reachable compiler
   builtins, not implicit host linker dependencies. Collect them from typed
   Function IR, include every requested symbol in the builtins fingerprint, and
