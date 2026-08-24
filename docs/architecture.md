@@ -2049,6 +2049,16 @@ method with equal explicit arguments but different receiver types can select
 different where-predicate witnesses or default implementations and must remain
 independent closure nodes.
 
+After a concrete extension implementation matches, reachability expands each
+of its substituted where-predicate bounds through the same canonical trait and
+supertrait closure used for direct generic predicates. Source and builtin
+traits both contribute their own declared method set. The triggering extension
+method name is not a witness fallback: for example, an `advance` implementation
+bounded by `Ord[T]` must retain `lt`, `le`, `gt`, and `ge`, not a nonexistent
+`Ord::advance`. This closure runs in both clean and incremental reachability so
+backend owner planning contains every function that an instantiated body can
+reference before LLVM declaration readiness begins.
+
 Each lowered body is owned directly by
 `LoweredFunctionBodyQuery(GlobalDefId)`. There is no module-level body store,
 storage id, session arena, or second semantic identity. Dropping a retired

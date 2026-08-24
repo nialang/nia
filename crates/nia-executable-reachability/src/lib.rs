@@ -45,10 +45,9 @@ use fact_owners::{
     collect_reachable_fact_owner_modules_for_items,
 };
 use trait_closure::{
-    ReachableTraitMethodName, ReachableTraitRefs, add_reachable_function,
-    collect_reachable_body_trait_ids, collect_reachable_traits_for_modules,
-    extend_reachable_functions_from_bodies, extend_reachable_functions_from_traits,
-    extend_reachable_functions_from_traits_incremental,
+    ReachableTraitRefs, add_reachable_function, collect_reachable_body_trait_ids,
+    collect_reachable_traits_for_modules, extend_reachable_functions_from_bodies,
+    extend_reachable_functions_from_traits, extend_reachable_functions_from_traits_incremental,
     extend_reachable_traits_from_generic_instances,
     extend_reachable_traits_from_generic_instances_incremental, typed_executable_refs_for_items,
 };

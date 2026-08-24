@@ -204,7 +204,6 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
     program_signatures: ExecutableSignatureIndex<'_>,
     type_store: &TypeStore,
     matched: &ReachableExtensionMethodMatch,
-    fallback_method_name: &SymbolId,
     module_id: ModuleId,
     traits: &mut ReachableTraitRefs,
 ) {
@@ -230,30 +229,17 @@ pub(super) fn extend_reachable_trait_methods_from_impl_where_predicates(
             else {
                 continue;
             };
-            if let TraitId::Source(trait_def) = trait_id
-                && let Some(trait_signature) = (program_signatures.trait_)(trait_def)
-            {
-                traits.insert_methods_with_const_args(
+            crate::trait_closure::insert_trait_and_supertrait_methods(
+                program_signatures,
+                type_store,
+                traits,
+                crate::trait_closure::TraitMethodExpansionInput {
                     module_id,
                     trait_id,
-                    trait_signature
-                        .signature
-                        .methods
-                        .iter()
-                        .map(|method| ReachableTraitMethodName { name: method.name }),
                     self_ty,
-                    &trait_args,
-                    &trait_const_args,
-                );
-                continue;
-            }
-            traits.insert_method_with_const_args(
-                module_id,
-                trait_id,
-                *fallback_method_name,
-                self_ty,
-                trait_args,
-                trait_const_args,
+                    trait_args: &trait_args,
+                    trait_const_args: &trait_const_args,
+                },
             );
         }
     }

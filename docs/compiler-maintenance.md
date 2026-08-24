@@ -145,6 +145,11 @@ it does not make a reset implicit.
   visibility predicate. Keep `Public`, `PublicPkg`, `PublicSuper`, and private
   behavior aligned with ordinary item lookup; do not duplicate a public-only
   shortcut in visibility consumers.
+- Expand substituted impl where predicates from the bound trait's declared
+  methods and supertraits, using the same closure as direct generic predicates.
+  Never reuse the outer extension method name as a builtin witness fallback;
+  doing so can filter out the concrete operator method while an instantiated
+  backend body still references it, leaving LLVM declaration ownership absent.
 - Trait-object object-safety checks must reject a source trait whose supertrait
   graph requires builtin `Sized`: the erased object has no statically known
   layout, so accepting that relationship would make the object contract

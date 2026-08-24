@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 492 completed entries in this ledger.
+- Implementation batches: 493 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2818,6 +2818,16 @@ acceptance item only when its phase-wide evidence is complete.
       of bypassing the trait default. A counting-writer executable constructs
       malformed presentation and alignment values and proves both failures
       leave output length zero.
+- [x] Batch 493 closes builtin witnesses reached through generic impl
+      predicates. After a concrete extension implementation matches,
+      substituted source and builtin bounds now share the canonical recursive
+      trait/supertrait method expansion; the old builtin fallback incorrectly
+      registered the triggering outer method name and could filter out the
+      actual operator implementation. A two-module executable combines a
+      source `Step` bound with builtin `Ord`, emits and runs the concrete
+      instance, and proves LLVM declaration readiness receives every selected
+      function owner instead of reporting a missing-owner ICE. The existing
+      cross-module source-trait driver regression now reaches backend codegen.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
