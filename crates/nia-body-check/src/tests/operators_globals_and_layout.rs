@@ -525,6 +525,23 @@ fn main() i32 {
 }
 
 #[test]
+fn unsupported_const_static_initializer_does_not_publish_recovery_zero() {
+    let checked = pipeline(
+        r#"
+const values: [i32; 2] = [1, 2];
+static copy: [i32; 2] = values;
+static copies: [[i32; 2]; 1] = [values];
+"#,
+    );
+
+    assert!(
+        checked.ir.global_inits.is_empty(),
+        "{:?}",
+        checked.ir.global_inits
+    );
+}
+
+#[test]
 fn checks_mutable_references_to_static_storage() {
     let checked = pipeline(
         r#"
