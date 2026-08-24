@@ -580,6 +580,14 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         None
     }
 
+    /// Returns integer width and signedness of a resolved compound-assignment target.
+    fn resolved_assignment_integer_semantics(
+        &mut self,
+        _assign: &nia_const_ir::ResolvedConstAssign,
+    ) -> Option<ConstIntegerSemantics> {
+        None
+    }
+
     /// Resolves a value from its authoritative semantic name identity.
     fn resolve_resolved_name(
         &mut self,

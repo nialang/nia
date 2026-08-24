@@ -2934,6 +2934,12 @@ acceptance item only when its phase-wide evidence is complete.
       explicit casts alone perform destination-width masking. The existing
       const-to-`i32` global regression now passes alongside the full 278-test
       driver const-evaluation suite.
+- [x] Batch 509 preserves resolved compound-assignment integer semantics.
+      Compound assignments now query the concrete target leaf through field and
+      index paths and apply its width and signedness before writeback, keeping
+      narrow overflow diagnostics aligned with runtime behavior. A driver
+      regression covers local, field, and indexed `u8 += 1u8` targets; the early,
+      unresolved evaluator retains its intentionally type-free arithmetic path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

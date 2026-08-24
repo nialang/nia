@@ -1234,6 +1234,30 @@ const fn overflowInReturnContext() u8 {
 const contextualFunctionOverflow: u8 = overflowInReturnContext();
 const negationOverflow: i8 = -(-128i8);
 
+const fn compoundAssignmentOverflow() u8 {
+    let mut value: u8 = 255u8;
+    value += 1u8;
+    value
+}
+
+struct ByteBox { value: u8 }
+
+const fn compoundFieldOverflow() u8 {
+    let mut value: ByteBox = ByteBox { value: 255u8 };
+    value.value += 1u8;
+    value.value
+}
+
+const fn compoundIndexOverflow() u8 {
+    let mut values: [u8; 1] = [255u8];
+    values[0] += 1u8;
+    values[0]
+}
+
+const compoundOverflow: u8 = compoundAssignmentOverflow();
+const compoundField: u8 = compoundFieldOverflow();
+const compoundIndex: u8 = compoundIndexOverflow();
+
 fn main() i32 { 0 }
 "#,
     );
@@ -1264,7 +1288,7 @@ fn main() i32 { 0 }
                 .summary
                 .contains("integer overflow in const addition"))
             .count()
-            >= 3,
+            >= 6,
         "{:?}",
         program.diagnostics
     );
