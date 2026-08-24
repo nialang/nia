@@ -143,6 +143,123 @@ pub const importedBool: bool = false;
 }
 
 #[test]
+fn aggregate_const_values_drive_static_initializers() {
+    let root = temp_dir("aggregate_const_values_drive_static_initializers");
+    write(
+        &root.join("main.nia"),
+        r#"
+module values;
+using entry::values;
+
+struct Config {
+    bytes: [u8; 2],
+    enabled: bool,
+}
+
+struct Packet[N: usize] { bytes: [u8; N] }
+
+const numbers: [i32; 3] = [1, 2, 3];
+const config: Config = Config { bytes: [4u8, 5u8], enabled: true };
+const packet: Packet[2] = Packet[2] { bytes: [9u8, 10u8] };
+
+static mut numberCopy: [i32; 3] = numbers;
+static mut configCopy: Config = config;
+static mut packetCopy: Packet[2] = packet;
+static mut directPacket: Packet[2] = Packet[2] { bytes: [11u8, 12u8] };
+static mut importedCopy: [f32; 2] = values::imported;
+static mut importedConfigCopy: values::ImportedConfig = values::importedConfig;
+
+fn nested() i32 {
+    const local: [i32; 2] = [6, 7];
+    static mut copy: [i32; 2] = local;
+    copy[0] + copy[1]
+}
+"#,
+    );
+    write(
+        &root.join("values.nia"),
+        r#"
+pub const imported: [f32; 2] = [1.5f32, -2.25f32];
+pub struct ImportedConfig { count: i32, active: bool }
+pub const importedConfig: ImportedConfig = ImportedConfig { count: 8, active: false };
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let global_init = |name| {
+        main_module
+            .globals
+            .iter()
+            .find(|global| global.name == sym(name))
+            .unwrap_or_else(|| panic!("{name} global"))
+            .init
+            .clone()
+    };
+    assert_eq!(
+        global_init("numberCopy"),
+        Some(StaticInit::Array(vec![
+            static_int(1),
+            static_int(2),
+            static_int(3),
+        ]))
+    );
+    let Some(StaticInit::Struct(fields)) = global_init("configCopy") else {
+        panic!("configCopy struct initializer");
+    };
+    assert_eq!(fields.len(), 2);
+    assert!(
+        fields
+            .iter()
+            .any(|field| field.value == StaticInit::Bool(true))
+    );
+    assert!(fields.iter().any(|field| {
+        field.value
+            == StaticInit::Array(vec![
+                StaticInit::Int(IntConst::unsigned(4)),
+                StaticInit::Int(IntConst::unsigned(5)),
+            ])
+    }));
+    for name in ["packetCopy", "directPacket"] {
+        let Some(StaticInit::Struct(fields)) = global_init(name) else {
+            panic!("{name} struct initializer");
+        };
+        assert!(matches!(
+            fields.as_slice(),
+            [field] if matches!(&field.value, StaticInit::Array(values) if values.len() == 2)
+        ));
+    }
+    assert_eq!(
+        global_init("importedCopy"),
+        Some(StaticInit::Array(vec![
+            StaticInit::Float("1.5".into()),
+            StaticInit::Float("-2.25".into()),
+        ]))
+    );
+    assert_eq!(
+        global_init("copy"),
+        Some(StaticInit::Array(vec![static_int(6), static_int(7)]))
+    );
+    let Some(StaticInit::Struct(fields)) = global_init("importedConfigCopy") else {
+        panic!("importedConfigCopy struct initializer");
+    };
+    assert_eq!(fields.len(), 2);
+    assert!(fields.iter().any(|field| field.value == static_int(8)));
+    assert!(
+        fields
+            .iter()
+            .any(|field| field.value == StaticInit::Bool(false))
+    );
+}
+
+#[test]
 fn const_values_drive_array_lengths() {
     let root = temp_dir("const_values_drive_array_lengths");
     write(

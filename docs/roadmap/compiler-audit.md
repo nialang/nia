@@ -2946,6 +2946,14 @@ acceptance item only when its phase-wide evidence is complete.
       nested-static bindings. Recovery `StaticInit::Zero` cannot be published
       anywhere in a Body-lowered initializer tree; owner tests and a driver
       codegen regression cover the complete scalar boundary.
+- [x] Batch 511 materializes representable aggregate const values as static
+      data. Static admission and Body lowering now recurse through arrays and
+      nominal structs while rejecting tuple values that lack a `StaticInit`
+      variant. Direct and named struct paths share canonical type/const generic
+      field substitution, and every integer leaf regains its checked target
+      signedness. Owner regressions cover admission, recovery-product absence,
+      imported and local consts, nested arrays, and const-generic structs; a
+      driver codegen regression verifies the published initializer trees.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

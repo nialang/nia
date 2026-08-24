@@ -10,7 +10,6 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::BuiltinValue;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
-use nia_symbol::SymbolId;
 use nia_ty::{IntConst, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
@@ -115,10 +114,11 @@ impl<'a> BodyChecker<'a> {
                 if let Some(BuiltinValue::Usize(value)) = self.builtin_value(expr) {
                     return StaticInit::Int(IntConst::unsigned(*value as u128));
                 }
-                if let Some(value) = self.static_const_value(expr)
-                    && let Some(init) = Self::lower_static_scalar_const_value(value)
-                {
-                    return init;
+                if let Some(value) = self.static_const_value(expr) {
+                    let value_ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+                    if let Some(init) = self.lower_static_const_value(value, value_ty) {
+                        return init;
+                    }
                 }
                 StaticInit::Zero
             }
@@ -159,7 +159,7 @@ impl<'a> BodyChecker<'a> {
                         .map(|field| StaticFieldInit {
                             field: self.field_def_for_aggregate_ty(ty, &field.name),
                             value: self
-                                .static_field_ty(ty, &field.name)
+                                .field_ty_for_aggregate_ty(ty, &field.name)
                                 .map(|field_ty| {
                                     self.lower_static_init_with_target(&field.value, field_ty)
                                 })
@@ -321,26 +321,6 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { elem, .. }) => Some(elem),
             _ => None,
         }
-    }
-
-    fn static_field_ty(&mut self, ty: InternedTyId, name: &SymbolId) -> Option<InternedTyId> {
-        let ty = self.normalization.normalize(ty);
-        let TyKind::Nominal { def_id, args, .. } = self.interner.get(ty).cloned()? else {
-            return None;
-        };
-        let resolved = if self.is_union_def(def_id) {
-            self.resolved_union_signature(def_id)?
-                .signature
-                .as_struct_like()
-        } else {
-            self.resolved_struct_signature(def_id)?.signature
-        };
-        let substitutions = self.generic_substitutions(&resolved.generics, &args);
-        resolved
-            .fields
-            .iter()
-            .find(|field| &field.name == name)
-            .map(|field| self.substitute_generics(field.ty, &substitutions))
     }
 
     fn eval_static_const_int_expr(
@@ -555,11 +535,49 @@ impl<'a> BodyChecker<'a> {
         None
     }
 
-    fn lower_static_scalar_const_value(value: nia_const_check::ConstValue) -> Option<StaticInit> {
+    fn lower_static_const_value(
+        &mut self,
+        value: nia_const_check::ConstValue,
+        ty: InternedTyId,
+    ) -> Option<StaticInit> {
+        let ty = self.normalization.normalize(ty);
         match value {
-            nia_const_check::ConstValue::Int(value) => Some(StaticInit::Int(value)),
+            nia_const_check::ConstValue::Int(value) => {
+                Some(self.finish_static_target_init(StaticInit::Int(value), ty))
+            }
             nia_const_check::ConstValue::Float(value) => Some(StaticInit::Float(value.to_string())),
             nia_const_check::ConstValue::Bool(value) => Some(StaticInit::Bool(value)),
+            nia_const_check::ConstValue::Array(values) => {
+                let TyKind::Array { elem, .. } = self.interner.get(ty).cloned()? else {
+                    return None;
+                };
+                Some(StaticInit::Array(
+                    values
+                        .into_iter()
+                        .map(|value| self.lower_static_const_value(value, elem))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            nia_const_check::ConstValue::Struct(values) => {
+                let TyKind::Nominal { def_id, .. } = self.interner.get(ty).cloned()? else {
+                    return None;
+                };
+                if self.is_union_def(def_id) {
+                    return None;
+                }
+                Some(StaticInit::Struct(
+                    values
+                        .into_iter()
+                        .map(|(name, value)| {
+                            let field_ty = self.field_ty_for_aggregate_ty(ty, &name)?;
+                            Some(StaticFieldInit {
+                                field: self.field_def_for_aggregate_ty(ty, &name),
+                                value: self.lower_static_const_value(value, field_ty)?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
             _ => None,
         }
     }

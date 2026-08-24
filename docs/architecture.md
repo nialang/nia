@@ -2726,10 +2726,19 @@ aggregate paths. Integer target propagation records signedness without
 truncating the complete `IntConst` bit pattern; explicit source casts retain
 the separate responsibility for destination-width masking.
 
-Named compile-time scalar values use the same boundary: integer, float, and
-boolean const payloads are copied into their corresponding `StaticInit` variant
-for local, module, and imported bindings. `StaticInit::Zero` is reserved for
-diagnostic recovery and cannot be published as a successful initializer.
+Named compile-time values use the same boundary. Integer, float, and boolean
+const payloads are copied into their corresponding `StaticInit` variants for
+local, module, and imported bindings. Arrays and nominal structs are lowered
+recursively when every leaf is representable; each array element uses the
+checked element type, and direct plus named struct initialization share the
+canonical field-type substitution for type and const generic arguments.
+Integer leaves restore the checked destination signedness without truncating
+their bits. Tuples have no equivalent `StaticInit` variant; unions, pointers,
+and other const values require a separately defined materialization contract,
+so named values of those forms remain outside this boundary. Static admission
+applies the same recursive predicate as lowering, and `StaticInit::Zero` is
+reserved for diagnostic recovery rather than publication as a successful
+initializer.
 
 `StaticInit` is the data-initialization boundary and remains separate from
 function IR.

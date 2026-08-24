@@ -528,9 +528,9 @@ fn main() i32 {
 fn unsupported_const_static_initializer_does_not_publish_recovery_zero() {
     let checked = pipeline(
         r#"
-const values: [i32; 2] = [1, 2];
-static copy: [i32; 2] = values;
-static copies: [[i32; 2]; 1] = [values];
+const pair: (i32, i32) = (1, 2);
+static copy: (i32, i32) = pair;
+static copies: [(i32, i32); 1] = [pair];
 "#,
     );
 
@@ -539,6 +539,32 @@ static copies: [[i32; 2]; 1] = [values];
         "{:?}",
         checked.ir.global_inits
     );
+}
+
+#[test]
+fn named_aggregate_const_static_initializers_publish_typed_data() {
+    let checked = pipeline(
+        r#"
+struct Config { values: [i32; 2], enabled: bool }
+const values: [i32; 2] = [1, 2];
+const config: Config = Config { values: values, enabled: true };
+static valuesCopy: [i32; 2] = values;
+static configCopy: Config = config;
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.ir.global_inits.len(), 2);
+    assert!(checked
+        .ir
+        .global_inits
+        .values()
+        .any(|init| matches!(init.as_ref(), nia_static_ir::StaticInit::Array(values) if values.len() == 2)));
+    assert!(checked
+        .ir
+        .global_inits
+        .values()
+        .any(|init| matches!(init.as_ref(), nia_static_ir::StaticInit::Struct(fields) if fields.len() == 2)));
 }
 
 #[test]
