@@ -473,7 +473,7 @@ impl BackendValidator<'_> {
         use nia_function_ir::FunctionBuiltinValue;
 
         let value = match &pattern.kind {
-            FunctionExprKind::Integer(text) => parse_int_literal(text)? as u128,
+            FunctionExprKind::Integer(text) => parse_int_literal(text)?.bits(),
             FunctionExprKind::Char(value) => u128::from(*value),
             FunctionExprKind::ByteChar(text) => u128::from(decode_byte_char_literal(text)?),
             FunctionExprKind::Bool(value) => u128::from(*value),
@@ -2508,35 +2508,25 @@ impl BackendValidator<'_> {
 
     /// Applies source integer ranges before LLVM's constant constructors can
     /// truncate a malformed backend value to the destination bit width.
-    fn integer_literal_fits(&self, primitive: PrimitiveTy, value: i128) -> bool {
+    fn integer_literal_fits(&self, primitive: PrimitiveTy, value: nia_ty::IntConst) -> bool {
         match primitive {
-            PrimitiveTy::Bool => matches!(value, 0 | 1),
-            PrimitiveTy::Char => u32::try_from(value).ok().and_then(char::from_u32).is_some(),
-            primitive if primitive.is_signed_integer() => {
-                let Some(bits) = self.primitive_integer_bits(primitive) else {
-                    return false;
-                };
-                bits == i128::BITS
-                    || ((-(1_i128 << (bits - 1)))..=((1_i128 << (bits - 1)) - 1)).contains(&value)
+            PrimitiveTy::Bool => !value.is_signed() && matches!(value.bits(), 0 | 1),
+            PrimitiveTy::Char => {
+                !value.is_signed()
+                    && u32::try_from(value.bits())
+                        .ok()
+                        .and_then(char::from_u32)
+                        .is_some()
             }
-            primitive if primitive.is_integer() => {
-                let Some(bits) = self.primitive_integer_bits(primitive) else {
-                    return false;
-                };
-                value >= 0 && (bits == u128::BITS || (value as u128) < (1_u128 << bits))
-            }
+            primitive if primitive.is_integer() => value.fits_primitive_int(
+                primitive,
+                self.target
+                    .pointer_size
+                    .checked_mul(8)
+                    .and_then(|bits| u32::try_from(bits).ok())
+                    .unwrap_or(0),
+            ),
             _ => false,
-        }
-    }
-
-    fn primitive_integer_bits(&self, primitive: PrimitiveTy) -> Option<u32> {
-        match primitive {
-            PrimitiveTy::Isize | PrimitiveTy::Usize => self
-                .target
-                .pointer_size
-                .checked_mul(8)
-                .and_then(|bits| u32::try_from(bits).ok()),
-            _ => primitive.integer_bits(0),
         }
     }
 

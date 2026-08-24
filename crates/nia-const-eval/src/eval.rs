@@ -239,7 +239,7 @@ fn eval_resolved_const_expr_flow(
             env.resolve_embed(span, &path)?
         }
         ResolvedConstExprKind::Integer(text) => eval_int_literal(text)
-            .map(|value| ConstValue::Int(IntConst::from_i128(value)))
+            .map(|value| ConstValue::Int(IntConst::unsigned(value)))
             .map_err(|message| ConstError { span, message })?,
         ResolvedConstExprKind::Float(text) => eval_float_literal(text)
             .map(ConstValue::Float)
@@ -574,7 +574,7 @@ fn eval_const_expr_flow(
             env.resolve_embed(expr.span, &path)?
         }
         EarlyConstExprKind::Integer(text) => eval_int_literal(text)
-            .map(|value| ConstValue::Int(IntConst::from_i128(value)))
+            .map(|value| ConstValue::Int(IntConst::unsigned(value)))
             .map_err(|message| ConstError {
                 span: expr.span,
                 message,

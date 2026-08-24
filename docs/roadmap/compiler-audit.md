@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 499 completed entries in this ledger.
+- Implementation batches: 500 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2867,6 +2867,14 @@ acceptance item only when its phase-wide evidence is complete.
       checking. Body and const checking consume the same splitter, decoders
       reject suffixes outside their integer/float sets, duplicate scanners are
       removed, and owner plus driver regressions cover both float forms.
+- [x] Batch 500 preserves the complete source integer magnitude. Literal
+      decoding now returns `u128`, signs remain unary syntax, and semantic,
+      const, optimizer, target-condition, backend-validation, and LLVM paths
+      carry unsigned values or `IntConst` without an intermediate `i128`
+      narrowing. One target-aware `IntConst` representability contract replaces
+      duplicate truncated range helpers. Endpoint owner tests retain negative
+      `i128::MIN` and narrow overflow behavior, while a real ELF compiles and
+      runs decimal and hexadecimal `u128::MAX` through const and runtime paths.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

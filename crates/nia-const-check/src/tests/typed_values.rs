@@ -988,7 +988,7 @@ const RESULT: usize = run();
     );
     assert_eq!(
         const_value(&fixture, "RESULT"),
-        ConstValue::Int(IntConst::signed(7))
+        ConstValue::Int(IntConst::unsigned(7))
     );
 }
 
@@ -1080,7 +1080,7 @@ const RESULT: usize = run();
     );
     assert_eq!(
         const_value(&fixture, "RESULT"),
-        ConstValue::Int(IntConst::signed(7))
+        ConstValue::Int(IntConst::unsigned(7))
     );
 }
 

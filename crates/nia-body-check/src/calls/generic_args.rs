@@ -169,12 +169,20 @@ impl<'a> BodyChecker<'a> {
             let value = match &expr.kind {
                 ExprKind::Integer(text) => nia_literals::eval_int_literal(text)
                     .ok()
-                    .map(|value| ConstGenericValue::Int(IntConst::signed(value))),
+                    .map(|value| ConstGenericValue::Int(IntConst::unsigned(value))),
                 ExprKind::Bool(value) => Some(ConstGenericValue::Bool(*value)),
                 ExprKind::Ident(name) => Some(ConstGenericValue::GenericParam(*name)),
                 _ => self.eval_const_generic_expr(expr, expected_ty),
+            }?;
+            if !self.const_generic_value_matches_type(&value, expected_ty) {
+                return None;
+            }
+            return match value {
+                ConstGenericValue::Int(value) => self
+                    .cast_const_generic_int(expected_ty, value)
+                    .map(ConstGenericValue::Int),
+                value => Some(value),
             };
-            return value.filter(|value| self.const_generic_value_matches_type(value, expected_ty));
         }
         let ty = arg.ty.as_ref()?;
         let TypeKind::Path { segments } = &ty.kind else {
@@ -243,7 +251,8 @@ impl<'a> BodyChecker<'a> {
                     ));
                     return None;
                 }
-                Some(ConstGenericValue::Int(value))
+                self.cast_const_generic_int(expected_ty, value)
+                    .map(ConstGenericValue::Int)
             }
             nia_const_check::ConstValue::Bool(value)
                 if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Bool) =>
@@ -278,13 +287,15 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::Primitive(primitive)) = self.interner.get(ty).cloned() else {
             return false;
         };
-        let Some((min, max)) = const_generic_integer_range(primitive, self.target.pointer_width)
-        else {
-            return false;
+        value.fits_primitive_int(primitive, self.target.pointer_width)
+    }
+
+    fn cast_const_generic_int(&mut self, ty: InternedTyId, value: IntConst) -> Option<IntConst> {
+        let ty = self.normalization.normalize(ty);
+        let TyKind::Primitive(primitive) = self.interner.get(ty)? else {
+            return None;
         };
-        value
-            .as_i128()
-            .is_some_and(|value| value >= min && value <= max)
+        value.cast_to_primitive_int(*primitive, self.target.pointer_width)
     }
 
     fn const_generic_type_is_primitive(&mut self, ty: InternedTyId, expected: PrimitiveTy) -> bool {
@@ -558,50 +569,5 @@ impl<'a> BodyChecker<'a> {
                 .map(|method| method.effective_generics.clone())
         })
         .unwrap_or_default()
-    }
-}
-
-fn const_generic_integer_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(i128, i128)> {
-    let bits = match primitive {
-        PrimitiveTy::I8 => 8,
-        PrimitiveTy::I16 => 16,
-        PrimitiveTy::I32 => 32,
-        PrimitiveTy::I64 => 64,
-        PrimitiveTy::I128 => 128,
-        PrimitiveTy::Isize => pointer_width,
-        PrimitiveTy::U8 => 8,
-        PrimitiveTy::U16 => 16,
-        PrimitiveTy::U32 => 32,
-        PrimitiveTy::U64 => 64,
-        PrimitiveTy::U128 => 128,
-        PrimitiveTy::Usize => pointer_width,
-        PrimitiveTy::Bool
-        | PrimitiveTy::Char
-        | PrimitiveTy::F32
-        | PrimitiveTy::F64
-        | PrimitiveTy::Never => return None,
-    };
-    match primitive {
-        PrimitiveTy::I8
-        | PrimitiveTy::I16
-        | PrimitiveTy::I32
-        | PrimitiveTy::I64
-        | PrimitiveTy::I128
-        | PrimitiveTy::Isize => {
-            let max = if bits == 128 {
-                i128::MAX
-            } else {
-                (1i128 << (bits - 1)) - 1
-            };
-            Some((-max - 1, max))
-        }
-        _ => {
-            let max = if bits == 128 {
-                i128::MAX
-            } else {
-                (1i128 << bits) - 1
-            };
-            Some((0, max))
-        }
     }
 }

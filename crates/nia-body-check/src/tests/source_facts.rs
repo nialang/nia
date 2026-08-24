@@ -71,7 +71,7 @@ static callback: &fn(i32) i32 = &identity[i32, 3];
     assert_eq!(refs.function_instances[0].const_args.len(), 1);
     assert_eq!(
         refs.function_instances[0].const_args[0].value,
-        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(3))
+        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(3))
     );
 }
 

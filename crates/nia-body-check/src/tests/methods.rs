@@ -989,7 +989,7 @@ fn main() usize {
     assert_eq!(method.len(), 1);
     assert_eq!(
         method[0].value,
-        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(3))
+        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(3))
     );
 }
 

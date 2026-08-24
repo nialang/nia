@@ -41,7 +41,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "integer literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
-        Ok(int_ty.const_u128(value as u128)?.into())
+        Ok(int_ty.const_u128(value.bits())?.into())
     }
 
     pub(super) fn emit_string_literal(

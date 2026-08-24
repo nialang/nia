@@ -543,7 +543,6 @@ fn literal_array_len_expr_value(expr: &Expr) -> Option<u64> {
 fn parse_integer_const_generic(text: &str) -> Option<IntConst> {
     nia_literals::eval_int_literal(text)
         .ok()
-        .and_then(|value| u128::try_from(value).ok())
         .map(IntConst::unsigned)
 }
 
