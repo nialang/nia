@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 502 completed entries in this ledger.
+- Implementation batches: 503 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2890,6 +2890,14 @@ acceptance item only when its phase-wide evidence is complete.
       cover signed, unsigned, malformed-width, and exclusive endpoints; the
       real 128-bit ELF observes the correct embedded `2^127f64 as u128` const
       result.
+- [x] Batch 503 owns unsigned float-to-`u128` LLVM libcalls in the freestanding
+      compiler-builtins unit. Reachable `f32` and `f64` casts request
+      `__fixunssfti` and `__fixunsdfti` through fingerprinted symbol flags; the
+      emitted helpers split at `2^64`, use native `u64` conversions, and cannot
+      recursively depend on themselves. A codegen owner regression proves both
+      casts share exactly one synthetic object, while a real ELF links and runs
+      small, mixed-high/low, `f32`, and `f64` conversions without host runtime
+      libraries.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

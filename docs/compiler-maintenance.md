@@ -77,6 +77,11 @@ and other expected failures use explicit result and diagnostic channels.
   bound for the concrete target width, then construct the target-signed
   `IntConst` directly. Do not compare against integer maxima converted to float
   or route unsigned results through a saturating signed host cast.
+- Treat LLVM-emitted wide arithmetic/conversion libcalls as reachable compiler
+  builtins, not implicit host linker dependencies. Collect them from typed
+  Function IR, include every requested symbol in the builtins fingerprint, and
+  implement wide conversions from native-width operations so their definitions
+  cannot lower back into the same unresolved helper.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.
