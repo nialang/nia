@@ -2267,6 +2267,13 @@ their front or back bounds. An impossible address returns `null` without
 discarding an element, so a caller can retry or observe the unchanged
 remaining range.
 
+The public `std::iter::Range`, `RangeInclusive`, and `RangeFrom` types expose
+canonical `init` constructors alongside their private fields. Each constructor
+is the owner of its iterator-state invariant: inclusive ranges derive `done`
+from their ordered endpoints, while open-ended ranges begin active. The
+`fromBounds` helpers remain private adapters for builtin range literals rather
+than a second public construction surface.
+
 ### 9.5 `nia-function-lower`
 
 Lowers `nia-body-ir::TypedBody` from `BodyIr` into

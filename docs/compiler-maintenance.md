@@ -150,6 +150,10 @@ it does not make a reset implicit.
   Never reuse the outer extension method name as a builtin witness fallback;
   doing so can filter out the concrete operator method while an instantiated
   backend body still references it, leaving LLVM declaration ownership absent.
+- Public standard-library iterator state types must expose one canonical
+  constructor that establishes private state invariants. Keep range-literal
+  conversion helpers private when they only adapt builtin range values to that
+  constructor; do not force callers to obtain a public type indirectly.
 - Trait-object object-safety checks must reject a source trait whose supertrait
   graph requires builtin `Sized`: the erased object has no statically known
   layout, so accepting that relationship would make the object contract
