@@ -158,6 +158,10 @@ it does not make a reset implicit.
   iterator state. The candidate must move strictly in the requested direction
   without crossing the live endpoint; otherwise exhaust the iterator without
   yielding the invalid candidate.
+- Keep builtin range-step implementations exhaustive over the language's
+  signed and unsigned integer primitive sets. Endpoint tests must cover both
+  zero and the type maximum so adding a width cannot leave a one-sided or
+  overflow-prone iterator implementation.
 - Trait-object object-safety checks must reject a source trait whose supertrait
   graph requires builtin `Sized`: the erased object has no statically known
   layout, so accepting that relationship would make the object contract

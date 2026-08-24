@@ -362,6 +362,18 @@ extend u64 : StepBack {
     }
 }
 
+extend u128 : Step {
+    pub fn forwardChecked(self) ?u128 {
+        if self == u128::MAX { null } else { ?(self + 1) }
+    }
+}
+
+extend u128 : StepBack {
+    pub fn backwardChecked(self) ?u128 {
+        if self == 0 { null } else { ?(self - 1) }
+    }
+}
+
 extend usize : Step {
     pub fn forwardChecked(self) ?usize {
         if self == usize::MAX { null } else { ?(self + 1) }

@@ -564,3 +564,74 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_u128_ranges_cover_integer_endpoints() {
+    let root = temp_dir("emit_exe_std_u128_ranges_cover_integer_endpoints");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let first = u128::MAX - 2u128;
+
+    let mut half = iter::Range[u128]::init(first, u128::MAX);
+    match half.next() {
+        ?value => if value != first { return process::exit(1)!; },
+        null => return process::exit(2)!,
+    }
+    match half.nextBack() {
+        ?value => if value != u128::MAX - 1u128 { return process::exit(3)!; },
+        null => return process::exit(4)!,
+    }
+    if half.next() is ?_ { return process::exit(5)!; }
+
+    let mut inclusive = (first..=u128::MAX).iter();
+    match inclusive.nextBack() {
+        ?value => if value != u128::MAX { return process::exit(6)!; },
+        null => return process::exit(7)!,
+    }
+    match inclusive.next() {
+        ?value => if value != first { return process::exit(8)!; },
+        null => return process::exit(9)!,
+    }
+    match inclusive.next() {
+        ?value => if value != u128::MAX - 1u128 { return process::exit(10)!; },
+        null => return process::exit(11)!,
+    }
+    if inclusive.next() is ?_ { return process::exit(12)!; }
+
+    let mut from = iter::RangeFrom[u128]::init(u128::MAX);
+    match from.next() {
+        ?value => if value != u128::MAX { return process::exit(13)!; },
+        null => return process::exit(14)!,
+    }
+    if from.next() is ?_ { return process::exit(15)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe u128 ranges");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

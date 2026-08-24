@@ -2278,7 +2278,9 @@ boundaries. A candidate must move strictly in the requested direction and stay
 within the current endpoints before it becomes iterator state or a yielded
 backward item. A missing, stalled, or crossing step exhausts that direction;
 it cannot repeat a value, publish an out-of-range item, or leave a cursor past
-its bound.
+its bound. Every builtin signed and unsigned integer type, including `i128` and
+`u128`, provides the paired checked step implementations; endpoint exhaustion
+never evaluates an overflowing add or subtract.
 
 ### 9.5 `nia-function-lower`
 
