@@ -199,14 +199,7 @@ impl ConstCommonEnv for Analyzer<'_> {
                             ),
                         });
                     };
-                    ConstValue::Int(
-                        cast_const_integer(
-                            IntConst::from_i128(value),
-                            primitive,
-                            self.input.target.pointer_width,
-                        )
-                        .unwrap_or_else(|| IntConst::from_i128(value)),
-                    )
+                    ConstValue::Int(value)
                 } else {
                     ConstValue::Float(value)
                 }
