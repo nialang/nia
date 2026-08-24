@@ -342,15 +342,15 @@ fn extend_reachable_traits_from_trait_default_instantiation(
     );
 }
 
-struct TraitMethodExpansionInput<'a> {
-    module_id: ModuleId,
-    trait_id: TraitId,
-    self_ty: InternedTyId,
-    trait_args: &'a [InternedTyId],
-    trait_const_args: &'a [nia_ty::ConstGenericArg],
+pub(super) struct TraitMethodExpansionInput<'a> {
+    pub(super) module_id: ModuleId,
+    pub(super) trait_id: TraitId,
+    pub(super) self_ty: InternedTyId,
+    pub(super) trait_args: &'a [InternedTyId],
+    pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
 }
 
-fn insert_trait_and_supertrait_methods(
+pub(super) fn insert_trait_and_supertrait_methods(
     program_signatures: ExecutableSignatureIndex<'_>,
     type_store: &TypeStore,
     traits: &mut ReachableTraitRefs,
@@ -1016,7 +1016,6 @@ pub(super) fn extend_reachable_functions_from_traits(
                                 program_signatures,
                                 type_store,
                                 &matched,
-                                &reachable.method_name,
                                 reachable.module_id,
                                 &mut discovered_traits,
                             );
@@ -1136,7 +1135,6 @@ pub(super) fn extend_reachable_functions_from_traits_incremental(
                                 program_signatures,
                                 type_store,
                                 &matched,
-                                &reachable.method_name,
                                 reachable.module_id,
                                 &mut discovered_traits,
                             );
