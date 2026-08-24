@@ -9,6 +9,9 @@ pub fn eval_int_literal(text: &str) -> Result<i128, String> {
 /// Evaluates a decimal floating-point literal after removing its suffix.
 pub fn eval_float_literal(text: &str) -> Result<f64, String> {
     let body = numeric_literal_body(text);
+    if !has_valid_digit_separators(body, 10) {
+        return Err("invalid float constant".to_string());
+    }
     body.replace('_', "")
         .parse::<f64>()
         .map_err(|_| "invalid float constant".to_string())
@@ -26,12 +29,33 @@ fn parse_int_literal(text: &str) -> Result<i128, String> {
         } else {
             (10, text)
         };
+    if !has_valid_digit_separators(digits, radix) {
+        return Err("invalid integer constant".to_string());
+    }
     let digits = digits.replace('_', "");
     if digits.is_empty() {
         return Err("invalid integer constant".to_string());
     }
     i128::from_str_radix(&digits, radix)
         .map_err(|_| "integer literal is out of range for const evaluation".to_string())
+}
+
+fn has_valid_digit_separators(text: &str, radix: u32) -> bool {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().all(|(index, byte)| {
+        if *byte != b'_' {
+            return true;
+        }
+        index
+            .checked_sub(1)
+            .and_then(|previous| bytes.get(previous))
+            .and_then(|byte| digit_value(*byte))
+            .is_some_and(|value| value < radix)
+            && bytes
+                .get(index + 1)
+                .and_then(|byte| digit_value(*byte))
+                .is_some_and(|value| value < radix)
+    })
 }
 
 fn numeric_literal_body(text: &str) -> &str {
@@ -486,6 +510,16 @@ mod tests {
         assert_eq!(eval_float_literal("0.0f64"), Ok(0.0));
         assert_eq!(eval_float_literal("1_024.5f32"), Ok(1024.5));
         assert_eq!(eval_float_literal("1.25e-1f64"), Ok(0.125));
+    }
+
+    #[test]
+    fn numeric_decoders_reject_misplaced_separators() {
+        for text in ["1_", "1__2", "0x_ff", "0x1_", "0b_1", "0o7__"] {
+            assert!(eval_int_literal(text).is_err(), "accepted `{text}`");
+        }
+        for text in ["1_", "1__2.0", "1._0", "1.0_", "1e_2", "1e+_2", "1e2_"] {
+            assert!(eval_float_literal(text).is_err(), "accepted `{text}`");
+        }
     }
 
     #[test]

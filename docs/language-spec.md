@@ -204,8 +204,9 @@ let mut chained = 10i32;
 ```
 
 The suffix selects the literal's type before contextual inference. The literal
-value must fit in that type. Underscores may separate digits and do not affect
-the value. Radix prefixes and underscores may be combined with suffixes:
+value must fit in that type. An underscore may appear only between two digits
+valid for the literal's radix and does not affect the value. Radix prefixes and
+underscores may be combined with suffixes:
 
 ```nia
 let mut mask = 0xffu8;

@@ -55,6 +55,11 @@ and other expected failures use explicit result and diagnostic channels.
 - Persistent diagnostic data must use stable source identity and validated
   spans. It must not serialize session-local source, module, revision, or bundle
   handles.
+- Keep numeric-separator grammar with the lexer: `_` is valid only between two
+  digits in the active radix, and recovery consumes the complete malformed
+  literal as one error token. Literal decoders must validate this independently
+  before deleting separators because cached or synthesized phase products can
+  reach them without source tokenization.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.

@@ -654,6 +654,12 @@ errors.
 The lexer does not know semantic meaning. It should not resolve types, evaluate
 constants, or classify identifiers beyond keyword recognition.
 
+Numeric separator placement is lexical grammar: every `_` must sit between two
+digits valid for that literal's radix. The lexer consumes a malformed numeric
+spelling, including its suffix, as one in-band error token. Literal decoders
+independently enforce the same separator boundary before removing separators so
+malformed phase products cannot bypass source tokenization.
+
 `tokenize` emits significant tokens plus one terminal EOF; `tokenize_lossless`
 also retains contiguous whitespace and line-comment trivia. Both use half-open
 UTF-8 byte spans. Lexical failures remain in-band `Error` tokens so parsing can
