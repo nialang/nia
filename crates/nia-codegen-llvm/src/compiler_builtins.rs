@@ -31,6 +31,10 @@ pub(crate) struct CompilerBuiltinSymbols {
     pub(crate) u128_from_f64: bool,
     pub(crate) i128_from_f32: bool,
     pub(crate) i128_from_f64: bool,
+    pub(crate) f32_from_u128: bool,
+    pub(crate) f64_from_u128: bool,
+    pub(crate) f32_from_i128: bool,
+    pub(crate) f64_from_i128: bool,
 }
 
 impl CompilerBuiltinSymbols {
@@ -41,6 +45,10 @@ impl CompilerBuiltinSymbols {
             || self.u128_from_f64
             || self.i128_from_f32
             || self.i128_from_f64
+            || self.f32_from_u128
+            || self.f64_from_u128
+            || self.f32_from_i128
+            || self.f64_from_i128
     }
 }
 
@@ -335,6 +343,22 @@ impl CompilerBuiltinCollector {
                 Some(TyKind::Primitive(PrimitiveTy::F64)),
                 Some(TyKind::Primitive(PrimitiveTy::I128)),
             ) => self.symbols.i128_from_f64 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::U128)),
+                Some(TyKind::Primitive(PrimitiveTy::F32)),
+            ) => self.symbols.f32_from_u128 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::U128)),
+                Some(TyKind::Primitive(PrimitiveTy::F64)),
+            ) => self.symbols.f64_from_u128 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::I128)),
+                Some(TyKind::Primitive(PrimitiveTy::F32)),
+            ) => self.symbols.f32_from_i128 = true,
+            (
+                Some(TyKind::Primitive(PrimitiveTy::I128)),
+                Some(TyKind::Primitive(PrimitiveTy::F64)),
+            ) => self.symbols.f64_from_i128 = true,
             _ => {}
         }
     }
@@ -448,9 +472,382 @@ pub(crate) fn emit_object(
     if symbols.i128_from_f64 {
         emit_i128_from_float(&context, &module, PrimitiveTy::F64, true)?;
     }
+    if symbols.f32_from_u128 {
+        emit_i128_to_float(&context, &module, PrimitiveTy::F32, false)?;
+    }
+    if symbols.f64_from_u128 {
+        emit_i128_to_float(&context, &module, PrimitiveTy::F64, false)?;
+    }
+    if symbols.f32_from_i128 {
+        emit_i128_to_float(&context, &module, PrimitiveTy::F32, true)?;
+    }
+    if symbols.f64_from_i128 {
+        emit_i128_to_float(&context, &module, PrimitiveTy::F64, true)?;
+    }
     module.verify().map_err(diagnostic_from_llvm_error)?;
     target
         .emit_object(&module)
+        .map_err(diagnostic_from_llvm_error)
+}
+
+fn emit_i128_to_float<'ctx>(
+    context: &'ctx Context,
+    module: &nia_llvm::module::Module<'ctx>,
+    target: PrimitiveTy,
+    signed: bool,
+) -> Result<(), Diagnostic> {
+    let (format, precision) = match target {
+        PrimitiveTy::F32 => (
+            I128ToFloatFormat {
+                target_ty: context.f32_type(),
+                storage_ty: context.i32_type(),
+                exponent_bias: 127,
+                fraction_bits: 23,
+                storage_bits: 32,
+            },
+            24_u32,
+        ),
+        PrimitiveTy::F64 => (
+            I128ToFloatFormat {
+                target_ty: context.f64_type(),
+                storage_ty: context.i64_type(),
+                exponent_bias: 1023,
+                fraction_bits: 52,
+                storage_bits: 64,
+            },
+            53_u32,
+        ),
+        _ => {
+            return Err(diagnostic_from_llvm_error(LlvmError::ice(
+                "i128 integer conversion builtin requires f32 or f64",
+            )));
+        }
+    };
+    let i128_ty = context.i128_type();
+    let fn_ty = format
+        .target_ty
+        .fn_type(&[i128_ty.into()], false)
+        .map_err(diagnostic_from_llvm_error)?;
+    let function = module
+        .add_function(
+            match target {
+                PrimitiveTy::F32 if signed => "__floattisf",
+                PrimitiveTy::F64 if signed => "__floattidf",
+                PrimitiveTy::F32 => "__floatuntisf",
+                PrimitiveTy::F64 => "__floatuntidf",
+                _ => unreachable!("target primitive checked above"),
+            },
+            fn_ty,
+            Some(Linkage::External),
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let entry = context
+        .append_basic_block(function, "entry")
+        .map_err(diagnostic_from_llvm_error)?;
+    let zero_block = context
+        .append_basic_block(function, "zero")
+        .map_err(diagnostic_from_llvm_error)?;
+    let classify_block = context
+        .append_basic_block(function, "classify")
+        .map_err(diagnostic_from_llvm_error)?;
+    let exact_block = context
+        .append_basic_block(function, "exact")
+        .map_err(diagnostic_from_llvm_error)?;
+    let round_block = context
+        .append_basic_block(function, "round")
+        .map_err(diagnostic_from_llvm_error)?;
+    let builder = context
+        .create_builder()
+        .map_err(diagnostic_from_llvm_error)?;
+    builder.position_at_end(entry);
+    let value = function
+        .get_nth_param(0)
+        .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
+        .map_err(diagnostic_from_llvm_error)?
+        .into_int_value()
+        .map_err(diagnostic_from_llvm_error)?;
+    let false_value = context
+        .bool_type()
+        .const_int(0, false)
+        .map_err(diagnostic_from_llvm_error)?;
+    let (magnitude, is_negative) = if signed {
+        let is_negative = builder
+            .build_int_compare(
+                IntPredicate::SLT,
+                value,
+                i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+                "is_negative",
+            )
+            .map_err(diagnostic_from_llvm_error)?;
+        let negative = builder
+            .build_int_neg(value, "magnitude.negative")
+            .map_err(diagnostic_from_llvm_error)?;
+        let magnitude = builder
+            .build_select(
+                is_negative.into(),
+                negative.into(),
+                value.into(),
+                "magnitude",
+            )
+            .and_then(|value| value.into_int_value())
+            .map_err(diagnostic_from_llvm_error)?;
+        (magnitude, is_negative)
+    } else {
+        (value, false_value)
+    };
+    let is_zero = builder
+        .build_int_compare(
+            IntPredicate::EQ,
+            magnitude,
+            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+            "is_zero",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    builder
+        .build_conditional_branch(is_zero, zero_block, classify_block)
+        .map_err(diagnostic_from_llvm_error)?;
+
+    builder.position_at_end(zero_block);
+    let zero = format
+        .target_ty
+        .const_zero()
+        .map_err(diagnostic_from_llvm_error)?;
+    builder
+        .build_return(Some(&zero))
+        .map_err(diagnostic_from_llvm_error)?;
+
+    builder.position_at_end(classify_block);
+    let ctlz = nia_llvm::intrinsics::Intrinsic::find("llvm.ctlz")
+        .and_then(|intrinsic| intrinsic.get_declaration(module, &[i128_ty.into()]))
+        .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing ctlz intrinsic")))?;
+    let leading = builder
+        .build_call(
+            ctlz,
+            &[magnitude.into(), false_value.into()],
+            "leading_zeros",
+        )
+        .map_err(diagnostic_from_llvm_error)?
+        .try_as_basic_value()
+        .unwrap_basic()
+        .map_err(diagnostic_from_llvm_error)?
+        .into_int_value()
+        .map_err(diagnostic_from_llvm_error)?;
+    let exponent = builder
+        .build_int_sub(
+            i128_ty
+                .const_int(127, false)
+                .map_err(diagnostic_from_llvm_error)?,
+            leading,
+            "exponent",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let requires_rounding = builder
+        .build_int_compare(
+            IntPredicate::UGE,
+            exponent,
+            i128_ty
+                .const_int(u64::from(precision), false)
+                .map_err(diagnostic_from_llvm_error)?,
+            "requires_rounding",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    builder
+        .build_conditional_branch(requires_rounding, round_block, exact_block)
+        .map_err(diagnostic_from_llvm_error)?;
+
+    builder.position_at_end(exact_block);
+    let left_shift = builder
+        .build_int_sub(
+            i128_ty
+                .const_int(u64::from(precision - 1), false)
+                .map_err(diagnostic_from_llvm_error)?,
+            exponent,
+            "left_shift",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let significand = builder
+        .build_left_shift(magnitude, left_shift, "significand")
+        .map_err(diagnostic_from_llvm_error)?;
+    emit_i128_to_float_return(
+        &builder,
+        i128_ty,
+        format,
+        significand,
+        exponent,
+        is_negative,
+    )?;
+
+    builder.position_at_end(round_block);
+    let shift = builder
+        .build_int_sub(
+            exponent,
+            i128_ty
+                .const_int(u64::from(precision - 1), false)
+                .map_err(diagnostic_from_llvm_error)?,
+            "right_shift",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let significand = builder
+        .build_right_shift(magnitude, shift, false, "significand")
+        .map_err(diagnostic_from_llvm_error)?;
+    let half_shift = builder
+        .build_int_sub(
+            shift,
+            i128_ty
+                .const_int(1, false)
+                .map_err(diagnostic_from_llvm_error)?,
+            "half_shift",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let one = i128_ty
+        .const_int(1, false)
+        .map_err(diagnostic_from_llvm_error)?;
+    let halfway = builder
+        .build_left_shift(one, half_shift, "halfway")
+        .map_err(diagnostic_from_llvm_error)?;
+    let remainder_mask = builder
+        .build_left_shift(one, shift, "remainder_limit")
+        .and_then(|limit| builder.build_int_sub(limit, one, "remainder_mask"))
+        .map_err(diagnostic_from_llvm_error)?;
+    let remainder = builder
+        .build_and(magnitude, remainder_mask, "remainder")
+        .map_err(diagnostic_from_llvm_error)?;
+    let above_half = builder
+        .build_int_compare(IntPredicate::UGT, remainder, halfway, "above_half")
+        .map_err(diagnostic_from_llvm_error)?;
+    let exactly_half = builder
+        .build_int_compare(IntPredicate::EQ, remainder, halfway, "exactly_half")
+        .map_err(diagnostic_from_llvm_error)?;
+    let odd = builder
+        .build_and(significand, one, "odd_bit")
+        .and_then(|odd| {
+            builder.build_int_compare(IntPredicate::NE, odd, i128_ty.const_zero()?, "odd")
+        })
+        .map_err(diagnostic_from_llvm_error)?;
+    let tied_odd = builder
+        .build_and(exactly_half, odd, "tied_odd")
+        .map_err(diagnostic_from_llvm_error)?;
+    let round_up = builder
+        .build_or(above_half, tied_odd, "round_up")
+        .map_err(diagnostic_from_llvm_error)?;
+    let round_increment = builder
+        .build_int_z_extend(round_up, i128_ty, "round_increment")
+        .map_err(diagnostic_from_llvm_error)?;
+    let rounded = builder
+        .build_int_add(significand, round_increment, "rounded")
+        .map_err(diagnostic_from_llvm_error)?;
+    let carried = builder
+        .build_int_compare(
+            IntPredicate::EQ,
+            rounded,
+            i128_ty
+                .const_u128(1_u128 << precision)
+                .map_err(diagnostic_from_llvm_error)?,
+            "carried",
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let carried_significand = builder
+        .build_right_shift(rounded, one, false, "carried_significand")
+        .map_err(diagnostic_from_llvm_error)?;
+    let final_significand = builder
+        .build_select(
+            carried.into(),
+            carried_significand.into(),
+            rounded.into(),
+            "final_significand",
+        )
+        .and_then(|value| value.into_int_value())
+        .map_err(diagnostic_from_llvm_error)?;
+    let incremented_exponent = builder
+        .build_int_add(exponent, one, "incremented_exponent")
+        .map_err(diagnostic_from_llvm_error)?;
+    let final_exponent = builder
+        .build_select(
+            carried.into(),
+            incremented_exponent.into(),
+            exponent.into(),
+            "final_exponent",
+        )
+        .and_then(|value| value.into_int_value())
+        .map_err(diagnostic_from_llvm_error)?;
+    emit_i128_to_float_return(
+        &builder,
+        i128_ty,
+        format,
+        final_significand,
+        final_exponent,
+        is_negative,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct I128ToFloatFormat<'ctx> {
+    target_ty: nia_llvm::types::FloatType<'ctx>,
+    storage_ty: nia_llvm::types::IntType<'ctx>,
+    exponent_bias: u64,
+    fraction_bits: u32,
+    storage_bits: u32,
+}
+
+fn emit_i128_to_float_return<'ctx>(
+    builder: &nia_llvm::builder::Builder<'ctx>,
+    i128_ty: nia_llvm::types::IntType<'ctx>,
+    format: I128ToFloatFormat<'ctx>,
+    significand: IntValue<'ctx>,
+    exponent: IntValue<'ctx>,
+    is_negative: IntValue<'ctx>,
+) -> Result<(), Diagnostic> {
+    let fraction_mask = i128_ty
+        .const_u128((1_u128 << format.fraction_bits) - 1)
+        .map_err(diagnostic_from_llvm_error)?;
+    let fraction = builder
+        .build_and(significand, fraction_mask, "fraction")
+        .and_then(|fraction| {
+            builder.build_int_truncate(fraction, format.storage_ty, "fraction.bits")
+        })
+        .map_err(diagnostic_from_llvm_error)?;
+    let exponent = builder
+        .build_int_truncate(exponent, format.storage_ty, "exponent.bits")
+        .and_then(|exponent| {
+            builder.build_int_add(
+                exponent,
+                format.storage_ty.const_int(format.exponent_bias, false)?,
+                "biased_exponent",
+            )
+        })
+        .and_then(|exponent| {
+            builder.build_left_shift(
+                exponent,
+                format
+                    .storage_ty
+                    .const_int(u64::from(format.fraction_bits), false)?,
+                "exponent.field",
+            )
+        })
+        .map_err(diagnostic_from_llvm_error)?;
+    let sign = builder
+        .build_int_z_extend(is_negative, format.storage_ty, "sign.bits")
+        .and_then(|sign| {
+            builder.build_left_shift(
+                sign,
+                format
+                    .storage_ty
+                    .const_int(u64::from(format.storage_bits - 1), false)?,
+                "sign.field",
+            )
+        })
+        .map_err(diagnostic_from_llvm_error)?;
+    let bits = builder
+        .build_or(exponent, fraction, "magnitude.bits")
+        .and_then(|magnitude| builder.build_or(sign, magnitude, "result.bits"))
+        .map_err(diagnostic_from_llvm_error)?;
+    let result = builder
+        .build_bit_cast(bits, format.target_ty, "result")
+        .and_then(|value| value.into_float_value())
+        .map_err(diagnostic_from_llvm_error)?;
+    builder
+        .build_return(Some(&result))
+        .map(|_| ())
         .map_err(diagnostic_from_llvm_error)
 }
 
