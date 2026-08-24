@@ -373,3 +373,194 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_ranges_stop_when_custom_steps_cross_bounds() {
+    let root = temp_dir("emit_exe_std_ranges_stop_when_custom_steps_cross_bounds");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+
+struct Stride {
+    value: i32,
+}
+
+extend Stride : iter::Step {
+    fn forwardChecked(self) ?Stride {
+        if self.value == 8 {
+            ?self
+        } else if self.value >= 9 {
+            null
+        } else {
+            ?Stride { value: self.value + 2 }
+        }
+    }
+}
+
+extend Stride : iter::StepBack {
+    fn backwardChecked(self) ?Stride {
+        if self.value == 7 {
+            ?self
+        } else if self.value <= -3 {
+            null
+        } else {
+            ?Stride { value: self.value - 2 }
+        }
+    }
+}
+
+extend Stride : Eq[Stride] {
+    fn eq(&self, other: &Stride) bool { self.value == other.value }
+    fn ne(&self, other: &Stride) bool { self.value != other.value }
+}
+
+extend Stride : Ord[Stride] {
+    fn lt(&self, other: &Stride) bool { self.value < other.value }
+    fn le(&self, other: &Stride) bool { self.value <= other.value }
+    fn gt(&self, other: &Stride) bool { self.value > other.value }
+    fn ge(&self, other: &Stride) bool { self.value >= other.value }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+
+    let mut forward = iter::Range[Stride]::init(
+        Stride { value: 0 },
+        Stride { value: 5 },
+    );
+    match forward.next() {
+        ?value => if value.value != 0 { return process::exit(1)!; },
+        null => return process::exit(2)!,
+    }
+    match forward.next() {
+        ?value => if value.value != 2 { return process::exit(3)!; },
+        null => return process::exit(4)!,
+    }
+    match forward.next() {
+        ?value => if value.value != 4 { return process::exit(5)!; },
+        null => return process::exit(6)!,
+    }
+    if forward.next() is ?_ { return process::exit(7)!; }
+    if forward.start().value != 5 or forward.end().value != 5 {
+        return process::exit(8)!;
+    }
+
+    let mut backward = iter::Range[Stride]::init(
+        Stride { value: 0 },
+        Stride { value: 5 },
+    );
+    match backward.nextBack() {
+        ?value => if value.value != 3 { return process::exit(9)!; },
+        null => return process::exit(10)!,
+    }
+    match backward.nextBack() {
+        ?value => if value.value != 1 { return process::exit(11)!; },
+        null => return process::exit(12)!,
+    }
+    if backward.nextBack() is ?_ { return process::exit(13)!; }
+    if backward.start().value != 0 or backward.end().value != 0 {
+        return process::exit(14)!;
+    }
+
+    let mut inclusive = iter::RangeInclusive[Stride]::init(
+        Stride { value: 0 },
+        Stride { value: 5 },
+    );
+    match inclusive.next() {
+        ?value => if value.value != 0 { return process::exit(15)!; },
+        null => return process::exit(16)!,
+    }
+    match inclusive.next() {
+        ?value => if value.value != 2 { return process::exit(17)!; },
+        null => return process::exit(18)!,
+    }
+    match inclusive.next() {
+        ?value => if value.value != 4 { return process::exit(19)!; },
+        null => return process::exit(20)!,
+    }
+    if inclusive.next() is ?_ { return process::exit(21)!; }
+
+    let mut inclusiveBack = iter::RangeInclusive[Stride]::init(
+        Stride { value: 0 },
+        Stride { value: 5 },
+    );
+    match inclusiveBack.nextBack() {
+        ?value => if value.value != 5 { return process::exit(22)!; },
+        null => return process::exit(23)!,
+    }
+    match inclusiveBack.nextBack() {
+        ?value => if value.value != 3 { return process::exit(24)!; },
+        null => return process::exit(25)!,
+    }
+    match inclusiveBack.nextBack() {
+        ?value => if value.value != 1 { return process::exit(26)!; },
+        null => return process::exit(27)!,
+    }
+    if inclusiveBack.nextBack() is ?_ { return process::exit(28)!; }
+
+    let mut mixed = iter::RangeInclusive[Stride]::init(
+        Stride { value: 0 },
+        Stride { value: 5 },
+    );
+    match mixed.next() {
+        ?value => if value.value != 0 { return process::exit(29)!; },
+        null => return process::exit(30)!,
+    }
+    match mixed.nextBack() {
+        ?value => if value.value != 5 { return process::exit(31)!; },
+        null => return process::exit(32)!,
+    }
+    match mixed.next() {
+        ?value => if value.value != 2 { return process::exit(33)!; },
+        null => return process::exit(34)!,
+    }
+    if mixed.nextBack() is ?_ { return process::exit(35)!; }
+
+    let mut stalled = iter::RangeInclusive[Stride]::init(
+        Stride { value: 8 },
+        Stride { value: 9 },
+    );
+    match stalled.next() {
+        ?value => if value.value != 8 { return process::exit(36)!; },
+        null => return process::exit(37)!,
+    }
+    if stalled.next() is ?_ { return process::exit(38)!; }
+
+    let mut stalledBack = iter::Range[Stride]::init(
+        Stride { value: 0 },
+        Stride { value: 7 },
+    );
+    if stalledBack.nextBack() is ?_ { return process::exit(39)!; }
+
+    let mut absentBack = iter::Range[Stride]::init(
+        Stride { value: -5 },
+        Stride { value: -3 },
+    );
+    if absentBack.nextBack() is ?_ { return process::exit(40)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe custom range steps");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

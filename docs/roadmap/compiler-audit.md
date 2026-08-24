@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 494 completed entries in this ledger.
+- Implementation batches: 495 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2835,6 +2835,13 @@ acceptance item only when its phase-wide evidence is complete.
       `Step + StepBack + Ord + Eq` type, exercises forward/backward iteration,
       inclusive empty-state initialization, and open-ended exhaustion, and
       proves the generic witness closure reaches LLVM and runtime successfully.
+- [x] Batch 495 validates custom range-step transitions. Bounded forward and
+      backward iteration now requires every `Step` or `StepBack` result to move
+      strictly in the requested direction and remain within the live endpoint;
+      missing, stalled, or crossing candidates exhaust the range instead of
+      repeating or yielding an out-of-range value. A real executable covers
+      half-open and inclusive ranges, both directions, mixed consumption,
+      canonical exhausted state, stalled steps, and missing predecessors.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

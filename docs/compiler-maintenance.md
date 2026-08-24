@@ -154,6 +154,10 @@ it does not make a reset implicit.
   constructor that establishes private state invariants. Keep range-literal
   conversion helpers private when they only adapt builtin range values to that
   constructor; do not force callers to obtain a public type indirectly.
+- Validate every bounded-range `Step` or `StepBack` result before committing
+  iterator state. The candidate must move strictly in the requested direction
+  without crossing the live endpoint; otherwise exhaust the iterator without
+  yielding the invalid candidate.
 - Trait-object object-safety checks must reject a source trait whose supertrait
   graph requires builtin `Sized`: the erased object has no statically known
   layout, so accepting that relationship would make the object contract
