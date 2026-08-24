@@ -46,8 +46,11 @@ fn run(init: Init) ExitCode!() {
     let mut labels = allocator.allocSlice[u8](16).?;
     // This is mutable byte storage, not a string literal; string and
     // byte-string literal forms are covered in 02_slices_and_strings.nia.
-    labels[0] = b'o';
-    labels[1] = b'k';
+    labels.asMutSlice()[0] = b'o';
+    labels.asMutSlice()[1] = b'k';
+    if labels.asSlice()[0] != b'o' or labels.asSlice()[1] != b'k' {
+        return process::exit(1)!;
+    }
 
     let mut bytesLen = labels.len();
     let mut retainedCapacity = arena.capacity();

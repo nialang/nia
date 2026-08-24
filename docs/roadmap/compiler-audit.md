@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 504 completed entries in this ledger.
+- Implementation batches: 505 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2904,6 +2904,12 @@ acceptance item only when its phase-wide evidence is complete.
       64-bit halves. Owner coverage proves all four symbols share one synthetic
       object, and the real ELF covers signed small values, `f32`, and the exact
       `i128::MIN` endpoint.
+- [x] Batch 505 migrates the arena allocator example to the canonical owned
+      slice surface. `SliceAllocation` remains an explicit allocation owner
+      rather than regaining legacy direct indexing; mutation and observation go
+      through `asMutSlice` and `asSlice`, and the runnable example verifies the
+      stored bytes after arena reset. The repository-wide example acceptance
+      suite once again checks every maintained example successfully.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
