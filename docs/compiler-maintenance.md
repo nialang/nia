@@ -150,10 +150,11 @@ it does not make a reset implicit.
   Never reuse the outer extension method name as a builtin witness fallback;
   doing so can filter out the concrete operator method while an instantiated
   backend body still references it, leaving LLVM declaration ownership absent.
-- Public standard-library iterator state types must expose one canonical
+- Public standard-library owned iterator state types must expose one canonical
   constructor that establishes private state invariants. Keep range-literal
   conversion helpers private when they only adapt builtin range values to that
-  constructor; do not force callers to obtain a public type indirectly.
+  constructor; keep borrowed or raw-backed iterator construction with its
+  source container rather than exposing raw parts.
 - Validate every bounded-range `Step` or `StepBack` result before committing
   iterator state. The candidate must move strictly in the requested direction
   without crossing the live endpoint; otherwise exhaust the iterator without

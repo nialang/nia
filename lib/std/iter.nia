@@ -27,7 +27,7 @@ where I: DoubleEndedIterator
 extend[I] Take[I]
 where I: Iterator
 {
-    fn init(iter: I, remaining: usize) Take[I] {
+    pub fn init(iter: I, remaining: usize) Take[I] {
         Self { iter, remaining }
     }
 }
@@ -56,7 +56,7 @@ where I: Iterator
 extend[I] Rev[I]
 where I: DoubleEndedIterator
 {
-    fn init(iter: I) Rev[I] {
+    pub fn init(iter: I) Rev[I] {
         Self { iter }
     }
 }

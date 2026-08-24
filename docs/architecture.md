@@ -2267,12 +2267,14 @@ their front or back bounds. An impossible address returns `null` without
 discarding an element, so a caller can retry or observe the unchanged
 remaining range.
 
-The public `std::iter::Range`, `RangeInclusive`, and `RangeFrom` types expose
-canonical `init` constructors alongside their private fields. Each constructor
-is the owner of its iterator-state invariant: inclusive ranges derive `done`
-from their ordered endpoints, while open-ended ranges begin active. The
-`fromBounds` helpers remain private adapters for builtin range literals rather
-than a second public construction surface.
+Public owned iterator state types expose canonical `init` constructors
+alongside their private fields. Range constructors own their endpoint and
+exhaustion invariants; `Take` owns its limit and source iterator, while `Rev`
+owns its double-ended source. The range `fromBounds` helpers remain private
+adapters for builtin range literals rather than a second public construction
+surface. Borrowed and raw-backed iterator construction remains with the source
+container that establishes the borrow and validates its storage.
+
 Bounded ranges treat `Step` and `StepBack` implementations as fallible semantic
 boundaries. A candidate must move strictly in the requested direction and stay
 within the current endpoints before it becomes iterator state or a yielded
