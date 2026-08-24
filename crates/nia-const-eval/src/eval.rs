@@ -9,8 +9,8 @@ use crate::{
     },
     numeric::{
         const_bit_not, const_typed_bit_not, eval_binary_float, eval_binary_int,
-        eval_binary_int_compare, eval_numeric_binary_value, eval_typed_binary_int,
-        eval_typed_int_neg, int_to_array_len, values_equal,
+        eval_binary_int_compare, eval_numeric_binary_value, eval_typed_binary_float,
+        eval_typed_binary_int, eval_typed_int_neg, int_to_array_len, values_equal,
     },
 };
 
@@ -429,7 +429,14 @@ fn eval_resolved_const_expr_flow(
                 eval_typed_int_neg(value, env.resolved_integer_semantics(expr))
                     .map_err(|message| ConstError { span, message })?,
             ),
-            ConstValue::Float(value) => ConstValue::Float(-value),
+            ConstValue::Float(value) => {
+                let semantics = env.resolved_float_semantics(expr);
+                let value = match semantics {
+                    Some(crate::ConstFloatSemantics::F32) => f64::from(-(value as f32)),
+                    Some(crate::ConstFloatSemantics::F64) | None => -value,
+                };
+                ConstValue::Float(value)
+            }
             _ => {
                 return Err(ConstError {
                     span,

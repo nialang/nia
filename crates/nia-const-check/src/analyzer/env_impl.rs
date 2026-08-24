@@ -15,9 +15,9 @@ use nia_const_eval::{
     ConstUnionValue, ConstValue, ResolvedConstEnv,
 };
 use nia_const_ir::{
-    ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
-    ResolvedConstBinding, ResolvedConstExpr, ResolvedConstGenericArg, ResolvedConstParam,
-    ResolvedConstPatternBinding, ResolvedConstTypeArg,
+    ConstNameResolution, ResolvedConstAssignPathElemKind, ResolvedConstAssignTarget,
+    ResolvedConstAssignTargetKind, ResolvedConstBinding, ResolvedConstExpr,
+    ResolvedConstGenericArg, ResolvedConstParam, ResolvedConstPatternBinding, ResolvedConstTypeArg,
 };
 use nia_defs::DefKind;
 use nia_ids::{
@@ -450,6 +450,35 @@ impl Analyzer<'_> {
             message: "const enum variant is unavailable during cast".to_string(),
         })
     }
+
+    fn resolved_expr_runtime_primitive(&mut self, expr: &ResolvedConstExpr) -> Option<PrimitiveTy> {
+        let mut cached = self
+            .resolved_expr_types
+            .last()
+            .and_then(|types| types.get(&expr.span()).copied());
+        if cached.is_none()
+            && let Some(function_id) = self.current_execution_function_id()
+            && let Some(tail) = self
+                .const_function_body(function_id)
+                .and_then(|function| function.body().tail().cloned())
+            && tail.span().start <= expr.span().start
+            && tail.span().end >= expr.span().end
+        {
+            let expected = self
+                .active_execution_frames()
+                .find_map(|frame| frame.return_type);
+            let _ = self.resolved_const_expr_type(&tail, expected);
+            cached = self
+                .resolved_expr_types
+                .last()
+                .and_then(|types| types.get(&expr.span()).copied());
+        }
+        let ty = cached.or_else(|| self.resolved_const_expr_type(expr, None)?.runtime())?;
+        let TyKind::Primitive(primitive) = self.ty_kind(ty)? else {
+            return None;
+        };
+        Some(primitive)
+    }
 }
 
 pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
@@ -693,33 +722,57 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         expr: &ResolvedConstExpr,
     ) -> Option<nia_const_eval::ConstIntegerSemantics> {
-        let mut cached = self
-            .resolved_expr_types
-            .last()
-            .and_then(|types| types.get(&expr.span()).copied());
-        if cached.is_none()
-            && let Some(function_id) = self.current_execution_function_id()
-            && let Some(tail) = self
-                .const_function_body(function_id)
-                .and_then(|function| function.body().tail().cloned())
-            && tail.span().start <= expr.span().start
-            && tail.span().end >= expr.span().end
-        {
-            let expected = self
-                .active_execution_frames()
-                .find_map(|frame| frame.return_type);
-            let _ = self.resolved_const_expr_type(&tail, expected);
-            cached = self
-                .resolved_expr_types
-                .last()
-                .and_then(|types| types.get(&expr.span()).copied());
-        }
-        let ty = cached.or_else(|| self.resolved_const_expr_type(expr, None)?.runtime())?;
-        let TyKind::Primitive(primitive) = self.ty_kind(ty)? else {
-            return None;
-        };
+        let primitive = self.resolved_expr_runtime_primitive(expr)?;
         let (bits, signed) = primitive_integer_layout(primitive, self.input.target.pointer_width)?;
         Some(nia_const_eval::ConstIntegerSemantics { bits, signed })
+    }
+
+    fn resolved_float_semantics(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Option<nia_const_eval::ConstFloatSemantics> {
+        match self.resolved_expr_runtime_primitive(expr)? {
+            PrimitiveTy::F32 => Some(nia_const_eval::ConstFloatSemantics::F32),
+            PrimitiveTy::F64 => Some(nia_const_eval::ConstFloatSemantics::F64),
+            _ => None,
+        }
+    }
+
+    fn resolved_assignment_float_semantics(
+        &mut self,
+        assign: &nia_const_ir::ResolvedConstAssign,
+    ) -> Option<nia_const_eval::ConstFloatSemantics> {
+        let ResolvedConstAssignTargetKind::Local { local_id, path, .. } = assign.lhs().kind();
+        let mut target = self.call_local_type(*local_id)?;
+        for element in path {
+            target = match element.kind() {
+                ResolvedConstAssignPathElemKind::Field { name, .. } => {
+                    self.const_field_type(target, name)?
+                }
+                ResolvedConstAssignPathElemKind::Index { .. } => match target {
+                    ConstValueType::Array { elem, .. } => *elem,
+                    ConstValueType::Runtime(ty) => match self.ty_kind(ty)? {
+                        TyKind::Array { elem, .. }
+                        | TyKind::Slice {
+                            is_readonly: false,
+                            elem,
+                        } => ConstValueType::Runtime(
+                            self.type_for_module_or_none(elem, self.current_execution_module_id())?,
+                        ),
+                        _ => return None,
+                    },
+                    _ => return None,
+                },
+            };
+        }
+        let ConstValueType::Runtime(ty) = target else {
+            return None;
+        };
+        match self.ty_kind(ty)? {
+            TyKind::Primitive(PrimitiveTy::F32) => Some(nia_const_eval::ConstFloatSemantics::F32),
+            TyKind::Primitive(PrimitiveTy::F64) => Some(nia_const_eval::ConstFloatSemantics::F64),
+            _ => None,
+        }
     }
 
     fn resolve_resolved_name(

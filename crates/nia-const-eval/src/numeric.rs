@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use crate::{ConstEnumPayload, ConstError, ConstIntegerSemantics, ConstValue};
+use crate::{ConstEnumPayload, ConstError, ConstFloatSemantics, ConstIntegerSemantics, ConstValue};
 use nia_const_ir::ConstBinaryOp;
 use nia_span::Span;
 use nia_ty::IntConst;
@@ -381,6 +381,46 @@ pub(super) fn eval_binary_float(
     })
 }
 
+/// Evaluates a float operation after applying the expression's concrete
+/// precision to both operands and the operation result.
+pub(super) fn eval_typed_binary_float(
+    lhs: f64,
+    op: ConstBinaryOp,
+    rhs: f64,
+    semantics: Option<ConstFloatSemantics>,
+) -> Result<ConstValue, String> {
+    if !matches!(semantics, Some(ConstFloatSemantics::F32)) {
+        if matches!(op, ConstBinaryOp::Eq | ConstBinaryOp::Ne) {
+            return Ok(ConstValue::Bool(if op == ConstBinaryOp::Eq {
+                lhs == rhs
+            } else {
+                lhs != rhs
+            }));
+        }
+        return eval_binary_float(lhs, op, rhs);
+    }
+    let lhs = lhs as f32;
+    let rhs = rhs as f32;
+    Ok(match op {
+        ConstBinaryOp::Add => ConstValue::Float(f64::from(lhs + rhs)),
+        ConstBinaryOp::Sub => ConstValue::Float(f64::from(lhs - rhs)),
+        ConstBinaryOp::Mul => ConstValue::Float(f64::from(lhs * rhs)),
+        ConstBinaryOp::Div => ConstValue::Float(f64::from(lhs / rhs)),
+        ConstBinaryOp::Rem => ConstValue::Float(f64::from(lhs % rhs)),
+        ConstBinaryOp::Eq => ConstValue::Bool(lhs == rhs),
+        ConstBinaryOp::Ne => ConstValue::Bool(lhs != rhs),
+        ConstBinaryOp::Lt => ConstValue::Bool(lhs < rhs),
+        ConstBinaryOp::Le => ConstValue::Bool(lhs <= rhs),
+        ConstBinaryOp::Gt => ConstValue::Bool(lhs > rhs),
+        ConstBinaryOp::Ge => ConstValue::Bool(lhs >= rhs),
+        _ => {
+            return Err(format!(
+                "unsupported binary operator for float const expression: {op:?}"
+            ));
+        }
+    })
+}
+
 /// Returns `None` when values do not share a const-comparable shape.
 pub(super) fn values_equal(lhs: &ConstValue, rhs: &ConstValue) -> Option<bool> {
     match (lhs, rhs) {
@@ -473,6 +513,42 @@ mod tests {
 
     fn int(value: i128) -> ConstValue {
         ConstValue::Int(IntConst::from_i128(value))
+    }
+
+    #[test]
+    fn typed_f32_arithmetic_rounds_each_result_to_binary32() {
+        let semantics = Some(ConstFloatSemantics::F32);
+
+        assert_eq!(
+            eval_typed_binary_float(16_777_216.0, ConstBinaryOp::Add, 1.0, semantics),
+            Ok(ConstValue::Float(16_777_216.0))
+        );
+        assert_eq!(
+            eval_typed_binary_float(16_777_216.0, ConstBinaryOp::Add, 3.0, semantics),
+            Ok(ConstValue::Float(16_777_220.0))
+        );
+    }
+
+    #[test]
+    fn typed_f32_comparisons_canonicalize_operands() {
+        assert_eq!(
+            eval_typed_binary_float(
+                16_777_217.0,
+                ConstBinaryOp::Eq,
+                16_777_216.0,
+                Some(ConstFloatSemantics::F32),
+            ),
+            Ok(ConstValue::Bool(true))
+        );
+        assert_eq!(
+            eval_typed_binary_float(
+                16_777_217.0,
+                ConstBinaryOp::Le,
+                16_777_216.0,
+                Some(ConstFloatSemantics::F32),
+            ),
+            Ok(ConstValue::Bool(true))
+        );
     }
 
     #[test]

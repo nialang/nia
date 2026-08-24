@@ -23,6 +23,15 @@ pub struct ConstIntegerSemantics {
     pub signed: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Floating-point precision selected by semantic type analysis.
+pub enum ConstFloatSemantics {
+    /// IEEE-754 binary32 semantics.
+    F32,
+    /// IEEE-754 binary64 semantics.
+    F64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A user-facing failure produced while interpreting a const expression.
 pub struct ConstError {
@@ -552,6 +561,22 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
         &mut self,
         _expr: &ResolvedConstExpr,
     ) -> Option<ConstIntegerSemantics> {
+        None
+    }
+
+    /// Returns floating-point precision for a resolved expression.
+    fn resolved_float_semantics(
+        &mut self,
+        _expr: &ResolvedConstExpr,
+    ) -> Option<ConstFloatSemantics> {
+        None
+    }
+
+    /// Returns floating-point precision of a resolved compound-assignment target.
+    fn resolved_assignment_float_semantics(
+        &mut self,
+        _assign: &nia_const_ir::ResolvedConstAssign,
+    ) -> Option<ConstFloatSemantics> {
         None
     }
 

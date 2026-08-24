@@ -1165,7 +1165,10 @@ struct literal values; identifiers resolved by a caller-provided const
 environment; struct field access; casts that preserve the underlying value;
 boolean logic; equality over
 matching primitive const values; and simple integer arithmetic and bit
-operations. It also evaluates visible `const fn` bodies represented as
+operations. Float operations use the resolved primitive precision at each
+operation boundary (`f32` executes as binary32 rather than host `f64`), so
+constant folding agrees with runtime arithmetic before later casts or writes.
+It also evaluates visible `const fn` bodies represented as
 const semantic bodies. AST lowering is performed by callers such as
 `nia-const-check`, `nia-body-check`, static validation, or the early target
 pruner before values reach the engine; the engine itself only accepts the
