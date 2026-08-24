@@ -660,6 +660,11 @@ spelling, including its suffix, as one in-band error token. Literal decoders
 independently enforce the same separator boundary before removing separators so
 malformed phase products cannot bypass source tokenization.
 
+`nia-literals` owns the shared numeric body/suffix split used by semantic and
+const checking. Its decoders accept only the language's integer or float suffix
+sets, respectively; consumers must not maintain local scans that can disagree
+on fractions or exponents.
+
 `tokenize` emits significant tokens plus one terminal EOF; `tokenize_lossless`
 also retains contiguous whitespace and line-comment trivia. Both use half-open
 UTF-8 byte spans. Lexical failures remain in-band `Error` tokens so parsing can
