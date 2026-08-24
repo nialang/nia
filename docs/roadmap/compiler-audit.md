@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 495 completed entries in this ledger.
+- Implementation batches: 496 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2842,6 +2842,12 @@ acceptance item only when its phase-wide evidence is complete.
       repeating or yielding an out-of-range value. A real executable covers
       half-open and inclusive ranges, both directions, mixed consumption,
       canonical exhausted state, stalled steps, and missing predecessors.
+- [x] Batch 496 completes builtin integer range stepping. `u128` now implements
+      both `Step` and `StepBack`, matching every other signed and unsigned
+      integer primitive. A real executable exercises direct and range-literal
+      construction, mixed forward/backward half-open and inclusive iteration,
+      and fused open-ended exhaustion at `u128::MAX`, proving endpoint checks
+      avoid overflow through LLVM and runtime execution.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
