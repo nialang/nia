@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::literals::{
     byte_string_literal_len, float_literal_suffix_ty, float_literal_text,
-    has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value, integer_range,
+    has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value,
     numeric_literal_suffix, parse_float_literal, string_literal_char_len,
 };
 use crate::{BodyChecker, BodyTypeCx};
@@ -777,15 +777,16 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::Primitive(primitive)) = self.interner.get(expected) else {
             return false;
         };
-        let Some((min, max)) = integer_range(*primitive) else {
+        if !primitive.is_integer() {
             return false;
-        };
-        if value < min || value > max {
+        }
+        if !value.fits_primitive_int(*primitive, self.target.pointer_width) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
                 format!(
-                    "integer literal {value} is out of range for {} in {context}",
+                    "integer literal {} is out of range for {} in {context}",
+                    integer_const_display(value),
                     self.ty_name(expected)
                 ),
             ));
@@ -816,15 +817,16 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::Primitive(primitive)) = self.interner.get(backing_type) else {
             return false;
         };
-        let Some((min, max)) = integer_range(*primitive) else {
+        if !primitive.is_integer() {
             return false;
-        };
-        if value < min || value > max {
+        }
+        if !value.fits_primitive_int(*primitive, self.target.pointer_width) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
                 format!(
-                    "integer literal {value} is out of range for {} backing type in {context}",
+                    "integer literal {} is out of range for {} backing type in {context}",
+                    integer_const_display(value),
                     self.ty_name(expected_enum)
                 ),
             ));
@@ -2380,5 +2382,16 @@ fn numeric_literal_suffix_for_expr(expr: &Expr) -> Option<&str> {
             expr,
         } => numeric_literal_suffix_for_expr(expr),
         _ => None,
+    }
+}
+
+fn integer_const_display(value: IntConst) -> String {
+    if value.is_signed() {
+        value
+            .as_i128()
+            .expect("signed integer constant")
+            .to_string()
+    } else {
+        value.bits().to_string()
     }
 }

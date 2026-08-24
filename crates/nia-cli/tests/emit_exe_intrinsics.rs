@@ -6,6 +6,50 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
+fn emit_exe_preserves_full_width_u128_literals() {
+    let root = temp_dir("emit_exe_preserves_full_width_u128_literals");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+const DECIMAL_MAX: u128 = 340282366920938463463374607431768211455u128;
+const HEX_MAX: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffffu128;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let runtime = 340282366920938463463374607431768211455u128;
+    if DECIMAL_MAX != u128::MAX or HEX_MAX != u128::MAX or runtime != u128::MAX {
+        return process::exit(1)!;
+    }
+    if runtime - 1u128 != 340282366920938463463374607431768211454u128 {
+        return process::exit(2)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write full-width u128 literal source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit full-width u128 literal executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run full-width u128 literal executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_simd_bitmask_matches_lane_bits() {
     let root = temp_dir("emit_exe_simd_bitmask_matches_lane_bits");
     let main = root.join("main.nia");

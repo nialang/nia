@@ -64,6 +64,10 @@ and other expected failures use explicit result and diagnostic channels.
   `nia-literals`. Semantic consumers map the shared suffix to their own type
   representation; they must not rescan integer, fraction, and exponent forms or
   let a decoder erase an unknown suffix.
+- Decode a source integer token as an unsigned 128-bit magnitude; source signs
+  remain unary expressions. Carry signedness plus complete bits in `IntConst`
+  after lowering, and test source-literal representability against the target
+  primitive and pointer width without narrowing through `i128`.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.

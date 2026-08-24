@@ -2,7 +2,7 @@
 //! Parsing and decoding of numeric, character, and string literals.
 
 /// Evaluates an integer literal with radix prefixes, separators, and suffixes.
-pub fn eval_int_literal(text: &str) -> Result<i128, String> {
+pub fn eval_int_literal(text: &str) -> Result<u128, String> {
     parse_int_literal(text)
 }
 
@@ -19,7 +19,7 @@ pub fn eval_float_literal(text: &str) -> Result<f64, String> {
         .map_err(|_| "invalid float constant".to_string())
 }
 
-fn parse_int_literal(text: &str) -> Result<i128, String> {
+fn parse_int_literal(text: &str) -> Result<u128, String> {
     if numeric_literal_suffix(text).is_some_and(|suffix| !is_integer_suffix(suffix)) {
         return Err("invalid integer constant".to_string());
     }
@@ -41,7 +41,7 @@ fn parse_int_literal(text: &str) -> Result<i128, String> {
     if digits.is_empty() {
         return Err("invalid integer constant".to_string());
     }
-    i128::from_str_radix(&digits, radix)
+    u128::from_str_radix(&digits, radix)
         .map_err(|_| "integer literal is out of range for const evaluation".to_string())
 }
 
@@ -535,6 +535,11 @@ mod tests {
         assert_eq!(eval_int_literal("42i32"), Ok(42));
         assert_eq!(eval_int_literal("0xffu8"), Ok(255));
         assert_eq!(eval_int_literal("1_024usize"), Ok(1024));
+        assert_eq!(
+            eval_int_literal("340282366920938463463374607431768211455u128"),
+            Ok(u128::MAX)
+        );
+        assert!(eval_int_literal("340282366920938463463374607431768211456u128").is_err());
     }
 
     #[test]

@@ -28,7 +28,7 @@ fn main() usize {
     let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
     let lowered = nia_const_ir::lower_expr_early(expr).unwrap();
     let value = eval_early_const_int_expr(&lowered, &mut EmptyEnv).unwrap();
-    assert_eq!(value, IntConst::signed(8));
+    assert_eq!(value, IntConst::unsigned(8));
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn main() usize {
     let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
     let lowered = nia_const_ir::lower_expr_early(expr).unwrap();
     let value = eval_early_const_int_expr(&lowered, &mut PatternEnv::default()).unwrap();
-    assert_eq!(value, IntConst::signed(5));
+    assert_eq!(value, IntConst::unsigned(5));
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn main() usize {
     let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
     let lowered = nia_const_ir::lower_expr_early(expr).unwrap();
     let value = eval_early_const_int_expr(&lowered, &mut EmptyEnv).unwrap();
-    assert_eq!(value, IntConst::signed(4));
+    assert_eq!(value, IntConst::unsigned(4));
 }
 
 #[test]
@@ -133,10 +133,10 @@ fn resolved_const_for_in_threads_iterator_state_and_restores_item_scopes() {
 
     let value = eval_resolved_const_expr(&expr, &mut env).unwrap();
 
-    assert_eq!(value, ConstValue::Int(IntConst::signed(0)));
+    assert_eq!(value, ConstValue::Int(IntConst::unsigned(0)));
     assert_eq!(
         env.bound_values,
-        vec![IntConst::signed(1), IntConst::signed(2)]
+        vec![IntConst::unsigned(1), IntConst::unsigned(2)]
     );
     assert_eq!(env.next_calls, 3, "iterator termination must be observed");
     assert_eq!(env.scope_depth, 0, "all loop scopes must be restored");

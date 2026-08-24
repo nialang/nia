@@ -644,7 +644,7 @@ struct ConditionError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ConditionValue {
     Bool(bool),
-    Int(i128),
+    Int(u128),
     String(String),
 }
 
@@ -664,7 +664,7 @@ impl<'a> ConditionEvaluator<'a> {
         values.insert(known::ENDIAN, ConditionValue::String(config.endian.clone()));
         values.insert(
             known::POINTER_WIDTH,
-            ConditionValue::Int(i128::from(config.pointer_width)),
+            ConditionValue::Int(u128::from(config.pointer_width)),
         );
         Self { values, symbols }
     }

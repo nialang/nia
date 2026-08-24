@@ -513,6 +513,29 @@ impl IntConst {
         }
     }
 
+    /// Reports whether this value is representable by a primitive integer.
+    pub fn fits_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> bool {
+        let Some(bits) = primitive.integer_bits(pointer_width) else {
+            return false;
+        };
+        if !(1..=u128::BITS).contains(&bits) {
+            return false;
+        }
+        if primitive.is_signed_integer() {
+            let Some(value) = self.as_i128() else {
+                return false;
+            };
+            return bits == i128::BITS
+                || (-(1_i128 << (bits - 1))..=(1_i128 << (bits - 1)) - 1).contains(&value);
+        }
+        let value = if self.is_signed() {
+            self.as_i128().and_then(|value| u128::try_from(value).ok())
+        } else {
+            Some(self.bits())
+        };
+        value.is_some_and(|value| bits == u128::BITS || value < (1_u128 << bits))
+    }
+
     pub fn cast_to_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<Self> {
         let bits = primitive.integer_bits(pointer_width)?;
         let mask = integer_mask(bits);
@@ -1105,6 +1128,20 @@ fn vector_type_spelling(name: &str) -> Option<PrimitiveTypeSpelling> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integer_representability_covers_signed_and_unsigned_endpoints() {
+        assert!(IntConst::unsigned(u128::MAX).fits_primitive_int(PrimitiveTy::U128, 64));
+        assert!(!IntConst::unsigned(u128::MAX).fits_primitive_int(PrimitiveTy::I128, 64));
+        assert!(IntConst::signed(i128::MIN).fits_primitive_int(PrimitiveTy::I128, 64));
+        assert!(!IntConst::signed(-1).fits_primitive_int(PrimitiveTy::U128, 64));
+        assert!(IntConst::unsigned(255).fits_primitive_int(PrimitiveTy::U8, 64));
+        assert!(!IntConst::unsigned(256).fits_primitive_int(PrimitiveTy::U8, 64));
+        assert!(IntConst::unsigned(u32::MAX.into()).fits_primitive_int(PrimitiveTy::Usize, 32));
+        assert!(!IntConst::unsigned(u64::MAX.into()).fits_primitive_int(PrimitiveTy::Usize, 32));
+        assert!(!IntConst::unsigned(0).fits_primitive_int(PrimitiveTy::Usize, 0));
+        assert!(!IntConst::unsigned(0).fits_primitive_int(PrimitiveTy::Usize, 129));
+    }
 
     struct DualStoreEquivalence<'a> {
         left: &'a TypeStore,

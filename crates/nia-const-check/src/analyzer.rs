@@ -1126,13 +1126,19 @@ impl Analyzer<'_> {
     ) {
         match (value, primitive) {
             (ConstValue::Int(value), primitive) => {
-                let Some((min, max)) =
-                    primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
-                else {
+                let fits = if primitive == PrimitiveTy::Char {
+                    !value.is_signed()
+                        && u32::try_from(value.bits())
+                            .ok()
+                            .and_then(char::from_u32)
+                            .is_some()
+                } else if primitive.is_integer() {
+                    value.fits_primitive_int(primitive, self.input.target.pointer_width)
+                } else {
                     self.push_const_primitive_mismatch(span, primitive);
                     return;
                 };
-                if !int_const_in_i128_range(*value, min, max) {
+                if !fits {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
                         span,

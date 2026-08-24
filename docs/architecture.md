@@ -665,6 +665,12 @@ const checking. Its decoders accept only the language's integer or float suffix
 sets, respectively; consumers must not maintain local scans that can disagree
 on fractions or exponents.
 
+Source integer tokens decode to a non-negative `u128` magnitude. A leading
+minus remains an AST unary operation, while typed phase products use `IntConst`
+to retain signedness independently from all 128 value bits. Primitive range
+checks for source literals consume the target pointer width and must not project
+unsigned magnitudes through `i128` first.
+
 `tokenize` emits significant tokens plus one terminal EOF; `tokenize_lossless`
 also retains contiguous whitespace and line-comment trivia. Both use half-open
 UTF-8 byte spans. Lexical failures remain in-band `Error` tokens so parsing can

@@ -2,15 +2,25 @@
 use nia_ast::{Expr, ExprKind, StringLiteral, UnaryOp};
 use nia_ty::PrimitiveTy;
 
-pub(super) fn integer_literal_value(expr: &Expr) -> Option<i128> {
+pub(super) fn integer_literal_value(expr: &Expr) -> Option<nia_ty::IntConst> {
     match &expr.kind {
-        ExprKind::Integer(text) => nia_literals::eval_int_literal(text).ok(),
+        ExprKind::Integer(text) => nia_literals::eval_int_literal(text)
+            .ok()
+            .map(nia_ty::IntConst::unsigned),
         ExprKind::Unary {
             op: UnaryOp::Neg,
             expr,
-        } => nia_literals::eval_int_literal(integer_literal_text(expr)?)
-            .ok()?
-            .checked_neg(),
+        } => {
+            let magnitude = nia_literals::eval_int_literal(integer_literal_text(expr)?).ok()?;
+            if magnitude == 1_u128 << 127 {
+                Some(nia_ty::IntConst::signed(i128::MIN))
+            } else {
+                i128::try_from(magnitude)
+                    .ok()?
+                    .checked_neg()
+                    .map(nia_ty::IntConst::signed)
+            }
+        }
         _ => None,
     }
 }
@@ -80,7 +90,7 @@ pub(super) fn decode_byte_char_literal(text: &str) -> Option<u8> {
     nia_literals::decode_byte_char_literal(text)
 }
 
-pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
+pub(super) fn parse_int_literal(text: &str) -> Option<u128> {
     nia_literals::eval_int_literal(text).ok()
 }
 
@@ -126,28 +136,6 @@ impl FiniteFloat for f64 {
 
 pub(super) fn parse_float_literal<T: FiniteFloat>(text: &str) -> bool {
     T::parse(text).is_some()
-}
-
-pub(super) fn integer_range(primitive: PrimitiveTy) -> Option<(i128, i128)> {
-    Some(match primitive {
-        PrimitiveTy::I8 => (i8::MIN as i128, i8::MAX as i128),
-        PrimitiveTy::I16 => (i16::MIN as i128, i16::MAX as i128),
-        PrimitiveTy::I32 => (i32::MIN as i128, i32::MAX as i128),
-        PrimitiveTy::I64 => (i64::MIN as i128, i64::MAX as i128),
-        PrimitiveTy::I128 => (i128::MIN, i128::MAX),
-        PrimitiveTy::Isize => (isize::MIN as i128, isize::MAX as i128),
-        PrimitiveTy::U8 => (u8::MIN as i128, u8::MAX as i128),
-        PrimitiveTy::U16 => (u16::MIN as i128, u16::MAX as i128),
-        PrimitiveTy::U32 => (u32::MIN as i128, u32::MAX as i128),
-        PrimitiveTy::U64 => (u64::MIN as i128, u64::MAX as i128),
-        PrimitiveTy::U128 => (0, i128::MAX),
-        PrimitiveTy::Usize => (usize::MIN as i128, usize::MAX as i128),
-        PrimitiveTy::F32
-        | PrimitiveTy::F64
-        | PrimitiveTy::Bool
-        | PrimitiveTy::Char
-        | PrimitiveTy::Never => return None,
-    })
 }
 
 pub(super) fn string_literal_char_len(literal: &StringLiteral) -> Option<usize> {

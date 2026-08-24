@@ -56,7 +56,7 @@ pub(crate) fn fold_constant_switches(blocks: &mut [FunctionBlock]) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SwitchConstantValue {
-    Integer(i128),
+    Integer(u128),
     Bool(bool),
     Char(u32),
     Byte(u8),

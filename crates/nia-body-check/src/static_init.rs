@@ -51,7 +51,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_static_init(&mut self, expr: &Expr) -> StaticInit {
         match &expr.kind {
             ExprKind::Integer(text) => parse_int_literal(text)
-                .map(|value| StaticInit::Int(IntConst::signed(value)))
+                .map(|value| StaticInit::Int(IntConst::unsigned(value)))
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,

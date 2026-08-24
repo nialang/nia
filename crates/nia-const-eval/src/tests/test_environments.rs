@@ -158,7 +158,7 @@ fn main() usize {
     let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
     let lowered = nia_const_ir::lower_expr_early(expr).unwrap();
     let value = eval_early_const_int_expr(&lowered, &mut PatternEnv::default()).unwrap();
-    assert_eq!(value, IntConst::signed(8));
+    assert_eq!(value, IntConst::unsigned(8));
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn main() usize {
     let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
     let lowered = nia_const_ir::lower_expr_early(expr).unwrap();
     let value = eval_early_const_int_expr(&lowered, &mut PatternEnv::default()).unwrap();
-    assert_eq!(value, IntConst::signed(5));
+    assert_eq!(value, IntConst::unsigned(5));
 }
 
 struct ConfigEnv;
