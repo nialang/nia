@@ -33,7 +33,7 @@ const SOURCE_TARGET_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.llvm
 const BUILTINS_POLICY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.llvm.builtins-policy.v2");
 const BUILTINS_DEFINITION_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.builtins-definition.v2");
+    FingerprintDomain::new("nia.llvm.builtins-definition.v3");
 const BUILTINS_DECLARATIONS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.llvm.builtins-declarations.v2");
 const BUILTINS_TARGET_DOMAIN: FingerprintDomain =
@@ -95,6 +95,10 @@ pub(super) fn compiler_builtins_fingerprint(
     definition.write_u8(u8::from(symbols.u128_from_f64));
     definition.write_u8(u8::from(symbols.i128_from_f32));
     definition.write_u8(u8::from(symbols.i128_from_f64));
+    definition.write_u8(u8::from(symbols.f32_from_u128));
+    definition.write_u8(u8::from(symbols.f64_from_u128));
+    definition.write_u8(u8::from(symbols.f32_from_i128));
+    definition.write_u8(u8::from(symbols.f64_from_i128));
 
     let declarations = QueryFingerprintBuilder::new(BUILTINS_DECLARATIONS_DOMAIN);
     let mut target_component = QueryFingerprintBuilder::new(BUILTINS_TARGET_DOMAIN);

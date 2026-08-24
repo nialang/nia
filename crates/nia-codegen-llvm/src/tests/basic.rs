@@ -868,6 +868,22 @@ fn signedFrom32(value: f32) i128 {
 fn signedFrom64(value: f64) i128 {
     value as i128
 }
+
+fn to32(value: u128) f32 {
+    value as f32
+}
+
+fn to64(value: u128) f64 {
+    value as f64
+}
+
+fn signedTo32(value: i128) f32 {
+    value as f32
+}
+
+fn signedTo64(value: i128) f64 {
+    value as f64
+}
 "#,
     )
     .expect("write float-to-u128 source");

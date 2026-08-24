@@ -3158,6 +3158,15 @@ definition fingerprint, and unrelated programs do not emit the synthetic unit.
 Signed `f32`/`f64` to `i128` casts use the paired `__fixsfti` and `__fixdfti`
 symbols and the same magnitude core, selecting two's-complement negation only
 after the unsigned magnitude has been reconstructed.
+The reverse wide conversions use the paired `__floatuntisf`, `__floatuntidf`,
+`__floattisf`, and `__floattidf` symbols. Their definitions classify the highest
+set bit, construct IEEE-754 sign/exponent/fraction fields directly, and apply
+round-to-nearest-ties-to-even to discarded integer bits. Signed inputs normalize
+their two's-complement magnitude before field construction, so `i128::MIN`
+remains representable without a signed host conversion. These reverse-symbol
+flags participate in the same versioned builtin definition fingerprint and
+share the synthetic compiler-builtins object with division and float-to-wide
+conversions.
 
 Every emitted unit also carries a `CodegenUnitFingerprint`, which is content
 identity rather than location identity. Its encoder is explicitly versioned

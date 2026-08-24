@@ -6,8 +6,8 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_preserves_128_bit_literal_endpoints() {
-    let root = temp_dir("emit_exe_preserves_128_bit_literal_endpoints");
+fn emit_exe_preserves_128_bit_numeric_endpoints() {
+    let root = temp_dir("emit_exe_preserves_128_bit_numeric_endpoints");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -59,6 +59,39 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if signed32 != -12345i128 {
         return process::exit(10)!;
     }
+    let unsignedTieEven64 = ((1u128 << 53u128) + 1u128) as f64;
+    if unsignedTieEven64 != 9007199254740992.0f64 {
+        return process::exit(11)!;
+    }
+    let unsignedRoundUp64 = ((1u128 << 53u128) + 3u128) as f64;
+    if unsignedRoundUp64 != 9007199254740996.0f64 {
+        return process::exit(12)!;
+    }
+    let unsignedTieEven32 = ((1u128 << 24u128) + 1u128) as f32;
+    if unsignedTieEven32 != 16777216.0f32 {
+        return process::exit(13)!;
+    }
+    let unsignedRoundUp32 = ((1u128 << 24u128) + 3u128) as f32;
+    if unsignedRoundUp32 != 16777220.0f32 {
+        return process::exit(14)!;
+    }
+    let signedMin64 = i128::MIN as f64;
+    if signedMin64 != -170141183460469231731687303715884105728.0f64 {
+        return process::exit(15)!;
+    }
+    let zeroUnsigned = 0u128 as f64;
+    let zeroSigned = 0i128 as f32;
+    if zeroUnsigned != 0.0f64 or zeroSigned != 0.0f32 {
+        return process::exit(16)!;
+    }
+    let maxUnsigned64 = u128::MAX as f64;
+    if maxUnsigned64 != 340282366920938463463374607431768211455.0f64 {
+        return process::exit(17)!;
+    }
+    let signedRound32 = -16777219i128 as f32;
+    if signedRound32 != -16777220.0f32 {
+        return process::exit(18)!;
+    }
     !()
 }
 "#,
@@ -71,13 +104,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("emit 128-bit literal endpoint executable");
+        .output_timeout_for_build("emit 128-bit numeric endpoint executable");
     assert!(
         output.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let status = Command::new(&exe).status_timeout("run 128-bit literal endpoint executable");
+    let status = Command::new(&exe).status_timeout("run 128-bit numeric endpoint executable");
     assert_eq!(status.code(), Some(0));
 }
 

@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 505 completed entries in this ledger.
+- Implementation batches: 506 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2910,6 +2910,16 @@ acceptance item only when its phase-wide evidence is complete.
       through `asMutSlice` and `asSlice`, and the runnable example verifies the
       stored bytes after arena reset. The repository-wide example acceptance
       suite once again checks every maintained example successfully.
+- [x] Batch 506 closes the reverse wide-integer conversion builtin boundary.
+      Reachable `u128`/`i128` to `f32`/`f64` casts now request the paired
+      `__floatuntisf`, `__floatuntidf`, `__floattisf`, and `__floattidf` symbols
+      in the synthetic compiler-builtins unit. The definitions construct IEEE
+      fields from native-width integer operations with ties-to-even rounding,
+      preserve signed magnitude endpoints including `i128::MIN`, and cannot
+      recursively lower through the conversion they own. Owner coverage proves
+      all eight wide conversion symbols share one fingerprinted object, while a
+      freestanding executable covers zero, maximum, endpoint, and rounding
+      behavior without a host runtime dependency.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
