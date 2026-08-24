@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 500 completed entries in this ledger.
+- Implementation batches: 501 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2875,6 +2875,14 @@ acceptance item only when its phase-wide evidence is complete.
       duplicate truncated range helpers. Endpoint owner tests retain negative
       `i128::MIN` and narrow overflow behavior, while a real ELF compiles and
       runs decimal and hexadecimal `u128::MAX` through const and runtime paths.
+- [x] Batch 501 closes the signed source-literal endpoint in const evaluation.
+      Unary negation now consumes unsigned magnitude bits before signed
+      projection, accepting exactly `2^127` as `i128::MIN` while retaining
+      overflow for a second negation, larger magnitudes, unsigned targets, and
+      narrower signed types. Function lowering canonicalizes the endpoint call
+      before backend range validation. Owner endpoint tests and a real ELF
+      cover const and runtime `i128::MIN` alongside the full-width `u128`
+      boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

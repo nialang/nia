@@ -671,6 +671,14 @@ to retain signedness independently from all 128 value bits. Primitive range
 checks for source literals consume the target pointer width and must not project
 unsigned magnitudes through `i128` first.
 
+Const unary negation likewise consumes the magnitude before signed projection:
+the endpoint magnitude `2^127` becomes `i128::MIN`, but negating an existing
+`i128::MIN` remains an overflow. Resolved integer semantics then validate the
+signed result against the expression's concrete width. Function lowering
+canonicalizes that endpoint builtin call to one signed integer constant so
+Function IR and backend validation never observe an out-of-range positive
+`i128` operand.
+
 `tokenize` emits significant tokens plus one terminal EOF; `tokenize_lossless`
 also retains contiguous whitespace and line-comment trivia. Both use half-open
 UTF-8 byte spans. Lexical failures remain in-band `Error` tokens so parsing can

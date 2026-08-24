@@ -219,16 +219,26 @@ pub(super) fn eval_typed_int_neg(
     value: IntConst,
     semantics: Option<ConstIntegerSemantics>,
 ) -> Result<IntConst, String> {
-    let value = value
-        .as_i128()
-        .and_then(i128::checked_neg)
-        .ok_or_else(|| "integer overflow in const negation".to_string())?;
-    if semantics
-        .is_some_and(|semantics| !semantics.signed || !signed_value_fits(value, semantics.bits))
-    {
+    let value = if value.is_signed() {
+        value
+            .as_i128()
+            .and_then(i128::checked_neg)
+            .map(IntConst::from_i128)
+    } else if value.bits() <= 1_u128 << 127 {
+        Some(IntConst::signed_bits(0_u128.wrapping_sub(value.bits())))
+    } else {
+        None
+    }
+    .ok_or_else(|| "integer overflow in const negation".to_string())?;
+    if semantics.is_some_and(|semantics| {
+        !semantics.signed
+            || !value
+                .as_i128()
+                .is_some_and(|value| signed_value_fits(value, semantics.bits))
+    }) {
         return Err("integer overflow in const negation".to_string());
     }
-    Ok(IntConst::from_i128(value))
+    Ok(value)
 }
 
 fn signed_value_fits(value: i128, bits: u32) -> bool {
@@ -490,6 +500,57 @@ mod tests {
                 }),
             ),
             Err("invalid integer width in const bitwise not semantics".to_string())
+        );
+    }
+
+    #[test]
+    fn integer_negation_accepts_the_i128_min_source_magnitude() {
+        let semantics = Some(ConstIntegerSemantics {
+            bits: 128,
+            signed: true,
+        });
+
+        assert_eq!(
+            eval_typed_int_neg(IntConst::unsigned(1_u128 << 127), semantics),
+            Ok(IntConst::signed(i128::MIN))
+        );
+        assert_eq!(
+            eval_typed_int_neg(IntConst::signed(i128::MIN), semantics),
+            Err("integer overflow in const negation".to_string())
+        );
+        assert_eq!(
+            eval_typed_int_neg(IntConst::unsigned((1_u128 << 127) + 1), semantics),
+            Err("integer overflow in const negation".to_string())
+        );
+        assert_eq!(
+            eval_typed_int_neg(
+                IntConst::unsigned(128),
+                Some(ConstIntegerSemantics {
+                    bits: 8,
+                    signed: true,
+                }),
+            ),
+            Ok(IntConst::signed(-128))
+        );
+        assert_eq!(
+            eval_typed_int_neg(
+                IntConst::unsigned(129),
+                Some(ConstIntegerSemantics {
+                    bits: 8,
+                    signed: true,
+                }),
+            ),
+            Err("integer overflow in const negation".to_string())
+        );
+        assert_eq!(
+            eval_typed_int_neg(
+                IntConst::unsigned(1),
+                Some(ConstIntegerSemantics {
+                    bits: 128,
+                    signed: false,
+                }),
+            ),
+            Err("integer overflow in const negation".to_string())
         );
     }
 

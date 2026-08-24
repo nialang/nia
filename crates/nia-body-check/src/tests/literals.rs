@@ -41,6 +41,31 @@ fn main() u8 {
 }
 
 #[test]
+fn accepts_i128_min_with_contextual_and_explicit_literal_types() {
+    let checked = pipeline(
+        r#"
+const CONTEXTUAL_MIN: i128 = -170141183460469231731687303715884105728;
+const EXPLICIT_MIN: i128 = -170141183460469231731687303715884105728i128;
+
+fn tooSmall() () {
+    let value = -170141183460469231731687303715884105729i128;
+}
+
+fn main() i128 {
+    CONTEXTUAL_MIN + EXPLICIT_MIN
+}
+"#,
+    );
+
+    let range_errors = checked
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.summary.contains("out of range for i128"))
+        .count();
+    assert_eq!(range_errors, 1, "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_float_literals_against_expected_float_types() {
     let checked = pipeline(
         r#"

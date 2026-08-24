@@ -6,8 +6,8 @@ mod support;
 use support::{CommandExt, CommandStatusExt, temp_dir};
 
 #[test]
-fn emit_exe_preserves_full_width_u128_literals() {
-    let root = temp_dir("emit_exe_preserves_full_width_u128_literals");
+fn emit_exe_preserves_128_bit_literal_endpoints() {
+    let root = temp_dir("emit_exe_preserves_128_bit_literal_endpoints");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -17,6 +17,7 @@ using std::process;
 
 const DECIMAL_MAX: u128 = 340282366920938463463374607431768211455u128;
 const HEX_MAX: u128 = 0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffffu128;
+const SIGNED_MIN: i128 = -170141183460469231731687303715884105728i128;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -27,11 +28,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if runtime - 1u128 != 340282366920938463463374607431768211454u128 {
         return process::exit(2)!;
     }
+    if SIGNED_MIN != i128::MIN or -170141183460469231731687303715884105728i128 != i128::MIN {
+        return process::exit(3)!;
+    }
     !()
 }
 "#,
     )
-    .expect("write full-width u128 literal source");
+    .expect("write 128-bit literal endpoint source");
 
     let output = support::nia_command()
         .arg("emit")
@@ -39,13 +43,13 @@ pub fn main(init: process::Init) process::ExitCode!() {
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .output_timeout_for_build("emit full-width u128 literal executable");
+        .output_timeout_for_build("emit 128-bit literal endpoint executable");
     assert!(
         output.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let status = Command::new(&exe).status_timeout("run full-width u128 literal executable");
+    let status = Command::new(&exe).status_timeout("run 128-bit literal endpoint executable");
     assert_eq!(status.code(), Some(0));
 }
 

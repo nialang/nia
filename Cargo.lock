@@ -609,6 +609,7 @@ dependencies = [
  "nia-body-ir",
  "nia-function-ir",
  "nia-ids",
+ "nia-literals",
  "nia-sema-ir",
  "nia-span",
  "nia-symbol",

@@ -320,6 +320,23 @@ impl FunctionLowerer<'_> {
                     closure_id: *closure_id,
                 }
             }
+            TypedExprKind::Call {
+                callee: TypedCallee::BuiltinOperator(operator),
+                args,
+            } if matches!(
+                operator.op,
+                nia_sema_ir::BuiltinOperatorOp::Unary(UnaryOp::Neg)
+            ) && operator.trait_id == nia_ty::BuiltinTrait::Neg
+                && let [inner] = args.as_slice()
+                && matches!(
+                    self.types.get(inner.ty),
+                    Some(TyKind::Primitive(PrimitiveTy::I128))
+                )
+                && let TypedExprKind::Integer(text) = &inner.kind
+                && nia_literals::eval_int_literal(text) == Ok(1_u128 << 127) =>
+            {
+                FunctionExprKind::Integer(i128::MIN.to_string())
+            }
             TypedExprKind::Call { callee, args } => FunctionExprKind::Call {
                 callee: self.lower_callee(callee, scope, current, ops, blocks),
                 args: args

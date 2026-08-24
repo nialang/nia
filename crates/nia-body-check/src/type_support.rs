@@ -786,7 +786,7 @@ impl<'a> BodyChecker<'a> {
                 expr.span,
                 format!(
                     "integer literal {} is out of range for {} in {context}",
-                    integer_const_display(value),
+                    value.display(),
                     self.ty_name(expected)
                 ),
             ));
@@ -826,7 +826,7 @@ impl<'a> BodyChecker<'a> {
                 expr.span,
                 format!(
                     "integer literal {} is out of range for {} backing type in {context}",
-                    integer_const_display(value),
+                    value.display(),
                     self.ty_name(expected_enum)
                 ),
             ));
@@ -2382,16 +2382,5 @@ fn numeric_literal_suffix_for_expr(expr: &Expr) -> Option<&str> {
             expr,
         } => numeric_literal_suffix_for_expr(expr),
         _ => None,
-    }
-}
-
-fn integer_const_display(value: IntConst) -> String {
-    if value.is_signed() {
-        value
-            .as_i128()
-            .expect("signed integer constant")
-            .to_string()
-    } else {
-        value.bits().to_string()
     }
 }

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    AtomicOrder, GeneratedLocalName, LocalName, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr,
-    TypedExprKind, TypedForIn, TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMatch,
-    TypedMatchArmBody, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
-    TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding, TypedPatternKind,
-    TypedPlace, TypedStmt, TypedStmtKind,
+    AtomicOrder, BuiltinOperator, GeneratedLocalName, LocalName, MemoryIntrinsicOp, PlaceBase,
+    TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIn, TypedIfPattern, TypedLocal,
+    TypedLocalKind, TypedLoop, TypedMatch, TypedMatchArmBody, TypedMemoryIntrinsic,
+    TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding,
+    TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind,
 };
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
@@ -17,7 +17,7 @@ pub(super) use nia_ids::{
 };
 pub(super) use nia_span::Span;
 pub(super) use nia_symbol::{SymbolId, stable_hash};
-pub(super) use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+pub(super) use nia_ty::{BuiltinTrait, PrimitiveTy, TyKind, TypeStore};
 
 pub(super) fn only_next_target(
     function_body: &FunctionBody,
@@ -37,6 +37,12 @@ pub(super) fn test_ty() -> InternedTyId {
     test_type_store()
         .append_for_module(test_module_id())
         .intern(TyKind::Error)
+}
+
+pub(super) fn primitive_ty(primitive: PrimitiveTy) -> InternedTyId {
+    test_type_store()
+        .append_for_module(test_module_id())
+        .intern(TyKind::Primitive(primitive))
 }
 
 pub(super) fn lower_test_function_body(

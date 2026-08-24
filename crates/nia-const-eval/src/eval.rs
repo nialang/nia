@@ -738,14 +738,12 @@ fn eval_const_expr_flow(
             op: ConstUnaryOp::Neg,
             expr: inner,
         } => match eval_value_or_return_flow!(inner, env) {
-            ConstValue::Int(value) => value
-                .as_i128()
-                .and_then(i128::checked_neg)
-                .map(|value| ConstValue::Int(IntConst::from_i128(value)))
-                .ok_or_else(|| ConstError {
+            ConstValue::Int(value) => ConstValue::Int(eval_typed_int_neg(value, None).map_err(
+                |message| ConstError {
                     span: expr.span,
-                    message: "integer overflow in const negation".to_string(),
-                })?,
+                    message,
+                },
+            )?),
             ConstValue::Float(value) => ConstValue::Float(-value),
             _ => {
                 return Err(ConstError {
