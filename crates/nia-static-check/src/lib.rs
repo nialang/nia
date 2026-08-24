@@ -246,9 +246,7 @@ impl StaticChecker<'_> {
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Bool(_) => None,
-            ExprKind::Tuple(elems) => elems
-                .iter()
-                .find_map(|elem| self.static_init_reject_reason(elem)),
+            ExprKind::Tuple(_) => Some("tuple static initializer is not representable"),
             ExprKind::Closure { .. } => Some("closure values require runtime state"),
             ExprKind::ArrayLiteral { elems } => match elems {
                 ArrayElements::List(elems) => elems
@@ -284,7 +282,7 @@ impl StaticChecker<'_> {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
                     Some(ValueNameResolution::Def(def_id)) if self.is_const(def_id) => {
-                        if self.global_const_is_static_scalar(def_id) {
+                        if self.global_const_is_static_data(def_id) {
                             None
                         } else {
                             Some("const value is not representable as static initializer data")
@@ -293,7 +291,7 @@ impl StaticChecker<'_> {
                     Some(ValueNameResolution::External(global_id))
                         if self.global_def_kind(global_id) == Some(DefKind::Const) =>
                     {
-                        if self.global_const_is_static_scalar_id(global_id) {
+                        if self.global_const_is_static_data_id(global_id) {
                             None
                         } else {
                             Some("const value is not representable as static initializer data")
@@ -303,7 +301,7 @@ impl StaticChecker<'_> {
                 },
                 Some(LocalUse::Unresolved) | None => None,
                 Some(LocalUse::Local(local_id)) => {
-                    if self.local_const_is_static_scalar(local_id) {
+                    if self.local_const_is_static_data(local_id) {
                         None
                     } else if self
                         .locals
@@ -328,7 +326,7 @@ impl StaticChecker<'_> {
                 } else if let Some(global_id) = self.qualified_value(expr)
                     && self.global_def_kind(global_id) == Some(DefKind::Const)
                 {
-                    self.global_const_is_static_scalar_id(global_id)
+                    self.global_const_is_static_data_id(global_id)
                         .then_some(())
                         .map_or(
                             Some("const value is not representable as static initializer data"),
@@ -589,31 +587,33 @@ impl StaticChecker<'_> {
         )
     }
 
-    fn local_const_is_static_scalar(&self, local_id: nia_ids::LocalId) -> bool {
+    fn local_const_is_static_data(&self, local_id: nia_ids::LocalId) -> bool {
         self.const_eval
             .values
             .get(&ConstKey::Local(local_id))
-            .is_some_and(Self::const_value_is_static_scalar)
+            .is_some_and(Self::const_value_is_static_data)
     }
 
-    fn global_const_is_static_scalar(&self, def_id: DefId) -> bool {
-        self.global_const_is_static_scalar_id(GlobalDefId {
+    fn global_const_is_static_data(&self, def_id: DefId) -> bool {
+        self.global_const_is_static_data_id(GlobalDefId {
             module_id: self.defs.module_id,
             def_id,
         })
     }
 
-    fn global_const_is_static_scalar_id(&self, global_id: GlobalDefId) -> bool {
+    fn global_const_is_static_data_id(&self, global_id: GlobalDefId) -> bool {
         self.const_value(global_id)
             .as_ref()
-            .is_some_and(Self::const_value_is_static_scalar)
+            .is_some_and(Self::const_value_is_static_data)
     }
 
-    fn const_value_is_static_scalar(value: &ConstValue) -> bool {
-        matches!(
-            value,
-            ConstValue::Int(_) | ConstValue::Float(_) | ConstValue::Bool(_)
-        )
+    fn const_value_is_static_data(value: &ConstValue) -> bool {
+        match value {
+            ConstValue::Int(_) | ConstValue::Float(_) | ConstValue::Bool(_) => true,
+            ConstValue::Array(values) => values.iter().all(Self::const_value_is_static_data),
+            ConstValue::Struct(fields) => fields.values().all(Self::const_value_is_static_data),
+            _ => false,
+        }
     }
 
     fn const_value(&self, global_id: GlobalDefId) -> Option<ConstValue> {
@@ -1101,14 +1101,39 @@ fn make() i32 {
     }
 
     #[test]
-    fn rejects_aggregate_const_in_static_initializer_until_static_ir_supports_it() {
+    fn accepts_aggregate_const_in_static_initializers() {
         let checked = check(
             r#"
 const values: [i32; 2] = [1, 2];
 static mut copy: [i32; 2] = values;
+
+struct Pair { left: i32, right: f32 }
+const pair: Pair = Pair { left: 7, right: 1.5f32 };
+static mut pairCopy: Pair = pair;
 "#,
         );
 
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn rejects_tuple_static_initializers_without_a_static_ir_variant() {
+        let checked = check(
+            r#"
+const pair: (i32, i32) = (1, 2);
+static mut namedCopy: (i32, i32) = pair;
+static mut directCopy: (i32, i32) = (3, 4);
+"#,
+        );
+
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("tuple static initializer")),
+            "{:?}",
+            checked.diagnostics
+        );
         assert!(
             checked.diagnostics.iter().any(|diagnostic| diagnostic
                 .summary
