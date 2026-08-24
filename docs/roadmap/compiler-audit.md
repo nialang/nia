@@ -2927,6 +2927,13 @@ acceptance item only when its phase-wide evidence is complete.
       expression and assignment-target precision facts, owner numeric tests
       cover halfway-adjacent rounding and canonical comparisons, and a driver
       regression verifies binary and compound `f32` values before integer casts.
+- [x] Batch 508 closes static initializer target-type propagation.
+      Body checking now threads each checked destination type through scalar
+      and aggregate static initializer lowering. Integer target propagation
+      restores signedness while preserving complete `IntConst` bits, whereas
+      explicit casts alone perform destination-width masking. The existing
+      const-to-`i32` global regression now passes alongside the full 278-test
+      driver const-evaluation suite.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

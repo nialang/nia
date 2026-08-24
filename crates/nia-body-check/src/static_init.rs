@@ -44,7 +44,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::String(_) | ExprKind::ByteString(_) => {
                 self.lower_static_string_target_mismatch(expr)
             }
-            _ => self.lower_static_init(expr),
+            _ => self.lower_static_init_with_target(expr, ty),
         }
     }
 
@@ -211,8 +211,36 @@ impl<'a> BodyChecker<'a> {
                 let cast_ty = self.expr_ty(expr).unwrap_or(ty);
                 self.lower_static_cast_init_with_target(expr, inner, cast_ty)
             }
-            _ => self.lower_static_init(expr),
+            _ => {
+                let init = self.lower_static_init(expr);
+                self.finish_static_target_init(init, ty)
+            }
         }
+    }
+
+    /// Applies the checked initializer's integer signedness without changing
+    /// its complete bit pattern. Explicit casts use
+    /// [`Self::finish_static_cast_init`] and are the only boundary that masks
+    /// to the destination width.
+    fn finish_static_target_init(
+        &mut self,
+        init: StaticInit,
+        target_ty: InternedTyId,
+    ) -> StaticInit {
+        let Some(TyKind::Primitive(primitive)) = self.interner.get(target_ty) else {
+            return init;
+        };
+        let StaticInit::Int(value) = init else {
+            return init;
+        };
+        let value = if primitive.is_signed_integer() {
+            IntConst::signed_bits(value.bits())
+        } else if primitive.is_integer() {
+            IntConst::unsigned(value.bits())
+        } else {
+            return StaticInit::Int(value);
+        };
+        StaticInit::Int(value)
     }
 
     fn lower_static_string_array_init(
