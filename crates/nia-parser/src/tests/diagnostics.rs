@@ -14,6 +14,17 @@ fn reports_lexer_errors_through_parser() {
 }
 
 #[test]
+fn reports_misplaced_numeric_separators_through_parser() {
+    let (_module, errors) = parse_module("fn main() { let value = 1e_2; }");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("InvalidNumber")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_string_module_name() {
     let (_module, errors) = parse_module(r#"module "math";"#);
     assert!(

@@ -191,6 +191,24 @@ fn main() () {}
 }
 
 #[test]
+fn check_rejects_misplaced_numeric_separators() {
+    let root = temp_dir("check_rejects_misplaced_numeric_separators");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { let value = 0x_ff; value }\n")
+        .expect("write invalid numeric separator source");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("reject misplaced numeric separator");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("lex error"), "{stderr}");
+    assert!(stderr.contains("InvalidNumber"), "{stderr}");
+}
+
+#[test]
 fn emit_obj_reports_unused_import_warning_without_skipping_codegen() {
     let root = temp_dir("emit_obj_reports_unused_import_warning_without_skipping_codegen");
     let main = root.join("main.nia");

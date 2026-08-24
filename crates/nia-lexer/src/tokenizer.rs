@@ -273,55 +273,67 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn number(&mut self, start: usize) -> Token {
-        if self.source.get(start) == Some(&b'0') && matches!(self.peek(), Some(b'x' | b'X')) {
-            self.bump();
-            let (digits, invalid) = self.consume_digits(16);
-            if digits == 0 || invalid {
-                return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
+        let radix = if self.source.get(start) == Some(&b'0') {
+            match self.peek() {
+                Some(b'x' | b'X') => Some(16),
+                Some(b'b' | b'B') => Some(2),
+                Some(b'o' | b'O') => Some(8),
+                _ => None,
             }
-            self.consume_numeric_suffix();
-            return self.token(TokenKind::Integer, start, self.pos);
-        }
-        if self.source.get(start) == Some(&b'0') && matches!(self.peek(), Some(b'b' | b'B')) {
+        } else {
+            None
+        };
+        if let Some(radix) = radix {
             self.bump();
-            let (digits, invalid) = self.consume_digits(2);
-            if digits == 0 || invalid {
-                return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
-            }
-            self.consume_numeric_suffix();
-            return self.token(TokenKind::Integer, start, self.pos);
+            return self.radix_number(start, radix);
         }
-        if self.source.get(start) == Some(&b'0') && matches!(self.peek(), Some(b'o' | b'O')) {
-            self.bump();
-            let (digits, invalid) = self.consume_digits(8);
-            if digits == 0 || invalid {
-                return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
-            }
-            self.consume_numeric_suffix();
-            return self.token(TokenKind::Integer, start, self.pos);
-        }
-        self.consume_digits(10);
+        let (_, mut invalid) = self.consume_digits(10, true);
         if self.previous_kind.as_ref() != Some(&TokenKind::Dot)
             && self.peek() == Some(b'.')
             && self.peek_next().is_some_and(|b| b.is_ascii_digit())
         {
             self.bump();
-            self.consume_digits(10);
-            if self.try_scan_exponent() == Some(false) {
+            invalid |= self.consume_digits(10, false).1;
+            let exponent_valid = self.try_scan_exponent();
+            if invalid || exponent_valid == Some(false) {
+                self.consume_numeric_suffix();
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
             self.consume_numeric_suffix();
             return self.token(TokenKind::Float, start, self.pos);
         }
         if let Some(valid) = self.try_scan_exponent() {
-            if !valid {
+            if invalid || !valid {
+                self.consume_numeric_suffix();
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
             self.consume_numeric_suffix();
             return self.token(TokenKind::Float, start, self.pos);
         }
         self.consume_numeric_suffix();
-        self.token(TokenKind::Integer, start, self.pos)
+        self.token(
+            if invalid {
+                TokenKind::Error(LexError::InvalidNumber)
+            } else {
+                TokenKind::Integer
+            },
+            start,
+            self.pos,
+        )
+    }
+
+    fn radix_number(&mut self, start: usize, radix: u32) -> Token {
+        let (digits, invalid) = self.consume_digits(radix, false);
+        self.consume_numeric_suffix();
+        self.token(
+            if digits == 0 || invalid {
+                TokenKind::Error(LexError::InvalidNumber)
+            } else {
+                TokenKind::Integer
+            },
+            start,
+            self.pos,
+        )
     }
 
     fn try_scan_exponent(&mut self) -> Option<bool> {
@@ -332,21 +344,29 @@ impl<'a> Tokenizer<'a> {
         if matches!(self.peek(), Some(b'+' | b'-')) {
             self.bump();
         }
-        let (digits, invalid) = self.consume_digits(10);
+        let (digits, invalid) = self.consume_digits(10, false);
         Some(digits > 0 && !invalid)
     }
 
-    fn consume_digits(&mut self, radix: u32) -> (usize, bool) {
+    fn consume_digits(&mut self, radix: u32, mut previous_was_digit: bool) -> (usize, bool) {
         let mut digits = 0usize;
         let mut invalid = false;
         while let Some(byte) = self.peek() {
             if byte == b'_' {
+                let next_is_digit = self
+                    .peek_next()
+                    .and_then(digit_value)
+                    .is_some_and(|value| value < radix);
+                invalid |= !previous_was_digit || !next_is_digit;
+                previous_was_digit = false;
                 self.bump();
             } else if digit_value(byte).is_some_and(|value| value < radix) {
                 digits += 1;
+                previous_was_digit = true;
                 self.bump();
             } else if radix != 10 && digit_value(byte).is_some() {
                 invalid = true;
+                previous_was_digit = false;
                 self.bump();
             } else {
                 break;
@@ -861,7 +881,9 @@ mod tests {
     #[test]
     fn tokenizes_numeric_forms_and_ellipsis() {
         assert_eq!(
-            kinds("0xff 0b1010 0o755 1.5 1e-3 10usize 1.0f32 ... .. ..="),
+            kinds(
+                "0xff 0b1010 0o755 1.5 1e-3 10usize 1.0f32 1_000 0xff_ff 0b1010_0000 1_000.5 1.0e1_0 ... .. ..="
+            ),
             vec![
                 TokenKind::Integer,
                 TokenKind::Integer,
@@ -869,6 +891,11 @@ mod tests {
                 TokenKind::Float,
                 TokenKind::Float,
                 TokenKind::Integer,
+                TokenKind::Float,
+                TokenKind::Integer,
+                TokenKind::Integer,
+                TokenKind::Integer,
+                TokenKind::Float,
                 TokenKind::Float,
                 TokenKind::Ellipsis,
                 TokenKind::DotDot,
@@ -897,8 +924,22 @@ mod tests {
     #[test]
     fn reports_invalid_numeric_forms_as_single_tokens() {
         assert_eq!(
-            kinds("0x 0b102 0o89 1e+"),
+            kinds(
+                "0x 0b102 0o89 1e+ 1_ 1__2 0x_ff 0x1_ 0b_1 0o7__ 1e_2 1e+_2 1e2_ 0b102u8 1e_2f32 1_.5e+2f32"
+            ),
             vec![
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
+                TokenKind::Error(LexError::InvalidNumber),
                 TokenKind::Error(LexError::InvalidNumber),
                 TokenKind::Error(LexError::InvalidNumber),
                 TokenKind::Error(LexError::InvalidNumber),
