@@ -21,7 +21,7 @@ const SIGNED_MIN: i128 = -170141183460469231731687303715884105728i128;
 const FLOAT_TO_U128: u128 = 170141183460469231731687303715884105728.0f64 as u128;
 
 pub fn main(init: process::Init) process::ExitCode!() {
-    _ = init;
+    let argc = init.argc();
     let runtime = 340282366920938463463374607431768211455u128;
     if DECIMAL_MAX != u128::MAX or HEX_MAX != u128::MAX or runtime != u128::MAX {
         return process::exit(1)!;
@@ -34,6 +34,18 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if FLOAT_TO_U128 != (1u128 << 127u128) {
         return process::exit(4)!;
+    }
+    let small = 123456789.0f64 + argc as f64;
+    if small as u128 != 123456789u128 + argc as u128 {
+        return process::exit(5)!;
+    }
+    let mixed = 1267650600228230245921633337344.0f64 + argc as f64;
+    if mixed as u128 != (1u128 << 100u128) + (3u128 << 48u128) {
+        return process::exit(6)!;
+    }
+    let wide32 = 1267650600228229401496703205376.0f32 + argc as f32;
+    if wide32 as u128 != (1u128 << 100u128) {
+        return process::exit(7)!;
     }
     !()
 }

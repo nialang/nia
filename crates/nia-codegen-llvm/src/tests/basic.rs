@@ -847,6 +847,44 @@ fn divrem(value: u128, by: u128) u128 {
 }
 
 #[test]
+fn emits_compiler_builtins_for_float_to_u128_casts() {
+    let root = temp_dir("emits_compiler_builtins_for_float_to_u128_casts");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn from32(value: f32) u128 {
+    value as u128
+}
+
+fn from64(value: f64) u128 {
+    value as u128
+}
+"#,
+    )
+    .expect("write float-to-u128 source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_native_objects(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(
+        output
+            .link_inputs
+            .as_slice()
+            .iter()
+            .filter(|input| input.object.unit == CodegenUnitId::CompilerBuiltins)
+            .count(),
+        1,
+        "f32 and f64 casts must share one compiler-builtins object"
+    );
+}
+
+#[test]
 fn emits_unaligned_vector_load_builtin() {
     let root = temp_dir("emits_unaligned_vector_load_builtin");
     let main = root.join("main.nia");

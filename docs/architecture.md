@@ -3148,6 +3148,14 @@ native object result that actually needs them; a source module name can no
 longer stand in for that role. Validation and cross-unit declaration/layout
 lookup intentionally remain whole-program and readonly.
 
+The reachable Function IR scan also owns LLVM libcalls introduced by primitive
+operations. Unsigned `f32`/`f64` to `u128` casts request `__fixunssfti` or
+`__fixunsdfti` in the same compiler-builtins unit as wide division support. The
+definitions split the floating value at `2^64`, convert only to native `u64`,
+and reconstruct the result bits, so compiling the helper cannot recursively
+request itself. The exact requested-symbol flags participate in the builtins
+definition fingerprint, and unrelated programs do not emit the synthetic unit.
+
 Every emitted unit also carries a `CodegenUnitFingerprint`, which is content
 identity rather than location identity. Its encoder is explicitly versioned
 and writes fixed-width values into the stable query fingerprint builder; it

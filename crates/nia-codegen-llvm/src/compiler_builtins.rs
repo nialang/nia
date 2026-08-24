@@ -27,11 +27,13 @@ pub(crate) fn required_symbols(index: &ProgramIndex) -> CompilerBuiltinSymbols {
 pub(crate) struct CompilerBuiltinSymbols {
     pub(crate) u128_div_rem: bool,
     pub(crate) i128_div_rem: bool,
+    pub(crate) u128_from_f32: bool,
+    pub(crate) u128_from_f64: bool,
 }
 
 impl CompilerBuiltinSymbols {
     pub(crate) fn any(self) -> bool {
-        self.u128_div_rem || self.i128_div_rem
+        self.u128_div_rem || self.i128_div_rem || self.u128_from_f32 || self.u128_from_f64
     }
 }
 
@@ -200,11 +202,17 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::BitIntrinsic { value: expr, .. }
             | FunctionExprKind::CharFromU32 { value: expr }
             | FunctionExprKind::Discard(expr)
-            | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }
             | FunctionExprKind::CallableCoercion { state: expr, .. } => {
                 self.collect_expr(index, expr)
+            }
+            FunctionExprKind::Cast {
+                expr: inner,
+                ty: target_ty,
+            } => {
+                self.collect_cast(index, inner.ty, *target_ty);
+                self.collect_expr(index, inner);
             }
             FunctionExprKind::AddrOf(place) => self.collect_place(index, place),
             FunctionExprKind::ExtractElement {
@@ -293,6 +301,25 @@ impl CompilerBuiltinCollector {
         match index.ty_kind(place.ty) {
             Some(TyKind::Primitive(PrimitiveTy::U128)) => self.symbols.u128_div_rem = true,
             Some(TyKind::Primitive(PrimitiveTy::I128)) => self.symbols.i128_div_rem = true,
+            _ => {}
+        }
+    }
+
+    fn collect_cast(
+        &mut self,
+        index: &ProgramIndex,
+        source_ty: nia_ids::InternedTyId,
+        target_ty: nia_ids::InternedTyId,
+    ) {
+        if !matches!(
+            index.ty_kind(target_ty),
+            Some(TyKind::Primitive(PrimitiveTy::U128))
+        ) {
+            return;
+        }
+        match index.ty_kind(source_ty) {
+            Some(TyKind::Primitive(PrimitiveTy::F32)) => self.symbols.u128_from_f32 = true,
+            Some(TyKind::Primitive(PrimitiveTy::F64)) => self.symbols.u128_from_f64 = true,
             _ => {}
         }
     }
@@ -394,10 +421,98 @@ pub(crate) fn emit_object(
     if symbols.i128_div_rem {
         emit_u128_div_rem(&context, &module, true)?;
     }
+    if symbols.u128_from_f32 {
+        emit_u128_from_float(&context, &module, PrimitiveTy::F32)?;
+    }
+    if symbols.u128_from_f64 {
+        emit_u128_from_float(&context, &module, PrimitiveTy::F64)?;
+    }
     module.verify().map_err(diagnostic_from_llvm_error)?;
     target
         .emit_object(&module)
         .map_err(diagnostic_from_llvm_error)
+}
+
+fn emit_u128_from_float<'ctx>(
+    context: &'ctx Context,
+    module: &nia_llvm::module::Module<'ctx>,
+    source: PrimitiveTy,
+) -> Result<(), Diagnostic> {
+    let source_ty = match source {
+        PrimitiveTy::F32 => context.f32_type(),
+        PrimitiveTy::F64 => context.f64_type(),
+        _ => {
+            return Err(diagnostic_from_llvm_error(LlvmError::ice(
+                "u128 float conversion builtin requires f32 or f64",
+            )));
+        }
+    };
+    let i64_ty = context.i64_type();
+    let i128_ty = context.i128_type();
+    let fn_ty = i128_ty
+        .fn_type(&[source_ty.into()], false)
+        .map_err(diagnostic_from_llvm_error)?;
+    let function = module
+        .add_function(
+            match source {
+                PrimitiveTy::F32 => "__fixunssfti",
+                PrimitiveTy::F64 => "__fixunsdfti",
+                _ => unreachable!("source primitive checked above"),
+            },
+            fn_ty,
+            Some(Linkage::External),
+        )
+        .map_err(diagnostic_from_llvm_error)?;
+    let entry = context
+        .append_basic_block(function, "entry")
+        .map_err(diagnostic_from_llvm_error)?;
+    let builder = context
+        .create_builder()
+        .map_err(diagnostic_from_llvm_error)?;
+    builder.position_at_end(entry);
+    let value = function
+        .get_nth_param(0)
+        .ok_or_else(|| diagnostic_from_llvm_error(LlvmError::ice("missing builtin param")))?
+        .map_err(diagnostic_from_llvm_error)?
+        .into_float_value()
+        .map_err(diagnostic_from_llvm_error)?;
+    let two_to_64 = source_ty
+        .const_float(18_446_744_073_709_551_616.0)
+        .map_err(diagnostic_from_llvm_error)?;
+    let high_float = builder
+        .build_float_div(value, two_to_64, "high.float")
+        .map_err(diagnostic_from_llvm_error)?;
+    let high = builder
+        .build_float_to_unsigned_int(high_float, i64_ty, "high")
+        .map_err(diagnostic_from_llvm_error)?;
+    let high_as_float = builder
+        .build_unsigned_int_to_float(high, source_ty, "high.as_float")
+        .map_err(diagnostic_from_llvm_error)?;
+    let high_value = builder
+        .build_float_mul(high_as_float, two_to_64, "high.value")
+        .map_err(diagnostic_from_llvm_error)?;
+    let low_float = builder
+        .build_float_sub(value, high_value, "low.float")
+        .map_err(diagnostic_from_llvm_error)?;
+    let low = builder
+        .build_float_to_unsigned_int(low_float, i64_ty, "low")
+        .map_err(diagnostic_from_llvm_error)?;
+    let high = builder
+        .build_int_z_extend(high, i128_ty, "high.wide")
+        .and_then(|high| {
+            builder.build_left_shift(high, i128_ty.const_int(64, false)?, "high.shifted")
+        })
+        .map_err(diagnostic_from_llvm_error)?;
+    let low = builder
+        .build_int_z_extend(low, i128_ty, "low.wide")
+        .map_err(diagnostic_from_llvm_error)?;
+    let result = builder
+        .build_or(high, low, "result")
+        .map_err(diagnostic_from_llvm_error)?;
+    builder
+        .build_return(Some(&result))
+        .map_err(diagnostic_from_llvm_error)?;
+    Ok(())
 }
 
 fn emit_u128_div_rem<'ctx>(

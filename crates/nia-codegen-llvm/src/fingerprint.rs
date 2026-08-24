@@ -91,6 +91,8 @@ pub(super) fn compiler_builtins_fingerprint(
     let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
     definition.write_u8(u8::from(symbols.u128_div_rem));
     definition.write_u8(u8::from(symbols.i128_div_rem));
+    definition.write_u8(u8::from(symbols.u128_from_f32));
+    definition.write_u8(u8::from(symbols.u128_from_f64));
 
     let declarations = QueryFingerprintBuilder::new(BUILTINS_DECLARATIONS_DOMAIN);
     let mut target_component = QueryFingerprintBuilder::new(BUILTINS_TARGET_DOMAIN);
