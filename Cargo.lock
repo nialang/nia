@@ -427,6 +427,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-item-tree",
  "nia-layout",
+ "nia-literals",
  "nia-local-resolve",
  "nia-node-id",
  "nia-parser",

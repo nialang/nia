@@ -9,7 +9,9 @@ pub fn eval_int_literal(text: &str) -> Result<i128, String> {
 /// Evaluates a decimal floating-point literal after removing its suffix.
 pub fn eval_float_literal(text: &str) -> Result<f64, String> {
     let body = numeric_literal_body(text);
-    if !has_valid_digit_separators(body, 10) {
+    if !has_valid_digit_separators(body, 10)
+        || numeric_literal_suffix(text).is_some_and(|suffix| !is_float_suffix(suffix))
+    {
         return Err("invalid float constant".to_string());
     }
     body.replace('_', "")
@@ -18,6 +20,9 @@ pub fn eval_float_literal(text: &str) -> Result<f64, String> {
 }
 
 fn parse_int_literal(text: &str) -> Result<i128, String> {
+    if numeric_literal_suffix(text).is_some_and(|suffix| !is_integer_suffix(suffix)) {
+        return Err("invalid integer constant".to_string());
+    }
     let text = numeric_literal_body(text);
     let (radix, digits) =
         if let Some(rest) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
@@ -40,6 +45,27 @@ fn parse_int_literal(text: &str) -> Result<i128, String> {
         .map_err(|_| "integer literal is out of range for const evaluation".to_string())
 }
 
+fn is_integer_suffix(suffix: &str) -> bool {
+    matches!(
+        suffix,
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+    )
+}
+
+fn is_float_suffix(suffix: &str) -> bool {
+    matches!(suffix, "f32" | "f64")
+}
+
 fn has_valid_digit_separators(text: &str, radix: u32) -> bool {
     let bytes = text.as_bytes();
     bytes.iter().enumerate().all(|(index, byte)| {
@@ -58,9 +84,15 @@ fn has_valid_digit_separators(text: &str, radix: u32) -> bool {
     })
 }
 
-fn numeric_literal_body(text: &str) -> &str {
+/// Returns the numeric spelling without its optional type suffix.
+pub fn numeric_literal_body(text: &str) -> &str {
     let suffix_start = numeric_suffix_start(text).unwrap_or(text.len());
     &text[..suffix_start]
+}
+
+/// Returns the optional type suffix from a numeric spelling.
+pub fn numeric_literal_suffix(text: &str) -> Option<&str> {
+    numeric_suffix_start(text).map(|start| &text[start..])
 }
 
 fn numeric_suffix_start(text: &str) -> Option<usize> {
@@ -520,6 +552,24 @@ mod tests {
         for text in ["1_", "1__2.0", "1._0", "1.0_", "1e_2", "1e+_2", "1e2_"] {
             assert!(eval_float_literal(text).is_err(), "accepted `{text}`");
         }
+    }
+
+    #[test]
+    fn numeric_decoders_reject_invalid_suffixes() {
+        for text in ["1foo", "1f32"] {
+            assert!(eval_int_literal(text).is_err(), "accepted `{text}`");
+        }
+        for text in ["1.0foo", "1.0usize", "1e3u8"] {
+            assert!(eval_float_literal(text).is_err(), "accepted `{text}`");
+        }
+    }
+
+    #[test]
+    fn splits_decimal_float_suffixes_after_fraction_and_exponent() {
+        assert_eq!(numeric_literal_body("1.0f32"), "1.0");
+        assert_eq!(numeric_literal_suffix("1.0f32"), Some("f32"));
+        assert_eq!(numeric_literal_body("1e3f64"), "1e3");
+        assert_eq!(numeric_literal_suffix("1e3f64"), Some("f64"));
     }
 
     #[test]

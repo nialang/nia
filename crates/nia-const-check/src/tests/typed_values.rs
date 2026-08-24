@@ -153,6 +153,42 @@ xs[0]
 }
 
 #[test]
+fn preserves_float_suffixes_after_fraction_and_exponent() {
+    let fixture = check_source(
+        r#"
+const fraction = 1.0f32;
+const exponent = 1e3f32;
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    let f32_ty = fixture
+        .type_store
+        .append_for_module(fixture.module_id)
+        .intern(TyKind::Primitive(PrimitiveTy::F32));
+    for name in ["fraction", "exponent"] {
+        let def_id = fixture
+            .defs
+            .module_scope
+            .values
+            .get(&sym(name))
+            .unwrap_or_else(|| panic!("missing const `{name}`"));
+        let typed = fixture
+            .checked
+            .typed_values
+            .get(&ConstKey::Global(GlobalDefId {
+                module_id: fixture.module_id,
+                def_id,
+            }))
+            .unwrap_or_else(|| panic!("missing typed const `{name}`"));
+        assert_eq!(typed.ty, ConstValueType::Runtime(f32_ty), "{name}");
+    }
+}
+
+#[test]
 fn reference_expected_type_reaches_nested_const_array_elements() {
     let fixture = check_source(
         r#"

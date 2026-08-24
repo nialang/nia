@@ -395,6 +395,22 @@ static mut value: i32 = n as i32;
 }
 
 #[test]
+fn inferred_const_float_suffixes_reach_driver_checking() {
+    let root = temp_dir("inferred_const_float_suffixes_reach_driver_checking");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fraction = 1.0f32;
+const exponent = 1e3f32;
+const value: f32 = fraction + exponent;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_const_function_rejects_non_numeric_cast_operand() {
     let root = temp_dir("generic_const_function_rejects_non_numeric_cast_operand");
     write(

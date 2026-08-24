@@ -262,27 +262,5 @@ pub(crate) fn float_literal_suffix_ty(text: &str) -> Option<PrimitiveTy> {
 }
 
 fn numeric_literal_suffix(text: &str) -> Option<&str> {
-    let non_decimal_radix = text.starts_with("0x")
-        || text.starts_with("0X")
-        || text.starts_with("0b")
-        || text.starts_with("0B")
-        || text.starts_with("0o")
-        || text.starts_with("0O");
-    let mut index = if non_decimal_radix { 2 } else { 0 };
-    let bytes = text.as_bytes();
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'_'
-            || if non_decimal_radix {
-                byte.is_ascii_hexdigit()
-            } else {
-                byte.is_ascii_digit()
-            }
-        {
-            index += 1;
-        } else {
-            break;
-        }
-    }
-    (index < bytes.len()).then_some(&text[index..])
+    nia_literals::numeric_literal_suffix(text)
 }

@@ -24,7 +24,7 @@ fn integer_literal_text(expr: &Expr) -> Option<&str> {
 
 pub(super) fn float_literal_text(expr: &Expr) -> Option<&str> {
     match &expr.kind {
-        ExprKind::Float(text) => Some(numeric_literal_body(text)),
+        ExprKind::Float(text) => Some(nia_literals::numeric_literal_body(text)),
         _ => None,
     }
 }
@@ -69,8 +69,7 @@ pub(super) fn has_numeric_literal_suffix(expr: &Expr) -> bool {
 }
 
 pub(super) fn numeric_literal_body(text: &str) -> &str {
-    let suffix_start = numeric_suffix_start(text).unwrap_or(text.len());
-    &text[..suffix_start]
+    nia_literals::numeric_literal_body(text)
 }
 
 pub(super) fn decode_char_literal(text: &str) -> Option<u32> {
@@ -94,8 +93,7 @@ pub(super) fn decode_byte_string_literal(literal: &StringLiteral) -> Option<Vec<
 }
 
 pub(super) fn numeric_literal_suffix(text: &str) -> Option<&str> {
-    let start = numeric_suffix_start(text)?;
-    Some(&text[start..])
+    nia_literals::numeric_literal_suffix(text)
 }
 
 fn integer_suffix_ty(text: &str) -> Option<PrimitiveTy> {
@@ -106,66 +104,6 @@ fn integer_suffix_ty(text: &str) -> Option<PrimitiveTy> {
 fn float_suffix_ty(text: &str) -> Option<PrimitiveTy> {
     let primitive = PrimitiveTy::from_name(numeric_literal_suffix(text)?)?;
     primitive.is_float().then_some(primitive)
-}
-
-fn numeric_suffix_start(text: &str) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let non_decimal_radix = text.starts_with("0x")
-        || text.starts_with("0X")
-        || text.starts_with("0b")
-        || text.starts_with("0B")
-        || text.starts_with("0o")
-        || text.starts_with("0O");
-    let mut index = if non_decimal_radix { 2 } else { 0 };
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'_'
-            || if non_decimal_radix {
-                digit_value(byte).is_some()
-            } else {
-                byte.is_ascii_digit()
-            }
-        {
-            index += 1;
-        } else {
-            break;
-        }
-    }
-    if index < bytes.len() && bytes[index] == b'.' {
-        index += 1;
-        while index < bytes.len() {
-            let byte = bytes[index];
-            if byte == b'_' || byte.is_ascii_digit() {
-                index += 1;
-            } else {
-                break;
-            }
-        }
-    }
-    if index < bytes.len() && matches!(bytes[index], b'e' | b'E') {
-        index += 1;
-        if index < bytes.len() && matches!(bytes[index], b'+' | b'-') {
-            index += 1;
-        }
-        while index < bytes.len() {
-            let byte = bytes[index];
-            if byte == b'_' || byte.is_ascii_digit() {
-                index += 1;
-            } else {
-                break;
-            }
-        }
-    }
-    (index < bytes.len()).then_some(index)
-}
-
-fn digit_value(byte: u8) -> Option<u32> {
-    match byte {
-        b'0'..=b'9' => Some((byte - b'0') as u32),
-        b'a'..=b'f' => Some((byte - b'a' + 10) as u32),
-        b'A'..=b'F' => Some((byte - b'A' + 10) as u32),
-        _ => None,
-    }
 }
 
 pub(super) trait FiniteFloat: Sized {

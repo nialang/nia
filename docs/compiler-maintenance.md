@@ -60,6 +60,10 @@ and other expected failures use explicit result and diagnostic channels.
   literal as one error token. Literal decoders must validate this independently
   before deleting separators because cached or synthesized phase products can
   reach them without source tokenization.
+- Keep numeric body/suffix splitting and decoder suffix validation in
+  `nia-literals`. Semantic consumers map the shared suffix to their own type
+  representation; they must not rescan integer, fraction, and exponent forms or
+  let a decoder erase an unknown suffix.
 
 An error-path change is not accepted until tests cover both the ordinary
 diagnostic result and the invariant/ICE boundary it intentionally leaves.

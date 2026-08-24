@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 498 completed entries in this ledger.
+- Implementation batches: 499 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -1258,7 +1258,7 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Cross-cutting Phase C literal-decoding Rustdoc now documents numeric
       suffix/radix evaluation, Unicode and byte character decoding, string
       concatenation, and checked literal-length contracts. `nia-literals`
-      strict Rustdoc, six owner tests, and strict Clippy pass.
+      strict Rustdoc, eight owner tests, and strict Clippy pass.
 - [x] Cross-cutting Phase C IR-name Rustdoc now documents promoted-allocation
       identities, receiver/source/generated/temporary local categories, and
       stable internal storage names. `nia-ir-names` strict Rustdoc and strict
@@ -2861,6 +2861,12 @@ acceptance item only when its phase-wide evidence is complete.
       decoders independently reject misplaced separators before normalization,
       with data-driven valid/invalid owner matrices and a real `nia check`
       failure regression.
+- [x] Batch 499 centralizes numeric body/suffix ownership in `nia-literals`.
+      Const checking no longer mistakes a float fraction or exponent for its
+      suffix and therefore preserves inferred `f32` constants through driver
+      checking. Body and const checking consume the same splitter, decoders
+      reject suffixes outside their integer/float sets, duplicate scanners are
+      removed, and owner plus driver regressions cover both float forms.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
