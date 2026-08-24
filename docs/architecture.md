@@ -2273,6 +2273,12 @@ is the owner of its iterator-state invariant: inclusive ranges derive `done`
 from their ordered endpoints, while open-ended ranges begin active. The
 `fromBounds` helpers remain private adapters for builtin range literals rather
 than a second public construction surface.
+Bounded ranges treat `Step` and `StepBack` implementations as fallible semantic
+boundaries. A candidate must move strictly in the requested direction and stay
+within the current endpoints before it becomes iterator state or a yielded
+backward item. A missing, stalled, or crossing step exhausts that direction;
+it cannot repeat a value, publish an out-of-range item, or leave a cursor past
+its bound.
 
 ### 9.5 `nia-function-lower`
 

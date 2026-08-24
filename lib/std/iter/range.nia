@@ -1,5 +1,7 @@
 using super::DoubleEndedIterator;
 
+// Bounded ranges accept a step only when it moves strictly toward and remains
+// within the live opposite endpoint.
 pub trait Step {
     fn forwardChecked(self) ?Self;
 }
@@ -52,9 +54,9 @@ where T: Step + Ord[T]
             null
         } else {
             let value = self.start;
-            self.start = match self.start.forwardChecked() {
+            self.start = match value.forwardChecked() {
                 ?next => {
-                    next
+                    if next > value and next < self.end { next } else { self.end }
                 },
                 null => {
                     self.end
@@ -72,15 +74,22 @@ where T: Step + StepBack + Ord[T]
         if self.start >= self.end {
             null
         } else {
-            self.end = match self.end.backwardChecked() {
+            let end = self.end;
+            match end.backwardChecked() {
                 ?previous => {
-                    previous
+                    if previous < end and previous >= self.start {
+                        self.end = previous;
+                        ?previous
+                    } else {
+                        self.end = self.start;
+                        null
+                    }
                 },
                 null => {
-                    self.start
+                    self.end = self.start;
+                    null
                 },
-            };
-            ?self.end
+            }
         }
     }
 }
@@ -129,15 +138,18 @@ where T: Step + Ord[T] + Eq[T]
         if value == self.end {
             self.done = true;
         } else {
-            self.current = match self.current.forwardChecked() {
+            match value.forwardChecked() {
                 ?next => {
-                    next
+                    if next > value and next <= self.end {
+                        self.current = next;
+                    } else {
+                        self.done = true;
+                    }
                 },
                 null => {
-                        self.done = true;
-                        self.end
+                    self.done = true;
                 },
-            };
+            }
         }
         ?value
     }
@@ -154,15 +166,18 @@ where T: Step + StepBack + Ord[T] + Eq[T]
         if value == self.current {
             self.done = true;
         } else {
-            self.end = match self.end.backwardChecked() {
+            match value.backwardChecked() {
                 ?previous => {
-                    previous
+                    if previous < value and previous >= self.current {
+                        self.end = previous;
+                    } else {
+                        self.done = true;
+                    }
                 },
                 null => {
-                        self.done = true;
-                        self.current
+                    self.done = true;
                 },
-            };
+            }
         }
         ?value
     }
