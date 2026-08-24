@@ -497,6 +497,68 @@ static mut value: i32 = n as i32;
 }
 
 #[test]
+fn resolved_f32_operations_round_each_const_intermediate() {
+    let root = temp_dir("resolved_f32_operations_round_each_const_intermediate");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn rounded_binary() usize {
+    (16777216.0f32 + 1.0f32) as usize
+}
+
+const fn rounded_up_binary() usize {
+    (16777216.0f32 + 3.0f32) as usize
+}
+
+const fn rounded_compound() usize {
+    let mut value: f32 = 16777216.0f32;
+    value += 1.0f32;
+    value as usize
+}
+
+const binary = rounded_binary();
+const rounded_up = rounded_up_binary();
+const compound = rounded_compound();
+
+static mut binary_global: usize = binary;
+static mut rounded_up_global: usize = rounded_up;
+static mut compound_global: usize = compound;
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let global_init = |name| {
+        main_module
+            .globals
+            .iter()
+            .find(|global| global.name == sym(name))
+            .unwrap_or_else(|| panic!("{name} global"))
+            .init
+            .clone()
+    };
+    assert_eq!(
+        global_init("binary_global"),
+        Some(StaticInit::Int(IntConst::unsigned(16_777_216)))
+    );
+    assert_eq!(
+        global_init("rounded_up_global"),
+        Some(StaticInit::Int(IntConst::unsigned(16_777_220)))
+    );
+    assert_eq!(
+        global_init("compound_global"),
+        Some(StaticInit::Int(IntConst::unsigned(16_777_216)))
+    );
+}
+
+#[test]
 fn generic_const_function_infers_type_arg_from_negative_float() {
     let root = temp_dir("generic_const_function_infers_type_arg_from_negative_float");
     write(

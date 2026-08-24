@@ -77,6 +77,11 @@ and other expected failures use explicit result and diagnostic channels.
   bound for the concrete target width, then construct the target-signed
   `IntConst` directly. Do not compare against integer maxima converted to float
   or route unsigned results through a saturating signed host cast.
+- Resolved const numeric operations must apply the concrete primitive precision
+  at every operation boundary. In particular, execute `f32` arithmetic in
+  binary32 and narrow its operands and result before later casts, comparisons,
+  bindings, or compound-assignment writeback; narrowing only the final value
+  permits const/runtime divergence through host `f64` intermediates.
 - Treat LLVM-emitted wide arithmetic/conversion libcalls as reachable compiler
   builtins, not implicit host linker dependencies. Collect them from typed
   Function IR, include every requested symbol in the builtins fingerprint, and

@@ -2920,6 +2920,13 @@ acceptance item only when its phase-wide evidence is complete.
       all eight wide conversion symbols share one fingerprinted object, while a
       freestanding executable covers zero, maximum, endpoint, and rounding
       behavior without a host runtime dependency.
+- [x] Batch 507 closes resolved const/runtime float precision divergence.
+      Resolved `f32` arithmetic, comparisons, unary negation, and compound
+      assignments now execute with binary32 operands and results at every
+      operation boundary; `f64` retains binary64 behavior. The analyzer owns
+      expression and assignment-target precision facts, owner numeric tests
+      cover halfway-adjacent rounding and canonical comparisons, and a driver
+      regression verifies binary and compound `f32` values before integer casts.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -130,12 +130,23 @@ pub(super) fn eval_resolved_binary_flow(
             ConstValue::Bool(bool_operand!(rhs))
         }
         ConstBinaryOp::Eq | ConstBinaryOp::Ne => {
+            let float_semantics = env.resolved_float_semantics(lhs);
             let lhs = eval_resolved_value_or_return_flow!(lhs, env);
             let rhs = eval_resolved_value_or_return_flow!(rhs, env);
-            let equal = values_equal(&lhs, &rhs).ok_or_else(|| ConstError {
-                span,
-                message: "const equality requires matching operand types".to_string(),
-            })?;
+            let equal = match (&lhs, &rhs) {
+                (ConstValue::Float(lhs), ConstValue::Float(rhs)) => {
+                    match eval_typed_binary_float(*lhs, ConstBinaryOp::Eq, *rhs, float_semantics)
+                        .map_err(|message| ConstError { span, message })?
+                    {
+                        ConstValue::Bool(equal) => equal,
+                        _ => unreachable!("float equality produced a non-bool const value"),
+                    }
+                }
+                _ => values_equal(&lhs, &rhs).ok_or_else(|| ConstError {
+                    span,
+                    message: "const equality requires matching operand types".to_string(),
+                })?,
+            };
             ConstValue::Bool(if op == ConstBinaryOp::Eq {
                 equal
             } else {
@@ -143,6 +154,7 @@ pub(super) fn eval_resolved_binary_flow(
             })
         }
         ConstBinaryOp::Lt | ConstBinaryOp::Le | ConstBinaryOp::Gt | ConstBinaryOp::Ge => {
+            let float_semantics = env.resolved_float_semantics(lhs);
             let lhs = match eval_resolved_numeric_operand_flow(lhs, env)? {
                 Ok(value) => value,
                 Err(flow) => return Ok(flow),
@@ -151,7 +163,13 @@ pub(super) fn eval_resolved_binary_flow(
                 Ok(value) => value,
                 Err(flow) => return Ok(flow),
             };
-            compare_values(span, lhs, op, rhs)?
+            match (&lhs, &rhs) {
+                (ConstValue::Float(lhs), ConstValue::Float(rhs)) => {
+                    eval_typed_binary_float(*lhs, op, *rhs, float_semantics)
+                        .map_err(|message| ConstError { span, message })?
+                }
+                _ => compare_values(span, lhs, op, rhs)?,
+            }
         }
         _ => {
             let lhs = match eval_resolved_numeric_operand_flow(lhs, env)? {
@@ -172,6 +190,10 @@ pub(super) fn eval_resolved_binary_flow(
                     }
                     .map_err(|message| ConstError { span, message })?;
                     ConstValue::Int(value)
+                }
+                (ConstValue::Float(lhs), ConstValue::Float(rhs)) => {
+                    eval_typed_binary_float(lhs, op, rhs, env.resolved_float_semantics(expr))
+                        .map_err(|message| ConstError { span, message })?
                 }
                 (lhs, rhs) => eval_numeric_binary_value(lhs, op, rhs)
                     .map_err(|message| ConstError { span, message })?,
