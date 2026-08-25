@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-25):
 
-- Implementation batches: 517 completed entries in this ledger.
+- Implementation batches: 518 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2983,6 +2983,18 @@ acceptance item only when its phase-wide evidence is complete.
       distinct from an unscoped event. This also closed a second leak where
       `--timings-format=json` alone printed a full report. Five regressions
       cover both directions at the owner and CLI boundaries.
+- [x] Batch 518 removes the unassertable refusal guard added by batch 517. The
+      `debug_assert` at the pipeline's static-initializer boundary required a
+      refused initializer to have reported, which turned the spec's documented
+      `static p: &i32 = target;` error into an internal error: its diagnostic
+      comes from type checking, so the refusal legitimately adds nothing. A
+      second form, asserting this checker's list is non-empty, failed likewise
+      because `nia-static-check` and type checking own separate diagnostic
+      stores. The invariant is enforced at the point of refusal instead, which
+      is a local property of one function; recurrence is guarded by the owner
+      regressions rather than structurally.
+      `nia-codegen-llvm`'s `rejects_bare_global_as_pointer_initializer` caught
+      it, so a two-crate run was not sufficient evidence for batch 517.
 - [x] Batch 517 rejects unrepresentable named const values in static
       initializers. A named `const` whose kind has no `StaticInit` equivalent
       was published as zeroed static storage with no diagnostic; a tuple read
