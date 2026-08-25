@@ -347,7 +347,7 @@ extend platform::SpawnError : error::IntoError[SpawnError] {
 }
 
 extend platform::SpawnStage {
-    fn asSpawnStage(self) SpawnStage {
+    const fn asSpawnStage(self) SpawnStage {
         match self {
             platform::SpawnStage::Setup => SpawnStage::Setup,
             platform::SpawnStage::Stdio => SpawnStage::Stdio,
@@ -678,7 +678,7 @@ extend FileHandle {
 }
 
 extend ProcessId {
-    fn fromPlatform(platform: platform::ProcessId) ProcessId {
+    const fn fromPlatform(platform: platform::ProcessId) ProcessId {
         Self { platform: platform }
     }
 

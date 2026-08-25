@@ -354,13 +354,31 @@ impl TraitSolver<'_> {
                 Some(TyKind::Array {
                     len: actual_len,
                     elem: actual_elem,
-                }) if self.match_array_len_pattern(&len, &actual_len, const_substitutions) => self
-                    .match_impl_pattern_with_consts(
+                }) => {
+                    // Array length inference and element matching form one
+                    // candidate. Do not publish a length binding when the
+                    // later element pattern rejects the same candidate.
+                    let mut candidate_substitutions = substitutions.clone();
+                    let mut candidate_const_substitutions = const_substitutions.clone();
+                    if !self.match_array_len_pattern(
+                        &len,
+                        &actual_len,
+                        &mut candidate_const_substitutions,
+                    ) {
+                        return false;
+                    }
+                    if !self.match_impl_pattern_with_consts(
                         elem,
                         actual_elem,
-                        substitutions,
-                        const_substitutions,
-                    ),
+                        &mut candidate_substitutions,
+                        &mut candidate_const_substitutions,
+                    ) {
+                        return false;
+                    }
+                    *substitutions = candidate_substitutions;
+                    *const_substitutions = candidate_const_substitutions;
+                    true
+                }
                 _ => false,
             },
             Some(TyKind::Range { kind, bound }) => match self.interner.get(actual).cloned() {

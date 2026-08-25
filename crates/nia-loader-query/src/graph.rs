@@ -567,7 +567,11 @@ pub(crate) fn add_visible_declared_module_path(
             }
             process_reexport_provider_request(db, graph, reexport_facade, segment, &processing)?;
             current = reexport_source;
-            if processing == UsedModulePathProcessing::IfSelectedItem && is_terminal {
+            if matches!(
+                processing,
+                UsedModulePathProcessing::Always | UsedModulePathProcessing::IfSelectedItem
+            ) && is_terminal
+            {
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
             if is_terminal {

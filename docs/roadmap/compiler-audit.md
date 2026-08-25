@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-24):
 
-- Implementation batches: 506 completed entries in this ledger.
+- Implementation batches: 514 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2954,6 +2954,26 @@ acceptance item only when its phase-wide evidence is complete.
       signedness. Owner regressions cover admission, recovery-product absence,
       imported and local consts, nested arrays, and const-generic structs; a
       driver codegen regression verifies the published initializer trees.
+- [x] Batch 512 restores the standard-library filesystem provider boundary.
+      `Dir`/`File` handle borrowing, transfer, and close operations now live
+      with their owning types in `fs/types.nia`, so `DirIterator` and adapter
+      bodies do not depend on a sibling implementation module merely to resolve
+      a package-visible handle method. The const error-conversion helpers in
+      `os.nia` are explicitly `const fn`, preserving the `SpawnError` mapping
+      contract. Linux filesystem-layout, freestanding startup, and file-reader
+      and writer provider regressions pass again.
+- [x] Batch 513 closes the terminal facade re-export processing gap. A used
+      `Always` path that resolves an item through a public facade now processes
+      the terminal source module just like a declared child path, keeping
+      namespace and explicit-item import spellings on the same semantic
+      provider closure without eagerly loading unrelated siblings. Loader
+      coverage locks the `std::mem`/`builtin::layout` case, and the equivalent
+      text-workflow driver regression now passes.
+- [x] Batch 514 makes trait-pattern array inference transactional. A generic
+      array length binding is now committed only after the element pattern also
+      matches, so a rejected candidate cannot leak a partial const substitution
+      into later impl probing. The trait-solver owner regression covers the
+      length-bind/element-mismatch boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
