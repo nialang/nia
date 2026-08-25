@@ -305,9 +305,12 @@ fn const_check_separates_semantic_value_from_diagnostics() {
     );
     assert_eq!(
         const_eval.semantic.values.get(&independent),
-        Some(&nia_const_check::ConstValue::Int(nia_ty::IntConst::signed(
-            42
-        )))
+        // A non-negative source literal decodes as an unsigned magnitude; a
+        // source sign remains a unary expression. The recorded const value
+        // therefore carries the magnitude's signedness, not the annotation's.
+        Some(&nia_const_check::ConstValue::Int(
+            nia_ty::IntConst::unsigned(42)
+        ))
     );
     assert!(const_eval.semantic.typed_values.contains_key(&independent));
 }
