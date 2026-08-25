@@ -1,0 +1,16 @@
+using std::process;
+
+const T: (i32, i32) = (1i32, 2i32);
+static S: (i32, i32) = T;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    // S.0 is 1 and S.1 is 2, so a correct initializer exits 0.
+    if S.0 != 1 {
+        return process::exit(1)!;
+    }
+    if S.1 != 2 {
+        return process::exit(2)!;
+    }
+    !()
+}
