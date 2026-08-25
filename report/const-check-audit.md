@@ -41,8 +41,9 @@ Findings are ordered by severity, not by discovery order:
 - **F2** and **F3** are contract violations against `docs/language-spec.md` and
   `docs/architecture.md`: the implemented behavior and the normative text
   disagree.
-- **F4** is a capability gap where the evaluator is already complete but the
-  declaration surface withholds it.
+- **F4** is a feature request: these builtins have no const evaluator at all.
+  An earlier revision of this report claimed the evaluator was already complete;
+  that claim was fabricated and is corrected in §6.2.
 - **F5** records verified-correct behavior, to bound the audit and prevent a
   later reader from re-investigating the same ground.
 
@@ -57,7 +58,7 @@ single-owner rule in `docs/compiler-maintenance.md` §1 and §3.
 | F1 | Critical — **fixed `d70f1807`** | Named `const` values silently become zero in `static` initializers (tuple, optional, enum confirmed) | Miscompilation |
 | F2 | High | `const fn` capability is not validated at the declaration | Spec violation |
 | F3 | Medium | Named-const static lowering drops a value without a diagnostic | Contract violation |
-| F4 | Medium | `ctz`/`clz`/`popcount` are const-evaluable but declared non-const | Capability gap |
+| F4 | Medium | `ctz`/`clz`/`popcount` are not const-callable and have no const evaluator | Feature request |
 | F5 | Informational | Verified-correct boundaries | Coverage record |
 
 F1 and F3 share one root cause chain; they are separated because F1 is the
@@ -282,10 +283,39 @@ local `const_value_kind_name` helper, so the message says which kind was
 refused. This also satisfies the recovery guard's diagnostic-count conjunct, so
 the refusal can no longer be silent.
 
-`pipeline.rs` closes the shape rather than only this instance: the refusal
-branch asserts that a diagnostic was reported. A future `ConstValue` variant
-added without a `StaticInit` equivalent trips that assertion instead of zeroing
-a global.
+`pipeline.rs` carries only a comment recording why the invariant is not
+asserted there. Two attempts to assert it at that boundary were both wrong and
+were removed:
+
+1. Asserting that the refusal *added* a diagnostic (`diagnostics.len() >
+   before`). This fires on `static p: &i32 = target;` — the spec's documented
+   bare-global-as-pointer error, whose diagnostic comes from type checking, not
+   from this lowering. The refusal legitimately adds nothing.
+2. Asserting that this checker's list is non-empty. Also fires, because
+   `nia-static-check` and type checking own separate diagnostic stores; a
+   refusal reached through them leaves this checker's list empty.
+
+Both converted an ordinary user error into an ICE:
+
+```text
+error internal[I0001]: internal compiler error: a refused static initializer
+must report a diagnostic; otherwise the global silently zero-initializes
+```
+
+`nia-codegen-llvm`'s `rejects_bare_global_as_pointer_initializer` caught this,
+which is why the workspace run matters and the two affected crates alone were
+not sufficient evidence.
+
+The invariant is enforced at the point of refusal instead: every refusal inside
+`lower_global_static_init` reports before returning its recovery value. That is
+a local property of one function, which is why it can be stated correctly. The
+cross-phase property — "some owner diagnosed this program" — spans three
+diagnostic stores and has no single observer at this boundary.
+
+This is a real limit on the fix. A future `ConstValue` variant added without a
+`StaticInit` equivalent is caught by the owner regressions, not by a structural
+assertion, so the guard is a test obligation rather than a compiler-enforced
+one.
 
 Confirmation, per §3.7's note that a diagnostic assertion alone is insufficient:
 
@@ -449,11 +479,13 @@ the declaration.
 F1's chain and will reproduce F1 for any other value kind lacking a `StaticInit`
 variant.
 
-**Signalling shape closed in `d70f1807`** (see §3.8): a refusal now reports, and
-the pipeline accepts a refusal only when it carried a diagnostic. The five
-unconfirmed kinds in §5.2 therefore fail closed instead of publishing zero. What
-remains open is the design question in §5.4 — whether each kind should be
-permanently rejected or given a materialization contract.
+**Signalling shape closed in `d70f1807`** (see §3.8): every refusal inside
+`lower_global_static_init` now reports before returning its recovery value, so
+the five unconfirmed kinds in §5.2 fail closed instead of publishing zero. The
+guard is a test obligation rather than a compiler-enforced assertion — §3.8
+records why the cross-phase invariant cannot be asserted at the pipeline
+boundary. What also remains open is the design question in §5.4: whether each
+kind should be permanently rejected or given a materialization contract.
 
 ### 5.1 The Defect
 
@@ -580,13 +612,54 @@ exit=0
 Note the second fixture also demonstrates F2: the `const fn tz` declaration is
 accepted on its own and only fails once a const expression reaches it.
 
-### 6.2 The Evaluator Already Implements Them
+### 6.2 There Is No Const Evaluator For Them
 
-`nia-const-eval` provides working value-level implementations — e.g. `ctz_value`
-evaluates its operand, extracts the integer, computes trailing zeros, and returns
-a new `IntConst`. Equivalent functions exist for `clz` and `popcount`. These are
-unreachable from source because the declaration gate rejects the call before
-evaluation.
+**This section previously asserted the opposite and was wrong.** It claimed
+`nia-const-eval` provided working implementations and named a `ctz_value`
+function. That claim was never verified and is false. Corrected below.
+
+`ctz_value`, `clz_value`, and `popcount_value` do not exist anywhere in the
+repository:
+
+```sh
+grep -rc 'ctz_value\|clz_value\|popcount_value' crates/ | grep -v ':0'
+# no output — zero occurrences in every file
+```
+
+`Ctz` is a `ValueBuiltin` declared in `nia-ids`. Every consumer that matches on
+it is a runtime path:
+
+```sh
+grep -rn 'Ctz =>' crates/ --include=*.rs | sed 's/:.*//' | sort -u
+# crates/nia-codegen-llvm/src/function_codegen.rs
+# crates/nia-compiler-query/src/signature_cache/item_signatures.rs
+# crates/nia-function-lower/src/expr.rs
+# crates/nia-ids/src/lib.rs
+# crates/nia-symbol/src/lib.rs
+```
+
+Neither `nia-const-eval/src` nor `nia-const-check/src` contains `Ctz` at all.
+
+This changes F4's shape substantially. It is not "the evaluator is complete and
+only the declaration surface withholds it" — it is a request for const
+evaluation capability that does not exist. The work is a new implementation in
+`nia-const-eval` plus its capability admission in `nia-const-check`, and only
+then the `lib/std/builtin.nia` declaration change. The severity classification
+in §2 ("capability gap where the evaluator is already complete") is likewise
+wrong; treat F4 as a feature request, not a gap.
+
+The observable behavior in §6.1 stands — those are recorded compiler outputs.
+Only the explanation of *why* was fabricated.
+
+**How this got into a committed audit.** The §6.1 fixtures were executed; §6.2
+was asserted from recollection without a single `grep`. F1 survived scrutiny
+because its three fixtures were driven to executable exit codes. The
+distinction is not care or intent — both were written in the same sitting with
+the same subjective confidence. It is that one class of claim fails loudly when
+wrong and the other fails silently. A claim about what the code contains is the
+silent class, and belongs with a command in the same breath. The fixtures under
+`report/fixtures/const-check/` are the part of this report that can be trusted
+without re-derivation; the prose is not.
 
 ### 6.3 The Declaration Surface
 
@@ -615,18 +688,32 @@ against its step budget, for a result the evaluator can already compute directly
 
 ### 6.5 Suggested Direction
 
-Two owners are involved and the order matters:
+Three owners, in this order. The first two are the actual work; an earlier
+revision of this section listed only the third and second because it wrongly
+assumed the evaluator existed.
 
-1. `lib/std/builtin.nia` holds the declaration. Changing the three to `const fn`
-   is the visible surface change.
-2. `nia-const-check` holds the capability gate. Whether these variants are
-   accepted there should be confirmed before or with the declaration change, so
-   the declaration does not advertise a capability the gate still refuses.
+1. `nia-const-eval` needs the evaluation itself: three operations over an
+   `IntConst` operand, returning the count in the operand's type. The spec
+   already fixes the edge cases — `ctz[T](0)` and `clz[T](0)` return the bit
+   width of `T` (`docs/language-spec.md:2643-2648`) — so the semantics are
+   specified even though nothing implements them.
+2. `nia-const-check` needs capability admission so a const expression may reach
+   them, alongside its existing builtin handling.
+3. `lib/std/builtin.nia` changes the three declarations from `pub fn` to
+   `const fn`. This must come last: until steps 1 and 2 land, the declaration
+   would advertise a capability that does not exist.
 
-Because these are pure integer operations with no target-dependent behavior
-beyond the operand width, the risk is low, but this should be its own batch with
-const/runtime agreement tests at the endpoints (`0`, type maximum, and a
-mid-range value) per `docs/compiler-maintenance.md` §6.
+The operations are pure integer computations whose only target dependence is the
+operand width, so the semantics are low-risk. The cost is that this is new
+capability rather than an unlocking, which is a different decision than the one
+this report originally presented. Acceptance should include const/runtime
+agreement at `0`, the type maximum, and a mid-range value for each of the three,
+per `docs/compiler-maintenance.md` §6 — the `0` case especially, since it is the
+one the spec calls out and the one a naive implementation gets wrong.
+
+Whether this is worth building at all is a judgment about the language's const
+surface, not a correctness question. Nothing is broken today; these operations
+are simply unavailable at compile time.
 
 ## 7. F5 — Verified-Correct Boundaries
 
@@ -752,9 +839,13 @@ read as broader than its evidence:
 Per `docs/compiler-maintenance.md` §6, each item below is a dependency-complete
 batch:
 
-1. ~~**F1 + F3 together.**~~ **Done in `d70f1807`** (§3.8). Both halves were
-   applied: the refusal reports, and the pipeline accepts a refusal only when it
-   carried a diagnostic, so the shape cannot recur for a later value kind.
+1. ~~**F1 + F3 together.**~~ **Done in `d70f1807`**, with one part not
+   delivered as planned (§3.8). Every refusal now reports at the point of
+   refusal, which closes the defect for all eight kinds. The structural guard at
+   the pipeline boundary was attempted twice and removed both times: the
+   cross-phase invariant it needed spans three diagnostic stores and has no
+   observer there. Recurrence is therefore guarded by the owner regressions
+   rather than by the compiler.
 
    What this batch deliberately did *not* settle: whether each of the five
    §5.2 kinds should be permanently rejected or given a real materialization
@@ -767,9 +858,11 @@ batch:
    validation sweep across `lib/std`, `examples/`, and the driver const suites —
    any existing `const fn` that is not genuinely const-capable will begin
    failing, and that is the point.
-3. **F4 last.** It is the smallest and depends on no other finding, but it
-   touches the standard-library declaration surface, so it should not ride along
-   with a compiler-internal batch.
+3. **F4 last, and only if wanted.** It is not the smallest item, contrary to an
+   earlier revision of this section: it needs a new const evaluator, its
+   capability admission, and only then the declaration change (§6.5). It depends
+   on no other finding and nothing is broken without it, so it is the one item
+   here that is purely a question of whether the const surface should grow.
 
 F1 is the only finding that produces an incorrect program today and should be
 treated as the priority regardless of the order chosen for the rest.
