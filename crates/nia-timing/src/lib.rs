@@ -588,8 +588,8 @@ pub fn emit_counter(name: impl Into<String>, value: u64) {
         data: TimingEventData::Counter(value),
     };
     match record_timing_event(event) {
-        Ok(()) => {}
-        Err(event) => print_event(&event),
+        TimingRecord::Recorded | TimingRecord::Discarded => {}
+        TimingRecord::Unscoped(event) => print_event(&event),
     }
 }
 
@@ -685,7 +685,11 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
                 .wait(state)
                 .expect("timing collector state poisoned");
         }
-        let session = Arc::new(TimingSession::new(options.trace, options.format));
+        let session = Arc::new(TimingSession::new(
+            options.mode,
+            options.trace,
+            options.format,
+        ));
         session.start_allocation_tracking(options.mode.detail());
         state.active = Some(ActiveTimingCollector {
             owner: current_thread,
@@ -715,6 +719,10 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
             state.active = None;
             finished.notify_all();
             drop(state);
+
+            if !self.session.collects() {
+                return;
+            }
 
             let (mut report, trace_events) = self
                 .session
@@ -784,6 +792,7 @@ fn timing_collector_state() -> &'static (Mutex<TimingCollectorState>, Condvar) {
 #[derive(Debug)]
 struct TimingSession {
     id: u64,
+    mode: TimingMode,
     trace: TimingTrace,
     format: TimingFormat,
     started_at: Instant,
@@ -794,9 +803,10 @@ struct TimingSession {
 }
 
 impl TimingSession {
-    fn new(trace: TimingTrace, format: TimingFormat) -> Self {
+    fn new(mode: TimingMode, trace: TimingTrace, format: TimingFormat) -> Self {
         Self {
             id: next_timing_session_id(),
+            mode,
             trace,
             format,
             started_at: Instant::now(),
@@ -809,6 +819,14 @@ impl TimingSession {
 
     fn is_active(&self) -> bool {
         self.active.load(Ordering::Acquire)
+    }
+
+    /// Reports whether this scope retains events and produces a report.
+    ///
+    /// A scope opened with `TimingMode::Off` still absorbs events so that no
+    /// individual emitter has to re-check the mode, but it keeps nothing.
+    fn collects(&self) -> bool {
+        self.mode.enabled()
     }
 
     fn start_allocation_tracking(&self, enabled: bool) {
@@ -860,8 +878,8 @@ fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
         data: TimingEventData::Measurement(measurement),
     };
     match record_timing_event(event) {
-        Ok(()) => {}
-        Err(event) => print_event(&event),
+        TimingRecord::Recorded | TimingRecord::Discarded => {}
+        TimingRecord::Unscoped(event) => print_event(&event),
     }
 }
 
@@ -872,8 +890,8 @@ fn emit_note(kind: TimingEventKind, name: String, detail: String) {
         data: TimingEventData::Note(detail),
     };
     match record_timing_event(event) {
-        Ok(()) => {}
-        Err(event) => print_event(&event),
+        TimingRecord::Recorded | TimingRecord::Discarded => {}
+        TimingRecord::Unscoped(event) => print_event(&event),
     }
 }
 
@@ -881,13 +899,27 @@ thread_local! {
     static LOCAL_TIMING_BAG: RefCell<Option<ThreadTimingBag>> = const { RefCell::new(None) };
 }
 
-fn record_timing_event(event: TimingEvent) -> Result<(), TimingEvent> {
+/// Outcome of offering one event to the current collection scope.
+///
+/// `Discarded` and `Unscoped` are deliberately distinct: a scope opened with
+/// `TimingMode::Off` owns the decision to produce no output, while an event
+/// emitted with no scope at all has no owner and falls back to direct printing.
+enum TimingRecord {
+    /// The active collecting scope buffered the event.
+    Recorded,
+    /// An active scope is not collecting, so the event is dropped silently.
+    Discarded,
+    /// No collection scope is active; the caller decides what to do.
+    Unscoped(TimingEvent),
+}
+
+fn record_timing_event(event: TimingEvent) -> TimingRecord {
     LOCAL_TIMING_BAG.with(|slot| {
         let mut slot = slot.borrow_mut();
         if let Some(bag) = slot.as_mut() {
             if bag.session.is_active() {
                 bag.record(event);
-                return Ok(());
+                return TimingRecord::Recorded;
             }
             if let Some(mut stale_bag) = slot.take() {
                 stale_bag.flush();
@@ -895,15 +927,18 @@ fn record_timing_event(event: TimingEvent) -> Result<(), TimingEvent> {
         }
 
         let Some(session) = active_timing_session() else {
-            return Err(event);
+            return TimingRecord::Unscoped(event);
         };
         if !session.is_active() {
-            return Err(event);
+            return TimingRecord::Unscoped(event);
+        }
+        if !session.collects() {
+            return TimingRecord::Discarded;
         }
         let mut bag = ThreadTimingBag::new(session);
         bag.record(event);
         *slot = Some(bag);
-        Ok(())
+        TimingRecord::Recorded
     })
 }
 
@@ -1564,7 +1599,11 @@ mod tests {
 
     #[test]
     fn thread_bag_flushes_measurements_and_trace_into_session() {
-        let session = Arc::new(TimingSession::new(TimingTrace::Events, TimingFormat::Text));
+        let session = Arc::new(TimingSession::new(
+            TimingMode::Detail,
+            TimingTrace::Events,
+            TimingFormat::Text,
+        ));
         let mut bag = ThreadTimingBag::new(Arc::clone(&session));
         bag.record(TimingEvent {
             kind: TimingEventKind::Query,
@@ -1602,6 +1641,74 @@ mod tests {
             trace_events.expect("trace events should be retained").len(),
             3
         );
+    }
+
+    /// Counters retained by the active scope after flushing this thread's bag.
+    fn active_scope_counters() -> Vec<TimingCounter> {
+        let session = active_timing_session().expect("a collection scope must be active");
+        flush_local_timing_bag_for_session(session.id);
+        let (report, _) = session
+            .collector
+            .lock()
+            .expect("timing collector poisoned")
+            .drain();
+        report.counters
+    }
+
+    #[test]
+    fn disabled_scope_retains_no_counters() {
+        let _lock = collector_test_lock();
+        collect_to_stderr(TimingOptions::new(TimingMode::Off), || {
+            emit_counter("probe.counter", 1);
+            emit_timing("probe.stage", Duration::from_millis(1));
+            assert!(
+                active_scope_counters().is_empty(),
+                "a scope opened with TimingMode::Off must retain nothing"
+            );
+        });
+        assert!(active_timing_session().is_none());
+    }
+
+    #[test]
+    fn enabled_scope_retains_ungated_counters() {
+        let _lock = collector_test_lock();
+        collect_to_stderr(TimingOptions::new(TimingMode::Summary), || {
+            emit_counter("probe.counter", 7);
+            assert_eq!(
+                active_scope_counters(),
+                vec![TimingCounter {
+                    name: "probe.counter".to_string(),
+                    value: 7,
+                }]
+            );
+        });
+        assert!(active_timing_session().is_none());
+    }
+
+    #[test]
+    fn disabled_scope_discards_instead_of_falling_back_to_printing() {
+        let _lock = collector_test_lock();
+        let counter = || TimingEvent {
+            kind: TimingEventKind::Counter,
+            name: "probe.counter".to_string(),
+            data: TimingEventData::Counter(1),
+        };
+        assert!(
+            matches!(record_timing_event(counter()), TimingRecord::Unscoped(_)),
+            "with no scope the event has no owner and stays printable"
+        );
+        collect_to_stderr(TimingOptions::new(TimingMode::Off), || {
+            assert!(
+                matches!(record_timing_event(counter()), TimingRecord::Discarded),
+                "a disabled scope owns the decision to produce no output"
+            );
+        });
+        collect_to_stderr(TimingOptions::new(TimingMode::Summary), || {
+            assert!(matches!(
+                record_timing_event(counter()),
+                TimingRecord::Recorded
+            ));
+        });
     }
 
     #[test]
