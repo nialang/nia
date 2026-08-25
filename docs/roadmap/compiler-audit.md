@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-25):
 
-- Implementation batches: 516 completed entries in this ledger.
+- Implementation batches: 517 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2983,6 +2983,20 @@ acceptance item only when its phase-wide evidence is complete.
       distinct from an unscoped event. This also closed a second leak where
       `--timings-format=json` alone printed a full report. Five regressions
       cover both directions at the owner and CLI boundaries.
+- [x] Batch 517 rejects unrepresentable named const values in static
+      initializers. A named `const` whose kind has no `StaticInit` equivalent
+      was published as zeroed static storage with no diagnostic; a tuple read
+      `0` instead of `1`, a present optional read as `null`, and an enum held a
+      value outside its declared variant set. The named-const lowering path
+      returned `None` without reporting, its caller could not distinguish that
+      from "not a named const", and the pipeline consumed the recovery guard's
+      refusal as a plain absence — which the language zero-initializes.
+      Lowering now reports at the point of refusal, naming the kind, and the
+      pipeline accepts a refusal only when it carried a diagnostic, so a later
+      `ConstValue` variant without a `StaticInit` equivalent trips an assertion
+      instead of zeroing a global. Both documents already required this. The
+      owner regression now requires the diagnostic rather than only an empty
+      `global_inits`, which is the assertion that let the defect pass.
 - [x] Batch 516 corrects the specification's excluded-systems list. The list
       named systems that are part of the language surface today, and four
       `Event::Resize { ... }` pattern examples used a spelling the parser
