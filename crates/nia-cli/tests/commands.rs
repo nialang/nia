@@ -613,6 +613,68 @@ fn main() i32 {
     );
 }
 
+/// Without `--timings`, no timing output may reach stderr.
+///
+/// Counters are emitted from ordinary compiler paths rather than from a timed
+/// stage, so this asserts the absence of the report as a whole instead of the
+/// name of any single counter.
+#[test]
+fn timings_default_off_writes_no_timing_output() {
+    let root = temp_dir("timings_default_off_writes_no_timing_output");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    fn sum(&self) i32 {
+        self.x + self.y
+    }
+}
+
+fn main() i32 {
+    let point = Point { x: 1, y: 2 };
+    point.sum() - 3
+}
+"#,
+    )
+    .expect("write test source");
+
+    let check = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("run nia check without timings");
+    assert!(
+        check.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.is_empty(), "{stderr}");
+
+    // A format selection alone must not enable reporting either.
+    let json = support::nia_command()
+        .arg("--timings-format=json")
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("run nia check with a format but no timings");
+    assert!(
+        json.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&json.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&json.stdout);
+    let stderr = String::from_utf8_lossy(&json.stderr);
+    assert!(stdout.is_empty(), "{stdout}");
+    assert!(stderr.is_empty(), "{stderr}");
+}
+
 #[test]
 fn atomic_generic_builtin_rejects_non_atomic_instantiations_at_emit() {
     let root = temp_dir("atomic_generic_builtin_rejects_non_atomic_instantiations_at_emit");

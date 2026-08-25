@@ -634,14 +634,16 @@ pub(super) fn provide_signature_type_lowering(
             .with_symbols(&symbols),
         );
     let diagnostics = std::mem::take(&mut lowering.diagnostics);
-    nia_timing::emit_counter(
-        if lowering.const_exprs.is_empty() && lowering.const_expr_summaries.is_empty() {
-            "frontend.signature_type_lowering_cacheable"
-        } else {
-            "frontend.signature_type_lowering_has_const_exprs"
-        },
-        1,
-    );
+    if db.context().timings().enabled() {
+        nia_timing::emit_counter(
+            if lowering.const_exprs.is_empty() && lowering.const_expr_summaries.is_empty() {
+                "frontend.signature_type_lowering_cacheable"
+            } else {
+                "frontend.signature_type_lowering_has_const_exprs"
+            },
+            1,
+        );
+    }
     if let Some(error) = query_failure.into_inner() {
         return Err(error);
     }
@@ -827,14 +829,16 @@ pub(super) fn provide_signature_item_signatures(
         && resolve_diagnostic_bundle(db.context(), &type_lowering.diagnostics).is_empty()
         && type_lowering.semantic.const_exprs.is_empty()
         && type_lowering.semantic.const_expr_summaries.is_empty();
-    nia_timing::emit_counter(
-        if cacheable {
-            "frontend.signature_item_signatures_cacheable"
-        } else {
-            "frontend.signature_item_signatures_uncacheable"
-        },
-        1,
-    );
+    if db.context().timings().enabled() {
+        nia_timing::emit_counter(
+            if cacheable {
+                "frontend.signature_item_signatures_cacheable"
+            } else {
+                "frontend.signature_item_signatures_uncacheable"
+            },
+            1,
+        );
+    }
     if let Some(cache) = &db.context().signature_cache
         && let Some((program_sources, source, namespace, key)) = cache_input
     {

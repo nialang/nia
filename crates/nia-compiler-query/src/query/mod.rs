@@ -435,17 +435,10 @@ impl CompilerDatabase {
                     .loader_facts()
                     .update_provider_demands(demands)?
                 {
-                    nia_timing::emit_counter(
-                        format!(
-                            "compiler.executable_provider_demands.round_{rounds}.graph_changed"
-                        ),
-                        1,
-                    );
-                    nia_timing::emit_counter(
-                        format!(
-                            "compiler.executable_provider_demands.round_{rounds}.invalidates_body_facts"
-                        ),
-                        u64::from(invalidates_resolved_body_facts),
+                    emit_provider_graph_change(
+                        self.db.context().timings(),
+                        rounds,
+                        invalidates_resolved_body_facts,
                     );
                     skip_executable_discovery = !invalidates_resolved_body_facts;
                     continue;
@@ -548,6 +541,22 @@ impl CompilerDatabase {
         }
         Ok(invalidation)
     }
+}
+
+fn emit_provider_graph_change(
+    timings: TimingMode,
+    round: u64,
+    invalidates_resolved_body_facts: bool,
+) {
+    if !timings.enabled() {
+        return;
+    }
+    let prefix = format!("compiler.executable_provider_demands.round_{round}");
+    nia_timing::emit_counter(format!("{prefix}.graph_changed"), 1);
+    nia_timing::emit_counter(
+        format!("{prefix}.invalidates_body_facts"),
+        u64::from(invalidates_resolved_body_facts),
+    );
 }
 
 fn emit_provider_demand_batch(timings: TimingMode, round: u64, demands: &[crate::ProviderDemand]) {
