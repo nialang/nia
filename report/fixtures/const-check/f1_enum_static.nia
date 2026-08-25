@@ -1,0 +1,18 @@
+using std::process;
+
+enum Code: i32 {
+    A = 7,
+    B = 9,
+}
+
+const E: Code = Code::A;
+static S: Code = E;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    // E is Code::A, whose backing value is 7.
+    if S as i32 != 7 {
+        return process::exit(1)!;
+    }
+    !()
+}

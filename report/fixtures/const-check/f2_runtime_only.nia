@@ -1,0 +1,3 @@
+fn plain(v: u32) u32 { v }
+const fn viaPlain(v: u32) u32 { plain(v) }
+pub fn main() i32 { _ = viaPlain(1u32); 0 }

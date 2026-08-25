@@ -1,0 +1,2 @@
+const w: u32 = std::builtin::ctz[u32](8u32);
+pub fn main() i32 { _ = w; 0 }
