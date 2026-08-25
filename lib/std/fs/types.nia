@@ -162,6 +162,54 @@ pub struct CreateDirOptions {
     permissions: u32,
 }
 
+extend Dir {
+    pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
+        match self.handle {
+            ?handle => {
+                !handle
+            },
+            null => {
+                Error::BadFd!
+            },
+        }
+    }
+
+    pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
+        let handle = self.borrowHandle().?;
+        self.handle = null;
+        !handle
+    }
+
+    pub fn close(&mut self) Error!() {
+        let handle = self.takeHandle().?;
+        handle.close().as_fs_error()
+    }
+}
+
+extend File {
+    pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
+        match self.handle {
+            ?handle => {
+                !handle
+            },
+            null => {
+                Error::BadFd!
+            },
+        }
+    }
+
+    pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
+        let handle = self.borrowHandle().?;
+        self.handle = null;
+        !handle
+    }
+
+    pub fn close(&mut self) Error!() {
+        let handle = self.takeHandle().?;
+        handle.close().as_fs_error()
+    }
+}
+
 extend DirEntry {
     pub fn init(kind: FileKind, name: &[u8]) DirEntry {
         Self { kind: kind, name: name }

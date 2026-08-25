@@ -39,6 +39,31 @@ fn consume(values: ArrayList[i32]) usize {
 }
 
 #[test]
+fn namespace_and_explicit_mem_imports_select_builtin_layout_equally() {
+    let root = temp_dir("namespace_and_explicit_mem_imports_select_builtin_layout_equally");
+    let broad_path = root.join("broad.nia");
+    let narrow_path = root.join("narrow.nia");
+    write(
+        &broad_path,
+        "using std::mem;\nfn main() usize { mem::Layout::of[usize]().exit().?.size() }\n",
+    );
+    write(
+        &narrow_path,
+        "using std::mem::Layout;\nfn main() usize { Layout::of[usize]().exit().?.size() }\n",
+    );
+
+    let broad = load_program(broad_path.to_string_lossy().into_owned());
+    let narrow = load_program(narrow_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&broad);
+    assert_no_error_diagnostics(&narrow);
+    let broad_layout = module_by_suffix(&broad, "lib/std/builtin/layout.nia");
+    let narrow_layout = module_by_suffix(&narrow, "lib/std/builtin/layout.nia");
+    assert!(broad_layout.semantic_selected && broad_layout.process_used_paths);
+    assert!(narrow_layout.semantic_selected && narrow_layout.process_used_paths);
+}
+
+#[test]
 fn query_loader_keeps_unused_explicit_std_imports_shallow() {
     let root = temp_dir("query_loader_keeps_unused_explicit_std_imports_shallow");
     let main_path = root.join("main.nia");

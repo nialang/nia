@@ -335,27 +335,6 @@ extend Dir {
         !metadata.as_fs_metadata()
     }
 
-    pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
-        match self.handle {
-            ?handle => {
-                !handle
-            },
-            null => {
-                Error::BadFd!
-            },
-        }
-    }
-
-    pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
-        let handle = self.borrowHandle().?;
-        self.handle = null;
-        !handle
-    }
-
-    pub fn close(&mut self) Error!() {
-        let handle = self.takeHandle().?;
-        handle.close().as_fs_error()
-    }
 }
 
 extend File {
@@ -391,23 +370,6 @@ extend File {
             options.permissions(),
         ).as_fs_error().withOperation(Operation::CreateFile).?;
         !File::fromOwnedDescriptor(handle)
-    }
-
-    pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
-        match self.handle {
-            ?handle => {
-                !handle
-            },
-            null => {
-                Error::BadFd!
-            },
-        }
-    }
-
-    pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
-        let handle = self.borrowHandle().?;
-        self.handle = null;
-        !handle
     }
 
     pub fn seekTo(&self, offset: u64) Error!u64 {
@@ -454,8 +416,4 @@ extend File {
         self.borrowHandle().?.syncData().as_fs_error()
     }
 
-    pub fn close(&mut self) Error!() {
-        let handle = self.takeHandle().?;
-        handle.close().as_fs_error()
-    }
 }
