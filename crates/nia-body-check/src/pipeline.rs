@@ -123,8 +123,19 @@ impl<'a> BodyChecker<'a> {
         if global_ty == self.error() {
             return;
         }
+        // A refused initializer must not degrade into the uninitialized-static
+        // zero default: `static x: T = <refused>;` and `static x: T;` publish
+        // the same absent entry, and the latter is legitimately zeroed. The
+        // refusal is therefore only safe when it carried a diagnostic.
+        let diagnostics_before = self.diagnostics.len();
         if let Some(init) = self.lower_global_static_init_checked(value, global_ty) {
             self.global_inits.insert(global_def_id, Arc::new(init));
+        } else {
+            debug_assert!(
+                self.diagnostics.len() > diagnostics_before,
+                "a refused static initializer must report a diagnostic; \
+                 otherwise the global silently zero-initializes"
+            );
         }
     }
 
