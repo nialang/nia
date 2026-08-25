@@ -539,6 +539,65 @@ static copies: [(i32, i32); 1] = [pair];
         "{:?}",
         checked.ir.global_inits
     );
+    // Publishing nothing is only half the contract. Without a diagnostic the
+    // global is indistinguishable from `static copy: (i32, i32);`, which is
+    // legitimately zero-initialized, so the refusal reaches the executable as
+    // silently wrong data instead of an error.
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("not representable as static data")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+/// Each refused const value kind must report, not just decline.
+///
+/// Tuple, optional, and enum were each confirmed to reach a linked executable
+/// as zeroed storage: the tuple read `0` instead of `1`, the present optional
+/// read as `null`, and the enum held a value outside its declared variant set.
+#[test]
+fn each_unrepresentable_const_static_kind_reports_its_kind() {
+    for (kind, source) in [
+        (
+            "tuple",
+            r#"
+const value: (i32, i32) = (1, 2);
+static copy: (i32, i32) = value;
+"#,
+        ),
+        (
+            "optional",
+            r#"
+const value: ?i32 = ?5i32;
+static copy: ?i32 = value;
+"#,
+        ),
+        (
+            "enum",
+            r#"
+enum Code: i32 { A = 7, B = 9 }
+const value: Code = Code::A;
+static copy: Code = value;
+"#,
+        ),
+    ] {
+        let checked = pipeline(source);
+        assert!(
+            checked.ir.global_inits.is_empty(),
+            "{kind}: {:?}",
+            checked.ir.global_inits
+        );
+        assert!(
+            checked.diagnostics.iter().any(|diagnostic| {
+                let message = &diagnostic.summary;
+                message.contains("not representable as static data") && message.contains(kind)
+            }),
+            "{kind}: {:?}",
+            checked.diagnostics
+        );
+    }
 }
 
 #[test]

@@ -116,9 +116,20 @@ impl<'a> BodyChecker<'a> {
                 }
                 if let Some(value) = self.static_const_value(expr) {
                     let value_ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+                    let kind = Self::const_value_kind_name(&value);
                     if let Some(init) = self.lower_static_const_value(value, value_ty) {
                         return init;
                     }
+                    // The expression is a named const value whose kind has no
+                    // `StaticInit` equivalent. Report it here: the recovery
+                    // `Zero` below is not publishable, and without a
+                    // diagnostic the caller cannot distinguish this refusal
+                    // from an absent initializer, which zero-initializes.
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        format!("const value of kind `{kind}` is not representable as static data"),
+                    ));
                 }
                 StaticInit::Zero
             }
@@ -533,6 +544,32 @@ impl<'a> BodyChecker<'a> {
             );
         }
         None
+    }
+
+    /// Names a const value kind for the refusal diagnostic.
+    ///
+    /// This exists so a kind without a `StaticInit` equivalent is reported by
+    /// name rather than silently declined. Kinds that
+    /// [`Self::lower_static_const_value`] does handle are still named, because
+    /// that function can also refuse a handled kind whose target type does not
+    /// match.
+    fn const_value_kind_name(value: &nia_const_check::ConstValue) -> &'static str {
+        match value {
+            nia_const_check::ConstValue::Int(_) => "integer",
+            nia_const_check::ConstValue::Float(_) => "float",
+            nia_const_check::ConstValue::Bool(_) => "bool",
+            nia_const_check::ConstValue::String(_) => "string",
+            nia_const_check::ConstValue::Pointer(_) => "pointer",
+            nia_const_check::ConstValue::Tuple(_) => "tuple",
+            nia_const_check::ConstValue::Array(_) => "array",
+            nia_const_check::ConstValue::Vector(_) => "vector",
+            nia_const_check::ConstValue::Range(_) => "range",
+            nia_const_check::ConstValue::Struct(_) => "struct",
+            nia_const_check::ConstValue::Union(_) => "union",
+            nia_const_check::ConstValue::Enum { .. } => "enum",
+            nia_const_check::ConstValue::Optional(_) => "optional",
+            nia_const_check::ConstValue::ErrorUnion(_) => "error union",
+        }
     }
 
     fn lower_static_const_value(
