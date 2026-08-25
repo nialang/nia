@@ -37,11 +37,33 @@ The current core language keeps these systems outside the language surface:
 
 - garbage collection;
 - exceptions;
-- a borrow checker;
-- algebraic data types;
-- implicit allocation;
-- a hidden runtime startup model;
-- package management as part of the core language.
+- algebraic data types. Enums are C-style named integer sets, and a variant
+  cannot declare payload fields today. Payload-carrying variants are planned;
+  their design is deliberately still open, because Nia's recursive optional,
+  error-union, and nominal-struct patterns already cover much of what tagged
+  variants provide elsewhere, and the eventual form must fit Nia's explicit
+  layout, ABI, and exhaustiveness contracts rather than adopt another language's
+  enum model;
+- an ownership and lifetime borrow checker. Nia does not track aliasing or
+  infer lifetimes, and it has no RAII destructor protocol. It does perform the
+  flow-sensitive checks needed to reject clearly invalid programs, including
+  callable-view and captured-address escape analysis, so the absence of a borrow
+  checker is not an absence of static checking;
+- implicit allocation. No core form allocates: the language has no built-in
+  allocator, no owning container, and no growable type, and no expression,
+  literal, aggregate, or control-flow construct acquires storage on its own.
+  Allocation is ordinary library code that takes an explicit `mem::Allocator`
+  argument and returns a typed failure. This is a deliberate constraint rather
+  than an omission: because the core syntax and semantics never presuppose a
+  heap, the same language runs on bare metal and in deeply embedded targets
+  without a reduced dialect;
+- a hidden runtime startup model. Startup is explicit instead: the standard
+  library provides the injected facade selected per target, the entry contract
+  is a visible `process::Init` parameter, and `--runtime bare` omits injection
+  entirely;
+- package management and a registry as part of the core language. The
+  toolchain-owned build system is developed in this repository and is a library
+  and command surface rather than language grammar.
 
 ## 2. Source Files And Programs
 
@@ -1011,13 +1033,15 @@ items` are binding destructuring forms too, but they are parsed on local/loop
 bindings through the irrefutable subset of the same pattern model. `match`
 accepts the refutable forms shown above as well as pointer patterns.
 
-Nominal patterns destructure structs and named enum payloads:
+Nominal patterns destructure structs:
 
 ```nia
 let Point { x, y: renamed } = point;
 
-match event {
-    Event::Resize { width, height: h } => width + h,
+match point {
+    Point { x: 0, y } => y,
+    Point { x, y: 0 } => x,
+    Point { x, y } => x + y,
 }
 ```
 
@@ -1028,15 +1052,21 @@ unless the pattern ends with `..`, which explicitly ignores all omitted fields:
 ```nia
 let Point { x, .. } = point;
 
-match event {
-    Event::Resize { width, .. } => width,
+match point {
+    Point { x: 0, .. } => 0,
+    Point { x, .. } => x,
 }
 ```
 
 `..` may appear at most once and must be the final named field. It is available
-only in nominal struct and named enum-payload patterns; tuple and slice rest
-patterns are not part of the language. Struct patterns use the nominal
-constructor (`Point { ... }`), not an anonymous `{ ... }` pattern.
+only in nominal aggregate patterns; tuple and slice rest patterns are not part of
+the language. Struct patterns use the nominal constructor (`Point { ... }`), not
+an anonymous `{ ... }` pattern.
+
+An enum variant carries no payload, so a variant pattern is its qualified path
+alone, such as `Color::Red`. Payload-carrying variants and their corresponding
+`Variant { field }` patterns are planned but not yet implemented; a variant that
+declares payload fields is currently rejected when the enum is declared.
 
 ### 4.6 Structs
 
@@ -1690,9 +1720,9 @@ catch-all patterns. These patterns may nest across optional and error-union
 layers, and pointer patterns such as `&value` use ordinary Nia pointer-copy
 semantics.
 
-Struct and named enum-payload patterns use one nominal field syntax. Field
-shorthand binds a same-named local, while an explicit subpattern can rename,
-discard, or recursively match the field:
+Struct patterns use one nominal field syntax. Field shorthand binds a same-named
+local, while an explicit subpattern can rename, discard, or recursively match the
+field:
 
 ```nia
 match point {
@@ -1703,8 +1733,7 @@ match point {
 
 Without a terminal `..`, all fields are required. Duplicate or unknown fields
 are always rejected. Omitted fields under `..` are wildcards, so `Point { .. }`
-is irrefutable for `Point`; `Event::Resize { .. }` covers every payload of that
-variant but no other variant.
+is irrefutable for `Point`.
 
 A bare identifier in a pattern always introduces a binding. Named constant and
 enum value patterns must be syntactically explicit: use a qualified path such as
