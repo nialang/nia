@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-24):
+Current snapshot (2026-08-25):
 
-- Implementation batches: 514 completed entries in this ledger.
+- Implementation batches: 516 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -2974,6 +2974,21 @@ acceptance item only when its phase-wide evidence is complete.
       matches, so a rejected candidate cannot leak a partial const substitution
       into later impl probing. The trait-solver owner regression covers the
       length-bind/element-mismatch boundary.
+- [x] Batch 515 gives timing output one mode owner. Counters reached stderr
+      with timings disabled because `emit_counter` had no mode gate and
+      `collect_to_stderr` installed a collector unconditionally, leaving the
+      `TimingMode::Off` decision without an owner. The collection scope now
+      owns it: `TimingSession` retains its mode and `record_timing_event`
+      returns a three-state record that keeps a discarding active scope
+      distinct from an unscoped event. This also closed a second leak where
+      `--timings-format=json` alone printed a full report. Five regressions
+      cover both directions at the owner and CLI boundaries.
+- [x] Batch 516 corrects the specification's excluded-systems list. The list
+      named systems that are part of the language surface today, and four
+      `Event::Resize { ... }` pattern examples used a spelling the parser
+      rejects at the enum declaration, present only in prose and never in a
+      test, example, or std module. Payload variants are recorded as planned
+      with their design deliberately open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
