@@ -123,19 +123,22 @@ impl<'a> BodyChecker<'a> {
         if global_ty == self.error() {
             return;
         }
-        // A refused initializer must not degrade into the uninitialized-static
-        // zero default: `static x: T = <refused>;` and `static x: T;` publish
-        // the same absent entry, and the latter is legitimately zeroed. The
-        // refusal is therefore only safe when it carried a diagnostic.
-        let diagnostics_before = self.diagnostics.len();
+        // A refused initializer publishes the same absent entry as
+        // `static x: T;`, which is legitimately zero-initialized, so a refusal
+        // is only safe when some owner has diagnosed the program. That
+        // condition cannot be asserted here: `nia-static-check` and type
+        // checking own their own diagnostic stores, and a refusal reached
+        // through them leaves nothing in this checker's list. Two attempts to
+        // assert it locally — on the refusal's own delta, then on this
+        // checker's list — both turned `static p: &i32 = target;` from an
+        // ordinary type-mismatch error into an internal error.
+        //
+        // The invariant is enforced at the point of refusal instead. Every
+        // refusal inside `lower_global_static_init` reports before returning
+        // its recovery value, which is what the owner regressions in
+        // `tests::operators_globals_and_layout` pin.
         if let Some(init) = self.lower_global_static_init_checked(value, global_ty) {
             self.global_inits.insert(global_def_id, Arc::new(init));
-        } else {
-            debug_assert!(
-                self.diagnostics.len() > diagnostics_before,
-                "a refused static initializer must report a diagnostic; \
-                 otherwise the global silently zero-initializes"
-            );
         }
     }
 
