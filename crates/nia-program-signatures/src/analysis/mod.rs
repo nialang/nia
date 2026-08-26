@@ -1407,15 +1407,15 @@ fn validate_supertrait_impls(
             ));
             continue;
         };
-        let Some(TyKind::Nominal {
-            def_id: supertrait_def_id,
-            args: supertrait_args,
-            const_args: supertrait_const_args,
-        }) = input.type_store.get(supertrait_ty).cloned()
+        // Source traits may inherit builtin traits (for example `DerefMut`'s
+        // `Deref` relationship). Keep the same explicit-impl check for both
+        // forms; skipping non-nominal bounds would make the inherited
+        // capability appear available without a witness.
+        let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
+            trait_id_and_args(input.type_store, supertrait_ty)
         else {
             continue;
         };
-        let supertrait_id = TraitId::Source(supertrait_def_id);
         let trait_impls = (input.trait_impls_for_trait)(supertrait_id);
         let supertrait_goal = TraitGoal {
             self_ty: trait_goal.self_ty,
@@ -1423,20 +1423,33 @@ fn validate_supertrait_impls(
             trait_args: supertrait_args.clone(),
             trait_const_args: supertrait_const_args.clone(),
         };
-        if !has_matching_trait_impl(
-            input.type_store,
-            trait_goal.self_ty,
-            supertrait_id,
-            &supertrait_args,
-            &supertrait_const_args,
-            &trait_impls,
-        ) {
+        let has_intrinsic_witness = matches!(supertrait_id, TraitId::Builtin(BuiltinTrait::Sized))
+            && intrinsically_sized_target(
+                input.type_store,
+                module.normalization,
+                trait_goal.self_ty,
+            );
+        if !has_intrinsic_witness
+            && !has_matching_trait_impl(
+                input.type_store,
+                trait_goal.self_ty,
+                supertrait_id,
+                &supertrait_args,
+                &supertrait_const_args,
+                &trait_impls,
+            )
+        {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!(
                     "implementation of trait requires explicit implementation of supertrait `{}`",
-                    trait_name(module, supertrait_def_id, input.symbols)
+                    match supertrait_id {
+                        TraitId::Source(supertrait_def_id) => {
+                            trait_name(module, supertrait_def_id, input.symbols).to_string()
+                        }
+                        TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
+                    }
                 ),
             ));
             continue;
@@ -1479,7 +1492,12 @@ fn validate_supertrait_impls(
                 impl_signature.span,
                 format!(
                     "implementation of trait does not satisfy associated type bindings of supertrait `{}`",
-                    trait_name(module, supertrait_def_id, input.symbols)
+                    match supertrait_id {
+                        TraitId::Source(supertrait_def_id) => {
+                            trait_name(module, supertrait_def_id, input.symbols).to_string()
+                        }
+                        TraitId::Builtin(supertrait_id) => supertrait_id.name().to_string(),
+                    }
                 ),
             ));
         }
@@ -1568,6 +1586,27 @@ fn has_matching_trait_impl(
                 trait_const_args,
             )
     })
+}
+
+fn intrinsically_sized_target(
+    type_store: &TypeStore,
+    normalization: &TypeNormalization,
+    ty: InternedTyId,
+) -> bool {
+    match type_store.get(normalization.normalize(ty)) {
+        Some(
+            TyKind::Error
+            | TyKind::ConstOnly
+            | TyKind::Opaque
+            | TyKind::GenericParam(_)
+            | TyKind::SelfParam
+            | TyKind::SlicePointee { .. }
+            | TyKind::TraitObjectPointee { .. }
+            | TyKind::CallablePointee { .. },
+        )
+        | None => false,
+        Some(_) => true,
+    }
 }
 
 fn trait_name(

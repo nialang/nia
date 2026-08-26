@@ -3023,6 +3023,16 @@ acceptance item only when its phase-wide evidence is complete.
       removed structurally. A query-owner matrix proves unused, runtime-only,
       and const-reached invalid declarations each report exactly once without
       becoming executable roots.
+- [x] Batch 520 closes source-trait builtin-supertrait validation. A source
+      trait such as `Child : Iterator` previously caused an implementation of
+      `Child` to skip the explicit `Iterator` witness check because validation
+      only unpacked nominal supertrait types. Supertrait validation now uses the
+      canonical trait-id/argument decoder for source and builtin forms, keeps
+      associated-binding checks intact, and reports the builtin trait name.
+      The intrinsic `Sized` witness remains implicit for concrete sized targets,
+      matching the standard-library `AsciiUnit : Sized` contract.
+      The driver supertrait matrix covers the missing-witness regression while
+      the owner signature suite remains green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

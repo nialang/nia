@@ -296,6 +296,33 @@ fn main() usize { 0usize }
 }
 
 #[test]
+fn source_trait_with_builtin_supertrait_requires_builtin_impl() {
+    let root = temp_dir("source_trait_with_builtin_supertrait_requires_builtin_impl");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Child : Iterator {}
+
+struct Missing {}
+
+extend Missing : Child {}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("requires explicit implementation of supertrait `Iterator`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn generic_where_bound_trait_methods_dispatch_to_impl_instances() {
     let root = temp_dir("generic_where_bound_trait_methods_dispatch_to_impl_instances");
     write(
