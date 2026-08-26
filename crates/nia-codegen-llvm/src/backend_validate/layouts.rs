@@ -28,19 +28,33 @@ enum LayoutSource {
     Nominal,
 }
 
+pub(super) fn target_layout_supported(target: nia_layout::TargetDataLayout) -> bool {
+    target
+        .pointer_size
+        .checked_mul(8)
+        .and_then(|bits| u32::try_from(bits).ok())
+        .and_then(nia_layout::TargetDataLayout::from_pointer_width)
+        == Some(target)
+}
+
 impl BackendValidator<'_> {
     pub(super) fn validate_target_layout(&mut self) {
-        let expected = self
-            .target
-            .pointer_size
-            .checked_mul(8)
-            .and_then(|bits| u32::try_from(bits).ok())
-            .and_then(nia_layout::TargetDataLayout::from_pointer_width);
-        if expected != Some(self.target) {
+        if !target_layout_supported(self.target) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 nia_span::Span::default(),
                 "backend IR target data layout has unsupported pointer size or alignment",
+            ));
+        }
+        if self
+            .index
+            .module_target_layouts()
+            .any(|target| target != self.target)
+        {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "backend IR modules disagree on the artifact target data layout",
             ));
         }
     }

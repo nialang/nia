@@ -3166,6 +3166,13 @@ acceptance item only when its phase-wide evidence is complete.
       four-byte pointer with two-byte alignment and proves the target contract
       is rejected even when no function or type layout can expose it
       indirectly.
+- [x] Batch 538 enforces one artifact target across the complete BackendProgram.
+      Every validator compares its target with the complete module store, and
+      batch plus readiness emitters run a program preflight before LLVM,
+      fingerprint, cache, or compiler-builtin tasks can produce artifacts. A
+      pair of empty declaration-only LP64 and ILP32 modules proves individually
+      valid target layouts cannot share a codegen program or its global
+      type/layout indexes.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -149,6 +149,14 @@ impl ProgramIndex {
         self.modules.module_ids()
     }
 
+    pub(super) fn module_target_layouts(
+        &self,
+    ) -> impl Iterator<Item = nia_layout::TargetDataLayout> + '_ {
+        self.module_ids()
+            .iter()
+            .map(|module_id| self.module_at(*module_id).layouts.target)
+    }
+
     pub(super) fn module_for_partition(
         &self,
         partition: &CodegenPartition,
@@ -984,6 +992,38 @@ mod tests {
                 .get(&second_def)
                 .map(|position| position.module),
             Some(second)
+        );
+    }
+
+    #[test]
+    fn target_layout_iteration_includes_unpublished_modules() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first = module_ids.allocate();
+        let second = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(first);
+        let first_ty = interner.primitive(PrimitiveTy::I32);
+        let second_ty = interner.primitive(PrimitiveTy::U32);
+        let first_module = enum_module(first, first_ty, global(first, 1), "first");
+        let mut second_module = enum_module(second, second_ty, global(second, 1), "second");
+        second_module.layouts.target = nia_layout::TargetDataLayout {
+            pointer_size: 4,
+            pointer_align: 4,
+        };
+        let program = BackendProgram::new(vec![first_module, second_module]);
+        let (index, _publisher) = ProgramIndex::new(program.module_store(), Arc::new(type_store));
+
+        assert!(index.module(first).is_none());
+        assert!(index.module(second).is_none());
+        assert_eq!(
+            index.module_target_layouts().collect::<Vec<_>>(),
+            vec![
+                nia_layout::TargetDataLayout::LP64,
+                nia_layout::TargetDataLayout {
+                    pointer_size: 4,
+                    pointer_align: 4,
+                },
+            ]
         );
     }
 
