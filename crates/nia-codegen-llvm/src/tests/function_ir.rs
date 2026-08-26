@@ -543,6 +543,101 @@ fn validates_function_instance_abi_metadata_before_llvm() {
 }
 
 #[test]
+fn validates_aggregate_instance_abi_metadata_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let struct_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let union_id = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: Vec::new(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: vec![BackendStruct {
+                def_id: struct_id,
+                name: sym("StructTemplate"),
+                generics: vec![sym("T")],
+                fields: Vec::new(),
+                is_extern: false,
+                span,
+            }],
+            struct_instances: vec![nia_backend_ir::BackendStructInstance {
+                def_id: struct_id,
+                name: sym("StructTemplate"),
+                args: vec![i32_ty],
+                const_args: Vec::new(),
+                symbol: "struct_instance".to_string(),
+                fields: Vec::new(),
+                is_extern: true,
+                span,
+            }],
+            unions: vec![BackendUnion {
+                def_id: union_id,
+                name: sym("UnionTemplate"),
+                generics: vec![sym("T")],
+                fields: Vec::new(),
+                is_extern: false,
+                span,
+            }],
+            union_instances: vec![nia_backend_ir::BackendUnionInstance {
+                def_id: union_id,
+                name: sym("UnionTemplate"),
+                args: vec![i32_ty],
+                const_args: Vec::new(),
+                symbol: "union_instance".to_string(),
+                fields: Vec::new(),
+                is_extern: true,
+                span,
+            }],
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        "struct instance extern flag does not match its source template",
+        "union instance extern flag does not match its source template",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

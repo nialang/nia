@@ -3204,6 +3204,12 @@ acceptance item only when its phase-wide evidence is complete.
       instances cannot change calling convention or attach `naked` after
       materialization. A generic-template/instance regression covers all three
       metadata dimensions before LLVM declaration emission.
+- [x] Batch 543 binds concrete struct and union instance `is_extern` metadata
+      back to their source templates. Since aggregate layout reconstruction
+      uses this flag to choose foreign declaration order versus native Nia
+      placement, forged instance flags are now rejected before layout and LLVM
+      type emission; a paired generic struct/union regression covers the
+      boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
