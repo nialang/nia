@@ -29,6 +29,22 @@ enum LayoutSource {
 }
 
 impl BackendValidator<'_> {
+    pub(super) fn validate_target_layout(&mut self) {
+        let expected = self
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+            .and_then(nia_layout::TargetDataLayout::from_pointer_width);
+        if expected != Some(self.target) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "backend IR target data layout has unsupported pointer size or alignment",
+            ));
+        }
+    }
+
     pub(super) fn validate_type_layout_products(&mut self, module: &BackendModule) {
         let mut seen = HashMap::new();
         for (ty, layout) in &module.layouts.types {

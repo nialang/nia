@@ -313,7 +313,7 @@ fn member_owner_matches(aggregate_module: ModuleId, member: GlobalDefId) -> bool
 
 impl<'a> BackendValidator<'a> {
     fn new(index: &'a ProgramIndex, target: TargetDataLayout) -> Self {
-        Self {
+        let mut validator = Self {
             index,
             target,
             diagnostics: Vec::new(),
@@ -330,7 +330,9 @@ impl<'a> BackendValidator<'a> {
             current_closure_owner: None,
             current_item: None,
             current_subject: None,
-        }
+        };
+        validator.validate_target_layout();
+        validator
     }
 }
 

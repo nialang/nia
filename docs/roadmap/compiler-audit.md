@@ -3158,6 +3158,14 @@ acceptance item only when its phase-wide evidence is complete.
       by-value representation. The malformed partition regression covers both
       a forged builtin-trait product and an unpublished builtin trait in a
       runtime return position.
+- [x] Batch 537 validates the artifact target layout independently of published
+      type products. Every Backend IR validation path now requires a supported
+      byte-addressable 8- through 128-bit pointer width with the corresponding
+      pointer alignment before target-derived fallback layouts or LLVM integer
+      types are constructed. A declaration-only empty-module regression uses a
+      four-byte pointer with two-byte alignment and proves the target contract
+      is rejected even when no function or type layout can expose it
+      indirectly.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
