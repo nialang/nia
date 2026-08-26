@@ -1204,7 +1204,8 @@ pub struct BackendStructInstanceKey {
 
 impl BackendLayouts {
     /// Copies module-local layout keys into program-wide backend identities.
-    pub fn from_module_layouts(module_id: ModuleId, layouts: &Layouts) -> Self {
+    pub fn from_module_layouts(layouts: &Layouts) -> Self {
+        let module_id = layouts.module_id;
         Self {
             target: layouts.target,
             types: layouts
@@ -1276,8 +1277,7 @@ impl BackendLayouts {
 }
 
 impl BackendStructInstanceKey {
-    /// Qualifies a module-local layout key with its owning module.
-    pub fn from_module_key(module_id: ModuleId, key: &StructLayoutKey) -> Self {
+    fn from_module_key(module_id: ModuleId, key: &StructLayoutKey) -> Self {
         Self {
             def_id: GlobalDefId {
                 module_id,

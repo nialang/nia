@@ -82,6 +82,38 @@ fn closure_entry_keys_distinguish_source_and_concrete_instance_owners() {
 }
 
 #[test]
+fn backend_layout_conversion_uses_the_layout_product_owner() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let owner = module_ids.allocate();
+    let def_id = DefId(7);
+    let layout = nia_layout::StructLayout {
+        layout: nia_layout::TypeLayout { size: 4, align: 4 },
+        fields: Vec::new(),
+    };
+    let instance_key = nia_layout::StructLayoutKey {
+        def_id,
+        args: Vec::new(),
+        const_args: Vec::new(),
+    };
+    let layouts = nia_layout::Layouts {
+        module_id: owner,
+        target: TargetDataLayout::LP64,
+        types: Default::default(),
+        structs: HashMap::from([(def_id, layout.clone())]),
+        unions: Default::default(),
+        enums: Default::default(),
+        struct_instances: HashMap::from([(instance_key, layout)]),
+        union_instances: Default::default(),
+        diagnostics: Vec::new(),
+    };
+
+    let backend = BackendLayouts::from_module_layouts(&layouts);
+
+    assert_eq!(backend.structs[0].0.module_id, owner);
+    assert_eq!(backend.struct_instances[0].0.def_id.module_id, owner);
+}
+
+#[test]
 fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

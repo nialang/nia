@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-26):
 
-- Implementation batches: 521 completed entries in this ledger.
+- Implementation batches: 522 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3040,6 +3040,13 @@ acceptance item only when its phase-wide evidence is complete.
       An owner regression uses equal local definition numbers from distinct
       modules to prove foreign ABI/layout queries cannot read the wrong
       aggregate representation.
+- [x] Batch 522 removes the duplicate module owner from backend layout
+      conversion. `BackendLayouts::from_module_layouts` now qualifies ordinary
+      aggregates and concrete instances exclusively with the source
+      `Layouts.module_id`; callers can no longer relabel one module's local
+      layout maps with another module identity. The internal instance-key
+      constructor is no longer public, and a backend-IR owner regression locks
+      both conversion paths to the canonical product owner.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
