@@ -3087,6 +3087,14 @@ acceptance item only when its phase-wide evidence is complete.
       requires an integer backing type and proves every effective discriminant
       representable before LLVM constant construction can truncate it. Source
       and malformed Backend IR regressions cover the 32-bit boundary.
+- [x] Batch 529 validates enum layout headers before LLVM. Every published enum
+      layout now has a unique matching definition and declaration-ordered
+      variant identities; its tag must equal the target layout of the integer
+      backing type, and its payload offset and total storage are recomputed from
+      checked payload size/alignment facts. A partitioned malformed Backend IR
+      regression combines a four-byte backing type with a forged one-byte tag
+      and byte-one payload offset, proving both inconsistencies stop before
+      LLVM construction.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

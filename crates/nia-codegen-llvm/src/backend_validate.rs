@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod aggregates;
 mod function_ir;
+mod layouts;
 mod refs;
 mod static_init;
 mod types;
@@ -49,9 +50,7 @@ pub(super) fn validate_backend_partition_definitions(
     let module = index.module_for_partition(partition);
     let mut validator = BackendValidator::new(index, module.layouts.target);
     validator.validate_layout_owners(module);
-    for item in &module.enums {
-        validator.validate_enum_discriminants(item);
-    }
+    validator.validate_enum_layout_products(module);
     for &position in partition.function_definitions() {
         let function = &module.functions[position];
         validator.validate_definition_owner(module.id, function.def_id, function.span, "function");
@@ -234,6 +233,7 @@ pub(super) fn validate_backend_declaration_module(
 ) -> Vec<Diagnostic> {
     let mut validator = BackendValidator::new(index, module.layouts.target);
     validator.validate_layout_owners(module);
+    validator.validate_enum_layout_products(module);
     for function in &module.functions {
         validator.validate_definition_owner(module.id, function.def_id, function.span, "function");
         validator.validate_function(&module.name, function, false);
@@ -269,7 +269,6 @@ pub(super) fn validate_backend_declaration_module(
         validator.validate_definition_owner(module.id, item.def_id, item.span, "enum");
         validator.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
         validator.validate_runtime_type(item.backing_type, item.span);
-        validator.validate_enum_discriminants(item);
         for variant in &item.variants {
             if !member_owner_matches(item.def_id.module_id, variant.def_id) {
                 validator.diagnostics.push(Diagnostic::internal_error_at(
