@@ -3113,6 +3113,16 @@ acceptance item only when its phase-wide evidence is complete.
       malformed partition regression publishes a repeated `u8` key whose
       second value forges an eight-byte representation and proves both the
       conflicting value and target mismatch stop before LLVM.
+- [x] Batch 532 validates ordinary struct and union layout products before
+      LLVM. Layouts paired with executable Backend IR definitions now rebuild
+      every field representation from its runtime type, preserve declaration
+      order for extern structs and unions, reproduce Nia struct
+      alignment/size ordering, overlay union fields at byte zero, and check
+      field identities, offsets, bounds, tail padding, and total storage.
+      Type-only orphan layouts remain valid inputs for cross-module queries.
+      The malformed partition regression forges a Nia struct in source order
+      instead of physical order and proves its identities and offsets are
+      rejected before LLVM GEP or promoted-constant construction.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
