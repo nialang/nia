@@ -354,6 +354,33 @@ enum Packet {
 }
 
 #[test]
+fn enum_discriminants_use_the_artifact_pointer_width() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.pointer_width = 32;
+    let fixture = check_source_for_target(
+        r#"
+enum Word: usize {
+    Largest = 4294967295,
+    TooLarge,
+}
+"#,
+        target,
+    );
+
+    assert_eq!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("out of range for backing type"))
+            .count(),
+        1,
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn const_integer_operations_use_target_pointer_width() {
     let mut target = nia_target_config::TargetConfig::host();
     target.pointer_width = 32;

@@ -9,7 +9,7 @@ use crate::{
     resolved_pattern_local_id,
     support::{
         const_string_to_char_array, enum_next_value, float_literal_suffix_ty,
-        int_const_in_i128_range, integer_literal_suffix_ty, integer_range, is_float_primitive,
+        int_const_in_i128_range, integer_literal_suffix_ty, is_float_primitive,
         primitive_integer_layout, primitive_integer_range_for_target,
     },
 };
@@ -609,7 +609,7 @@ impl Analyzer<'_> {
         else {
             return None;
         };
-        integer_range(*primitive)
+        primitive_integer_range_for_target(*primitive, self.input.target.pointer_width)
     }
 
     fn eval_resolved_array_len_expr(&mut self, expr: &ResolvedConstExpr) -> Option<u64> {

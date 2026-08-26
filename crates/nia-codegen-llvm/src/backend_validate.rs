@@ -49,6 +49,9 @@ pub(super) fn validate_backend_partition_definitions(
     let module = index.module_for_partition(partition);
     let mut validator = BackendValidator::new(index, module.layouts.target);
     validator.validate_layout_owners(module);
+    for item in &module.enums {
+        validator.validate_enum_discriminants(item);
+    }
     for &position in partition.function_definitions() {
         let function = &module.functions[position];
         validator.validate_definition_owner(module.id, function.def_id, function.span, "function");
@@ -266,6 +269,7 @@ pub(super) fn validate_backend_declaration_module(
         validator.validate_definition_owner(module.id, item.def_id, item.span, "enum");
         validator.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
         validator.validate_runtime_type(item.backing_type, item.span);
+        validator.validate_enum_discriminants(item);
         for variant in &item.variants {
             if !member_owner_matches(item.def_id.module_id, variant.def_id) {
                 validator.diagnostics.push(Diagnostic::internal_error_at(
@@ -722,6 +726,43 @@ impl BackendValidator<'_> {
                 ));
             }
         }
+    }
+
+    fn validate_enum_discriminants(&mut self, item: &nia_backend_ir::BackendEnum) {
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(item.backing_type).cloned() else {
+            self.invalid_enum_declaration(item.span, "backing type is not primitive");
+            return;
+        };
+        if !primitive.is_integer() {
+            self.invalid_enum_declaration(item.span, "backing type is not an integer");
+            return;
+        }
+        let Some(pointer_bits) = self
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+        else {
+            self.invalid_enum_declaration(item.span, "target pointer width is invalid");
+            return;
+        };
+        for (index, variant) in item.variants.iter().enumerate() {
+            let value = variant.value.unwrap_or(index as i128);
+            if !nia_ty::IntConst::from_i128(value).fits_primitive_int(primitive, pointer_bits) {
+                self.invalid_enum_declaration(
+                    variant.span,
+                    "variant discriminant is out of range for its backing type",
+                );
+            }
+        }
+    }
+
+    fn invalid_enum_declaration(&mut self, span: nia_span::Span, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!("backend IR enum declaration has an invalid contract: {message}"),
+        ));
     }
 
     fn validate_vtable(&mut self, vtable: &BackendTraitObjectVtable, entries: bool) {

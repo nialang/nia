@@ -558,6 +558,122 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
 }
 
 #[test]
+fn rejects_enum_discriminant_outside_target_pointer_width_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let enum_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout {
+                    pointer_size: 4,
+                    pointer_align: 4,
+                },
+                types: vec![
+                    (usize_ty, TypeLayout { size: 4, align: 4 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: vec![BackendEnum {
+                def_id: enum_id,
+                name: sym("Word"),
+                backing_type: usize_ty,
+                variants: vec![BackendEnumVariant {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(1),
+                    },
+                    name: sym("TooLarge"),
+                    value: Some(1_i128 << 32),
+                    payload: BackendEnumVariantPayload::Unit,
+                    span,
+                }],
+                span,
+            }],
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(2),
+                },
+                name: sym("main"),
+                link_name: None,
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::Integer("0".to_string()),
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "variant discriminant is out of range for its backing type"
+    ));
+}
+
+#[test]
 fn emits_bitmask_with_32_bit_usize_result() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

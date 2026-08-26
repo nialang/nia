@@ -3080,6 +3080,13 @@ acceptance item only when its phase-wide evidence is complete.
       `INVALID_BACKEND_IR` instead of reaching an `expect` panic. Generic
       instance ownership remains unchanged; the diagnostic contract regression
       locks the recoverable failure boundary.
+- [x] Batch 528 makes enum discriminant range checking target-owned. Const
+      checking now evaluates `isize`/`usize` backing ranges from the artifact
+      pointer width instead of the compiler host, preventing an ILP32 enum from
+      accepting a 64-bit implicit tag. Backend validation independently
+      requires an integer backing type and proves every effective discriminant
+      representable before LLVM constant construction can truncate it. Source
+      and malformed Backend IR regressions cover the 32-bit boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
