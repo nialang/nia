@@ -558,18 +558,23 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
 }
 
 #[test]
-fn rejects_malformed_enum_layout_contract_before_llvm() {
+fn rejects_malformed_layout_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
     let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let i16_ty = interner.primitive(PrimitiveTy::I16);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let enum_id = GlobalDefId {
         module_id,
         def_id: DefId(0),
+    };
+    let struct_id = GlobalDefId {
+        module_id,
+        def_id: DefId(10),
     };
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -586,9 +591,27 @@ fn rejects_malformed_enum_layout_contract_before_llvm() {
                     (usize_ty, TypeLayout { size: 4, align: 4 }),
                     (u8_ty, TypeLayout { size: 1, align: 1 }),
                     (u8_ty, TypeLayout { size: 8, align: 8 }),
+                    (i16_ty, TypeLayout { size: 2, align: 2 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                 ],
-                structs: Vec::new(),
+                structs: vec![(
+                    struct_id,
+                    StructLayout {
+                        layout: TypeLayout { size: 8, align: 4 },
+                        fields: vec![
+                            FieldLayout {
+                                def_id: DefId(11),
+                                offset: 0,
+                                layout: TypeLayout { size: 2, align: 2 },
+                            },
+                            FieldLayout {
+                                def_id: DefId(12),
+                                offset: 2,
+                                layout: TypeLayout { size: 4, align: 4 },
+                            },
+                        ],
+                    },
+                )],
                 unions: Vec::new(),
                 enums: vec![(
                     enum_id,
@@ -617,7 +640,33 @@ fn rejects_malformed_enum_layout_contract_before_llvm() {
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
-            structs: Vec::new(),
+            structs: vec![BackendStruct {
+                def_id: struct_id,
+                name: sym("Packet"),
+                generics: Vec::new(),
+                fields: vec![
+                    BackendField {
+                        def_id: GlobalDefId {
+                            module_id,
+                            def_id: DefId(11),
+                        },
+                        name: sym("small"),
+                        ty: i16_ty,
+                        span,
+                    },
+                    BackendField {
+                        def_id: GlobalDefId {
+                            module_id,
+                            def_id: DefId(12),
+                        },
+                        name: sym("wide"),
+                        ty: i32_ty,
+                        span,
+                    },
+                ],
+                is_extern: false,
+                span,
+            }],
             struct_instances: Vec::new(),
             unions: Vec::new(),
             union_instances: Vec::new(),
@@ -725,6 +774,16 @@ fn rejects_malformed_enum_layout_contract_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "layout does not match its type and target"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "field identity does not match physical declaration order"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "field offset does not match aggregate placement"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,

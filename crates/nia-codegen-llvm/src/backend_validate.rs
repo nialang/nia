@@ -51,6 +51,7 @@ pub(super) fn validate_backend_partition_definitions(
     let mut validator = BackendValidator::new(index, module.layouts.target);
     validator.validate_layout_owners(module);
     validator.validate_type_layout_products(module);
+    validator.validate_aggregate_layout_products(module);
     validator.validate_enum_layout_products(module);
     for &position in partition.function_definitions() {
         let function = &module.functions[position];
@@ -235,6 +236,7 @@ pub(super) fn validate_backend_declaration_module(
     let mut validator = BackendValidator::new(index, module.layouts.target);
     validator.validate_layout_owners(module);
     validator.validate_type_layout_products(module);
+    validator.validate_aggregate_layout_products(module);
     validator.validate_enum_layout_products(module);
     for function in &module.functions {
         validator.validate_definition_owner(module.id, function.def_id, function.span, "function");

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_backend_ir::{BackendEnum, BackendEnumVariant, BackendEnumVariantPayload, BackendModule};
+use nia_backend_ir::{
+    BackendEnum, BackendEnumVariant, BackendEnumVariantPayload, BackendField, BackendModule,
+};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{DefId, GlobalDefId, InternedTyId};
-use nia_layout::{EnumLayout, EnumVariantLayout, TypeLayout};
+use nia_layout::{EnumLayout, EnumVariantLayout, FieldLayout, StructLayout, TypeLayout};
 use nia_ty::TyKind;
 
 use super::BackendValidator;
@@ -52,6 +54,195 @@ impl BackendValidator<'_> {
                 self.invalid_type_layout(*ty, "layout does not match its type and target");
             }
         }
+    }
+
+    pub(super) fn validate_aggregate_layout_products(&mut self, module: &BackendModule) {
+        let mut seen = HashSet::new();
+        for (def_id, layout) in &module.layouts.structs {
+            if !seen.insert(*def_id) {
+                self.invalid_aggregate_layout(*def_id, "struct layout identity is duplicated");
+                continue;
+            }
+            let Some(item) = module.structs.iter().find(|item| item.def_id == *def_id) else {
+                continue;
+            };
+            self.validate_aggregate_layout(*def_id, &item.fields, item.is_extern, false, layout);
+        }
+
+        seen.clear();
+        for (def_id, layout) in &module.layouts.unions {
+            if !seen.insert(*def_id) {
+                self.invalid_aggregate_layout(*def_id, "union layout identity is duplicated");
+                continue;
+            }
+            let Some(item) = module.unions.iter().find(|item| item.def_id == *def_id) else {
+                continue;
+            };
+            self.validate_aggregate_layout(*def_id, &item.fields, item.is_extern, true, layout);
+        }
+    }
+
+    fn validate_aggregate_layout(
+        &mut self,
+        def_id: GlobalDefId,
+        declared_fields: &[BackendField],
+        is_extern: bool,
+        is_union: bool,
+        physical: &StructLayout,
+    ) {
+        if !valid_type_layout(&physical.layout) {
+            self.invalid_aggregate_layout(def_id, "total layout is invalid");
+        }
+        for field in &physical.fields {
+            if !valid_type_layout(&field.layout) {
+                self.invalid_aggregate_layout(def_id, "field layout is invalid");
+            }
+            if field
+                .offset
+                .checked_add(field.layout.size)
+                .is_none_or(|end| end > physical.layout.size)
+            {
+                self.invalid_aggregate_layout(def_id, "field extends beyond aggregate storage");
+            }
+        }
+
+        let Some(expected) =
+            self.expected_aggregate_layout(def_id, declared_fields, is_extern, is_union)
+        else {
+            return;
+        };
+        if physical.fields.len() != expected.fields.len() {
+            self.invalid_aggregate_layout(
+                def_id,
+                "field layout count does not match the declaration",
+            );
+        }
+        for (field, expected_field) in physical.fields.iter().zip(&expected.fields) {
+            if field.def_id != expected_field.def_id {
+                self.invalid_aggregate_layout(
+                    def_id,
+                    "field identity does not match physical declaration order",
+                );
+            }
+            if field.layout != expected_field.layout {
+                self.invalid_aggregate_layout(
+                    def_id,
+                    "field layout does not match its declared type",
+                );
+            }
+            if field.offset != expected_field.offset {
+                self.invalid_aggregate_layout(
+                    def_id,
+                    "field offset does not match aggregate placement",
+                );
+            }
+        }
+        if physical.layout != expected.layout {
+            self.invalid_aggregate_layout(
+                def_id,
+                "total layout does not match its declared fields",
+            );
+        }
+    }
+
+    fn expected_aggregate_layout(
+        &mut self,
+        def_id: GlobalDefId,
+        declared_fields: &[BackendField],
+        is_extern: bool,
+        is_union: bool,
+    ) -> Option<StructLayout> {
+        let mut fields = Vec::with_capacity(declared_fields.len());
+        for (source_index, field) in declared_fields.iter().enumerate() {
+            if field.def_id.module_id != def_id.module_id {
+                self.invalid_aggregate_layout(
+                    def_id,
+                    "field does not belong to its aggregate module",
+                );
+            }
+            let Some(layout) = self.layout_of(field.ty) else {
+                self.invalid_aggregate_layout(def_id, "field type has no runtime layout");
+                return None;
+            };
+            if !valid_type_layout(&layout) {
+                self.invalid_aggregate_layout(def_id, "field type layout is invalid");
+                return None;
+            }
+            fields.push((source_index, field.def_id.def_id, layout));
+        }
+
+        if is_union {
+            let max_size = fields
+                .iter()
+                .map(|(_, _, layout)| layout.size)
+                .max()
+                .unwrap_or(0);
+            let max_align = fields
+                .iter()
+                .map(|(_, _, layout)| layout.align)
+                .max()
+                .unwrap_or(1);
+            let Some(size) = align_to(max_size, max_align) else {
+                self.invalid_aggregate_layout(def_id, "union layout overflowed");
+                return None;
+            };
+            return Some(StructLayout {
+                layout: TypeLayout {
+                    size,
+                    align: max_align,
+                },
+                fields: fields
+                    .into_iter()
+                    .map(|(_, def_id, layout)| FieldLayout {
+                        def_id,
+                        offset: 0,
+                        layout,
+                    })
+                    .collect(),
+            });
+        }
+
+        if !is_extern {
+            fields.sort_by(|left, right| {
+                right
+                    .2
+                    .align
+                    .cmp(&left.2.align)
+                    .then_with(|| right.2.size.cmp(&left.2.size))
+                    .then_with(|| left.0.cmp(&right.0))
+            });
+        }
+        let mut placed = Vec::with_capacity(fields.len());
+        let mut offset = 0u64;
+        let mut max_align = 1u64;
+        for (_, field_id, layout) in fields {
+            let Some(field_offset) = align_to(offset, layout.align) else {
+                self.invalid_aggregate_layout(def_id, "struct field placement overflowed");
+                return None;
+            };
+            let Some(next_offset) = field_offset.checked_add(layout.size) else {
+                self.invalid_aggregate_layout(def_id, "struct field placement overflowed");
+                return None;
+            };
+            max_align = max_align.max(layout.align);
+            placed.push(FieldLayout {
+                def_id: field_id,
+                offset: field_offset,
+                layout,
+            });
+            offset = next_offset;
+        }
+        let Some(size) = align_to(offset, max_align) else {
+            self.invalid_aggregate_layout(def_id, "struct layout overflowed");
+            return None;
+        };
+        Some(StructLayout {
+            layout: TypeLayout {
+                size,
+                align: max_align,
+            },
+            fields: placed,
+        })
     }
 
     pub(super) fn validate_enum_layout_products(&mut self, module: &BackendModule) {
@@ -253,6 +444,14 @@ impl BackendValidator<'_> {
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             nia_span::Span::default(),
             format!("backend IR type layout {ty:?} has an invalid contract: {message}"),
+        ));
+    }
+
+    fn invalid_aggregate_layout(&mut self, def_id: GlobalDefId, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            format!("backend IR aggregate layout {def_id:?} has an invalid contract: {message}"),
         ));
     }
 }
