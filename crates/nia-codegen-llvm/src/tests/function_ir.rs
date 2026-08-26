@@ -558,7 +558,7 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
 }
 
 #[test]
-fn rejects_enum_discriminant_outside_target_pointer_width_before_llvm() {
+fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
@@ -587,7 +587,23 @@ fn rejects_enum_discriminant_outside_target_pointer_width_before_llvm() {
                 ],
                 structs: Vec::new(),
                 unions: Vec::new(),
-                enums: Vec::new(),
+                enums: vec![(
+                    enum_id,
+                    nia_layout::EnumLayout {
+                        layout: TypeLayout { size: 8, align: 4 },
+                        tag: TypeLayout { size: 1, align: 1 },
+                        payload_offset: Some(1),
+                        variants: vec![nia_layout::EnumVariantLayout {
+                            def_id: DefId(1),
+                            payload: TypeLayout { size: 4, align: 4 },
+                            fields: vec![nia_layout::EnumFieldLayout {
+                                def_id: None,
+                                offset: 0,
+                                layout: TypeLayout { size: 4, align: 4 },
+                            }],
+                        }],
+                    },
+                )],
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
@@ -606,7 +622,7 @@ fn rejects_enum_discriminant_outside_target_pointer_width_before_llvm() {
                     },
                     name: sym("TooLarge"),
                     value: Some(1_i128 << 32),
-                    payload: BackendEnumVariantPayload::Unit,
+                    payload: BackendEnumVariantPayload::Tuple(vec![i32_ty]),
                     span,
                 }],
                 span,
@@ -670,6 +686,16 @@ fn rejects_enum_discriminant_outside_target_pointer_width_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "variant discriminant is out of range for its backing type"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "tag layout does not match the backing type"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "payload offset does not match tag and payload alignment"
     ));
 }
 
