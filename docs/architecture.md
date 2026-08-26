@@ -1506,7 +1506,7 @@ identity and are not renamed for each caller instance.
 Function-body references include origin modules as readiness dependencies.
 Runtime union construction skips relocation placeholder bytes and stores the
 promoted global address into each relocation range. The module registry rejects
-reuse of one identity with a different pointee type.
+reuse of one identity with a different pointee type or constant initializer.
 
 Supported promoted initializers include scalars, fixed array literals and
 repeats, string and byte-string literals, SIMD vectors, and nominal structs

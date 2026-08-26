@@ -300,6 +300,122 @@ fn scopes_template_local_promotions_to_function_instances() {
 }
 
 #[test]
+fn rejects_conflicting_promoted_allocation_initializers() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let array_ty = interner.intern(TyKind::Array {
+        len: nia_ty::ArrayLenTy::ConstValue(1),
+        elem: usize_ty,
+    });
+    let pointer_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: array_ty,
+    });
+    let result_ty = interner.intern(TyKind::Array {
+        len: nia_ty::ArrayLenTy::ConstValue(2),
+        elem: pointer_ty,
+    });
+    let span = Span::new(1, 10);
+    let allocation = nia_function_ir::PromotedAllocationId::new(module_id, span);
+    let promoted = |value: u128| FunctionExpr {
+        span,
+        ty: pointer_ty,
+        kind: FunctionExprKind::StaticArrayPointer {
+            allocation,
+            array: Box::new(FunctionExpr {
+                span,
+                ty: array_ty,
+                kind: FunctionExprKind::ArrayLiteral {
+                    elems: FunctionArrayElements::List(vec![FunctionExpr {
+                        span,
+                        ty: usize_ty,
+                        kind: FunctionExprKind::Integer(value.to_string()),
+                    }]),
+                },
+            }),
+            is_readonly: true,
+        },
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("main"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: result_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: result_ty,
+                        kind: FunctionExprKind::ArrayLiteral {
+                            elems: FunctionArrayElements::List(vec![promoted(1), promoted(2)]),
+                        },
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: result_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (usize_ty, TypeLayout { size: 8, align: 8 }),
+                (array_ty, TypeLayout { size: 8, align: 8 }),
+                (pointer_ty, TypeLayout { size: 8, align: 8 }),
+                (result_ty, TypeLayout { size: 16, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "promoted allocation identity was reused with a different initializer"
+    ));
+}
+
+#[test]
 fn validates_function_return_runtime_layout_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
