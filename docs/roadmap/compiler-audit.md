@@ -3273,6 +3273,13 @@ acceptance item only when its phase-wide evidence is complete.
       shared. A hand-built Backend IR regression materializes distinct const
       initializers at one template span and proves both globals survive LLVM
       emission.
+- [x] Batch 552 makes promoted-allocation reuse validate the emitted constant,
+      not only its pointee type. Registry entries retain the canonical LLVM
+      initializer and reject a repeated owner/allocation key whose value
+      differs, preventing malformed Backend IR from silently discarding every
+      initializer after the first. The violation is classified as internal
+      `INVALID_BACKEND_IR`; a same-owner array-pointer regression forces two
+      conflicting constants through materialization and verifies rejection.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

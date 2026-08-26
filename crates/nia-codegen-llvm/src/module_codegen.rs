@@ -79,6 +79,7 @@ type TraitObjectAdapterKey = (
     Vec<ConstGenericArg>,
 );
 type PromotedAllocationKey = (PromotedAllocationId, Option<FunctionInstanceKey>);
+type PromotedAllocationEntry<'ctx> = (InternedTyId, BasicValueEnum<'ctx>);
 
 struct FunctionSignature<P> {
     param_tys: P,
@@ -118,7 +119,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
         RefCell<HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
-    promoted_allocations: RefCell<HashMap<PromotedAllocationKey, InternedTyId>>,
+    promoted_allocations: RefCell<HashMap<PromotedAllocationKey, PromotedAllocationEntry<'ctx>>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
@@ -208,19 +209,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             instance_scope.as_ref().map(|(_, symbol)| symbol.as_str()),
         );
         let layout = self.layout_of(pointee_ty);
-        if let Some(existing_ty) = self.promoted_allocations.borrow().get(&key).copied() {
-            if !self.same_type(existing_ty, pointee_ty) {
-                return Err(self.error(
-                    span,
-                    "promoted allocation identity was reused with a different pointee type",
-                ));
-            }
-            return self
-                .module
-                .get_global(&symbol)
-                .map_err(Self::diagnostic_from_llvm_error)?
-                .map(|global| global.as_pointer_value())
-                .ok_or_else(|| self.error(span, "promoted allocation registry lost its global"));
+        let existing = self.promoted_allocations.borrow().get(&key).copied();
+        if let Some((existing_ty, _)) = existing
+            && !self.same_type(existing_ty, pointee_ty)
+        {
+            return Err(self.error(
+                span,
+                "promoted allocation identity was reused with a different pointee type",
+            ));
         }
 
         let pointee_llvm_ty = self.llvm_basic_type(pointee_ty, span)?;
@@ -275,6 +271,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 "promoted allocation initializer has the wrong LLVM type",
             ));
         }
+        if let Some((_, existing_value)) = existing {
+            if existing_value != value {
+                return Err(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "promoted allocation identity was reused with a different initializer",
+                ));
+            }
+            return self
+                .module
+                .get_global(&symbol)
+                .map_err(Self::diagnostic_from_llvm_error)?
+                .map(|global| global.as_pointer_value())
+                .ok_or_else(|| self.error(span, "promoted allocation registry lost its global"));
+        }
         let global = self
             .module
             .add_global(storage_ty, None, &symbol)
@@ -293,7 +304,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map_err(Self::diagnostic_from_llvm_error)?;
         self.promoted_allocations
             .borrow_mut()
-            .insert(key, pointee_ty);
+            .insert(key, (pointee_ty, value));
         Ok(global.as_pointer_value())
     }
 
