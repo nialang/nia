@@ -671,6 +671,93 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
 }
 
 #[test]
+fn validates_global_instance_metadata_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let foreign_type_store = nia_ty::TypeStore::new();
+    let foreign_interner = foreign_type_store.append_for_module(module_id);
+    let foreign_i32_ty = foreign_interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let def_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: vec![BackendGlobal {
+                def_id,
+                name: sym("template"),
+                link_name: Some("template".to_string()),
+                ty: i32_ty,
+                is_let: true,
+                is_extern: true,
+                init: None,
+                span,
+            }],
+            global_instances: vec![nia_backend_ir::BackendGlobalInstance {
+                def_id,
+                name: sym("forged_template"),
+                arg_module_id: module_id,
+                args: vec![foreign_i32_ty],
+                const_args: Vec::new(),
+                symbol: "forged_global_instance".to_string(),
+                ty: i32_ty,
+                is_let: false,
+                init: Some(StaticInit::Zero),
+                span,
+            }],
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(foreign_interner);
+    drop(foreign_type_store);
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        "type belongs to a different compilation session",
+        "global instance cannot materialize an extern source global",
+        "global instance name does not match its source template",
+        "global instance mutability does not match its source template",
+        "global instance initializer presence does not match its source template",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
