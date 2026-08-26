@@ -3245,6 +3245,14 @@ acceptance item only when its phase-wide evidence is complete.
       entries now reject empty or NUL-containing symbols before LLVM declaration
       APIs receive them. Existing instance metadata regressions cover malformed
       generated symbols across every materialized declaration category.
+- [x] Batch 549 makes generated symbol uniqueness a program preflight
+      invariant. Non-extern functions, globals, and concrete value instances
+      cannot reuse one linker symbol; struct and union instance type names
+      cannot collide within one LLVM context. Closure symbols remain governed
+      by their stronger owner-derived identity check, and extern link names
+      remain independently repeatable across modules. A malformed program
+      crosses instance categories with shared value and type names and is
+      rejected before artifact acceptance.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

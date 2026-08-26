@@ -70,7 +70,7 @@ pub(super) fn backend_symbol_debug_name(name: SymbolId) -> String {
     mangle_symbol_id(name)
 }
 
-pub(super) fn validate_backend_program_target(index: &ProgramIndex) -> Vec<Diagnostic> {
+pub(super) fn validate_backend_program(index: &ProgramIndex) -> Vec<Diagnostic> {
     let targets = index.module_target_layouts().collect::<Vec<_>>();
     let mut diagnostics = Vec::new();
     if targets
@@ -93,7 +93,119 @@ pub(super) fn validate_backend_program_target(index: &ProgramIndex) -> Vec<Diagn
             "backend IR modules disagree on the artifact target data layout",
         ));
     }
+    validate_generated_symbols(index, &mut diagnostics);
     diagnostics
+}
+
+fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagnostic>) {
+    let mut values = HashMap::<String, &'static str>::new();
+    for module_id in index.module_ids() {
+        let Some(module) = index.module(*module_id) else {
+            continue;
+        };
+        let module_mangle =
+            MangleModuleId::from_normalized_source_path(module.source_identity.normalized_path());
+        for function in &module.functions {
+            if function.is_extern || !function.generics.is_empty() {
+                continue;
+            }
+            record_generated_symbol(
+                &mut values,
+                diagnostics,
+                mangle_base_symbol_id(function.def_id, module_mangle, function.name),
+                "function",
+                function.span,
+            );
+        }
+        for global in &module.globals {
+            if !global.is_extern {
+                record_generated_symbol(
+                    &mut values,
+                    diagnostics,
+                    mangle_base_symbol_id(global.def_id, module_mangle, global.name),
+                    "global",
+                    global.span,
+                );
+            }
+        }
+        for function in &module.function_instances {
+            record_generated_symbol(
+                &mut values,
+                diagnostics,
+                function.symbol.clone(),
+                "function instance",
+                function.span,
+            );
+        }
+        for global in &module.global_instances {
+            record_generated_symbol(
+                &mut values,
+                diagnostics,
+                global.symbol.clone(),
+                "global instance",
+                global.span,
+            );
+        }
+        let mut types = HashMap::<String, &'static str>::new();
+        for item in &module.structs {
+            if item.generics.is_empty() {
+                record_generated_symbol(
+                    &mut types,
+                    diagnostics,
+                    mangle_base_symbol_id(item.def_id, module_mangle, item.name),
+                    "struct",
+                    item.span,
+                );
+            }
+        }
+        for item in &module.unions {
+            if item.generics.is_empty() {
+                record_generated_symbol(
+                    &mut types,
+                    diagnostics,
+                    mangle_base_symbol_id(item.def_id, module_mangle, item.name),
+                    "union",
+                    item.span,
+                );
+            }
+        }
+        for item in &module.struct_instances {
+            record_generated_symbol(
+                &mut types,
+                diagnostics,
+                item.symbol.clone(),
+                "struct instance",
+                item.span,
+            );
+        }
+        for item in &module.union_instances {
+            record_generated_symbol(
+                &mut types,
+                diagnostics,
+                item.symbol.clone(),
+                "union instance",
+                item.span,
+            );
+        }
+    }
+}
+
+fn record_generated_symbol(
+    symbols: &mut HashMap<String, &'static str>,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbol: String,
+    kind: &'static str,
+    span: nia_span::Span,
+) {
+    if let Some(previous_kind) = symbols.insert(symbol.clone(), kind) {
+        diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!(
+                "backend IR generated symbol collision: {kind} reuses `{symbol}` already used by {previous_kind}"
+            ),
+        ));
+    }
 }
 
 pub(super) fn validate_backend_partition_definitions(
