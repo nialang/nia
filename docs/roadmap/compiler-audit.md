@@ -3224,6 +3224,15 @@ acceptance item only when its phase-wide evidence is complete.
       template. Forged function/union arities and a cross-session struct key
       prove stale or truncated identities stop before fingerprinting or LLVM
       emission.
+- [x] Batch 546 extends unconditional instance-key validation to generic local
+      statics and binds reconstructible global-instance metadata to its source
+      global. Type and const-argument types must belong to the active session;
+      name, mutability, and initializer presence must be preserved, and an
+      extern global can never be materialized as local instance storage. A
+      cross-session forged instance regression covers every available contract
+      before fingerprint or LLVM global emission. Generic arity remains owned
+      by the enclosing function because BackendGlobal intentionally carries no
+      parent/generic signature.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

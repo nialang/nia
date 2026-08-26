@@ -1141,6 +1141,37 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(global.name),
             global.args
         ));
+        self.validate_instance_arguments(None, &global.args, &global.const_args, global.span);
+        if let Some(template) = self.index.global(global.def_id) {
+            if template.is_extern {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    global.span,
+                    "backend IR global instance cannot materialize an extern source global",
+                ));
+            }
+            if global.name != template.name {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    global.span,
+                    "backend IR global instance name does not match its source template",
+                ));
+            }
+            if global.is_let != template.is_let {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    global.span,
+                    "backend IR global instance mutability does not match its source template",
+                ));
+            }
+            if global.init.is_some() != template.init.is_some() {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    global.span,
+                    "backend IR global instance initializer presence does not match its source template",
+                ));
+            }
+        }
         self.validate_runtime_type(global.ty, global.span);
         if init && let Some(value) = &global.init {
             self.validate_static_init(global.ty, value, global.span);
