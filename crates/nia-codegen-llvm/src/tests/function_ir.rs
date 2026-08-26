@@ -585,6 +585,7 @@ fn rejects_malformed_enum_layout_contract_before_llvm() {
                 types: vec![
                     (usize_ty, TypeLayout { size: 4, align: 4 }),
                     (u8_ty, TypeLayout { size: 1, align: 1 }),
+                    (u8_ty, TypeLayout { size: 8, align: 8 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                 ],
                 structs: Vec::new(),
@@ -710,6 +711,21 @@ fn rejects_malformed_enum_layout_contract_before_llvm() {
     let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "type layout"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "duplicate layout values conflict"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "layout does not match its type and target"
+    ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,

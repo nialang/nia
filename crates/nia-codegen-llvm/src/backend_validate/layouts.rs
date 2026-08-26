@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use nia_backend_ir::{BackendEnum, BackendEnumVariant, BackendEnumVariantPayload, BackendModule};
 use nia_diagnostic::Diagnostic;
@@ -10,6 +10,50 @@ use nia_ty::TyKind;
 use super::BackendValidator;
 
 impl BackendValidator<'_> {
+    pub(super) fn validate_type_layout_products(&mut self, module: &BackendModule) {
+        let mut seen = HashMap::new();
+        for (ty, layout) in &module.layouts.types {
+            if seen
+                .insert(*ty, layout)
+                .is_some_and(|existing| existing != layout)
+            {
+                self.invalid_type_layout(*ty, "duplicate layout values conflict");
+            }
+            if !valid_type_layout(layout) {
+                self.invalid_type_layout(*ty, "size and alignment are not a valid ABI layout");
+            }
+            let Some(kind) = self.ty_kind(*ty) else {
+                self.invalid_type_layout(*ty, "type belongs to a different compilation session");
+                continue;
+            };
+            let expected = match kind {
+                TyKind::Primitive(primitive) => {
+                    Some(nia_layout::primitive_layout(*primitive, self.target))
+                }
+                TyKind::Vector { elem, lanes } => {
+                    nia_layout::vector_layout(*elem, *lanes, self.target)
+                }
+                TyKind::Pointer { .. }
+                | TyKind::VolatilePointer { .. }
+                | TyKind::FunctionPointer { .. } => Some(TypeLayout {
+                    size: self.target.pointer_size,
+                    align: self.target.pointer_align,
+                }),
+                TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. } => {
+                    nia_layout::fat_pointer_layout(self.target)
+                }
+                _ => continue,
+            };
+            let Some(expected) = expected else {
+                self.invalid_type_layout(*ty, "target layout arithmetic overflowed");
+                continue;
+            };
+            if *layout != expected {
+                self.invalid_type_layout(*ty, "layout does not match its type and target");
+            }
+        }
+    }
+
     pub(super) fn validate_enum_layout_products(&mut self, module: &BackendModule) {
         for item in &module.enums {
             self.validate_enum_discriminants(item);
@@ -201,6 +245,14 @@ impl BackendValidator<'_> {
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             nia_span::Span::default(),
             format!("backend IR enum layout {def_id:?} has an invalid contract: {message}"),
+        ));
+    }
+
+    fn invalid_type_layout(&mut self, ty: InternedTyId, message: &'static str) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            format!("backend IR type layout {ty:?} has an invalid contract: {message}"),
         ));
     }
 }

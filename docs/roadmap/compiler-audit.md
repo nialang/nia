@@ -3104,6 +3104,15 @@ acceptance item only when its phase-wide evidence is complete.
       regression forges named-field identity, representation, placement,
       bounds, and payload size and proves every mismatch is diagnosed before
       LLVM byte-offset stores or projections.
+- [x] Batch 531 validates independently reproducible type layout products before
+      LLVM. Repeated module-local type layout keys must agree and every layout
+      must have a valid padded size/alignment contract. Primitive, vector, thin
+      pointer, function-pointer, slice, trait-object, and callable layouts are
+      recomputed from canonical type identity and the artifact target, so a
+      published entry cannot override LLVM's scalar or pointer ABI. The
+      malformed partition regression publishes a repeated `u8` key whose
+      second value forges an eight-byte representation and proves both the
+      conflicting value and target mismatch stop before LLVM.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
