@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-25):
+Current snapshot (2026-08-26):
 
-- Implementation batches: 518 completed entries in this ledger.
+- Implementation batches: 519 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3015,6 +3015,14 @@ acceptance item only when its phase-wide evidence is complete.
       rejects at the enum declaration, present only in prose and never in a
       test, example, or std module. Payload variants are recorded as planned
       with their design deliberately open.
+- [x] Batch 519 restores eager `const fn` capability validation on the
+      entry/executable query path. Executable checking still evaluates and
+      materializes only reachable bodies, but checked-module assembly now
+      merges the existing declaration-only body check into const diagnostics.
+      Exact overlap with reachable body or const-evaluation diagnostics is
+      removed structurally. A query-owner matrix proves unused, runtime-only,
+      and const-reached invalid declarations each report exactly once without
+      becoming executable roots.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

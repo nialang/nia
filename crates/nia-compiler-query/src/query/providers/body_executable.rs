@@ -670,6 +670,24 @@ pub(super) fn body_check_const_declarations(
     .body_check)
 }
 
+fn module_has_const_declarations(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<bool> {
+    let active = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    Ok(active.items.iter().any(|item| match &item.kind {
+        nia_item_tree::ItemTreeNodeKind::Function(function) => function.is_const,
+        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => item_trait
+            .methods
+            .iter()
+            .any(|method| method.function.is_const),
+        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+            extend.methods.iter().any(|method| method.function.is_const)
+        }
+        _ => false,
+    }))
+}
+
 pub(super) struct ExecutableBodyCheckInput<'a> {
     pub module_id: ModuleId,
     pub filter: nia_body_check::BodyCheckFilter<'a>,
@@ -1754,10 +1772,22 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         .bundle(std::mem::take(&mut flow_check.diagnostics));
     let (const_eval, const_diagnostics) = match const_eval {
         Some(mut const_eval) => {
-            let diagnostics = db
-                .context()
-                .diagnostic_store
-                .bundle(std::mem::take(&mut const_eval.diagnostics));
+            // Executable checking evaluates only reachable const inputs, but a
+            // `const fn` annotation is a declaration-wide promise. Preserve
+            // that distinction: validate every declaration without adding it
+            // to executable reachability or materializing its Body IR.
+            let mut diagnostics = std::mem::take(&mut const_eval.diagnostics);
+            if module_has_const_declarations(db, module_id)? {
+                let declaration_check = body_check_const_declarations(db, module_id)?;
+                for diagnostic in declaration_check.diagnostics.iter() {
+                    if !diagnostics.contains(diagnostic)
+                        && !body_check.diagnostics.contains(diagnostic)
+                    {
+                        diagnostics.push(diagnostic.clone());
+                    }
+                }
+            }
+            let diagnostics = db.context().diagnostic_store.bundle(diagnostics);
             (Arc::new(const_eval), diagnostics)
         }
         None => {

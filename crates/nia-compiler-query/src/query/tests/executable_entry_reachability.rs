@@ -77,6 +77,43 @@ fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start
 }
 
 #[test]
+fn entry_check_validates_const_fn_capability_at_declaration() {
+    for source in [
+        r#"
+fn plain(v: u32) u32 { v }
+const fn viaPlain(v: u32) u32 { plain(v) }
+pub fn main() i32 { 0 }
+"#,
+        r#"
+fn plain(v: u32) u32 { v }
+const fn viaPlain(v: u32) u32 { plain(v) }
+pub fn main() i32 { _ = viaPlain(1u32); 0 }
+"#,
+        r#"
+fn plain(v: u32) u32 { v }
+const fn viaPlain(v: u32) u32 { plain(v) }
+const W: u32 = viaPlain(1u32);
+pub fn main() i32 { _ = W; 0 }
+"#,
+    ] {
+        let fixture = LoadedProgramFixture::new("main.nia", source);
+        let checked = query_db(fixture.program()).expect_get(EntryCheckedProgramQuery);
+        let capability_errors = checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic
+                    .diagnostic
+                    .summary
+                    .contains("const expression can only call `const fn`")
+            })
+            .count();
+
+        assert_eq!(capability_errors, 1, "{:?}", checked.diagnostics);
+    }
+}
+
+#[test]
 fn freestanding_entry_checked_program_uses_executable_reachability() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
