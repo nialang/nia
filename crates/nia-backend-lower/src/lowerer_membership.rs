@@ -19,8 +19,7 @@ impl<'a> ModuleLowerer<'a> {
             &module.global_instances,
             &module.trait_object_vtables,
         );
-        let mut layouts =
-            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        let mut layouts = BackendLayouts::from_module_layouts(self.input.layouts);
         self.extend_backend_layouts_for_finalized_module(&mut layouts, module);
         module.layouts = layouts;
         module

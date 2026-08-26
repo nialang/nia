@@ -242,7 +242,7 @@ impl<'a> ModuleLowerer<'a> {
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.clone(),
             },
-            layouts: BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts),
+            layouts: BackendLayouts::from_module_layouts(self.input.layouts),
             structs,
             unions,
             struct_instances,
