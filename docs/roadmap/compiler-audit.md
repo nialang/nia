@@ -3095,6 +3095,15 @@ acceptance item only when its phase-wide evidence is complete.
       regression combines a four-byte backing type with a forged one-byte tag
       and byte-one payload offset, proving both inconsistencies stop before
       LLVM construction.
+- [x] Batch 530 validates enum payload field layouts before LLVM. Tuple and
+      named payloads now require declaration-matching field counts, identities,
+      target type layouts, aligned offsets, tail-padded variant storage, and
+      in-bounds field extents. Enum payload offsets and total storage are now
+      derived from those recomputed variant layouts rather than trusting the
+      published payload metadata. The partitioned malformed Backend IR
+      regression forges named-field identity, representation, placement,
+      bounds, and payload size and proves every mismatch is diagnosed before
+      LLVM byte-offset stores or projections.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

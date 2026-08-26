@@ -558,12 +558,13 @@ fn emits_pointer_sized_integer_abi_for_32_bit_target() {
 }
 
 #[test]
-fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
+fn rejects_malformed_enum_layout_contract_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let u8_ty = interner.primitive(PrimitiveTy::U8);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let enum_id = GlobalDefId {
@@ -583,6 +584,7 @@ fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
                 },
                 types: vec![
                     (usize_ty, TypeLayout { size: 4, align: 4 }),
+                    (u8_ty, TypeLayout { size: 1, align: 1 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                 ],
                 structs: Vec::new(),
@@ -596,11 +598,18 @@ fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
                         variants: vec![nia_layout::EnumVariantLayout {
                             def_id: DefId(1),
                             payload: TypeLayout { size: 4, align: 4 },
-                            fields: vec![nia_layout::EnumFieldLayout {
-                                def_id: None,
-                                offset: 0,
-                                layout: TypeLayout { size: 4, align: 4 },
-                            }],
+                            fields: vec![
+                                nia_layout::EnumFieldLayout {
+                                    def_id: Some(DefId(99)),
+                                    offset: 1,
+                                    layout: TypeLayout { size: 4, align: 4 },
+                                },
+                                nia_layout::EnumFieldLayout {
+                                    def_id: Some(DefId(3)),
+                                    offset: 8,
+                                    layout: TypeLayout { size: 4, align: 4 },
+                                },
+                            ],
                         }],
                     },
                 )],
@@ -622,7 +631,26 @@ fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
                     },
                     name: sym("TooLarge"),
                     value: Some(1_i128 << 32),
-                    payload: BackendEnumVariantPayload::Tuple(vec![i32_ty]),
+                    payload: BackendEnumVariantPayload::Named(vec![
+                        BackendField {
+                            def_id: GlobalDefId {
+                                module_id,
+                                def_id: DefId(2),
+                            },
+                            name: sym("head"),
+                            ty: u8_ty,
+                            span,
+                        },
+                        BackendField {
+                            def_id: GlobalDefId {
+                                module_id,
+                                def_id: DefId(3),
+                            },
+                            name: sym("value"),
+                            ty: i32_ty,
+                            span,
+                        },
+                    ]),
                     span,
                 }],
                 span,
@@ -632,7 +660,7 @@ fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
                     module_id,
-                    def_id: DefId(2),
+                    def_id: DefId(4),
                 },
                 name: sym("main"),
                 link_name: None,
@@ -696,6 +724,31 @@ fn rejects_enum_target_width_and_layout_mismatch_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "payload offset does not match tag and payload alignment"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "payload field identity does not match declaration order"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "payload field layout does not match its declared type"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "payload field offset does not match declaration layout"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "payload field extends beyond variant storage"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "variant payload layout does not match its declared fields"
     ));
 }
 
