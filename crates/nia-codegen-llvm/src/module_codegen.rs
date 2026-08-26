@@ -78,6 +78,7 @@ type TraitObjectAdapterKey = (
     Vec<InternedTyId>,
     Vec<ConstGenericArg>,
 );
+type PromotedAllocationKey = (PromotedAllocationId, Option<FunctionInstanceKey>);
 
 struct FunctionSignature<P> {
     param_tys: P,
@@ -117,7 +118,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
         RefCell<HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
-    promoted_allocations: RefCell<HashMap<PromotedAllocationId, InternedTyId>>,
+    promoted_allocations: RefCell<HashMap<PromotedAllocationKey, InternedTyId>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
@@ -191,14 +192,23 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn materialize_promoted_allocation(
         &self,
+        owner: &BackendClosureEntryOwner,
         allocation: PromotedAllocationId,
         pointee_ty: InternedTyId,
         initializer: PromotedAllocationInitializer<'ctx>,
         span: Span,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        let symbol = self.promoted_allocation_symbol(allocation);
+        let instance_scope = self.promoted_allocation_instance_scope(owner, allocation, span)?;
+        let key = (
+            allocation,
+            instance_scope.as_ref().map(|(key, _)| key.clone()),
+        );
+        let symbol = self.promoted_allocation_symbol(
+            allocation,
+            instance_scope.as_ref().map(|(_, symbol)| symbol.as_str()),
+        );
         let layout = self.layout_of(pointee_ty);
-        if let Some(existing_ty) = self.promoted_allocations.borrow().get(&allocation).copied() {
+        if let Some(existing_ty) = self.promoted_allocations.borrow().get(&key).copied() {
             if !self.same_type(existing_ty, pointee_ty) {
                 return Err(self.error(
                     span,
@@ -283,17 +293,70 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map_err(Self::diagnostic_from_llvm_error)?;
         self.promoted_allocations
             .borrow_mut()
-            .insert(allocation, pointee_ty);
+            .insert(key, pointee_ty);
         Ok(global.as_pointer_value())
     }
 
-    fn promoted_allocation_symbol(&self, allocation: PromotedAllocationId) -> String {
+    fn promoted_allocation_instance_scope(
+        &self,
+        owner: &BackendClosureEntryOwner,
+        allocation: PromotedAllocationId,
+        span: Span,
+    ) -> Result<Option<(FunctionInstanceKey, String)>, Diagnostic> {
+        let BackendClosureEntryOwner::FunctionInstance(owner) = owner else {
+            return Ok(None);
+        };
+        let template = self.program.function(owner.def_id).ok_or_else(|| {
+            self.error(
+                span,
+                "promoted allocation references a missing function template owner",
+            )
+        })?;
+        let origin = allocation.span();
+        if allocation.module_id() != owner.def_id.module_id
+            || origin.start < template.span.start
+            || origin.end > template.span.end
+        {
+            return Ok(None);
+        }
+        let instance = self
+            .program
+            .function_instance(
+                owner.def_id,
+                owner.arg_module_id,
+                owner.self_arg,
+                &owner.args,
+                &owner.const_args,
+            )
+            .ok_or_else(|| {
+                self.error(
+                    span,
+                    "promoted allocation references a missing function instance owner",
+                )
+            })?;
+        Ok(Some((owner.clone(), instance.symbol.clone())))
+    }
+
+    fn promoted_allocation_symbol(
+        &self,
+        allocation: PromotedAllocationId,
+        instance_symbol: Option<&str>,
+    ) -> String {
         let module = self.mangle_module_id(allocation.module_id()).raw();
         let span = allocation.span();
-        format!(
-            "nia__promoted__s{module:016x}__b{:x}__e{:x}",
-            span.start, span.end
-        )
+        match instance_symbol {
+            Some(instance_symbol) => {
+                let owner = nia_symbol::stable_hash(instance_symbol);
+                format!(
+                    "nia__promoted__s{module:016x}__o{owner:016x}__b{:x}__e{:x}",
+                    span.start, span.end
+                )
+            }
+            None => format!(
+                "nia__promoted__s{module:016x}__b{:x}__e{:x}",
+                span.start, span.end
+            ),
+        }
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {

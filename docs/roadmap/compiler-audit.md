@@ -3263,6 +3263,16 @@ acceptance item only when its phase-wide evidence is complete.
       guessing a name. The cross-category malformed-symbol regression now
       proves every instance kind rejects a unique but forged name independently
       of collision checks.
+- [x] Batch 551 scopes template-local promoted allocations to their concrete
+      function instance. The module registry and link-once symbol include the
+      already-validated owner identity when an allocation origin lies inside a
+      monomorphized template, preventing two type or const substitutions from
+      silently sharing the first emitted pointee or initializer. Promotions
+      originating outside that template retain their source module/span
+      identity, so imported and passed-in frozen const provenance remains
+      shared. A hand-built Backend IR regression materializes distinct const
+      initializers at one template span and proves both globals survive LLVM
+      emission.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
