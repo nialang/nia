@@ -477,6 +477,7 @@ impl BackendValidator<'_> {
             function.function_body.is_some(),
             function.span,
         );
+        self.validate_function_instance_metadata(function);
         if function.is_extern {
             self.validate_extern_function_abi(
                 &function.params,
@@ -740,6 +741,33 @@ impl BackendValidator<'_> {
                     "backend IR `naked` attribute is only valid on extern function definitions",
                 ));
             }
+        }
+    }
+
+    fn validate_function_instance_metadata(&mut self, function: &BackendFunctionInstance) {
+        let Some(template) = self.index.function(function.def_id) else {
+            return;
+        };
+        if function.is_extern != template.is_extern {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance extern flag does not match its source template",
+            ));
+        }
+        if function.is_variadic != template.is_variadic {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance variadic flag does not match its source template",
+            ));
+        }
+        if function.attributes != template.attributes {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance attributes do not match its source template",
+            ));
         }
     }
 
