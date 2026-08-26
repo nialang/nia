@@ -1,6 +1,7 @@
 # `nia-const-check` Audit Report
 
-Status: F1 fixed in `d70f1807`; F2, F3, and F4 open
+Status: F1 and F3 fixed in `d70f1807`; F2 fixed in the executable-query batch;
+F4 remains an optional feature request
 
 | Field | Value |
 | --- | --- |
@@ -56,8 +57,8 @@ single-owner rule in `docs/compiler-maintenance.md` §1 and §3.
 | ID | Severity | Title | Kind |
 | --- | --- | --- | --- |
 | F1 | Critical — **fixed `d70f1807`** | Named `const` values silently become zero in `static` initializers (tuple, optional, enum confirmed) | Miscompilation |
-| F2 | High | `const fn` capability is not validated at the declaration | Spec violation |
-| F3 | Medium | Named-const static lowering drops a value without a diagnostic | Contract violation |
+| F2 | High — **fixed** | `const fn` capability was not validated at the declaration on executable checks | Spec violation |
+| F3 | Medium — **fixed `d70f1807`** | Named-const static lowering dropped a value without a diagnostic | Contract violation |
 | F4 | Medium | `ctz`/`clz`/`popcount` are not const-callable and have no const evaluator | Feature request |
 | F5 | Informational | Verified-correct boundaries | Coverage record |
 
@@ -349,7 +350,10 @@ unconfirmed kinds: they now fail closed with a diagnostic rather than
 publishing zero, but whether each should be permanently rejected or given a
 real materialization contract remains open.
 
-## 4. F2 — `const fn` Capability Is Not Validated At The Declaration
+## 4. F2 — `const fn` Capability Was Not Validated At The Declaration
+
+**Fixed in the executable-query batch described in §4.6.** The sections before
+§4.6 record the defect as found.
 
 **Severity: High.** The specification states the const-capability contract is
 checked at the declaration independently of use. In practice the check fires only
@@ -472,6 +476,25 @@ than a documentation preference.
 If the pass is implemented, the fixtures in §4.2 are the minimum matrix: unused,
 runtime-only, and const-reached must all reject, and the diagnostic should name
 the declaration.
+
+### 4.6 Resolution
+
+The declaration pass already existed in `nia-body-check` and the ordinary
+`ConstQuery` already invoked it. The missing boundary was the entry/executable
+checking path used by the CLI: that path deliberately evaluates only reachable
+const inputs and assembled a `CheckedModule` without the eager declaration
+diagnostics. The original audit searched only `nia-const-check`, so it correctly
+measured the behavior but incorrectly concluded that no declaration pass existed.
+
+Executable checked-module assembly now runs the same `ConstDeclarations` body
+check for every executable module and merges its diagnostics into the const
+diagnostic product. This does not add unused functions to executable
+reachability and does not materialize their Body IR. Exact diagnostics already
+reported by reachable body checking or const evaluation are not added again.
+
+The query-owner regression drives all three preserved §4.2 fixtures through
+`EntryCheckedProgramQuery`. Unused, runtime-only, and const-reached forms now
+each report exactly one `const expression can only call \`const fn\`` error.
 
 ## 5. F3 — Named-Const Static Lowering Drops A Value Without A Diagnostic
 
@@ -853,11 +876,10 @@ batch:
    both have straightforward static representations. That is a design decision
    about the language's surface, not a correctness question — publishing zero
    was wrong in every case, and no longer happens for any of them.
-2. **F2 as its own batch.** Either implement the declaration pass or correct both
-   documents. This changes which programs are accepted, so it needs its own
-   validation sweep across `lib/std`, `examples/`, and the driver const suites —
-   any existing `const fn` that is not genuinely const-capable will begin
-   failing, and that is the point.
+2. ~~**F2 as its own batch.**~~ **Done in the executable-query batch** (§4.6).
+   The existing declaration pass is now shared by ordinary and entry/executable
+   checks, while exact diagnostics from overlapping reachable work are merged
+   only once.
 3. **F4 last, and only if wanted.** It is not the smallest item, contrary to an
    earlier revision of this section: it needs a new const evaluator, its
    capability admission, and only then the declaration change (§6.5). It depends
