@@ -181,6 +181,89 @@ fn validates_function_return_runtime_layout_before_llvm() {
 }
 
 #[test]
+fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let foreign_module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id: foreign_module_id,
+            def_id: DefId(0),
+        },
+        name: sym("foreign_owner"),
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Integer("0".to_string()),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "function definition"
+    ));
+    assert!(output.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("does not belong to its backend module")
+    }));
+}
+
+#[test]
 fn validates_static_array_initializer_length_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
@@ -2998,9 +3081,10 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_field_access_with_mismatched_base_struct() {
+fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
+    let foreign_module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -3008,17 +3092,13 @@ fn rejects_field_access_with_mismatched_base_struct() {
         module_id,
         def_id: DefId(0),
     };
-    let other_id = GlobalDefId {
-        module_id,
-        def_id: DefId(1),
-    };
-    let point_x = GlobalDefId {
+    let layout_field = GlobalDefId {
         module_id,
         def_id: DefId(2),
     };
-    let other_y = GlobalDefId {
-        module_id,
-        def_id: DefId(3),
+    let foreign_field = GlobalDefId {
+        module_id: foreign_module_id,
+        def_id: layout_field.def_id,
     };
     let point_ty = interner.intern(TyKind::Nominal {
         def_id: point_id,
@@ -3044,7 +3124,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                     ty: point_ty,
                     kind: TypedExprKind::Local(LocalId(0)),
                 }),
-                field: other_y,
+                field: foreign_field,
             },
         })),
         ty: i32_ty,
@@ -3065,63 +3145,35 @@ fn rejects_field_access_with_mismatched_base_struct() {
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
-                structs: vec![
-                    (
-                        point_id,
-                        StructLayout {
+                structs: vec![(
+                    point_id,
+                    StructLayout {
+                        layout: TypeLayout { size: 4, align: 4 },
+                        fields: vec![FieldLayout {
+                            def_id: layout_field.def_id,
+                            offset: 0,
                             layout: TypeLayout { size: 4, align: 4 },
-                            fields: vec![FieldLayout {
-                                def_id: point_x.def_id,
-                                offset: 0,
-                                layout: TypeLayout { size: 4, align: 4 },
-                            }],
-                        },
-                    ),
-                    (
-                        other_id,
-                        StructLayout {
-                            layout: TypeLayout { size: 4, align: 4 },
-                            fields: vec![FieldLayout {
-                                def_id: other_y.def_id,
-                                offset: 0,
-                                layout: TypeLayout { size: 4, align: 4 },
-                            }],
-                        },
-                    ),
-                ],
+                        }],
+                    },
+                )],
                 struct_instances: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
                 union_instances: Vec::new(),
             },
-            structs: vec![
-                BackendStruct {
-                    def_id: point_id,
-                    name: sym("Point"),
-                    generics: Vec::new(),
-                    fields: vec![BackendField {
-                        def_id: point_x,
-                        name: sym("x"),
-                        ty: i32_ty,
-                        span: Span::default(),
-                    }],
-                    is_extern: false,
+            structs: vec![BackendStruct {
+                def_id: point_id,
+                name: sym("Point"),
+                generics: Vec::new(),
+                fields: vec![BackendField {
+                    def_id: foreign_field,
+                    name: sym("x"),
+                    ty: i32_ty,
                     span: Span::default(),
-                },
-                BackendStruct {
-                    def_id: other_id,
-                    name: sym("Other"),
-                    generics: Vec::new(),
-                    fields: vec![BackendField {
-                        def_id: other_y,
-                        name: sym("y"),
-                        ty: i32_ty,
-                        span: Span::default(),
-                    }],
-                    is_extern: false,
-                    span: Span::default(),
-                },
-            ],
+                }],
+                is_extern: false,
+                span: Span::default(),
+            }],
             struct_instances: Vec::new(),
             unions: Vec::new(),
             union_instances: Vec::new(),
@@ -3159,7 +3211,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
         has_internal_diagnostic(
             &output.diagnostics,
             codes::INVALID_BACKEND_IR,
-            "field expression references missing field"
+            "does not belong to its aggregate module"
         ),
         "{:?}",
         output.diagnostics
@@ -5338,15 +5390,16 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
 }
 
 #[test]
-fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
+fn rejects_enum_variant_with_foreign_owner_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
+    let foreign_module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let missing_variant = GlobalDefId {
-        module_id,
-        def_id: DefId(3),
+    let foreign_variant = GlobalDefId {
+        module_id: foreign_module_id,
+        def_id: DefId(1),
     };
     let span = Span::default();
     let program = BackendProgram {
@@ -5376,10 +5429,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
                 name: sym("Mode"),
                 backing_type: i32_ty,
                 variants: vec![BackendEnumVariant {
-                    def_id: GlobalDefId {
-                        module_id,
-                        def_id: DefId(1),
-                    },
+                    def_id: foreign_variant,
                     name: sym("Known"),
                     value: Some(0),
                     payload: BackendEnumVariantPayload::Unit,
@@ -5421,7 +5471,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
                                 span,
                                 ty: i32_ty,
                                 kind: FunctionExprKind::EnumVariant {
-                                    variant: missing_variant,
+                                    variant: foreign_variant,
                                     fields: Vec::new(),
                                 },
                             }),
@@ -5446,9 +5496,13 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
 
     assert!(output.modules.is_empty());
     assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("expression references missing enum variant")),
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("enum variant")
+                && diagnostic
+                    .summary
+                    .contains("does not belong to its enum module")),
         "{:?}",
         output.diagnostics
     );

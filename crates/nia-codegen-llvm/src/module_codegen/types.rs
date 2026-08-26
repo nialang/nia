@@ -778,7 +778,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .fields
                 .iter()
                 .filter(|field| field.layout.size != 0)
-                .position(|candidate| candidate.def_id == field.def_id)
+                .position(|candidate| layout_field_matches(def_id, candidate.def_id, &field))
             {
                 return u32::try_from(index)
                     .map_err(|_| self.error(span, "aggregate field index is too large for LLVM"));
@@ -799,7 +799,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 layout
                     .fields
                     .iter()
-                    .find(|candidate| candidate.def_id == field.def_id)
+                    .find(|candidate| layout_field_matches(def_id, candidate.def_id, &field))
                     .map(|field| field.offset)
             })
     }
@@ -1364,6 +1364,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 }
 
+/// Layout products store field slots with a module-local [`DefId`]. Reattach
+/// the aggregate owner before comparing that slot with a program-wide field
+/// identity so equal local numbers from different modules cannot alias.
+fn layout_field_matches(
+    aggregate: GlobalDefId,
+    local_field: nia_ids::DefId,
+    requested: &GlobalDefId,
+) -> bool {
+    requested.module_id == aggregate.module_id && requested.def_id == local_field
+}
+
 impl TypeEquivalence for ModuleCodegen<'_, '_> {
     fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.ty_kind(ty)
@@ -1375,5 +1386,40 @@ impl TypeEquivalence for ModuleCodegen<'_, '_> {
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         self.same_type(left, right)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::layout_field_matches;
+    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+
+    #[test]
+    fn layout_field_matching_requires_the_aggregate_module_owner() {
+        let mut modules = ModuleIdAllocator::new();
+        let aggregate_module = modules.allocate();
+        let foreign_module = modules.allocate();
+        let aggregate = GlobalDefId {
+            module_id: aggregate_module,
+            def_id: DefId(10),
+        };
+        let local_field = DefId(3);
+
+        assert!(layout_field_matches(
+            aggregate,
+            local_field,
+            &GlobalDefId {
+                module_id: aggregate_module,
+                def_id: local_field,
+            }
+        ));
+        assert!(!layout_field_matches(
+            aggregate,
+            local_field,
+            &GlobalDefId {
+                module_id: foreign_module,
+                def_id: local_field,
+            }
+        ));
     }
 }
