@@ -393,6 +393,13 @@ impl BackendValidator<'_> {
             function.def_id
         ));
         self.current_closure_owner = Some(BackendClosureEntryOwner::Source(function.def_id));
+        self.validate_function_declaration_contract(
+            &function.params,
+            function.is_extern,
+            function.is_variadic,
+            function.function_body.is_some(),
+            function.span,
+        );
         self.validate_function_signature(&function.params, function.return_type, function.span);
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
@@ -424,6 +431,13 @@ impl BackendValidator<'_> {
                 const_args: function.const_args.clone(),
             },
         ));
+        self.validate_function_declaration_contract(
+            &function.params,
+            function.is_extern,
+            function.is_variadic,
+            function.function_body.is_some(),
+            function.span,
+        );
         self.validate_function_signature(&function.params, function.return_type, function.span);
         if body && let Some(body) = &function.function_body {
             self.validate_function_param_locals(&function.params, body);
@@ -624,6 +638,36 @@ impl BackendValidator<'_> {
             self.current_subject = Some("param local_ty");
             self.validate_runtime_type(param.local_ty, param.span);
             self.current_subject = None;
+        }
+    }
+
+    fn validate_function_declaration_contract(
+        &mut self,
+        params: &[BackendParam],
+        is_extern: bool,
+        is_variadic: bool,
+        has_body: bool,
+        span: nia_span::Span,
+    ) {
+        // Variadic functions are a foreign-ABI declaration feature. Recheck
+        // the source-level declaration invariants here so malformed Backend
+        // IR cannot reach LLVM's variadic function type construction.
+        if !is_extern || !is_variadic {
+            return;
+        }
+        if params.is_empty() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "extern variadic function requires at least one fixed parameter",
+            ));
+        }
+        if has_body {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "extern variadic function definition is not supported",
+            ));
         }
     }
 
