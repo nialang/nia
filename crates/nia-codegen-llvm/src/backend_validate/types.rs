@@ -510,7 +510,7 @@ impl BackendValidator<'_> {
                         })
                 }
             }
-            TyKind::BuiltinTrait { .. } => Some(TypeLayout { size: 0, align: 1 }),
+            TyKind::BuiltinTrait { .. } => None,
             TyKind::ConstOnly
             | TyKind::BuiltinType(_)
             | TyKind::Projection { .. }

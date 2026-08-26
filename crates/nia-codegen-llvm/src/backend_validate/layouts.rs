@@ -17,6 +17,7 @@ enum LayoutRecompute {
         source: LayoutSource,
     },
     Unavailable,
+    Forbidden,
     Invalid,
 }
 
@@ -50,8 +51,17 @@ impl BackendValidator<'_> {
                 source,
             } = expected
             else {
-                if matches!(expected, LayoutRecompute::Invalid) {
-                    self.invalid_type_layout(*ty, "type and target cannot produce a valid layout");
+                match expected {
+                    LayoutRecompute::Forbidden => {
+                        self.invalid_type_layout(*ty, "type cannot publish an ABI layout");
+                    }
+                    LayoutRecompute::Invalid => {
+                        self.invalid_type_layout(
+                            *ty,
+                            "type and target cannot produce a valid layout",
+                        );
+                    }
+                    LayoutRecompute::Unavailable | LayoutRecompute::Expected { .. } => {}
                 }
                 continue;
             };
@@ -177,6 +187,16 @@ impl BackendValidator<'_> {
                     source: LayoutSource::Nominal,
                 };
             }
+            TyKind::Opaque
+            | TyKind::SlicePointee { .. }
+            | TyKind::TraitObjectPointee { .. }
+            | TyKind::CallablePointee { .. }
+            | TyKind::BuiltinType(_)
+            | TyKind::BuiltinTrait { .. }
+            | TyKind::GenericParam(_)
+            | TyKind::SelfParam
+            | TyKind::ConstOnly
+            | TyKind::Error => return LayoutRecompute::Forbidden,
             _ => return LayoutRecompute::Unavailable,
         };
         expected
