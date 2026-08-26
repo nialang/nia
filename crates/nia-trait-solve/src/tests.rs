@@ -114,6 +114,7 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
     }];
     let impl_index = ProgramTraitImplIndex::new(&trait_impls);
     let layouts = nia_layout::Layouts {
+        module_id,
         target: nia_layout::TargetDataLayout::LP64,
         types: HashMap::from([(layout_ty, nia_layout::TypeLayout { size: 8, align: 4 })]),
         structs: HashMap::new(),
@@ -190,6 +191,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
         }],
     });
     let layouts = nia_layout::Layouts {
+        module_id,
         target: nia_layout::TargetDataLayout::LP64,
         types: HashMap::from([(layout_key, nia_layout::TypeLayout { size: 24, align: 8 })]),
         structs: HashMap::new(),
