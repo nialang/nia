@@ -567,6 +567,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
     let u8_ty = interner.primitive(PrimitiveTy::U8);
     let i16_ty = interner.primitive(PrimitiveTy::I16);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let tuple_ty = interner.intern(TyKind::Tuple(vec![i16_ty, i32_ty]));
     let generic_ty = interner.intern(TyKind::GenericParam(sym("T")));
     let span = Span::default();
     let enum_id = GlobalDefId {
@@ -618,6 +619,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                     (u8_ty, TypeLayout { size: 8, align: 8 }),
                     (i16_ty, TypeLayout { size: 2, align: 2 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (tuple_ty, TypeLayout { size: 4, align: 4 }),
                 ],
                 structs: vec![(
                     struct_id,
@@ -859,6 +861,11 @@ fn rejects_malformed_layout_contracts_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "layout does not match its type and target"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "structural layout does not match its component types and target"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,

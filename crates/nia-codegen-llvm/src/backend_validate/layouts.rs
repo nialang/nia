@@ -11,6 +11,15 @@ use nia_ty::TyKind;
 
 use super::BackendValidator;
 
+enum LayoutRecompute {
+    Expected {
+        layout: TypeLayout,
+        structural: bool,
+    },
+    Unavailable,
+    Invalid,
+}
+
 impl BackendValidator<'_> {
     pub(super) fn validate_type_layout_products(&mut self, module: &BackendModule) {
         let mut seen = HashMap::new();
@@ -24,36 +33,137 @@ impl BackendValidator<'_> {
             if !valid_type_layout(layout) {
                 self.invalid_type_layout(*ty, "size and alignment are not a valid ABI layout");
             }
-            let Some(kind) = self.ty_kind(*ty) else {
+            let Some(kind) = self.ty_kind(*ty).cloned() else {
                 self.invalid_type_layout(*ty, "type belongs to a different compilation session");
                 continue;
             };
-            let expected = match kind {
-                TyKind::Primitive(primitive) => {
-                    Some(nia_layout::primitive_layout(*primitive, self.target))
+            let expected = self.recompute_published_type_layout(&kind);
+            let LayoutRecompute::Expected {
+                layout: expected,
+                structural,
+            } = expected
+            else {
+                if matches!(expected, LayoutRecompute::Invalid) {
+                    self.invalid_type_layout(*ty, "type and target cannot produce a valid layout");
                 }
-                TyKind::Vector { elem, lanes } => {
-                    nia_layout::vector_layout(*elem, *lanes, self.target)
-                }
-                TyKind::Pointer { .. }
-                | TyKind::VolatilePointer { .. }
-                | TyKind::FunctionPointer { .. } => Some(TypeLayout {
-                    size: self.target.pointer_size,
-                    align: self.target.pointer_align,
-                }),
-                TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. } => {
-                    nia_layout::fat_pointer_layout(self.target)
-                }
-                _ => continue,
-            };
-            let Some(expected) = expected else {
-                self.invalid_type_layout(*ty, "target layout arithmetic overflowed");
                 continue;
             };
             if *layout != expected {
-                self.invalid_type_layout(*ty, "layout does not match its type and target");
+                let message = if structural {
+                    "structural layout does not match its component types and target"
+                } else {
+                    "layout does not match its type and target"
+                };
+                self.invalid_type_layout(*ty, message);
             }
         }
+    }
+
+    fn recompute_published_type_layout(&self, kind: &TyKind) -> LayoutRecompute {
+        let expected = match kind {
+            TyKind::Primitive(primitive) => {
+                Some(nia_layout::primitive_layout(*primitive, self.target))
+            }
+            TyKind::Vector { elem, lanes } => nia_layout::vector_layout(*elem, *lanes, self.target),
+            TyKind::Pointer { .. }
+            | TyKind::VolatilePointer { .. }
+            | TyKind::FunctionPointer { .. } => Some(TypeLayout {
+                size: self.target.pointer_size,
+                align: self.target.pointer_align,
+            }),
+            TyKind::Slice { .. } | TyKind::TraitObject { .. } | TyKind::Callable { .. } => {
+                nia_layout::fat_pointer_layout(self.target)
+            }
+            TyKind::Tuple(fields) => {
+                let Some(layouts) = self.component_layouts(fields) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                return nia_layout::sequential_layout(&layouts)
+                    .map(|layout| LayoutRecompute::Expected {
+                        layout,
+                        structural: true,
+                    })
+                    .unwrap_or(LayoutRecompute::Invalid);
+            }
+            TyKind::ClosureState { captures, .. } => {
+                let Some(layouts) = self.component_layouts(captures) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                return nia_layout::sequential_layout(&layouts)
+                    .map(|layout| LayoutRecompute::Expected {
+                        layout,
+                        structural: true,
+                    })
+                    .unwrap_or(LayoutRecompute::Invalid);
+            }
+            TyKind::Array { len, elem } => {
+                let Some(len) = self.array_len_value(len) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                let Some(elem) = self.layout_of(*elem) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                return nia_layout::array_layout(&elem, len)
+                    .map(|layout| LayoutRecompute::Expected {
+                        layout,
+                        structural: true,
+                    })
+                    .unwrap_or(LayoutRecompute::Invalid);
+            }
+            TyKind::Range { kind, bound } => {
+                let bound = match bound {
+                    Some(bound) => {
+                        let Some(layout) = self.layout_of(*bound) else {
+                            return LayoutRecompute::Unavailable;
+                        };
+                        Some(layout)
+                    }
+                    None => None,
+                };
+                return nia_layout::range_layout(*kind, bound.as_ref())
+                    .map(|layout| LayoutRecompute::Expected {
+                        layout,
+                        structural: true,
+                    })
+                    .unwrap_or(LayoutRecompute::Invalid);
+            }
+            TyKind::Optional { elem } => {
+                let Some(elem) = self.layout_of(*elem) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                return nia_layout::tagged_union_layout(&[elem])
+                    .map(|layout| LayoutRecompute::Expected {
+                        layout,
+                        structural: true,
+                    })
+                    .unwrap_or(LayoutRecompute::Invalid);
+            }
+            TyKind::ErrorUnion { error, value } => {
+                let Some(error) = self.layout_of(*error) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                let Some(value) = self.layout_of(*value) else {
+                    return LayoutRecompute::Unavailable;
+                };
+                return nia_layout::tagged_union_layout(&[error, value])
+                    .map(|layout| LayoutRecompute::Expected {
+                        layout,
+                        structural: true,
+                    })
+                    .unwrap_or(LayoutRecompute::Invalid);
+            }
+            _ => return LayoutRecompute::Unavailable,
+        };
+        expected
+            .map(|layout| LayoutRecompute::Expected {
+                layout,
+                structural: false,
+            })
+            .unwrap_or(LayoutRecompute::Invalid)
+    }
+
+    fn component_layouts(&self, fields: &[InternedTyId]) -> Option<Vec<TypeLayout>> {
+        fields.iter().map(|field| self.layout_of(*field)).collect()
     }
 
     pub(super) fn validate_aggregate_layout_products(&mut self, module: &BackendModule) {
