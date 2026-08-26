@@ -3188,6 +3188,16 @@ acceptance item only when its phase-wide evidence is complete.
       attributes from being attached to declarations or normal Nia functions.
       A malformed non-extern declaration regression proves the attribute is
       diagnosed before LLVM module construction.
+- [x] Batch 541 independently reproduces the source C ABI type contract at
+      the Backend IR boundary. Extern function parameters/returns, globals,
+      extern struct fields, nested function-pointer signatures, and materialized
+      extern aggregate instances now reject Nia-only representations such as
+      `bool`, tuples, optionals, variadic function pointers, and `char` before
+      LLVM function or global types are constructed. Exact and canonically
+      equivalent generic instance keys share the same field walk. Pointer forms remain
+      opaque to this by-value classifier, preserving valid `&opaque` and other
+      C pointer declarations; malformed extern declarations are covered by a
+      pre-LLVM regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

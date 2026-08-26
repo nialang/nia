@@ -26,7 +26,7 @@ use nia_mangle::{
     MangleModuleId, mangle_base_symbol_id, mangle_closure_entry_symbol, mangle_symbol_id,
 };
 use nia_symbol::SymbolId;
-use nia_ty::{ConstGenericArg, TyKind};
+use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind};
 
 #[derive(Clone, Copy)]
 struct FunctionInstanceRef<'a> {
@@ -38,6 +38,33 @@ struct FunctionInstanceRef<'a> {
 }
 type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<InternedTyId>>>>;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExternAbiTypeContext {
+    StructField,
+    FunctionParameter,
+    FunctionReturn,
+    FunctionPointerParameter,
+    FunctionPointerReturn,
+    Global,
+}
+
+impl ExternAbiTypeContext {
+    fn description(self) -> &'static str {
+        match self {
+            Self::StructField => "extern struct field",
+            Self::FunctionParameter => "extern parameter",
+            Self::FunctionReturn => "extern return type",
+            Self::FunctionPointerParameter => "extern function pointer parameter",
+            Self::FunctionPointerReturn => "extern function pointer return type",
+            Self::Global => "extern global",
+        }
+    }
+
+    fn permits_unit(self) -> bool {
+        matches!(self, Self::FunctionReturn | Self::FunctionPointerReturn)
+    }
+}
 
 pub(super) fn backend_symbol_debug_name(name: SymbolId) -> String {
     mangle_symbol_id(name)
@@ -399,6 +426,13 @@ impl BackendValidator<'_> {
             function.function_body.is_some(),
             function.span,
         );
+        if function.is_extern {
+            self.validate_extern_function_abi(
+                &function.params,
+                function.return_type,
+                function.span,
+            );
+        }
         self.validate_function_declaration_contract(
             &function.params,
             function.is_extern,
@@ -443,6 +477,13 @@ impl BackendValidator<'_> {
             function.function_body.is_some(),
             function.span,
         );
+        if function.is_extern {
+            self.validate_extern_function_abi(
+                &function.params,
+                function.return_type,
+                function.span,
+            );
+        }
         self.validate_function_declaration_contract(
             &function.params,
             function.is_extern,
@@ -702,9 +743,317 @@ impl BackendValidator<'_> {
         }
     }
 
+    fn validate_extern_function_abi(
+        &mut self,
+        params: &[BackendParam],
+        return_type: InternedTyId,
+        span: nia_span::Span,
+    ) {
+        for param in params {
+            self.validate_extern_abi_type(
+                param.passing_ty,
+                ExternAbiTypeContext::FunctionParameter,
+                param.span,
+                &mut Vec::new(),
+            );
+        }
+        self.validate_extern_abi_type(
+            return_type,
+            ExternAbiTypeContext::FunctionReturn,
+            span,
+            &mut Vec::new(),
+        );
+    }
+
+    fn validate_extern_abi_type(
+        &mut self,
+        ty: InternedTyId,
+        context: ExternAbiTypeContext,
+        span: nia_span::Span,
+        nominal_stack: &mut Vec<GlobalDefId>,
+    ) {
+        let description = context.description();
+        let Some(kind) = self.ty_kind(ty).cloned() else {
+            self.extern_abi_error(
+                span,
+                format!("{description} type is missing from the type store"),
+            );
+            return;
+        };
+        if context.permits_unit() && kind.is_unit() {
+            return;
+        }
+        match kind {
+            TyKind::Primitive(PrimitiveTy::Bool) => {
+                self.extern_abi_error(span, format!("{description} cannot use `bool` directly"));
+            }
+            TyKind::Primitive(PrimitiveTy::Char) => {
+                self.extern_abi_error(span, format!("{description} cannot use `char` directly"));
+            }
+            TyKind::Primitive(PrimitiveTy::Never) => {
+                self.extern_abi_error(span, format!("{description} cannot use `never` directly"));
+            }
+            TyKind::Primitive(_) | TyKind::Pointer { .. } | TyKind::VolatilePointer { .. } => {}
+            TyKind::Opaque => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use incomplete `opaque` directly"),
+                );
+            }
+            TyKind::Tuple(_) => {
+                self.extern_abi_error(span, format!("{description} cannot use tuple by value"));
+            }
+            TyKind::Vector { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use SIMD vector by value"),
+                );
+            }
+            TyKind::Slice { .. } => {
+                self.extern_abi_error(span, format!("{description} cannot use nia slice directly"));
+            }
+            TyKind::SlicePointee { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use unsized slice pointee directly"),
+                );
+            }
+            TyKind::TraitObject { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use nia trait object directly"),
+                );
+            }
+            TyKind::TraitObjectPointee { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use unsized trait object pointee directly"),
+                );
+            }
+            TyKind::Callable { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use nia callable view directly"),
+                );
+            }
+            TyKind::CallablePointee { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use unsized callable interface directly"),
+                );
+            }
+            TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            } => {
+                if is_variadic {
+                    self.extern_abi_error(
+                        span,
+                        format!("{description} cannot use variadic function pointer"),
+                    );
+                }
+                for param in params {
+                    self.validate_extern_abi_type(
+                        param,
+                        ExternAbiTypeContext::FunctionPointerParameter,
+                        span,
+                        nominal_stack,
+                    );
+                }
+                self.validate_extern_abi_type(
+                    return_type,
+                    ExternAbiTypeContext::FunctionPointerReturn,
+                    span,
+                    nominal_stack,
+                );
+            }
+            TyKind::Array { len, elem } => {
+                if context != ExternAbiTypeContext::StructField {
+                    self.extern_abi_error(span, format!("{description} cannot use array by value"));
+                } else {
+                    if matches!(len, ArrayLenTy::Infer) {
+                        self.extern_abi_error(
+                            span,
+                            "extern struct field cannot use inferred array length",
+                        );
+                    }
+                    self.validate_extern_abi_type(
+                        elem,
+                        ExternAbiTypeContext::StructField,
+                        span,
+                        nominal_stack,
+                    );
+                }
+            }
+            TyKind::Range { .. } => {
+                self.extern_abi_error(span, format!("{description} cannot use range by value"));
+            }
+            TyKind::Optional { .. } => {
+                self.extern_abi_error(span, format!("{description} cannot use optional by value"));
+            }
+            TyKind::ErrorUnion { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use error union by value"),
+                );
+            }
+            TyKind::ClosureState { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use closure state directly"),
+                );
+            }
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => self.validate_extern_nominal_abi(
+                def_id,
+                &args,
+                &const_args,
+                context,
+                span,
+                nominal_stack,
+            ),
+            TyKind::BuiltinTrait { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use trait type directly"),
+                );
+            }
+            TyKind::BuiltinType(builtin) => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use builtin type `{builtin:?}` directly"),
+                );
+            }
+            TyKind::GenericParam(_) | TyKind::SelfParam => {
+                self.extern_abi_error(span, format!("{description} cannot use generic parameter"));
+            }
+            TyKind::Projection { .. } => {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} cannot use unresolved associated type projection"),
+                );
+            }
+            TyKind::ConstOnly => {
+                self.extern_abi_error(span, format!("{description} cannot use const-only value"));
+            }
+            TyKind::Error => {}
+        }
+    }
+
+    fn validate_extern_nominal_abi(
+        &mut self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+        context: ExternAbiTypeContext,
+        span: nia_span::Span,
+        nominal_stack: &mut Vec<GlobalDefId>,
+    ) {
+        let description = context.description();
+        if nominal_stack.contains(&def_id) {
+            self.extern_abi_error(
+                span,
+                format!("recursive nominal type cannot be used as {description}"),
+            );
+            return;
+        }
+        if self.index.enum_item(def_id).is_some() {
+            self.extern_abi_error(
+                span,
+                format!("{description} cannot use enum directly; use its backing integer type"),
+            );
+            return;
+        }
+        if self.index.union_item(def_id).is_some() {
+            self.extern_abi_error(span, format!("{description} cannot use union by value"));
+            return;
+        }
+        let instance = self
+            .index
+            .struct_instance(def_id, args, const_args)
+            .or_else(|| {
+                self.index.struct_instances_for(def_id).find(|instance| {
+                    self.same_type_args(&instance.args, args)
+                        && self.same_const_args(&instance.const_args, const_args)
+                })
+            });
+        let (is_extern, fields) = if let Some(instance) = instance {
+            (instance.is_extern, Some(instance.fields.clone()))
+        } else if args.is_empty() && const_args.is_empty() {
+            let Some(item) = self.index.struct_item(def_id) else {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} nominal type has no ABI classification"),
+                );
+                return;
+            };
+            (item.is_extern, Some(item.fields.clone()))
+        } else {
+            let Some(item) = self.index.struct_item(def_id) else {
+                self.extern_abi_error(
+                    span,
+                    format!("{description} nominal type has no ABI classification"),
+                );
+                return;
+            };
+            (item.is_extern, None)
+        };
+        if !is_extern {
+            self.extern_abi_error(
+                span,
+                format!("{description} cannot use normal Nia struct by value"),
+            );
+            return;
+        }
+        let Some(fields) = fields else {
+            self.extern_abi_error(
+                span,
+                format!("{description} nominal type has no materialized ABI fields"),
+            );
+            return;
+        };
+        if fields.is_empty() {
+            self.extern_abi_error(
+                span,
+                format!("{description} cannot use empty struct by value"),
+            );
+            return;
+        }
+        nominal_stack.push(def_id);
+        for field in &fields {
+            self.validate_extern_abi_type(
+                field.ty,
+                ExternAbiTypeContext::StructField,
+                field.span,
+                nominal_stack,
+            );
+        }
+        nominal_stack.pop();
+    }
+
+    fn extern_abi_error(&mut self, span: nia_span::Span, message: impl Into<String>) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            message,
+        ));
+    }
+
     fn validate_global(&mut self, global: &BackendGlobal, init: bool) {
         self.current_item = Some(format!("global {}", backend_symbol_debug_name(global.name)));
         self.validate_runtime_type(global.ty, global.span);
+        if global.is_extern {
+            self.validate_extern_abi_type(
+                global.ty,
+                ExternAbiTypeContext::Global,
+                global.span,
+                &mut Vec::new(),
+            );
+        }
         if init && let Some(value) = &global.init {
             self.validate_static_init(global.ty, value, global.span);
         }
@@ -726,6 +1075,9 @@ impl BackendValidator<'_> {
 
     fn validate_struct(&mut self, item: &BackendStruct) {
         self.validate_field_owners(item.def_id.module_id, &item.fields);
+        if item.is_extern {
+            self.validate_extern_struct_fields(&item.fields);
+        }
         if item.generics.is_empty() {
             self.current_item = Some(format!("struct {}", backend_symbol_debug_name(item.name)));
             self.validate_fields(&item.fields);
@@ -786,6 +1138,9 @@ impl BackendValidator<'_> {
         ));
         self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
+        if item.is_extern {
+            self.validate_extern_struct_fields(&item.fields);
+        }
         self.current_item = None;
     }
 
@@ -812,6 +1167,17 @@ impl BackendValidator<'_> {
     fn validate_fields(&mut self, fields: &[nia_backend_ir::BackendField]) {
         for field in fields {
             self.validate_runtime_type(field.ty, field.span);
+        }
+    }
+
+    fn validate_extern_struct_fields(&mut self, fields: &[nia_backend_ir::BackendField]) {
+        for field in fields {
+            self.validate_extern_abi_type(
+                field.ty,
+                ExternAbiTypeContext::StructField,
+                field.span,
+                &mut Vec::new(),
+            );
         }
     }
 
