@@ -1918,11 +1918,14 @@ constants use their defining const item. Repeated runtime uses therefore share
 one allocation, and equal contents from distinct definitions do not imply
 pointer equality. Imported generic `const fn` calls preserve that provenance
 when pointer-bearing union values cross arguments and returns; generic
-instantiation does not create a new allocation identity. A `static` address is
-distinct from promoted readonly const storage even when both allocations have
-the same contents and defining module. Other unsupported field kinds are still
-rejected in a `const fn` declaration. Ordinary runtime unions retain the full
-semantics described in section 4.7.
+instantiation does not create a new allocation identity for provenance carried
+into or returned unchanged from the call. A promotion whose source expression
+is itself inside a generic function template is instead owned by the concrete
+function instance, because substitution may change its pointee type or
+initializer. A `static` address is distinct from promoted readonly const
+storage even when both allocations have the same contents and defining module.
+Other unsupported field kinds are still rejected in a `const fn` declaration.
+Ordinary runtime unions retain the full semantics described in section 4.7.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.

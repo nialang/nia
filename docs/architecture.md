@@ -1497,6 +1497,12 @@ LLVM materializes a supported relocation target as a readonly link-once global.
 The symbol derives from the origin module's normalized source identity and
 origin span, so all uses and codegen partitions name the same allocation while
 distinct source allocations remain distinct even when their contents match.
+When that origin lies inside a monomorphized function template, the concrete
+function-instance owner also participates in the registry key and symbol:
+substitution can change the promoted pointee type or initializer even though
+the source span is unchanged. Promotions whose origin is outside the template,
+including imported or passed-in frozen const values, retain the source-only
+identity and are not renamed for each caller instance.
 Function-body references include origin modules as readiness dependencies.
 Runtime union construction skips relocation placeholder bytes and stores the
 promoted global address into each relocation range. The module registry rejects

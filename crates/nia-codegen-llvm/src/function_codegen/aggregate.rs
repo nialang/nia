@@ -313,6 +313,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let pointee = &relocation.pointee;
         let value = self.emit_promoted_const_value(pointee)?;
         self.module.materialize_promoted_allocation(
+            &self.function.closure_owner,
             relocation.allocation,
             pointee.ty,
             value.into_initializer(),
@@ -337,6 +338,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         let value = self.emit_promoted_const_value(array)?;
         self.module.materialize_promoted_allocation(
+            &self.function.closure_owner,
             allocation,
             array.ty,
             value.into_initializer(),

@@ -130,6 +130,176 @@ fn emits_function_body_from_function_ir_when_available() {
 }
 
 #[test]
+fn scopes_template_local_promotions_to_function_instances() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let array_ty = interner.intern(TyKind::Array {
+        len: nia_ty::ArrayLenTy::ConstValue(1),
+        elem: usize_ty,
+    });
+    let pointer_ty = interner.intern(TyKind::Pointer {
+        is_readonly: true,
+        elem: array_ty,
+    });
+    let function_span = Span::new(1, 100);
+    let allocation_span = Span::new(40, 50);
+    let def_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let name = sym("promoted");
+    let module_mangle = nia_mangle::MangleModuleId::from_normalized_source_path("main");
+    let const_arg = |value: u128| ConstGenericArg {
+        ty: usize_ty,
+        value: ConstGenericValue::Int(IntConst::unsigned(value)),
+    };
+    let instance_symbol = |arg: &ConstGenericArg| {
+        let symbol = nia_mangle::mangle_instance_symbol_id(
+            def_id,
+            name,
+            &[],
+            std::slice::from_ref(arg),
+            &type_store,
+            nia_mangle::MangleResolvers::new(
+                |_| module_mangle,
+                |_| "missing".to_string(),
+                |_| None,
+            ),
+        );
+        format!("{symbol}__ctx_s{:016x}", stable_hash("main"))
+    };
+    let body = |value: u128| FunctionBody {
+        span: function_span,
+        locals: Vec::new(),
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span: function_span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span: function_span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span: allocation_span,
+                    ty: pointer_ty,
+                    kind: FunctionExprKind::StaticArrayPointer {
+                        allocation: nia_function_ir::PromotedAllocationId::new(
+                            module_id,
+                            allocation_span,
+                        ),
+                        array: Box::new(FunctionExpr {
+                            span: allocation_span,
+                            ty: array_ty,
+                            kind: FunctionExprKind::ArrayLiteral {
+                                elems: FunctionArrayElements::List(vec![FunctionExpr {
+                                    span: allocation_span,
+                                    ty: usize_ty,
+                                    kind: FunctionExprKind::Integer(value.to_string()),
+                                }]),
+                            },
+                        }),
+                        is_readonly: true,
+                    },
+                }),
+                span: function_span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty: pointer_ty,
+    };
+    let instance = |value: u128| {
+        let arg = const_arg(value);
+        BackendFunctionInstance {
+            def_id,
+            name,
+            arg_module_id: module_id,
+            self_arg: None,
+            args: Vec::new(),
+            const_args: vec![arg.clone()],
+            symbol: instance_symbol(&arg),
+            params: Vec::new(),
+            return_type: pointer_ty,
+            is_extern: false,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: Some(body(value)),
+            span: function_span,
+        }
+    };
+    let program = BackendProgram::new(vec![BackendModule {
+        id: module_id,
+        source_identity: nia_source::SourceIdentity::new("main"),
+        name: "main".to_string(),
+        const_eval: BackendConstFacts::default(),
+        layouts: BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (usize_ty, TypeLayout { size: 8, align: 8 }),
+                (array_ty, TypeLayout { size: 8, align: 8 }),
+                (pointer_ty, TypeLayout { size: 8, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        structs: Vec::new(),
+        struct_instances: Vec::new(),
+        unions: Vec::new(),
+        union_instances: Vec::new(),
+        enums: Vec::new(),
+        globals: Vec::new(),
+        global_instances: Vec::new(),
+        functions: vec![BackendFunction {
+            def_id,
+            name,
+            link_name: None,
+            generics: vec![sym("N")],
+            params: Vec::new(),
+            return_type: pointer_ty,
+            is_extern: false,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: None,
+            span: function_span,
+        }],
+        function_instances: vec![instance(1), instance(2)],
+        closure_entries: Vec::new(),
+        trait_object_vtables: Vec::new(),
+        generic_instantiations: Vec::new(),
+    }]);
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_eq!(
+        ir.matches("linkonce_odr constant [1 x i64]").count(),
+        2,
+        "{ir}"
+    );
+    assert_eq!(ir.matches("__o").count(), 4, "{ir}");
+    assert!(
+        ir.contains("linkonce_odr constant [1 x i64] [i64 1]"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("linkonce_odr constant [1 x i64] [i64 2]"),
+        "{ir}"
+    );
+}
+
+#[test]
 fn validates_function_return_runtime_layout_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
