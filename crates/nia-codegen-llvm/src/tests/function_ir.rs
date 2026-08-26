@@ -467,7 +467,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         def_id,
         name: sym("template"),
         link_name: None,
-        generics: vec![sym("T")],
+        generics: vec![sym("T"), sym("U")],
         params: vec![param.clone()],
         return_type: i32_ty,
         is_extern: false,
@@ -533,6 +533,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
 
     assert!(output.modules.is_empty());
     for expected in [
+        "function instance generic argument arity does not match its source template",
         "function instance name does not match its source template",
         "function instance parameter metadata does not match its source template",
         "function instance extern flag does not match its source template",
@@ -554,6 +555,9 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let foreign_type_store = nia_ty::TypeStore::new();
+    let foreign_interner = foreign_type_store.append_for_module(module_id);
+    let foreign_i32_ty = foreign_interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let struct_id = GlobalDefId {
         module_id,
@@ -589,7 +593,7 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
             struct_instances: vec![nia_backend_ir::BackendStructInstance {
                 def_id: struct_id,
                 name: sym("ForgedStructTemplate"),
-                args: vec![i32_ty],
+                args: vec![foreign_i32_ty],
                 const_args: Vec::new(),
                 symbol: "struct_instance".to_string(),
                 fields: vec![BackendField {
@@ -607,7 +611,7 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
             unions: vec![BackendUnion {
                 def_id: union_id,
                 name: sym("UnionTemplate"),
-                generics: vec![sym("T")],
+                generics: vec![sym("T"), sym("U")],
                 fields: Vec::new(),
                 is_extern: false,
                 span,
@@ -642,15 +646,19 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
         .into(),
     };
 
+    drop(foreign_interner);
+    drop(foreign_type_store);
     drop(interner);
     let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     for expected in [
+        "type belongs to a different compilation session",
         "struct instance extern flag does not match its source template",
         "struct instance name does not match its source template",
         "struct instance field metadata does not match its source template",
         "union instance extern flag does not match its source template",
+        "union instance generic argument arity does not match its source template",
         "union instance name does not match its source template",
         "union instance field metadata does not match its source template",
     ] {

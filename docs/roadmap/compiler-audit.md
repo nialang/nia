@@ -3217,6 +3217,13 @@ acceptance item only when its phase-wide evidence is complete.
       remain validated after substitution by the existing runtime/layout
       checks. Forged function and paired aggregate regressions prove instance
       materialization cannot silently reshape declarations before LLVM.
+- [x] Batch 545 validates every concrete function, struct, and union instance
+      key independently of references and layout publication. Self/type
+      arguments plus const-argument types must belong to the active type-store
+      session, and total type/const arity must match an available source
+      template. Forged function/union arities and a cross-session struct key
+      prove stale or truncated identities stop before fingerprinting or LLVM
+      emission.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
