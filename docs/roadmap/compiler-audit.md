@@ -3148,6 +3148,16 @@ acceptance item only when its phase-wide evidence is complete.
       ordering requirement. The malformed partition regression forges both an
       ordinary struct nominal value and a generic struct-instance nominal value
       and proves neither can override its checked aggregate representation.
+- [x] Batch 536 rejects layout products for descriptor-only and unresolved
+      types. Opaque and unsized pointee descriptors, builtin types/traits,
+      generic and Self parameters, const-only and error types can no longer
+      acquire a forged runtime ABI through `BackendLayouts::types`; projection
+      and nominal alias products remain sparse because normalization context is
+      intentionally outside Backend IR. Validator layout fallback now agrees
+      with layout computation and LLVM lowering that builtin traits have no
+      by-value representation. The malformed partition regression covers both
+      a forged builtin-trait product and an unpublished builtin trait in a
+      runtime return position.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

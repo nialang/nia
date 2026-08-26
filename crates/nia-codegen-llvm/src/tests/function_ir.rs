@@ -568,6 +568,14 @@ fn rejects_malformed_layout_contracts_before_llvm() {
     let i16_ty = interner.primitive(PrimitiveTy::I16);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let tuple_ty = interner.intern(TyKind::Tuple(vec![i16_ty, i32_ty]));
+    let builtin_trait_ty = interner.intern(TyKind::BuiltinTrait {
+        trait_id: BuiltinTrait::Sized,
+        args: Vec::new(),
+    });
+    let unpublished_builtin_trait_ty = interner.intern(TyKind::BuiltinTrait {
+        trait_id: BuiltinTrait::Iterator,
+        args: Vec::new(),
+    });
     let generic_ty = interner.intern(TyKind::GenericParam(sym("T")));
     let span = Span::default();
     let enum_id = GlobalDefId {
@@ -632,6 +640,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                     (tuple_ty, TypeLayout { size: 4, align: 4 }),
                     (struct_ty, TypeLayout { size: 4, align: 4 }),
                     (generic_struct_ty, TypeLayout { size: 8, align: 4 }),
+                    (builtin_trait_ty, TypeLayout { size: 0, align: 1 }),
                 ],
                 structs: vec![(
                     struct_id,
@@ -815,7 +824,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                 link_name: None,
                 generics: Vec::new(),
                 params: Vec::new(),
-                return_type: i32_ty,
+                return_type: unpublished_builtin_trait_ty,
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
@@ -836,14 +845,14 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                         terminator: FunctionTerminator::Tail {
                             value: Some(FunctionExpr {
                                 span,
-                                ty: i32_ty,
+                                ty: unpublished_builtin_trait_ty,
                                 kind: FunctionExprKind::Integer("0".to_string()),
                             }),
                             span,
                         },
                     }],
                     entry: FunctionBlockId(0),
-                    ty: i32_ty,
+                    ty: unpublished_builtin_trait_ty,
                 }),
                 span,
             }],
@@ -889,6 +898,16 @@ fn rejects_malformed_layout_contracts_before_llvm() {
             .count(),
         2
     );
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "type cannot publish an ABI layout"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "has no ABI layout before LLVM codegen"
+    ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
