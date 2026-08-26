@@ -1164,6 +1164,17 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
+        if self
+            .index
+            .struct_item(item.def_id)
+            .is_some_and(|template| template.is_extern != item.is_extern)
+        {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                item.span,
+                "backend IR struct instance extern flag does not match its source template",
+            ));
+        }
         self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
         if item.is_extern {
@@ -1187,6 +1198,17 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
+        if self
+            .index
+            .union_item(item.def_id)
+            .is_some_and(|template| template.is_extern != item.is_extern)
+        {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                item.span,
+                "backend IR union instance extern flag does not match its source template",
+            ));
+        }
         self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
         self.current_item = None;
