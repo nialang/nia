@@ -1319,6 +1319,107 @@ fn rejects_mixed_target_layouts_across_backend_modules() {
 }
 
 #[test]
+fn rejects_generated_llvm_symbol_collisions_before_emission() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let def_id = |index| GlobalDefId {
+        module_id,
+        def_id: DefId(index),
+    };
+    let program = BackendProgram::new(vec![BackendModule {
+        id: module_id,
+        source_identity: nia_source::SourceIdentity::new("main"),
+        name: "main".to_string(),
+        const_eval: BackendConstFacts::default(),
+        layouts: BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        structs: Vec::new(),
+        struct_instances: vec![nia_backend_ir::BackendStructInstance {
+            def_id: def_id(2),
+            name: sym("StructInstance"),
+            args: Vec::new(),
+            const_args: Vec::new(),
+            symbol: "shared_type".to_string(),
+            fields: Vec::new(),
+            is_extern: false,
+            span,
+        }],
+        unions: Vec::new(),
+        union_instances: vec![nia_backend_ir::BackendUnionInstance {
+            def_id: def_id(3),
+            name: sym("UnionInstance"),
+            args: Vec::new(),
+            const_args: Vec::new(),
+            symbol: "shared_type".to_string(),
+            fields: Vec::new(),
+            is_extern: false,
+            span,
+        }],
+        enums: Vec::new(),
+        globals: Vec::new(),
+        global_instances: vec![nia_backend_ir::BackendGlobalInstance {
+            def_id: def_id(1),
+            name: sym("global_instance"),
+            arg_module_id: module_id,
+            args: Vec::new(),
+            const_args: Vec::new(),
+            symbol: "shared_value".to_string(),
+            ty: i32_ty,
+            is_let: true,
+            init: None,
+            span,
+        }],
+        functions: Vec::new(),
+        function_instances: vec![BackendFunctionInstance {
+            def_id: def_id(0),
+            name: sym("function_instance"),
+            arg_module_id: module_id,
+            self_arg: None,
+            args: Vec::new(),
+            const_args: Vec::new(),
+            symbol: "shared_value".to_string(),
+            params: Vec::new(),
+            return_type: i32_ty,
+            is_extern: true,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: None,
+            span,
+        }],
+        closure_entries: Vec::new(),
+        trait_object_vtables: Vec::new(),
+        generic_instantiations: Vec::new(),
+    }]);
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        "global instance reuses `shared_value` already used by function instance",
+        "union instance reuses `shared_type` already used by struct instance",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn rejects_malformed_layout_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
