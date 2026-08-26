@@ -3173,6 +3173,14 @@ acceptance item only when its phase-wide evidence is complete.
       pair of empty declaration-only LP64 and ILP32 modules proves individually
       valid target layouts cannot share a codegen program or its global
       type/layout indexes.
+- [x] Batch 539 independently reproduces the source foreign-variadic
+      declaration contract at the Backend IR boundary. Ordinary functions and
+      concrete function instances now require every extern variadic signature
+      to retain at least one fixed parameter and reject a locally emitted body,
+      using the payload's actual body presence rather than its current codegen
+      partition role. A malformed extern variadic definition with no fixed
+      parameters proves both violations stop before LLVM variadic function
+      type construction.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
