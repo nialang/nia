@@ -3198,6 +3198,12 @@ acceptance item only when its phase-wide evidence is complete.
       opaque to this by-value classifier, preserving valid `&opaque` and other
       C pointer declarations; malformed extern declarations are covered by a
       pre-LLVM regression.
+- [x] Batch 542 binds concrete function-instance ABI metadata back to its
+      source template. Extern, variadic, and function-attribute flags on an
+      instance must match the generic declaration that produced it, so forged
+      instances cannot change calling convention or attach `naked` after
+      materialization. A generic-template/instance regression covers all three
+      metadata dimensions before LLVM declaration emission.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
