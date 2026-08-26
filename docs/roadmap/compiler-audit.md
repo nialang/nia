@@ -3181,6 +3181,13 @@ acceptance item only when its phase-wide evidence is complete.
       partition role. A malformed extern variadic definition with no fixed
       parameters proves both violations stop before LLVM variadic function
       type construction.
+- [x] Batch 540 independently reproduces the source `@[naked]` attribute
+      contract at the Backend IR boundary. Ordinary functions and concrete
+      instances now reject a forged naked attribute unless they are extern
+      definitions carrying a body, preventing invalid LLVM function
+      attributes from being attached to declarations or normal Nia functions.
+      A malformed non-extern declaration regression proves the attribute is
+      diagnosed before LLVM module construction.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

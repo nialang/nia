@@ -393,6 +393,12 @@ impl BackendValidator<'_> {
             function.def_id
         ));
         self.current_closure_owner = Some(BackendClosureEntryOwner::Source(function.def_id));
+        self.validate_function_attributes(
+            &function.attributes,
+            function.is_extern,
+            function.function_body.is_some(),
+            function.span,
+        );
         self.validate_function_declaration_contract(
             &function.params,
             function.is_extern,
@@ -431,6 +437,12 @@ impl BackendValidator<'_> {
                 const_args: function.const_args.clone(),
             },
         ));
+        self.validate_function_attributes(
+            &function.attributes,
+            function.is_extern,
+            function.function_body.is_some(),
+            function.span,
+        );
         self.validate_function_declaration_contract(
             &function.params,
             function.is_extern,
@@ -649,9 +661,8 @@ impl BackendValidator<'_> {
         has_body: bool,
         span: nia_span::Span,
     ) {
-        // Variadic functions are a foreign-ABI declaration feature. Recheck
-        // the source-level declaration invariants here so malformed Backend
-        // IR cannot reach LLVM's variadic function type construction.
+        // Recheck the source-level foreign-variadic declaration invariants so
+        // malformed Backend IR cannot reach LLVM's variadic type construction.
         if !is_extern || !is_variadic {
             return;
         }
@@ -668,6 +679,26 @@ impl BackendValidator<'_> {
                 span,
                 "extern variadic function definition is not supported",
             ));
+        }
+    }
+
+    fn validate_function_attributes(
+        &mut self,
+        attributes: &[nia_backend_ir::BackendFunctionAttribute],
+        is_extern: bool,
+        has_body: bool,
+        span: nia_span::Span,
+    ) {
+        for attribute in attributes {
+            if matches!(attribute, nia_backend_ir::BackendFunctionAttribute::Naked)
+                && (!is_extern || !has_body)
+            {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "backend IR `naked` attribute is only valid on extern function definitions",
+                ));
+            }
         }
     }
 
