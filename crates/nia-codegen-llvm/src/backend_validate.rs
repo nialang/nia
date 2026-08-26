@@ -478,6 +478,7 @@ impl BackendValidator<'_> {
         function: &BackendFunctionInstance,
         body: bool,
     ) {
+        self.validate_generated_symbol("function instance", &function.symbol, function.span);
         self.current_item = Some(format!(
             "function instance {} in {}::{:?}::{:?}",
             backend_symbol_debug_name(function.name),
@@ -537,6 +538,7 @@ impl BackendValidator<'_> {
         entry: &BackendClosureEntry,
         body: bool,
     ) {
+        self.validate_generated_symbol("closure entry", &entry.symbol, entry.span);
         self.current_item = Some(format!(
             "closure entry {} in {}::{:?}#{}",
             entry.symbol, module_name, entry.key.closure_id.owner, entry.key.closure_id.ordinal
@@ -1183,7 +1185,23 @@ impl BackendValidator<'_> {
         }
     }
 
+    fn validate_generated_symbol(
+        &mut self,
+        kind: &'static str,
+        symbol: &str,
+        span: nia_span::Span,
+    ) {
+        if symbol.is_empty() || symbol.contains('\0') {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR {kind} symbol must not be empty or contain NUL"),
+            ));
+        }
+    }
+
     fn validate_global_instance(&mut self, global: &BackendGlobalInstance, init: bool) {
+        self.validate_generated_symbol("global instance", &global.symbol, global.span);
         self.current_item = Some(format!(
             "global instance {}::{:?}",
             backend_symbol_debug_name(global.name),
@@ -1285,6 +1303,7 @@ impl BackendValidator<'_> {
     }
 
     fn validate_struct_instance(&mut self, item: &BackendStructInstance) {
+        self.validate_generated_symbol("struct instance", &item.symbol, item.span);
         self.current_item = Some(format!(
             "struct instance {}::{:?}",
             backend_symbol_debug_name(item.name),
@@ -1339,6 +1358,7 @@ impl BackendValidator<'_> {
     }
 
     fn validate_union_instance(&mut self, item: &BackendUnionInstance) {
+        self.validate_generated_symbol("union instance", &item.symbol, item.span);
         self.current_item = Some(format!(
             "union instance {}::{:?}",
             backend_symbol_debug_name(item.name),

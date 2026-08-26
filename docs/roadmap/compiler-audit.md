@@ -3240,6 +3240,11 @@ acceptance item only when its phase-wide evidence is complete.
       generic-template validation returns, preventing malformed symbol and
       fingerprint metadata from bypassing the Backend IR boundary. A combined
       regression covers missing, forged, empty, and NUL-containing link names.
+- [x] Batch 548 validates generated instance and closure symbols before LLVM.
+      Concrete function, global, struct, and union instances plus closure
+      entries now reject empty or NUL-containing symbols before LLVM declaration
+      APIs receive them. Existing instance metadata regressions cover malformed
+      generated symbols across every materialized declaration category.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -575,7 +575,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         self_arg: None,
         args: vec![i32_ty],
         const_args: Vec::new(),
-        symbol: "template_i32".to_string(),
+        symbol: "bad\0function_instance".to_string(),
         params: vec![BackendParam {
             receiver: Some(nia_ids::ReceiverKind::Value),
             ..param
@@ -630,6 +630,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         "function instance extern flag does not match its source template",
         "function instance variadic flag does not match its source template",
         "function instance attributes do not match its source template",
+        "backend IR function instance symbol must not be empty or contain NUL",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
@@ -686,7 +687,7 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
                 name: sym("ForgedStructTemplate"),
                 args: vec![foreign_i32_ty],
                 const_args: Vec::new(),
-                symbol: "struct_instance".to_string(),
+                symbol: "bad\0struct_instance".to_string(),
                 fields: vec![BackendField {
                     def_id: GlobalDefId {
                         module_id,
@@ -712,7 +713,7 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
                 name: sym("ForgedUnionTemplate"),
                 args: vec![i32_ty],
                 const_args: Vec::new(),
-                symbol: "union_instance".to_string(),
+                symbol: "bad\0union_instance".to_string(),
                 fields: vec![BackendField {
                     def_id: GlobalDefId {
                         module_id,
@@ -752,6 +753,8 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
         "union instance generic argument arity does not match its source template",
         "union instance name does not match its source template",
         "union instance field metadata does not match its source template",
+        "backend IR struct instance symbol must not be empty or contain NUL",
+        "backend IR union instance symbol must not be empty or contain NUL",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
@@ -812,7 +815,7 @@ fn validates_global_instance_metadata_before_llvm() {
                 arg_module_id: module_id,
                 args: vec![foreign_i32_ty],
                 const_args: Vec::new(),
-                symbol: "forged_global_instance".to_string(),
+                symbol: "bad\0global_instance".to_string(),
                 ty: i32_ty,
                 is_let: false,
                 init: Some(StaticInit::Zero),
@@ -839,6 +842,7 @@ fn validates_global_instance_metadata_before_llvm() {
         "global instance name does not match its source template",
         "global instance mutability does not match its source template",
         "global instance initializer presence does not match its source template",
+        "backend IR global instance symbol must not be empty or contain NUL",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
