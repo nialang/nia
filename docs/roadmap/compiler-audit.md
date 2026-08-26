@@ -3210,6 +3210,13 @@ acceptance item only when its phase-wide evidence is complete.
       placement, forged instance flags are now rejected before layout and LLVM
       type emission; a paired generic struct/union regression covers the
       boundary.
+- [x] Batch 544 binds substitution-invariant instance structure back to source
+      templates. Function instances must retain the source name and ordered
+      parameter local/name/receiver metadata; struct and union instances must
+      retain the aggregate name plus ordered field identities and names. Types
+      remain validated after substitution by the existing runtime/layout
+      checks. Forged function and paired aggregate regressions prove instance
+      materialization cannot silently reshape declarations before LLVM.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

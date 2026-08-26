@@ -479,13 +479,16 @@ fn validates_function_instance_abi_metadata_before_llvm() {
     };
     let instance = BackendFunctionInstance {
         def_id,
-        name: sym("template"),
+        name: sym("forged_template"),
         arg_module_id: module_id,
         self_arg: None,
         args: vec![i32_ty],
         const_args: Vec::new(),
         symbol: "template_i32".to_string(),
-        params: vec![param],
+        params: vec![BackendParam {
+            receiver: Some(nia_ids::ReceiverKind::Value),
+            ..param
+        }],
         return_type: i32_ty,
         is_extern: true,
         is_variadic: true,
@@ -530,6 +533,8 @@ fn validates_function_instance_abi_metadata_before_llvm() {
 
     assert!(output.modules.is_empty());
     for expected in [
+        "function instance name does not match its source template",
+        "function instance parameter metadata does not match its source template",
         "function instance extern flag does not match its source template",
         "function instance variadic flag does not match its source template",
         "function instance attributes do not match its source template",
@@ -583,11 +588,19 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
             }],
             struct_instances: vec![nia_backend_ir::BackendStructInstance {
                 def_id: struct_id,
-                name: sym("StructTemplate"),
+                name: sym("ForgedStructTemplate"),
                 args: vec![i32_ty],
                 const_args: Vec::new(),
                 symbol: "struct_instance".to_string(),
-                fields: Vec::new(),
+                fields: vec![BackendField {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(2),
+                    },
+                    name: sym("forged"),
+                    ty: i32_ty,
+                    span,
+                }],
                 is_extern: true,
                 span,
             }],
@@ -601,11 +614,19 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
             }],
             union_instances: vec![nia_backend_ir::BackendUnionInstance {
                 def_id: union_id,
-                name: sym("UnionTemplate"),
+                name: sym("ForgedUnionTemplate"),
                 args: vec![i32_ty],
                 const_args: Vec::new(),
                 symbol: "union_instance".to_string(),
-                fields: Vec::new(),
+                fields: vec![BackendField {
+                    def_id: GlobalDefId {
+                        module_id,
+                        def_id: DefId(3),
+                    },
+                    name: sym("forged"),
+                    ty: i32_ty,
+                    span,
+                }],
                 is_extern: true,
                 span,
             }],
@@ -627,7 +648,11 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
     assert!(output.modules.is_empty());
     for expected in [
         "struct instance extern flag does not match its source template",
+        "struct instance name does not match its source template",
+        "struct instance field metadata does not match its source template",
         "union instance extern flag does not match its source template",
+        "union instance name does not match its source template",
+        "union instance field metadata does not match its source template",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
