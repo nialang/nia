@@ -3132,6 +3132,14 @@ acceptance item only when its phase-wide evidence is complete.
       for nominal queries. The malformed partition regression publishes a
       duplicate generic struct key with undersized storage and proves the key,
       field bound, and total-layout violations all stop before LLVM.
+- [x] Batch 534 extends independently reproducible type layout validation to
+      tuples, closure states, arrays, ranges, optionals, and error unions.
+      Published structural layouts are rebuilt from their component layouts,
+      array lengths, and the artifact target instead of trusting the root
+      publication; missing external const or component facts preserve sparse
+      publication, while invalid layout arithmetic is rejected. The malformed
+      partition regression publishes an undersized `(i16, i32)` tuple layout
+      and proves it cannot override LLVM's structural ABI.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
