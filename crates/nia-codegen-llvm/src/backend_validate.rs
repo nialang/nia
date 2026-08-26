@@ -364,6 +364,16 @@ fn member_owner_matches(aggregate_module: ModuleId, member: GlobalDefId) -> bool
     member.module_id == aggregate_module
 }
 
+fn instance_fields_match_template(
+    instance: &[nia_backend_ir::BackendField],
+    template: &[nia_backend_ir::BackendField],
+) -> bool {
+    instance.len() == template.len()
+        && instance.iter().zip(template).all(|(instance, template)| {
+            instance.def_id == template.def_id && instance.name == template.name
+        })
+}
+
 impl<'a> BackendValidator<'a> {
     fn new(index: &'a ProgramIndex, target: TargetDataLayout) -> Self {
         let mut validator = Self {
@@ -748,6 +758,30 @@ impl BackendValidator<'_> {
         let Some(template) = self.index.function(function.def_id) else {
             return;
         };
+        if function.name != template.name {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance name does not match its source template",
+            ));
+        }
+        if function.params.len() != template.params.len()
+            || function
+                .params
+                .iter()
+                .zip(&template.params)
+                .any(|(instance, template)| {
+                    instance.local_id != template.local_id
+                        || instance.name != template.name
+                        || instance.receiver != template.receiver
+                })
+        {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance parameter metadata does not match its source template",
+            ));
+        }
         if function.is_extern != template.is_extern {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1164,16 +1198,28 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
-        if self
-            .index
-            .struct_item(item.def_id)
-            .is_some_and(|template| template.is_extern != item.is_extern)
-        {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                item.span,
-                "backend IR struct instance extern flag does not match its source template",
-            ));
+        if let Some(template) = self.index.struct_item(item.def_id) {
+            if template.is_extern != item.is_extern {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR struct instance extern flag does not match its source template",
+                ));
+            }
+            if template.name != item.name {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR struct instance name does not match its source template",
+                ));
+            }
+            if !instance_fields_match_template(&item.fields, &template.fields) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR struct instance field metadata does not match its source template",
+                ));
+            }
         }
         self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
@@ -1198,16 +1244,28 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
-        if self
-            .index
-            .union_item(item.def_id)
-            .is_some_and(|template| template.is_extern != item.is_extern)
-        {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                item.span,
-                "backend IR union instance extern flag does not match its source template",
-            ));
+        if let Some(template) = self.index.union_item(item.def_id) {
+            if template.is_extern != item.is_extern {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR union instance extern flag does not match its source template",
+                ));
+            }
+            if template.name != item.name {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR union instance name does not match its source template",
+                ));
+            }
+            if !instance_fields_match_template(&item.fields, &template.fields) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR union instance field metadata does not match its source template",
+                ));
+            }
         }
         self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
