@@ -420,6 +420,19 @@ pub(super) struct BackendValidator<'a> {
 
 impl BackendValidator<'_> {
     fn validate_function(&mut self, module_name: &str, function: &BackendFunction, body: bool) {
+        self.validate_link_name(
+            "function",
+            function.is_extern,
+            function.link_name.as_deref(),
+            function.span,
+        );
+        if function.is_extern && !function.generics.is_empty() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR extern function cannot have generic parameters",
+            ));
+        }
         if !function.generics.is_empty() {
             return;
         }
@@ -1120,6 +1133,12 @@ impl BackendValidator<'_> {
 
     fn validate_global(&mut self, global: &BackendGlobal, init: bool) {
         self.current_item = Some(format!("global {}", backend_symbol_debug_name(global.name)));
+        self.validate_link_name(
+            "global",
+            global.is_extern,
+            global.link_name.as_deref(),
+            global.span,
+        );
         self.validate_runtime_type(global.ty, global.span);
         if global.is_extern {
             self.validate_extern_abi_type(
@@ -1133,6 +1152,35 @@ impl BackendValidator<'_> {
             self.validate_static_init(global.ty, value, global.span);
         }
         self.current_item = None;
+    }
+
+    fn validate_link_name(
+        &mut self,
+        kind: &'static str,
+        is_extern: bool,
+        link_name: Option<&str>,
+        span: nia_span::Span,
+    ) {
+        match (is_extern, link_name) {
+            (true, None) => self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR extern {kind} requires an external link name"),
+            )),
+            (false, Some(_)) => self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR non-extern {kind} cannot publish an external link name"),
+            )),
+            _ => {}
+        }
+        if link_name.is_some_and(|name| name.is_empty() || name.contains('\0')) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR {kind} link name must not be empty or contain NUL"),
+            ));
+        }
     }
 
     fn validate_global_instance(&mut self, global: &BackendGlobalInstance, init: bool) {

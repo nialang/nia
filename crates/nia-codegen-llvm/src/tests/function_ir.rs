@@ -331,6 +331,97 @@ fn validates_naked_function_attribute_before_llvm() {
 }
 
 #[test]
+fn validates_external_link_name_contract_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let function = |def_id, name, link_name, generics, is_extern| BackendFunction {
+        def_id: GlobalDefId { module_id, def_id },
+        name: sym(name),
+        link_name,
+        generics,
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
+    let global = |def_id, name, link_name: &str| BackendGlobal {
+        def_id: GlobalDefId { module_id, def_id },
+        name: sym(name),
+        link_name: Some(link_name.to_string()),
+        ty: i32_ty,
+        is_let: false,
+        is_extern: true,
+        init: None,
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![
+            global(DefId(2), "empty_link", ""),
+            global(DefId(3), "nul_link", "bad\0name"),
+        ],
+        vec![
+            function(DefId(0), "generic_extern", None, vec![sym("T")], true),
+            function(
+                DefId(1),
+                "local_template",
+                Some("forged_external_name".to_string()),
+                vec![sym("T")],
+                false,
+            ),
+        ],
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        "backend IR extern function requires an external link name",
+        "backend IR extern function cannot have generic parameters",
+        "backend IR non-extern function cannot publish an external link name",
+        "backend IR global link name must not be empty or contain NUL",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+    assert_eq!(
+        output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("must not be empty or contain NUL"))
+            .count(),
+        2,
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
 fn validates_extern_abi_types_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
