@@ -481,6 +481,12 @@ impl BackendValidator<'_> {
                 const_args: function.const_args.clone(),
             },
         ));
+        self.validate_instance_arguments(
+            function.self_arg,
+            &function.args,
+            &function.const_args,
+            function.span,
+        );
         self.validate_function_attributes(
             &function.attributes,
             function.is_extern,
@@ -758,6 +764,13 @@ impl BackendValidator<'_> {
         let Some(template) = self.index.function(function.def_id) else {
             return;
         };
+        if function.args.len() + function.const_args.len() != template.generics.len() {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                function.span,
+                "backend IR function instance generic argument arity does not match its source template",
+            ));
+        }
         if function.name != template.name {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1198,7 +1211,15 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
+        self.validate_instance_arguments(None, &item.args, &item.const_args, item.span);
         if let Some(template) = self.index.struct_item(item.def_id) {
+            if item.args.len() + item.const_args.len() != template.generics.len() {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR struct instance generic argument arity does not match its source template",
+                ));
+            }
             if template.is_extern != item.is_extern {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1244,7 +1265,15 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
+        self.validate_instance_arguments(None, &item.args, &item.const_args, item.span);
         if let Some(template) = self.index.union_item(item.def_id) {
+            if item.args.len() + item.const_args.len() != template.generics.len() {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    item.span,
+                    "backend IR union instance generic argument arity does not match its source template",
+                ));
+            }
             if template.is_extern != item.is_extern {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -1275,6 +1304,24 @@ impl BackendValidator<'_> {
     fn validate_fields(&mut self, fields: &[nia_backend_ir::BackendField]) {
         for field in fields {
             self.validate_runtime_type(field.ty, field.span);
+        }
+    }
+
+    fn validate_instance_arguments(
+        &mut self,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+        span: nia_span::Span,
+    ) {
+        if let Some(self_arg) = self_arg {
+            self.validate_type(self_arg, span);
+        }
+        for arg in args {
+            self.validate_type(*arg, span);
+        }
+        for arg in const_args {
+            self.validate_type(arg.ty, span);
         }
     }
 
