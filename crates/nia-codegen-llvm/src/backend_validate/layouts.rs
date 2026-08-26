@@ -14,10 +14,17 @@ use super::BackendValidator;
 enum LayoutRecompute {
     Expected {
         layout: TypeLayout,
-        structural: bool,
+        source: LayoutSource,
     },
     Unavailable,
     Invalid,
+}
+
+#[derive(Clone, Copy)]
+enum LayoutSource {
+    Abi,
+    Structural,
+    Nominal,
 }
 
 impl BackendValidator<'_> {
@@ -40,7 +47,7 @@ impl BackendValidator<'_> {
             let expected = self.recompute_published_type_layout(&kind);
             let LayoutRecompute::Expected {
                 layout: expected,
-                structural,
+                source,
             } = expected
             else {
                 if matches!(expected, LayoutRecompute::Invalid) {
@@ -49,10 +56,14 @@ impl BackendValidator<'_> {
                 continue;
             };
             if *layout != expected {
-                let message = if structural {
-                    "structural layout does not match its component types and target"
-                } else {
-                    "layout does not match its type and target"
+                let message = match source {
+                    LayoutSource::Abi => "layout does not match its type and target",
+                    LayoutSource::Structural => {
+                        "structural layout does not match its component types and target"
+                    }
+                    LayoutSource::Nominal => {
+                        "nominal layout does not match its aggregate layout product"
+                    }
                 };
                 self.invalid_type_layout(*ty, message);
             }
@@ -81,7 +92,7 @@ impl BackendValidator<'_> {
                 return nia_layout::sequential_layout(&layouts)
                     .map(|layout| LayoutRecompute::Expected {
                         layout,
-                        structural: true,
+                        source: LayoutSource::Structural,
                     })
                     .unwrap_or(LayoutRecompute::Invalid);
             }
@@ -92,7 +103,7 @@ impl BackendValidator<'_> {
                 return nia_layout::sequential_layout(&layouts)
                     .map(|layout| LayoutRecompute::Expected {
                         layout,
-                        structural: true,
+                        source: LayoutSource::Structural,
                     })
                     .unwrap_or(LayoutRecompute::Invalid);
             }
@@ -106,7 +117,7 @@ impl BackendValidator<'_> {
                 return nia_layout::array_layout(&elem, len)
                     .map(|layout| LayoutRecompute::Expected {
                         layout,
-                        structural: true,
+                        source: LayoutSource::Structural,
                     })
                     .unwrap_or(LayoutRecompute::Invalid);
             }
@@ -123,7 +134,7 @@ impl BackendValidator<'_> {
                 return nia_layout::range_layout(*kind, bound.as_ref())
                     .map(|layout| LayoutRecompute::Expected {
                         layout,
-                        structural: true,
+                        source: LayoutSource::Structural,
                     })
                     .unwrap_or(LayoutRecompute::Invalid);
             }
@@ -134,7 +145,7 @@ impl BackendValidator<'_> {
                 return nia_layout::tagged_union_layout(&[elem])
                     .map(|layout| LayoutRecompute::Expected {
                         layout,
-                        structural: true,
+                        source: LayoutSource::Structural,
                     })
                     .unwrap_or(LayoutRecompute::Invalid);
             }
@@ -148,22 +159,83 @@ impl BackendValidator<'_> {
                 return nia_layout::tagged_union_layout(&[error, value])
                     .map(|layout| LayoutRecompute::Expected {
                         layout,
-                        structural: true,
+                        source: LayoutSource::Structural,
                     })
                     .unwrap_or(LayoutRecompute::Invalid);
+            }
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => {
+                let layout = self.nominal_layout_product(*def_id, args, const_args);
+                let Some(layout) = layout else {
+                    return LayoutRecompute::Unavailable;
+                };
+                return LayoutRecompute::Expected {
+                    layout,
+                    source: LayoutSource::Nominal,
+                };
             }
             _ => return LayoutRecompute::Unavailable,
         };
         expected
             .map(|layout| LayoutRecompute::Expected {
                 layout,
-                structural: false,
+                source: LayoutSource::Abi,
             })
             .unwrap_or(LayoutRecompute::Invalid)
     }
 
     fn component_layouts(&self, fields: &[InternedTyId]) -> Option<Vec<TypeLayout>> {
         fields.iter().map(|field| self.layout_of(*field)).collect()
+    }
+
+    fn nominal_layout_product(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> Option<TypeLayout> {
+        if args.is_empty() && const_args.is_empty() {
+            return self
+                .index
+                .struct_layout(def_id)
+                .map(|layout| layout.layout.clone())
+                .or_else(|| {
+                    self.index
+                        .union_layout(def_id)
+                        .map(|layout| layout.layout.clone())
+                })
+                .or_else(|| {
+                    self.index
+                        .enum_layout(def_id)
+                        .map(|layout| layout.layout.clone())
+                });
+        }
+
+        self.index
+            .struct_instance_layout(def_id, args, const_args)
+            .map(|layout| layout.layout.clone())
+            .or_else(|| {
+                self.index
+                    .union_instance_layout(def_id, args, const_args)
+                    .map(|layout| layout.layout.clone())
+            })
+            .or_else(|| {
+                self.index.struct_instance_layouts(def_id).find_map(|item| {
+                    (self.same_type_args(&item.key.args, args)
+                        && self.same_const_args(&item.key.const_args, const_args))
+                    .then_some(item.layout.layout.clone())
+                })
+            })
+            .or_else(|| {
+                self.index.union_instance_layouts(def_id).find_map(|item| {
+                    (self.same_type_args(&item.key.args, args)
+                        && self.same_const_args(&item.key.const_args, const_args))
+                    .then_some(item.layout.layout.clone())
+                })
+            })
     }
 
     pub(super) fn validate_aggregate_layout_products(&mut self, module: &BackendModule) {

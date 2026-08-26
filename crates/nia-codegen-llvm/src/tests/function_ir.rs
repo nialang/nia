@@ -582,6 +582,16 @@ fn rejects_malformed_layout_contracts_before_llvm() {
         module_id,
         def_id: DefId(20),
     };
+    let struct_ty = interner.intern(TyKind::Nominal {
+        def_id: struct_id,
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
+    let generic_struct_ty = interner.intern(TyKind::Nominal {
+        def_id: generic_struct_id,
+        args: vec![i16_ty],
+        const_args: Vec::new(),
+    });
     let instance_key = nia_backend_ir::BackendStructInstanceKey {
         def_id: generic_struct_id,
         args: vec![i16_ty],
@@ -620,6 +630,8 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                     (i16_ty, TypeLayout { size: 2, align: 2 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (tuple_ty, TypeLayout { size: 4, align: 4 }),
+                    (struct_ty, TypeLayout { size: 4, align: 4 }),
+                    (generic_struct_ty, TypeLayout { size: 8, align: 4 }),
                 ],
                 structs: vec![(
                     struct_id,
@@ -867,6 +879,16 @@ fn rejects_malformed_layout_contracts_before_llvm() {
         codes::INVALID_BACKEND_IR,
         "structural layout does not match its component types and target"
     ));
+    assert_eq!(
+        output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .summary
+                .contains("nominal layout does not match its aggregate layout product"))
+            .count(),
+        2
+    );
     assert!(has_internal_diagnostic(
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,

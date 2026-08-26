@@ -3140,6 +3140,14 @@ acceptance item only when its phase-wide evidence is complete.
       publication, while invalid layout arithmetic is rejected. The malformed
       partition regression publishes an undersized `(i16, i32)` tuple layout
       and proves it cannot override LLVM's structural ABI.
+- [x] Batch 535 binds published nominal type layouts to their detailed
+      aggregate products. Ordinary struct, union, and enum nominal values now
+      reuse the matching definition layout, while concrete generic nominal
+      values use exact or canonically equivalent struct/union instance keys.
+      Missing type-only products remain sparse and do not create a publication
+      ordering requirement. The malformed partition regression forges both an
+      ordinary struct nominal value and a generic struct-instance nominal value
+      and proves neither can override its checked aggregate representation.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
