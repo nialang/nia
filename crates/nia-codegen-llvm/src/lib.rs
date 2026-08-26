@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use backend_validate::{
     validate_backend_declaration_module, validate_backend_partition_declarations,
+    validate_backend_program_target,
 };
 use module_codegen::ModuleCodegen;
 pub use nia_backend_ir::{
@@ -160,6 +161,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     /// in the returned diagnostics.
     pub fn finish(mut self) -> LlvmObjectOutput {
         let index = self.coordinator.finish();
+        let program_target_diagnostics = validate_backend_program_target(&index);
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
         let task_outcomes = self.tasks.finish();
         for (key, outcome) in task_outcomes {
@@ -173,7 +175,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
         }
         let has_partitions = self.partition_count != 0;
         let mut declaration_diagnostics = Vec::new();
-        if !has_partitions {
+        if !has_partitions && program_target_diagnostics.is_empty() {
             for module_id in index.module_ids() {
                 if let Err(diagnostics) = validate_declaration_module(*module_id, &index) {
                     declaration_diagnostics.extend(diagnostics);
@@ -181,7 +183,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             }
         }
         let builtin_symbols = compiler_builtins::required_symbols(&index);
-        if builtin_symbols.any() {
+        if program_target_diagnostics.is_empty() && builtin_symbols.any() {
             match emit_compiler_builtins_object(
                 builtin_symbols,
                 self.options,
@@ -196,6 +198,9 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                     .push((CodegenUnitKey::CompilerBuiltins, vec![diagnostic])),
             }
         }
+        if !program_target_diagnostics.is_empty() {
+            self.outputs.clear();
+        }
         self.outputs
             .sort_unstable_by(|left, right| left.key.cmp(&right.key));
         self.partition_diagnostics
@@ -206,6 +211,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             .flat_map(|(_, diagnostics)| diagnostics)
             .collect::<Vec<_>>();
         diagnostics.extend(declaration_diagnostics);
+        diagnostics.extend(program_target_diagnostics);
         if self.options.timings.enabled() {
             nia_timing::emit_counter("llvm.units", self.outputs.len() as u64);
             nia_timing::emit_counter(
@@ -279,6 +285,7 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
     /// the returned diagnostics.
     pub fn finish(mut self) -> LlvmCodegenOutput {
         let index = self.coordinator.finish();
+        let program_target_diagnostics = validate_backend_program_target(&index);
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
         let task_outcomes = self.tasks.finish();
         for (key, outcome) in task_outcomes {
@@ -288,12 +295,15 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
             }
         }
         let mut declaration_diagnostics = Vec::new();
-        if self.partition_count == 0 {
+        if self.partition_count == 0 && program_target_diagnostics.is_empty() {
             for module_id in index.module_ids() {
                 if let Err(diagnostics) = validate_declaration_module(*module_id, &index) {
                     declaration_diagnostics.extend(diagnostics);
                 }
             }
+        }
+        if !program_target_diagnostics.is_empty() {
+            self.outputs.clear();
         }
         self.outputs
             .sort_unstable_by(|left, right| left.key.cmp(&right.key));
@@ -305,6 +315,7 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
             .flat_map(|(_, diagnostics)| diagnostics)
             .collect::<Vec<_>>();
         diagnostics.extend(declaration_diagnostics);
+        diagnostics.extend(program_target_diagnostics);
         if self.options.timings.enabled() {
             nia_timing::emit_counter("llvm.units", self.outputs.len() as u64);
             nia_timing::emit_counter(
@@ -363,6 +374,13 @@ fn emit_llvm_ir_with_options_inner(
     let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
         prepare_complete_codegen(module_store, type_store, owners)
     });
+    let program_target_diagnostics = validate_backend_program_target(&index);
+    if !program_target_diagnostics.is_empty() {
+        return LlvmCodegenOutput {
+            modules: Vec::new(),
+            diagnostics: program_target_diagnostics,
+        };
+    }
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations
         .into_iter()
@@ -453,6 +471,13 @@ fn emit_native_objects_inner(
     let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
         prepare_complete_codegen(module_store, type_store, owners)
     });
+    let program_target_diagnostics = validate_backend_program_target(&index);
+    if !program_target_diagnostics.is_empty() {
+        return LlvmObjectOutput {
+            link_inputs: IncrementalLinkInputs::new(Vec::new()),
+            diagnostics: program_target_diagnostics,
+        };
+    }
     let builtin_symbols = compiler_builtins::required_symbols(&index);
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations

@@ -593,6 +593,60 @@ fn rejects_invalid_target_layout_without_published_type_layouts() {
 }
 
 #[test]
+fn rejects_mixed_target_layouts_across_backend_modules() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let lp64_id = module_ids.allocate();
+    let ilp32_id = module_ids.allocate();
+    let empty_module = |id, name: &str, target| BackendModule {
+        id,
+        source_identity: nia_source::SourceIdentity::new(name),
+        name: name.to_string(),
+        const_eval: BackendConstFacts::default(),
+        layouts: BackendLayouts {
+            target,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        structs: Vec::new(),
+        struct_instances: Vec::new(),
+        unions: Vec::new(),
+        union_instances: Vec::new(),
+        enums: Vec::new(),
+        globals: Vec::new(),
+        global_instances: Vec::new(),
+        functions: Vec::new(),
+        function_instances: Vec::new(),
+        closure_entries: Vec::new(),
+        trait_object_vtables: Vec::new(),
+        generic_instantiations: Vec::new(),
+    };
+    let program = BackendProgram::new(vec![
+        empty_module(lp64_id, "lp64", nia_layout::TargetDataLayout::LP64),
+        empty_module(
+            ilp32_id,
+            "ilp32",
+            nia_layout::TargetDataLayout {
+                pointer_size: 4,
+                pointer_align: 4,
+            },
+        ),
+    ]);
+
+    let output = emit_owned_llvm_ir(program, nia_ty::TypeStore::new());
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "modules disagree on the artifact target data layout"
+    ));
+}
+
+#[test]
 fn rejects_malformed_layout_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

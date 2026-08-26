@@ -43,6 +43,32 @@ pub(super) fn backend_symbol_debug_name(name: SymbolId) -> String {
     mangle_symbol_id(name)
 }
 
+pub(super) fn validate_backend_program_target(index: &ProgramIndex) -> Vec<Diagnostic> {
+    let targets = index.module_target_layouts().collect::<Vec<_>>();
+    let mut diagnostics = Vec::new();
+    if targets
+        .iter()
+        .any(|target| !layouts::target_layout_supported(*target))
+    {
+        diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            "backend IR target data layout has unsupported pointer size or alignment",
+        ));
+    }
+    if targets
+        .first()
+        .is_some_and(|first| targets.iter().any(|target| target != first))
+    {
+        diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            "backend IR modules disagree on the artifact target data layout",
+        ));
+    }
+    diagnostics
+}
+
 pub(super) fn validate_backend_partition_definitions(
     partition: &CodegenPartition,
     index: &ProgramIndex,
