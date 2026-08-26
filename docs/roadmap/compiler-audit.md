@@ -3123,6 +3123,15 @@ acceptance item only when its phase-wide evidence is complete.
       The malformed partition regression forges a Nia struct in source order
       instead of physical order and proves its identities and offsets are
       rejected before LLVM GEP or promoted-constant construction.
+- [x] Batch 533 extends aggregate layout validation to materialized generic
+      struct and union instances. Exact instance layout keys must be unique,
+      every type and const argument type must belong to the active compilation
+      session, and layouts paired with a matching Backend IR materialization
+      are rebuilt from its substituted fields using the same struct/union ABI
+      rules as ordinary definitions. Type-only instance layouts remain valid
+      for nominal queries. The malformed partition regression publishes a
+      duplicate generic struct key with undersized storage and proves the key,
+      field bound, and total-layout violations all stop before LLVM.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

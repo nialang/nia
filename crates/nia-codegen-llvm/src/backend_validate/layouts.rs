@@ -80,6 +80,55 @@ impl BackendValidator<'_> {
             };
             self.validate_aggregate_layout(*def_id, &item.fields, item.is_extern, true, layout);
         }
+
+        let mut seen_instances = HashSet::new();
+        for (key, layout) in &module.layouts.struct_instances {
+            self.validate_aggregate_instance_key(key);
+            if !seen_instances.insert(key) {
+                self.invalid_aggregate_layout(
+                    key.def_id,
+                    "struct instance layout identity is duplicated",
+                );
+                continue;
+            }
+            let Some(item) = module.struct_instances.iter().find(|item| {
+                item.def_id == key.def_id
+                    && item.args == key.args
+                    && item.const_args == key.const_args
+            }) else {
+                continue;
+            };
+            self.validate_aggregate_layout(key.def_id, &item.fields, item.is_extern, false, layout);
+        }
+
+        seen_instances.clear();
+        for (key, layout) in &module.layouts.union_instances {
+            self.validate_aggregate_instance_key(key);
+            if !seen_instances.insert(key) {
+                self.invalid_aggregate_layout(
+                    key.def_id,
+                    "union instance layout identity is duplicated",
+                );
+                continue;
+            }
+            let Some(item) = module.union_instances.iter().find(|item| {
+                item.def_id == key.def_id
+                    && item.args == key.args
+                    && item.const_args == key.const_args
+            }) else {
+                continue;
+            };
+            self.validate_aggregate_layout(key.def_id, &item.fields, item.is_extern, true, layout);
+        }
+    }
+
+    fn validate_aggregate_instance_key(&mut self, key: &nia_backend_ir::BackendStructInstanceKey) {
+        for ty in &key.args {
+            self.validate_type(*ty, nia_span::Span::default());
+        }
+        for arg in &key.const_args {
+            self.validate_type(arg.ty, nia_span::Span::default());
+        }
     }
 
     fn validate_aggregate_layout(

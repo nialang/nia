@@ -567,6 +567,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
     let u8_ty = interner.primitive(PrimitiveTy::U8);
     let i16_ty = interner.primitive(PrimitiveTy::I16);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let generic_ty = interner.intern(TyKind::GenericParam(sym("T")));
     let span = Span::default();
     let enum_id = GlobalDefId {
         module_id,
@@ -575,6 +576,30 @@ fn rejects_malformed_layout_contracts_before_llvm() {
     let struct_id = GlobalDefId {
         module_id,
         def_id: DefId(10),
+    };
+    let generic_struct_id = GlobalDefId {
+        module_id,
+        def_id: DefId(20),
+    };
+    let instance_key = nia_backend_ir::BackendStructInstanceKey {
+        def_id: generic_struct_id,
+        args: vec![i16_ty],
+        const_args: Vec::new(),
+    };
+    let instance_layout = StructLayout {
+        layout: TypeLayout { size: 4, align: 4 },
+        fields: vec![
+            FieldLayout {
+                def_id: DefId(22),
+                offset: 0,
+                layout: TypeLayout { size: 4, align: 4 },
+            },
+            FieldLayout {
+                def_id: DefId(21),
+                offset: 4,
+                layout: TypeLayout { size: 2, align: 2 },
+            },
+        ],
     };
     let program = BackendProgram {
         modules: vec![BackendModule {
@@ -637,18 +662,79 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                         }],
                     },
                 )],
-                struct_instances: Vec::new(),
+                struct_instances: vec![
+                    (instance_key.clone(), instance_layout.clone()),
+                    (instance_key, instance_layout),
+                ],
                 union_instances: Vec::new(),
             },
-            structs: vec![BackendStruct {
-                def_id: struct_id,
-                name: sym("Packet"),
-                generics: Vec::new(),
+            structs: vec![
+                BackendStruct {
+                    def_id: struct_id,
+                    name: sym("Packet"),
+                    generics: Vec::new(),
+                    fields: vec![
+                        BackendField {
+                            def_id: GlobalDefId {
+                                module_id,
+                                def_id: DefId(11),
+                            },
+                            name: sym("small"),
+                            ty: i16_ty,
+                            span,
+                        },
+                        BackendField {
+                            def_id: GlobalDefId {
+                                module_id,
+                                def_id: DefId(12),
+                            },
+                            name: sym("wide"),
+                            ty: i32_ty,
+                            span,
+                        },
+                    ],
+                    is_extern: false,
+                    span,
+                },
+                BackendStruct {
+                    def_id: generic_struct_id,
+                    name: sym("GenericPacket"),
+                    generics: vec![sym("T")],
+                    fields: vec![
+                        BackendField {
+                            def_id: GlobalDefId {
+                                module_id,
+                                def_id: DefId(21),
+                            },
+                            name: sym("small"),
+                            ty: generic_ty,
+                            span,
+                        },
+                        BackendField {
+                            def_id: GlobalDefId {
+                                module_id,
+                                def_id: DefId(22),
+                            },
+                            name: sym("wide"),
+                            ty: i32_ty,
+                            span,
+                        },
+                    ],
+                    is_extern: false,
+                    span,
+                },
+            ],
+            struct_instances: vec![nia_backend_ir::BackendStructInstance {
+                def_id: generic_struct_id,
+                name: sym("GenericPacketI16"),
+                args: vec![i16_ty],
+                const_args: Vec::new(),
+                symbol: "generic_packet_i16".to_string(),
                 fields: vec![
                     BackendField {
                         def_id: GlobalDefId {
                             module_id,
-                            def_id: DefId(11),
+                            def_id: DefId(21),
                         },
                         name: sym("small"),
                         ty: i16_ty,
@@ -657,7 +743,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                     BackendField {
                         def_id: GlobalDefId {
                             module_id,
-                            def_id: DefId(12),
+                            def_id: DefId(22),
                         },
                         name: sym("wide"),
                         ty: i32_ty,
@@ -667,7 +753,6 @@ fn rejects_malformed_layout_contracts_before_llvm() {
                 is_extern: false,
                 span,
             }],
-            struct_instances: Vec::new(),
             unions: Vec::new(),
             union_instances: Vec::new(),
             enums: vec![BackendEnum {
@@ -784,6 +869,21 @@ fn rejects_malformed_layout_contracts_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "field offset does not match aggregate placement"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "struct instance layout identity is duplicated"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "field extends beyond aggregate storage"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "total layout does not match its declared fields"
     ));
     assert!(has_internal_diagnostic(
         &output.diagnostics,
