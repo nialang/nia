@@ -3253,6 +3253,16 @@ acceptance item only when its phase-wide evidence is complete.
       remain independently repeatable across modules. A malformed program
       crosses instance categories with shared value and type names and is
       rejected before artifact acceptance.
+- [x] Batch 550 binds generated instance symbols to their concrete identity.
+      Function and global instances reproduce the contextual module suffix;
+      function receivers preserve their dedicated `self` encoding; aggregate
+      instances reproduce the canonical type/const mangle using published
+      source identities, nominal names, and array-length facts whenever all
+      mangle inputs are representable in Backend IR. Sparse readiness and
+      source identities intentionally absent from Backend IR defer rather than
+      guessing a name. The cross-category malformed-symbol regression now
+      proves every instance kind rejects a unique but forged name independently
+      of collision checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

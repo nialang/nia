@@ -7,7 +7,7 @@ mod static_init;
 mod types;
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
 };
 
@@ -23,7 +23,8 @@ use nia_function_ir::{FunctionBody, FunctionInstanceKey, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_mangle::{
-    MangleModuleId, mangle_base_symbol_id, mangle_closure_entry_symbol, mangle_symbol_id,
+    MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_closure_entry_symbol,
+    mangle_instance_symbol_id, mangle_symbol_id,
 };
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind};
@@ -486,6 +487,16 @@ fn instance_fields_match_template(
         })
 }
 
+fn backend_definition_name(index: &ProgramIndex, def_id: GlobalDefId) -> Option<SymbolId> {
+    index
+        .function(def_id)
+        .map(|item| item.name)
+        .or_else(|| index.global(def_id).map(|item| item.name))
+        .or_else(|| index.struct_item(def_id).map(|item| item.name))
+        .or_else(|| index.union_item(def_id).map(|item| item.name))
+        .or_else(|| index.enum_item(def_id).map(|item| item.name))
+}
+
 impl<'a> BackendValidator<'a> {
     fn new(index: &'a ProgramIndex, target: TargetDataLayout) -> Self {
         let mut validator = Self {
@@ -591,6 +602,16 @@ impl BackendValidator<'_> {
         body: bool,
     ) {
         self.validate_generated_symbol("function instance", &function.symbol, function.span);
+        self.validate_instance_symbol(
+            "function instance",
+            &function.symbol,
+            function.def_id,
+            Some(function.arg_module_id),
+            function.self_arg,
+            &function.args,
+            &function.const_args,
+            function.span,
+        );
         self.current_item = Some(format!(
             "function instance {} in {}::{:?}::{:?}",
             backend_symbol_debug_name(function.name),
@@ -1312,8 +1333,116 @@ impl BackendValidator<'_> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn validate_instance_symbol(
+        &mut self,
+        kind: &'static str,
+        symbol: &str,
+        def_id: GlobalDefId,
+        arg_module_id: Option<ModuleId>,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+        span: nia_span::Span,
+    ) {
+        let Some(expected) =
+            self.expected_instance_symbol(def_id, arg_module_id, self_arg, args, const_args)
+        else {
+            return;
+        };
+        if symbol != expected {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR {kind} symbol does not match its instance identity"),
+            ));
+        }
+    }
+
+    fn expected_instance_symbol(
+        &self,
+        def_id: GlobalDefId,
+        arg_module_id: Option<ModuleId>,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<String> {
+        if self_arg
+            .into_iter()
+            .chain(args.iter().copied())
+            .chain(const_args.iter().map(|arg| arg.ty))
+            .any(|ty| self.index.type_store().get(ty).is_none())
+        {
+            return None;
+        }
+        let name = backend_definition_name(self.index, def_id)?;
+        let missing_module = Cell::new(false);
+        let mut mangled_args = args.to_vec();
+        if let Some(self_arg) = self_arg {
+            mangled_args.insert(0, self_arg);
+        }
+        let mut symbol = mangle_instance_symbol_id(
+            def_id,
+            name,
+            &mangled_args,
+            const_args,
+            self.index.type_store(),
+            MangleResolvers::new(
+                |module_id| {
+                    self.index
+                        .module(module_id)
+                        .map(|module| {
+                            MangleModuleId::from_normalized_source_path(
+                                module.source_identity.normalized_path(),
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            missing_module.set(true);
+                            MangleModuleId::from_normalized_source_path("")
+                        })
+                },
+                |def_id| {
+                    backend_definition_name(self.index, def_id)
+                        .map(backend_symbol_debug_name)
+                        .unwrap_or_else(|| {
+                            missing_module.set(true);
+                            format!("def{}", def_id.def_id.0)
+                        })
+                },
+                |const_expr: nia_ids::GlobalConstExprId| {
+                    self.index.module(const_expr.module_id).and_then(|module| {
+                        module.const_eval.array_lengths.get(&const_expr).copied()
+                    })
+                },
+            ),
+        );
+        if self_arg.is_some() {
+            symbol = symbol.replacen("__inst__t_", "__inst__t_self_", 1);
+        }
+        let Some(arg_module_id) = arg_module_id else {
+            return (!missing_module.get()).then_some(symbol);
+        };
+        let context = self
+            .index
+            .module(arg_module_id)
+            .map(|module| nia_symbol::stable_hash(module.source_identity.normalized_path()));
+        context
+            .filter(|_| !missing_module.get())
+            .map(|context| format!("{symbol}__ctx_s{context:016x}"))
+    }
+
     fn validate_global_instance(&mut self, global: &BackendGlobalInstance, init: bool) {
         self.validate_generated_symbol("global instance", &global.symbol, global.span);
+        self.validate_instance_symbol(
+            "global instance",
+            &global.symbol,
+            global.def_id,
+            Some(global.arg_module_id),
+            None,
+            &global.args,
+            &global.const_args,
+            global.span,
+        );
         self.current_item = Some(format!(
             "global instance {}::{:?}",
             backend_symbol_debug_name(global.name),
@@ -1416,6 +1545,16 @@ impl BackendValidator<'_> {
 
     fn validate_struct_instance(&mut self, item: &BackendStructInstance) {
         self.validate_generated_symbol("struct instance", &item.symbol, item.span);
+        self.validate_instance_symbol(
+            "struct instance",
+            &item.symbol,
+            item.def_id,
+            None,
+            None,
+            &item.args,
+            &item.const_args,
+            item.span,
+        );
         self.current_item = Some(format!(
             "struct instance {}::{:?}",
             backend_symbol_debug_name(item.name),
@@ -1471,6 +1610,16 @@ impl BackendValidator<'_> {
 
     fn validate_union_instance(&mut self, item: &BackendUnionInstance) {
         self.validate_generated_symbol("union instance", &item.symbol, item.span);
+        self.validate_instance_symbol(
+            "union instance",
+            &item.symbol,
+            item.def_id,
+            None,
+            None,
+            &item.args,
+            &item.const_args,
+            item.span,
+        );
         self.current_item = Some(format!(
             "union instance {}::{:?}",
             backend_symbol_debug_name(item.name),
