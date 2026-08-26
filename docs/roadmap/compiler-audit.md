@@ -3233,6 +3233,13 @@ acceptance item only when its phase-wide evidence is complete.
       before fingerprint or LLVM global emission. Generic arity remains owned
       by the enclosing function because BackendGlobal intentionally carries no
       parent/generic signature.
+- [x] Batch 547 validates external symbol metadata before LLVM. Extern
+      functions and globals must publish a nonempty, NUL-free link name, while
+      non-extern items cannot override their compiler-owned symbol; extern
+      functions also cannot retain generic parameters. The checks run before
+      generic-template validation returns, preventing malformed symbol and
+      fingerprint metadata from bypassing the Backend IR boundary. A combined
+      regression covers missing, forged, empty, and NUL-containing link names.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
