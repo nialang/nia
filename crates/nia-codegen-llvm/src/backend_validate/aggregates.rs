@@ -70,6 +70,14 @@ impl BackendValidator<'_> {
         span: Span,
         message: &str,
     ) {
+        if self.index.has_enum_variant_owner_mismatch(def_id) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!("backend IR enum variant {def_id:?} does not belong to its enum module"),
+            ));
+            return;
+        }
         if !self.index.has_enum_variant(def_id) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,

@@ -3047,6 +3047,39 @@ acceptance item only when its phase-wide evidence is complete.
       layout maps with another module identity. The internal instance-key
       constructor is no longer public, and a backend-IR owner regression locks
       both conversion paths to the canonical product owner.
+- [x] Batch 523 closes module-owner loss in LLVM aggregate field queries.
+      `ModuleCodegen::field_index` and `field_offset` now reattach each
+      layout-local field slot to the aggregate's `GlobalDefId.module_id` before
+      comparing it with a backend field identity. Equal local field numbers
+      from another module can no longer produce a valid GEP index or offset;
+      the owner helper regression covers both accepted and rejected identities.
+- [x] Batch 524 closes backend aggregate-member owner drift. Declaration
+      validation now rejects struct/union fields, named enum payload fields,
+      and enum variants whose `GlobalDefId.module_id` differs from the owning
+      aggregate. LLVM enum-variant lookup also preserves the complete owner
+      identity instead of matching only a local variant slot. The backend
+      regression exercises a foreign field with the same local number before
+      LLVM receives the malformed module.
+- [x] Batch 525 closes ordinary backend-definition owner drift. Declaration
+      validation now requires non-instantiated functions, globals, structs,
+      unions, enums, and their nominal layout keys to belong to the source
+      `BackendModule`; generic instances retain their separate materialization
+      owner contract. An owner regression and an end-to-end malformed Backend
+      IR case prove a foreign definition is rejected before LLVM emission.
+- [x] Batch 526 closes the publication-order aliasing window for ordinary
+      backend identities. `ProgramIndex` now filters nominal item and layout
+      positions by the requested `GlobalDefId.module_id` before returning them;
+      a malformed foreign key published ahead of validation cannot shadow a
+      valid module's lookup. Instance indexes intentionally retain their
+      separate actual-materialization owner contract, with a direct index
+      regression covering both accepted and rejected positions.
+- [x] Batch 527 makes declaration validation total over stale ordinary-item
+      membership. Function and global owner queries now apply the same module
+      filter as item queries, and function/global/struct/union declaration
+      validation turns any missing item or published owner into
+      `INVALID_BACKEND_IR` instead of reaching an `expect` panic. Generic
+      instance ownership remains unchanged; the diagnostic contract regression
+      locks the recoverable failure boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

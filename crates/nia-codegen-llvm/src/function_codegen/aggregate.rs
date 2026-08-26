@@ -846,7 +846,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let variant_layout = layout
             .variants
             .iter()
-            .find(|variant| variant.def_id == def_id.def_id)
+            .find(|variant| {
+                variant_info.owner.def_id.module_id == def_id.module_id
+                    && variant.def_id == def_id.def_id
+            })
             .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?;
         let payload_offset = layout.payload_offset.unwrap_or(0);
         for (index, field) in fields.iter().enumerate() {
@@ -939,7 +942,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let variant_layout = layout
             .variants
             .iter()
-            .find(|candidate| candidate.def_id == variant.def_id)
+            .find(|candidate| {
+                variant_info.owner.def_id.module_id == variant.module_id
+                    && candidate.def_id == variant.def_id
+            })
             .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?;
         let field_layout = variant_layout
             .fields

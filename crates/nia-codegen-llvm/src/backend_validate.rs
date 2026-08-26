@@ -48,8 +48,11 @@ pub(super) fn validate_backend_partition_definitions(
 ) -> Vec<Diagnostic> {
     let module = index.module_for_partition(partition);
     let mut validator = BackendValidator::new(index, module.layouts.target);
+    validator.validate_layout_owners(module);
     for &position in partition.function_definitions() {
-        validator.validate_function(&module.name, &module.functions[position], true);
+        let function = &module.functions[position];
+        validator.validate_definition_owner(module.id, function.def_id, function.span, "function");
+        validator.validate_function(&module.name, function, true);
     }
     for &position in partition.function_instance_definitions() {
         validator.validate_function_instance(
@@ -67,7 +70,9 @@ pub(super) fn validate_backend_partition_definitions(
         );
     }
     for &position in partition.global_definitions() {
-        validator.validate_global(&module.globals[position], true);
+        let global = &module.globals[position];
+        validator.validate_definition_owner(module.id, global.def_id, global.span, "global");
+        validator.validate_global(global, true);
     }
     for &position in partition.global_instance_definitions() {
         validator.validate_global_instance(&module.global_instances[position], true);
@@ -85,13 +90,26 @@ pub(super) fn validate_backend_partition_declarations(
 ) -> Vec<Diagnostic> {
     let mut validator = BackendValidator::new(index, target);
     for &def_id in &declarations.functions {
-        let item = index
-            .function(def_id)
-            .expect("declaration membership contains indexed function");
-        let owner = index
-            .function_owner(def_id)
-            .and_then(|owner| index.module(owner))
-            .expect("indexed function owner");
+        let Some(item) = index.function(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("function", def_id));
+            continue;
+        };
+        let Some(owner_id) = index.function_owner(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("function owner", def_id));
+            continue;
+        };
+        let Some(owner) = index.module(owner_id) else {
+            validator.diagnostics.push(missing_declaration_diagnostic(
+                "function owner module",
+                def_id,
+            ));
+            continue;
+        };
+        validator.validate_definition_owner(owner.id, item.def_id, item.span, "function");
         validator.validate_function(&owner.name, item, false);
     }
     for key in &declarations.function_instances {
@@ -117,12 +135,20 @@ pub(super) fn validate_backend_partition_declarations(
         validator.validate_function_instance(&owner.name, item, false);
     }
     for &def_id in &declarations.globals {
-        validator.validate_global(
-            index
-                .global(def_id)
-                .expect("declaration membership contains indexed global"),
-            false,
-        );
+        let Some(global) = index.global(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("global", def_id));
+            continue;
+        };
+        let Some(owner_id) = index.global_owner(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("global owner", def_id));
+            continue;
+        };
+        validator.validate_definition_owner(owner_id, global.def_id, global.span, "global");
+        validator.validate_global(global, false);
     }
     for key in &declarations.global_instances {
         validator.validate_global_instance(
@@ -133,11 +159,20 @@ pub(super) fn validate_backend_partition_declarations(
         );
     }
     for &def_id in &declarations.structs {
-        validator.validate_struct(
-            index
-                .struct_item(def_id)
-                .expect("declaration membership contains indexed struct"),
-        );
+        let Some(item) = index.struct_item(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("struct", def_id));
+            continue;
+        };
+        let Some(owner_id) = index.struct_owner(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("struct owner", def_id));
+            continue;
+        };
+        validator.validate_definition_owner(owner_id, item.def_id, item.span, "struct");
+        validator.validate_struct(item);
     }
     for key in &declarations.struct_instances {
         validator.validate_struct_instance(
@@ -147,11 +182,20 @@ pub(super) fn validate_backend_partition_declarations(
         );
     }
     for &def_id in &declarations.unions {
-        validator.validate_union(
-            index
-                .union_item(def_id)
-                .expect("declaration membership contains indexed union"),
-        );
+        let Some(item) = index.union_item(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("union", def_id));
+            continue;
+        };
+        let Some(owner_id) = index.union_owner(def_id) else {
+            validator
+                .diagnostics
+                .push(missing_declaration_diagnostic("union owner", def_id));
+            continue;
+        };
+        validator.validate_definition_owner(owner_id, item.def_id, item.span, "union");
+        validator.validate_union(item);
     }
     for key in &declarations.union_instances {
         validator.validate_union_instance(
@@ -171,12 +215,24 @@ pub(super) fn validate_backend_partition_declarations(
     validator.diagnostics
 }
 
+fn missing_declaration_diagnostic(kind: &str, def_id: GlobalDefId) -> Diagnostic {
+    Diagnostic::internal_error_at(
+        nia_diagnostic::codes::INVALID_BACKEND_IR,
+        nia_span::Span::default(),
+        format!(
+            "backend declaration membership references {kind} {def_id:?} without a matching published owner"
+        ),
+    )
+}
+
 pub(super) fn validate_backend_declaration_module(
     module: &BackendModule,
     index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
     let mut validator = BackendValidator::new(index, module.layouts.target);
+    validator.validate_layout_owners(module);
     for function in &module.functions {
+        validator.validate_definition_owner(module.id, function.def_id, function.span, "function");
         validator.validate_function(&module.name, function, false);
     }
     for function in &module.function_instances {
@@ -186,27 +242,41 @@ pub(super) fn validate_backend_declaration_module(
         validator.validate_closure_entry(module.id, &module.name, entry, false);
     }
     for global in &module.globals {
+        validator.validate_definition_owner(module.id, global.def_id, global.span, "global");
         validator.validate_global(global, false);
     }
     for global in &module.global_instances {
         validator.validate_global_instance(global, false);
     }
     for item in &module.structs {
+        validator.validate_definition_owner(module.id, item.def_id, item.span, "struct");
         validator.validate_struct(item);
     }
     for item in &module.struct_instances {
         validator.validate_struct_instance(item);
     }
     for item in &module.unions {
+        validator.validate_definition_owner(module.id, item.def_id, item.span, "union");
         validator.validate_union(item);
     }
     for item in &module.union_instances {
         validator.validate_union_instance(item);
     }
     for item in &module.enums {
+        validator.validate_definition_owner(module.id, item.def_id, item.span, "enum");
         validator.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
         validator.validate_runtime_type(item.backing_type, item.span);
         for variant in &item.variants {
+            if !member_owner_matches(item.def_id.module_id, variant.def_id) {
+                validator.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    variant.span,
+                    format!(
+                        "backend IR enum variant {:?} does not belong to its enum module",
+                        variant.def_id
+                    ),
+                ));
+            }
             match &variant.payload {
                 nia_backend_ir::BackendEnumVariantPayload::Unit => {}
                 nia_backend_ir::BackendEnumVariantPayload::Tuple(fields) => {
@@ -215,6 +285,7 @@ pub(super) fn validate_backend_declaration_module(
                     }
                 }
                 nia_backend_ir::BackendEnumVariantPayload::Named(fields) => {
+                    validator.validate_field_owners(item.def_id.module_id, fields);
                     for field in fields {
                         validator.validate_runtime_type(field.ty, field.span);
                     }
@@ -227,6 +298,10 @@ pub(super) fn validate_backend_declaration_module(
         validator.validate_vtable(vtable, false);
     }
     validator.diagnostics
+}
+
+fn member_owner_matches(aggregate_module: ModuleId, member: GlobalDefId) -> bool {
+    member.module_id == aggregate_module
 }
 
 impl<'a> BackendValidator<'a> {
@@ -540,10 +615,56 @@ impl BackendValidator<'_> {
     }
 
     fn validate_struct(&mut self, item: &BackendStruct) {
+        self.validate_field_owners(item.def_id.module_id, &item.fields);
         if item.generics.is_empty() {
             self.current_item = Some(format!("struct {}", backend_symbol_debug_name(item.name)));
             self.validate_fields(&item.fields);
             self.current_item = None;
+        }
+    }
+
+    fn validate_definition_owner(
+        &mut self,
+        module_id: ModuleId,
+        def_id: GlobalDefId,
+        span: nia_span::Span,
+        kind: &str,
+    ) {
+        if !definition_owner_matches(module_id, def_id) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR {kind} definition {def_id:?} does not belong to its backend module"
+                ),
+            ));
+        }
+    }
+
+    fn validate_layout_owners(&mut self, module: &BackendModule) {
+        for (def_id, _) in &module.layouts.structs {
+            self.validate_definition_owner(
+                module.id,
+                *def_id,
+                nia_span::Span::default(),
+                "struct layout",
+            );
+        }
+        for (def_id, _) in &module.layouts.unions {
+            self.validate_definition_owner(
+                module.id,
+                *def_id,
+                nia_span::Span::default(),
+                "union layout",
+            );
+        }
+        for (def_id, _) in &module.layouts.enums {
+            self.validate_definition_owner(
+                module.id,
+                *def_id,
+                nia_span::Span::default(),
+                "enum layout",
+            );
         }
     }
 
@@ -553,11 +674,13 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
+        self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
         self.current_item = None;
     }
 
     fn validate_union(&mut self, item: &BackendUnion) {
+        self.validate_field_owners(item.def_id.module_id, &item.fields);
         if item.generics.is_empty() {
             self.current_item = Some(format!("union {}", backend_symbol_debug_name(item.name)));
             self.validate_fields(&item.fields);
@@ -571,6 +694,7 @@ impl BackendValidator<'_> {
             backend_symbol_debug_name(item.name),
             item.args
         ));
+        self.validate_field_owners(item.def_id.module_id, &item.fields);
         self.validate_fields(&item.fields);
         self.current_item = None;
     }
@@ -578,6 +702,25 @@ impl BackendValidator<'_> {
     fn validate_fields(&mut self, fields: &[nia_backend_ir::BackendField]) {
         for field in fields {
             self.validate_runtime_type(field.ty, field.span);
+        }
+    }
+
+    fn validate_field_owners(
+        &mut self,
+        aggregate_module: ModuleId,
+        fields: &[nia_backend_ir::BackendField],
+    ) {
+        for field in fields {
+            if !member_owner_matches(aggregate_module, field.def_id) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    field.span,
+                    format!(
+                        "backend IR aggregate field {:?} does not belong to its aggregate module",
+                        field.def_id
+                    ),
+                ));
+            }
         }
     }
 
@@ -759,5 +902,81 @@ impl BackendValidator<'_> {
                 ));
             }
         }
+    }
+}
+
+fn definition_owner_matches(module_id: ModuleId, def_id: GlobalDefId) -> bool {
+    def_id.module_id == module_id
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::{definition_owner_matches, member_owner_matches, missing_declaration_diagnostic};
+    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+
+    #[test]
+    fn aggregate_members_require_the_nominal_module_owner() {
+        let mut modules = ModuleIdAllocator::new();
+        let owner = modules.allocate();
+        let foreign = modules.allocate();
+        let field = DefId(4);
+
+        assert!(member_owner_matches(
+            owner,
+            GlobalDefId {
+                module_id: owner,
+                def_id: field,
+            }
+        ));
+        assert!(!member_owner_matches(
+            owner,
+            GlobalDefId {
+                module_id: foreign,
+                def_id: field,
+            }
+        ));
+    }
+
+    #[test]
+    fn ordinary_definitions_require_the_backend_module_owner() {
+        let mut modules = ModuleIdAllocator::new();
+        let owner = modules.allocate();
+        let foreign = modules.allocate();
+        assert!(definition_owner_matches(
+            owner,
+            GlobalDefId {
+                module_id: owner,
+                def_id: DefId(1),
+            }
+        ));
+        assert!(!definition_owner_matches(
+            owner,
+            GlobalDefId {
+                module_id: foreign,
+                def_id: DefId(1),
+            }
+        ));
+    }
+
+    #[test]
+    fn stale_declaration_membership_is_an_invalid_backend_ir_diagnostic() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(7),
+        };
+
+        let diagnostic = missing_declaration_diagnostic("function", def_id);
+
+        assert!(
+            diagnostic
+                .summary
+                .contains("backend declaration membership")
+        );
+        assert!(
+            diagnostic
+                .summary
+                .contains("without a matching published owner")
+        );
     }
 }

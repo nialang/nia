@@ -44,6 +44,20 @@ struct EnumVariantPosition {
     variant: usize,
 }
 
+fn owned_item_position(
+    def_id: GlobalDefId,
+    position: Option<ItemPosition>,
+) -> Option<ItemPosition> {
+    position.filter(|position| position.module == def_id.module_id)
+}
+
+fn owned_layout_position(
+    def_id: GlobalDefId,
+    position: Option<LayoutPosition>,
+) -> Option<LayoutPosition> {
+    position.filter(|position| position.module == def_id.module_id)
+}
+
 pub(super) struct ProgramIndex {
     modules: Arc<BackendModuleStore>,
     type_store: Arc<TypeStore>,
@@ -411,18 +425,12 @@ impl ProgramIndexPublisher {
 
 impl ProgramIndex {
     pub(super) fn struct_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.tables()
-            .structs
-            .get(&def_id)
-            .copied()
+        owned_item_position(def_id, self.tables().structs.get(&def_id).copied())
             .map(Self::item_owner)
     }
 
     pub(super) fn union_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.tables()
-            .unions
-            .get(&def_id)
-            .copied()
+        owned_item_position(def_id, self.tables().unions.get(&def_id).copied())
             .map(Self::item_owner)
     }
 
@@ -455,10 +463,7 @@ impl ProgramIndex {
     }
 
     pub(super) fn global_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.tables()
-            .globals
-            .get(&def_id)
-            .copied()
+        owned_item_position(def_id, self.tables().globals.get(&def_id).copied())
             .map(Self::item_owner)
     }
 
@@ -478,10 +483,7 @@ impl ProgramIndex {
     }
 
     pub(super) fn function_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.tables()
-            .functions
-            .get(&def_id)
-            .copied()
+        owned_item_position(def_id, self.tables().functions.get(&def_id).copied())
             .map(Self::item_owner)
     }
 
@@ -526,17 +528,20 @@ impl ProgramIndex {
     }
 
     pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
-        let position = self.tables().struct_layouts.get(&def_id).copied()?;
+        let position =
+            owned_layout_position(def_id, self.tables().struct_layouts.get(&def_id).copied())?;
         Some(&self.module_at(position.module).layouts.structs[position.layout].1)
     }
 
     pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
-        let position = self.tables().union_layouts.get(&def_id).copied()?;
+        let position =
+            owned_layout_position(def_id, self.tables().union_layouts.get(&def_id).copied())?;
         Some(&self.module_at(position.module).layouts.unions[position.layout].1)
     }
 
     pub(super) fn enum_layout(&self, def_id: GlobalDefId) -> Option<&nia_layout::EnumLayout> {
-        let position = self.tables().enum_layouts.get(&def_id).copied()?;
+        let position =
+            owned_layout_position(def_id, self.tables().enum_layouts.get(&def_id).copied())?;
         Some(&self.module_at(position.module).layouts.enums[position.layout].1)
     }
 
@@ -621,21 +626,21 @@ impl ProgramIndex {
         &self,
         def_id: GlobalDefId,
     ) -> Option<&nia_backend_ir::BackendStruct> {
-        let position = self.tables().structs.get(&def_id).copied()?;
+        let position = owned_item_position(def_id, self.tables().structs.get(&def_id).copied())?;
         Some(&self.module_at(position.module).structs[position.item])
     }
 
     pub(super) fn has_struct(&self, def_id: GlobalDefId) -> bool {
-        self.tables().structs.contains_key(&def_id)
+        self.struct_item(def_id).is_some()
     }
 
     pub(super) fn union_item(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendUnion> {
-        let position = self.tables().unions.get(&def_id).copied()?;
+        let position = owned_item_position(def_id, self.tables().unions.get(&def_id).copied())?;
         Some(&self.module_at(position.module).unions[position.item])
     }
 
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
-        self.tables().unions.contains_key(&def_id)
+        self.union_item(def_id).is_some()
     }
 
     pub(super) fn has_struct_instances(&self, def_id: GlobalDefId) -> bool {
@@ -677,17 +682,20 @@ impl ProgramIndex {
     }
 
     pub(super) fn has_enum(&self, def_id: GlobalDefId) -> bool {
-        self.tables().enums.contains_key(&def_id)
+        self.enum_item(def_id).is_some()
     }
 
     pub(super) fn enum_item(&self, def_id: GlobalDefId) -> Option<&BackendEnum> {
-        let position = self.tables().enums.get(&def_id).copied()?;
+        let position = owned_item_position(def_id, self.tables().enums.get(&def_id).copied())?;
         Some(&self.module_at(position.module).enums[position.item])
     }
 
     pub(super) fn enum_variant_info(&self, def_id: GlobalDefId) -> Option<EnumVariantInfo<'_>> {
         let position = self.tables().enum_variants.get(&def_id).copied()?;
         let owner = &self.module_at(position.module).enums[position.owner];
+        if owner.def_id.module_id != def_id.module_id {
+            return None;
+        }
         Some(EnumVariantInfo {
             owner,
             variant: &owner.variants[position.variant],
@@ -696,16 +704,26 @@ impl ProgramIndex {
     }
 
     pub(super) fn has_enum_variant(&self, def_id: GlobalDefId) -> bool {
-        self.tables().enum_variants.contains_key(&def_id)
+        self.enum_variant_info(def_id).is_some()
+    }
+
+    pub(super) fn has_enum_variant_owner_mismatch(&self, def_id: GlobalDefId) -> bool {
+        let Some(position) = self.tables().enum_variants.get(&def_id).copied() else {
+            return false;
+        };
+        self.module_at(position.module).enums[position.owner]
+            .def_id
+            .module_id
+            != def_id.module_id
     }
 
     pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendGlobal> {
-        let position = self.tables().globals.get(&def_id).copied()?;
+        let position = owned_item_position(def_id, self.tables().globals.get(&def_id).copied())?;
         Some(&self.module_at(position.module).globals[position.item])
     }
 
     pub(super) fn has_global(&self, def_id: GlobalDefId) -> bool {
-        self.tables().globals.contains_key(&def_id)
+        self.global(def_id).is_some()
     }
 
     pub(super) fn global_instance(
@@ -725,7 +743,7 @@ impl ProgramIndex {
     }
 
     pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
-        let position = self.tables().functions.get(&def_id).copied()?;
+        let position = owned_item_position(def_id, self.tables().functions.get(&def_id).copied())?;
         Some(&self.module_at(position.module).functions[position.item])
     }
 
@@ -738,7 +756,7 @@ impl ProgramIndex {
     }
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
-        self.tables().functions.contains_key(&def_id)
+        self.function(def_id).is_some()
     }
 
     pub(super) fn function_instances_for(
@@ -1188,6 +1206,26 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ProgramIndex>();
+    }
+
+    #[test]
+    fn indexed_nominal_positions_require_the_definition_module_owner() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let foreign = module_ids.allocate();
+        let position = ItemPosition {
+            module: owner,
+            item: 0,
+        };
+        let layout = LayoutPosition {
+            module: owner,
+            layout: 0,
+        };
+
+        assert!(super::owned_item_position(global(owner, 1), Some(position)).is_some());
+        assert!(super::owned_item_position(global(foreign, 1), Some(position)).is_none());
+        assert!(super::owned_layout_position(global(owner, 1), Some(layout)).is_some());
+        assert!(super::owned_layout_position(global(foreign, 1), Some(layout)).is_none());
     }
 
     #[test]
