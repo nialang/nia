@@ -331,6 +331,119 @@ fn validates_naked_function_attribute_before_llvm() {
 }
 
 #[test]
+fn validates_extern_abi_types_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let char_ty = interner.primitive(PrimitiveTy::Char);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
+    let optional_ty = interner.intern(TyKind::Optional { elem: i32_ty });
+    let variadic_function_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![bool_ty],
+        return_type: i32_ty,
+        is_variadic: true,
+    });
+    let span = Span::default();
+    let param = |ty| BackendParam {
+        local_id: None,
+        name: None,
+        receiver: None,
+        passing_ty: ty,
+        local_ty: ty,
+        span,
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("malformed_extern"),
+        link_name: Some("malformed_extern".to_string()),
+        generics: Vec::new(),
+        params: vec![param(bool_ty), param(variadic_function_ty)],
+        return_type: tuple_ty,
+        is_extern: true,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
+    let struct_id = GlobalDefId {
+        module_id,
+        def_id: DefId(1),
+    };
+    let field_id = GlobalDefId {
+        module_id,
+        def_id: DefId(2),
+    };
+    let item = BackendStruct {
+        def_id: struct_id,
+        name: sym("MalformedExternStruct"),
+        generics: Vec::new(),
+        fields: vec![BackendField {
+            def_id: field_id,
+            name: sym("value"),
+            ty: optional_ty,
+            span,
+        }],
+        is_extern: true,
+        span,
+    };
+    let global = BackendGlobal {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(3),
+        },
+        name: sym("malformed_extern_global"),
+        link_name: Some("malformed_extern_global".to_string()),
+        ty: char_ty,
+        is_let: false,
+        is_extern: true,
+        init: None,
+        span,
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: Vec::new(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        vec![item],
+        Vec::new(),
+        vec![global],
+        vec![function],
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        "extern parameter cannot use `bool` directly",
+        "extern parameter cannot use variadic function pointer",
+        "extern function pointer parameter cannot use `bool` directly",
+        "extern return type cannot use tuple by value",
+        "extern global cannot use `char` directly",
+        "extern struct field cannot use optional by value",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn rejects_ordinary_definition_with_foreign_module_owner_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
