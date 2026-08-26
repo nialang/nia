@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-26):
 
-- Implementation batches: 519 completed entries in this ledger.
+- Implementation batches: 521 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3033,6 +3033,13 @@ acceptance item only when its phase-wide evidence is complete.
       matching the standard-library `AsciiUnit : Sized` contract.
       The driver supertrait matrix covers the missing-witness regression while
       the owner signature suite remains green.
+- [x] Batch 521 closes module-owner aliasing in canonical layout products.
+      `Layouts` now records the module that owns its local definition maps, and
+      every nominal type, struct/union field, and enum lookup rejects a
+      `GlobalDefId` from another module before consulting the local `DefId`.
+      An owner regression uses equal local definition numbers from distinct
+      modules to prove foreign ABI/layout queries cannot read the wrong
+      aggregate representation.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

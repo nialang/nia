@@ -180,6 +180,8 @@ pub struct EnumFieldLayout {
 /// `GlobalDefId` must first obtain the `Layouts` product for its owner module.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layouts {
+    /// Module that owns every local definition key in this product.
+    pub module_id: ModuleId,
     /// Target pointer width and alignment used for all computed layouts.
     pub target: TargetDataLayout,
     /// Layouts of normalized type identities.
@@ -246,6 +248,9 @@ impl Layouts {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
+        if def_id.module_id != self.module_id {
+            return None;
+        }
         if args.is_empty() && const_args.is_empty() {
             self.structs
                 .get(&def_id.def_id)
@@ -295,6 +300,9 @@ impl Layouts {
         const_args: &[ConstGenericArg],
         field: GlobalDefId,
     ) -> Option<u64> {
+        if field.module_id != self.module_id {
+            return None;
+        }
         self.nominal_struct_layout_with_const_args(def_id, args, const_args)
             .and_then(|layout| {
                 layout
@@ -321,6 +329,9 @@ impl Layouts {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&StructLayout> {
+        if def_id.module_id != self.module_id {
+            return None;
+        }
         if args.is_empty() && const_args.is_empty() {
             self.structs
                 .get(&def_id.def_id)
@@ -339,6 +350,9 @@ impl Layouts {
 
     /// Returns the local enum layout for `def_id`.
     pub fn nominal_enum_layout(&self, def_id: GlobalDefId) -> Option<&EnumLayout> {
+        if def_id.module_id != self.module_id {
+            return None;
+        }
         self.enums.get(&def_id.def_id)
     }
 }
@@ -664,6 +678,7 @@ impl<'a> LayoutComputer<'a> {
 
     fn finish(self) -> Layouts {
         Layouts {
+            module_id: self.module_id,
             target: self.target,
             types: self.types,
             structs: self.structs,
@@ -1613,6 +1628,82 @@ mod tests {
             TargetDataLayout::from_pointer_width(64),
             Some(TargetDataLayout::LP64)
         );
+    }
+
+    #[test]
+    fn layout_queries_reject_same_local_definition_from_foreign_module() {
+        let mut modules = ModuleIdAllocator::new();
+        let owner = modules.allocate();
+        let foreign_module = modules.allocate();
+        let def_id = nia_defs::DefId(7);
+        let layout = TypeLayout { size: 4, align: 4 };
+        let struct_layout = StructLayout {
+            layout: layout.clone(),
+            fields: vec![FieldLayout {
+                def_id: nia_defs::DefId(9),
+                offset: 0,
+                layout: layout.clone(),
+            }],
+        };
+        let enum_layout = EnumLayout {
+            layout: layout.clone(),
+            tag: layout.clone(),
+            payload_offset: None,
+            variants: Vec::new(),
+        };
+        let layouts = Layouts {
+            module_id: owner,
+            target: TargetDataLayout::LP64,
+            types: HashMap::new(),
+            structs: HashMap::from([(def_id, struct_layout.clone())]),
+            unions: HashMap::new(),
+            enums: HashMap::from([(def_id, enum_layout)]),
+            struct_instances: HashMap::new(),
+            union_instances: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        let owned = GlobalDefId {
+            module_id: owner,
+            def_id,
+        };
+        let foreign_def = GlobalDefId {
+            module_id: foreign_module,
+            def_id,
+        };
+        assert_eq!(
+            layouts.nominal_type_layout(owned, &[]),
+            Some(layout.clone())
+        );
+        assert_eq!(layouts.nominal_type_layout(foreign_def, &[]), None);
+        assert_eq!(
+            layouts.nominal_struct_layout(owned, &[]),
+            Some(&struct_layout)
+        );
+        assert!(layouts.nominal_struct_layout(foreign_def, &[]).is_none());
+        assert_eq!(
+            layouts.field_offset(
+                owned,
+                &[],
+                GlobalDefId {
+                    module_id: owner,
+                    def_id: nia_defs::DefId(9),
+                }
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            layouts.field_offset(
+                owned,
+                &[],
+                GlobalDefId {
+                    module_id: foreign_module,
+                    def_id: nia_defs::DefId(9),
+                }
+            ),
+            None
+        );
+        assert!(layouts.nominal_enum_layout(owned).is_some());
+        assert!(layouts.nominal_enum_layout(foreign_def).is_none());
     }
 
     #[test]
