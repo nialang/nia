@@ -125,7 +125,10 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
-                if self.index.module(def_id.module_id).is_none() {
+                // Registration, not publication: this rejects a stale or
+                // foreign owner. Requiring publication would reject valid
+                // nominal types while their module is still being lowered.
+                if !self.index.is_registered_module(def_id.module_id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
@@ -274,7 +277,7 @@ impl BackendValidator<'_> {
         match len {
             ArrayLenTy::ConstValue(_) => {}
             ArrayLenTy::ConstExpr(id) => {
-                let Some(module) = self.index.module(id.module_id) else {
+                if !self.index.is_registered_module(id.module_id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
@@ -283,6 +286,12 @@ impl BackendValidator<'_> {
                             id.module_id
                         ),
                     ));
+                    return;
+                }
+                // Evaluated lengths live in the owner's payload. While the owner
+                // is registered but unwritten there is nothing to contradict, so
+                // defer instead of reporting an unevaluated length.
+                let Some(module) = self.index.written_module(id.module_id) else {
                     return;
                 };
                 if !module.const_eval.array_lengths.contains_key(id) {

@@ -3179,6 +3179,19 @@ registered-but-unwritten slots rather than index them. Artifact target agreement
 is a whole-store property and therefore still spans written modules that are not
 yet published.
 
+Backend IR validation selects its predicate from the same three states, and the
+choice is a correctness decision rather than a convenience. A check that only
+rejects a stale or foreign owner asks whether the module is registered, because
+registration holds for the whole session and an owner mid-lowering is a valid
+part of the program. A check that reads module facts such as target layouts,
+evaluated array lengths, or promoted-allocation metadata asks for a written
+payload and treats its absence as "defer", since an unwritten module carries
+nothing to contradict. Publication is required only where an item must already
+be indexed. Treating publication as the existence test rejects valid programs:
+whichever partition is validated first would report every nominal type,
+static-array origin, array length, and union relocation owned by a later module
+as belonging to a missing module.
+
 Finalized backend lowering also publishes one `CodegenPartitionPlan`. Each
 source unit has two non-synonymous identities: `CodegenUnitId::SourceModule {
 module_id, ordinal }` locates work only inside the current session, while
