@@ -2466,6 +2466,16 @@ structure, cross-module function/global references, static initializer address
 paths, aggregate field/variant references, evaluated array lengths, and ABI
 layouts needed by runtime values.
 
+LLVM functions and globals share one linker-value namespace. Program preflight
+therefore reserves every compiler-owned function, global, concrete instance,
+and closure-entry symbol before accepting extern link names. Repeated extern
+declarations of the same kind may share one foreign symbol across modules, and
+at most one matching extern function may provide its definition. An extern
+function and extern global may not share a name, and no extern may claim a
+compiler-owned symbol. LLVM's automatic numeric renaming is never a valid
+resolution for these collisions because it changes the requested linker
+identity.
+
 ### 11.2 `nia-backend-lower`
 
 Lowers checked modules into backend IR. It uses definitions, lowered types,
@@ -3198,6 +3208,13 @@ remains representable without a signed host conversion. These reverse-symbol
 flags participate in the same versioned builtin definition fingerprint and
 share the synthetic compiler-builtins object with division and float-to-wide
 conversions.
+
+Native-program preflight reserves exactly the externally visible helper symbols
+selected by that reachable Function IR scan. An extern function or global may
+use a helper-like name while the helper is absent, but it may not claim a symbol
+that the current compiler-builtins object will define. This check runs before
+object-cache lookup or builtin emission, so separate codegen units cannot each
+publish the same linker definition and leave the conflict to the linker.
 
 Every emitted unit also carries a `CodegenUnitFingerprint`, which is content
 identity rather than location identity. Its encoder is explicitly versioned

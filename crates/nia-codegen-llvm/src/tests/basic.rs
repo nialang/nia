@@ -847,6 +847,74 @@ fn divrem(value: u128, by: u128) u128 {
 }
 
 #[test]
+fn rejects_external_symbols_owned_by_required_compiler_builtins() {
+    let root = temp_dir("rejects_external_symbols_owned_by_required_compiler_builtins");
+    let plain = root.join("plain.nia");
+    std::fs::write(
+        &plain,
+        r#"
+extern fn __udivti3(lhs: u128, rhs: u128) u128 {
+    _ = rhs;
+    lhs
+}
+extern static mut __umodti3: u128;
+
+fn main() i32 { 0 }
+"#,
+    )
+    .expect("write unreserved builtin-name source");
+
+    let codegen = codegen_program(plain.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_native_objects(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(
+        output.diagnostics.is_empty(),
+        "unused builtin names must remain available to externs: {:?}",
+        output.diagnostics
+    );
+
+    let wide = root.join("wide.nia");
+    std::fs::write(
+        &wide,
+        r#"
+extern fn __udivti3(lhs: u128, rhs: u128) u128 {
+    _ = rhs;
+    lhs
+}
+extern static mut __umodti3: u128;
+
+fn divrem(value: u128, by: u128) u128 {
+    (value / by) + (value % by)
+}
+"#,
+    )
+    .expect("write reserved builtin-name source");
+
+    let codegen = codegen_program(wide.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_native_objects(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(output.link_inputs.is_empty());
+    for expected in [
+        "extern function reuses `__udivti3` already owned by compiler builtin",
+        "extern global reuses `__umodti3` already owned by compiler builtin",
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn emits_compiler_builtins_for_wide_float_casts() {
     let root = temp_dir("emits_compiler_builtins_for_wide_float_casts");
     let main = root.join("main.nia");

@@ -1736,6 +1736,166 @@ fn rejects_generated_llvm_symbol_collisions_before_emission() {
 }
 
 #[test]
+fn rejects_external_collisions_with_compiler_owned_symbols() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let def_id = |index| GlobalDefId {
+        module_id,
+        def_id: DefId(index),
+    };
+    let module_mangle = nia_mangle::MangleModuleId::from_normalized_source_path("main");
+    let owned_global_name = sym("owned_global");
+    let owned_function_name = sym("owned_function");
+    let owned_global_symbol =
+        nia_mangle::mangle_base_symbol_id(def_id(0), module_mangle, owned_global_name);
+    let owned_function_symbol =
+        nia_mangle::mangle_base_symbol_id(def_id(1), module_mangle, owned_function_name);
+    let extern_function = |index, name: &str, link_name: &str| BackendFunction {
+        def_id: def_id(index),
+        name: sym(name),
+        link_name: Some(link_name.to_string()),
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: true,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: None,
+        span,
+    };
+    let extern_global = |index, name: &str, link_name: &str| BackendGlobal {
+        def_id: def_id(index),
+        name: sym(name),
+        link_name: Some(link_name.to_string()),
+        ty: i32_ty,
+        is_let: false,
+        is_extern: true,
+        init: None,
+        span,
+    };
+    let body = FunctionBody {
+        span,
+        locals: Vec::new(),
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span,
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty: i32_ty,
+                    kind: FunctionExprKind::Integer("0".to_string()),
+                }),
+                span,
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty: i32_ty,
+    };
+    let owned_function = BackendFunction {
+        def_id: def_id(1),
+        name: owned_function_name,
+        link_name: None,
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        attributes: Vec::new(),
+        local_names: Default::default(),
+        function_body: Some(body.clone()),
+        span,
+    };
+    let mut duplicate_definition_a =
+        extern_function(10, "duplicate_definition_a", "duplicate_definition");
+    duplicate_definition_a.function_body = Some(body.clone());
+    let mut duplicate_definition_b =
+        extern_function(11, "duplicate_definition_b", "duplicate_definition");
+    duplicate_definition_b.function_body = Some(body);
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![
+            BackendGlobal {
+                def_id: def_id(0),
+                name: owned_global_name,
+                link_name: None,
+                ty: i32_ty,
+                is_let: false,
+                is_extern: false,
+                init: Some(StaticInit::Int(0.into())),
+                span,
+            },
+            extern_global(6, "collides_function", &owned_function_symbol),
+            extern_global(7, "shared_global", "foreign_shared"),
+            extern_global(8, "repeat_global_a", "repeatable_global"),
+            extern_global(9, "repeat_global_b", "repeatable_global"),
+        ],
+        vec![
+            owned_function,
+            extern_function(2, "collides_global", &owned_global_symbol),
+            extern_function(3, "shared_function", "foreign_shared"),
+            extern_function(4, "repeat_function_a", "repeatable_function"),
+            extern_function(5, "repeat_function_b", "repeatable_function"),
+            duplicate_definition_a,
+            duplicate_definition_b,
+        ],
+    );
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    for expected in [
+        format!("extern function reuses `{owned_global_symbol}` already owned by global"),
+        format!("extern global reuses `{owned_function_symbol}` already owned by function"),
+        "extern global reuses `foreign_shared` already declared by extern function".to_string(),
+        "extern function defines `duplicate_definition` more than once".to_string(),
+    ] {
+        assert!(
+            has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, &expected),
+            "missing `{expected}` in {:?}",
+            output.diagnostics
+        );
+    }
+    assert_eq!(
+        output
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("external symbol collision"))
+            .count(),
+        4,
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(output.diagnostics.iter().all(|diagnostic| {
+        !diagnostic.summary.contains("repeatable_function")
+            && !diagnostic.summary.contains("repeatable_global")
+    }));
+}
+
+#[test]
 fn rejects_malformed_layout_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

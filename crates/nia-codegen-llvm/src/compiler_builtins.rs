@@ -50,6 +50,29 @@ impl CompilerBuiltinSymbols {
             || self.f32_from_i128
             || self.f64_from_i128
     }
+
+    /// Returns the externally visible definitions emitted for this exact set.
+    ///
+    /// Keep this list beside the emitter flags: native-program validation uses
+    /// it to reserve only helpers that the compiler-builtins object will own.
+    pub(crate) fn external_definitions(self) -> impl Iterator<Item = &'static str> {
+        [
+            self.u128_div_rem.then_some("__udivti3"),
+            self.u128_div_rem.then_some("__umodti3"),
+            self.i128_div_rem.then_some("__divti3"),
+            self.i128_div_rem.then_some("__modti3"),
+            self.u128_from_f32.then_some("__fixunssfti"),
+            self.u128_from_f64.then_some("__fixunsdfti"),
+            self.i128_from_f32.then_some("__fixsfti"),
+            self.i128_from_f64.then_some("__fixdfti"),
+            self.f32_from_u128.then_some("__floatuntisf"),
+            self.f64_from_u128.then_some("__floatuntidf"),
+            self.f32_from_i128.then_some("__floattisf"),
+            self.f64_from_i128.then_some("__floattidf"),
+        ]
+        .into_iter()
+        .flatten()
+    }
 }
 
 #[derive(Debug, Default)]

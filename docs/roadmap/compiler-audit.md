@@ -3280,6 +3280,25 @@ acceptance item only when its phase-wide evidence is complete.
       initializer after the first. The violation is classified as internal
       `INVALID_BACKEND_IR`; a same-owner array-pointer regression forces two
       conflicting constants through materialization and verifies rejection.
+- [x] Batch 553 closes the external/generated LLVM value-namespace boundary.
+      Program preflight now reserves ordinary compiler-owned functions and
+      globals, concrete instances, and validated closure-entry symbols before
+      scanning extern link names. Same-kind extern declarations remain
+      repeatable across modules, while extern function/global kind conflicts
+      duplicate extern function definitions, and any extern claim on a
+      compiler-owned symbol are rejected before artifact acceptance rather
+      than relying on LLVM's identity-changing numeric rename. A combined
+      regression covers both generated categories, the extern cross-kind and
+      multiple-definition collisions, and allowed same-kind declarations.
+- [x] Batch 554 extends native symbol preflight through the synthetic
+      compiler-builtins unit. The builtin collector exposes the exact external
+      definitions selected by reachable wide integer and float-conversion IR;
+      native emission rejects extern functions or globals that claim one of
+      those active symbols before cache lookup or builtin object creation.
+      Helper-like names remain available when the corresponding builtin is not
+      requested. A source-to-object regression covers both the conditional
+      allowance and function/global collisions with the requested unsigned
+      division and remainder helpers.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

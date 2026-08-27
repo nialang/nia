@@ -28,7 +28,7 @@ use std::sync::Arc;
 
 use backend_validate::{
     validate_backend_declaration_module, validate_backend_partition_declarations,
-    validate_backend_program,
+    validate_backend_program, validate_native_backend_program,
 };
 use module_codegen::ModuleCodegen;
 pub use nia_backend_ir::{
@@ -161,7 +161,8 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     /// in the returned diagnostics.
     pub fn finish(mut self) -> LlvmObjectOutput {
         let index = self.coordinator.finish();
-        let program_diagnostics = validate_backend_program(&index);
+        let builtin_symbols = compiler_builtins::required_symbols(&index);
+        let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
         let worker_lanes = self.partition_count.min(self.tasks.capacity());
         let task_outcomes = self.tasks.finish();
         for (key, outcome) in task_outcomes {
@@ -182,7 +183,6 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                 }
             }
         }
-        let builtin_symbols = compiler_builtins::required_symbols(&index);
         if program_diagnostics.is_empty() && builtin_symbols.any() {
             match emit_compiler_builtins_object(
                 builtin_symbols,
@@ -471,14 +471,14 @@ fn emit_native_objects_inner(
     let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
         prepare_complete_codegen(module_store, type_store, owners)
     });
-    let program_diagnostics = validate_backend_program(&index);
+    let builtin_symbols = compiler_builtins::required_symbols(&index);
+    let program_diagnostics = validate_native_backend_program(&index, builtin_symbols);
     if !program_diagnostics.is_empty() {
         return LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::new(Vec::new()),
             diagnostics: program_diagnostics,
         };
     }
-    let builtin_symbols = compiler_builtins::required_symbols(&index);
     let has_partitions = !preparations.is_empty();
     let mut tasks = preparations
         .into_iter()
