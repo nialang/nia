@@ -11,7 +11,10 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use crate::{declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex};
+use crate::{
+    compiler_builtins::CompilerBuiltinSymbols,
+    declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex,
+};
 use nia_backend_ir::{
     BackendClosureEntry, BackendClosureEntryKey, BackendClosureEntryOwner, BackendFunction,
     BackendFunctionInstance, BackendGlobal, BackendGlobalInstance, BackendModule, BackendParam,
@@ -39,6 +42,12 @@ struct FunctionInstanceRef<'a> {
 }
 type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<InternedTyId>>>>;
+
+#[derive(Clone, Copy)]
+struct ExternalSymbolState {
+    kind: &'static str,
+    has_definition: bool,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ExternAbiTypeContext {
@@ -98,6 +107,63 @@ pub(super) fn validate_backend_program(index: &ProgramIndex) -> Vec<Diagnostic> 
     diagnostics
 }
 
+pub(super) fn validate_native_backend_program(
+    index: &ProgramIndex,
+    builtin_symbols: CompilerBuiltinSymbols,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = validate_backend_program(index);
+    let reserved = builtin_symbols
+        .external_definitions()
+        .collect::<HashSet<_>>();
+    if reserved.is_empty() {
+        return diagnostics;
+    }
+    for module_id in index.module_ids() {
+        let Some(module) = index.module(*module_id) else {
+            continue;
+        };
+        for function in &module.functions {
+            if function.is_extern
+                && let Some(symbol) = function.link_name.as_deref()
+                && reserved.contains(symbol)
+            {
+                diagnostics.push(compiler_builtin_collision_diagnostic(
+                    "extern function",
+                    symbol,
+                    function.span,
+                ));
+            }
+        }
+        for global in &module.globals {
+            if global.is_extern
+                && let Some(symbol) = global.link_name.as_deref()
+                && reserved.contains(symbol)
+            {
+                diagnostics.push(compiler_builtin_collision_diagnostic(
+                    "extern global",
+                    symbol,
+                    global.span,
+                ));
+            }
+        }
+    }
+    diagnostics
+}
+
+fn compiler_builtin_collision_diagnostic(
+    kind: &'static str,
+    symbol: &str,
+    span: nia_span::Span,
+) -> Diagnostic {
+    Diagnostic::internal_error_at(
+        nia_diagnostic::codes::INVALID_BACKEND_IR,
+        span,
+        format!(
+            "backend IR external symbol collision: {kind} reuses `{symbol}` already owned by compiler builtin"
+        ),
+    )
+}
+
 fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagnostic>) {
     let mut values = HashMap::<String, &'static str>::new();
     for module_id in index.module_ids() {
@@ -147,6 +213,11 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 global.span,
             );
         }
+        for entry in &module.closure_entries {
+            values
+                .entry(entry.symbol.clone())
+                .or_insert("closure entry");
+        }
         let mut types = HashMap::<String, &'static str>::new();
         for item in &module.structs {
             if item.generics.is_empty() {
@@ -188,6 +259,103 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 item.span,
             );
         }
+    }
+    validate_external_symbol_collisions(index, &values, diagnostics);
+}
+
+fn validate_external_symbol_collisions(
+    index: &ProgramIndex,
+    generated: &HashMap<String, &'static str>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut external = HashMap::<String, ExternalSymbolState>::new();
+    for module_id in index.module_ids() {
+        let Some(module) = index.module(*module_id) else {
+            continue;
+        };
+        for function in &module.functions {
+            if function.is_extern
+                && let Some(symbol) = function.link_name.as_deref()
+            {
+                record_external_symbol(
+                    generated,
+                    &mut external,
+                    diagnostics,
+                    symbol,
+                    "extern function",
+                    function.function_body.is_some(),
+                    function.span,
+                );
+            }
+        }
+        for global in &module.globals {
+            if global.is_extern
+                && let Some(symbol) = global.link_name.as_deref()
+            {
+                record_external_symbol(
+                    generated,
+                    &mut external,
+                    diagnostics,
+                    symbol,
+                    "extern global",
+                    false,
+                    global.span,
+                );
+            }
+        }
+    }
+}
+
+fn record_external_symbol(
+    generated: &HashMap<String, &'static str>,
+    external: &mut HashMap<String, ExternalSymbolState>,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbol: &str,
+    kind: &'static str,
+    is_definition: bool,
+    span: nia_span::Span,
+) {
+    if symbol.is_empty() || symbol.contains('\0') {
+        return;
+    }
+    if let Some(generated_kind) = generated.get(symbol) {
+        diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            span,
+            format!(
+                "backend IR external symbol collision: {kind} reuses `{symbol}` already owned by {generated_kind}"
+            ),
+        ));
+    }
+    if let Some(previous) = external.get_mut(symbol) {
+        if previous.kind != kind {
+            diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR external symbol collision: {kind} reuses `{symbol}` already declared by {}",
+                    previous.kind
+                ),
+            ));
+        } else if is_definition && previous.has_definition {
+            diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR external symbol collision: {kind} defines `{symbol}` more than once"
+                ),
+            ));
+        } else {
+            previous.has_definition |= is_definition;
+        }
+    } else {
+        external.insert(
+            symbol.to_string(),
+            ExternalSymbolState {
+                kind,
+                has_definition: is_definition,
+            },
+        );
     }
 }
 
