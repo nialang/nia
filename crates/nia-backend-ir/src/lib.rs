@@ -517,6 +517,16 @@ impl BackendModuleStore {
             .and_then(|position| self.slots[*position].get())
     }
 
+    /// Reports whether this owner belongs to the store at all.
+    ///
+    /// Registration precedes publication, so this answers "is the module part of
+    /// this backend program" without requiring its payload. Consumers that only
+    /// need to reject a stale or foreign identity should ask this instead of
+    /// treating an unwritten slot as an absent module.
+    pub fn is_registered(&self, module_id: ModuleId) -> bool {
+        self.positions.contains_key(&module_id)
+    }
+
     fn get_at(&self, position: usize) -> Option<&BackendModule> {
         self.slots.get(position).and_then(OnceLock::get)
     }

@@ -3323,6 +3323,19 @@ acceptance item only when its phase-wide evidence is complete.
       live vtable symbol; without the reservation LLVM silently renamed the
       table to `<symbol>.1` and left every dispatch site following the renamed
       identity while the extern kept the requested linker name.
+- [x] Batch 557 stops Backend IR validation from treating an unpublished module
+      as a missing one. Nominal type owners and static-array-pointer origins are
+      pure identity checks and now require only registration, which holds for
+      the whole session. Array-length const-expression owners and union-storage
+      relocations read module payloads, so they reject an unregistered owner but
+      defer while a registered owner is still unwritten. Previously all four
+      used the publication accessor, so whichever partition was validated first
+      reported every such owner belonging to a later module as missing. The
+      backend module store gained an explicit `is_registered` predicate and the
+      program index separate registered/written accessors, with an owner
+      regression pinning all three states independently. The complete
+      `std_hash_map` CLI suite now passes 7 of 7, having failed 7 of 7 before
+      this batch and batch 555.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

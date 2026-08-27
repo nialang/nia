@@ -710,7 +710,8 @@ impl BackendValidator<'_> {
                 array,
                 is_readonly,
             } => {
-                if self.index.module(allocation.module_id()).is_none() {
+                // Identity only: the origin module need not be published yet.
+                if !self.index.is_registered_module(allocation.module_id()) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         expr.span,
@@ -906,16 +907,20 @@ impl BackendValidator<'_> {
                     ));
                 }
                 for relocation in relocations {
-                    let Some(owner) = self.index.module(relocation.allocation.module_id()) else {
+                    let owner_id = relocation.allocation.module_id();
+                    if !self.index.is_registered_module(owner_id) {
                         self.diagnostics.push(Diagnostic::internal_error_at(
                             nia_diagnostic::codes::INVALID_BACKEND_IR,
                             expr.span,
                             "backend IR union storage relocation references a missing module",
                         ));
                         continue;
-                    };
-                    if usize::try_from(owner.layouts.target.pointer_size).ok()
-                        != Some(relocation.width)
+                    }
+                    // The pointer width comes from the owner's payload; defer the
+                    // comparison while a registered owner is still unwritten.
+                    if let Some(owner) = self.index.written_module(owner_id)
+                        && usize::try_from(owner.layouts.target.pointer_size).ok()
+                            != Some(relocation.width)
                     {
                         self.diagnostics.push(Diagnostic::internal_error_at(
                             nia_diagnostic::codes::INVALID_BACKEND_IR,

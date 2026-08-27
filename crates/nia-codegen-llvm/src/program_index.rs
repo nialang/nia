@@ -149,6 +149,28 @@ impl ProgramIndex {
         self.modules.module_ids()
     }
 
+    /// Reports whether this owner belongs to the backend program at all.
+    ///
+    /// Use this for pure identity checks that reject stale or foreign owners.
+    /// It stays true throughout lowering, so a validator running inside the
+    /// readiness window cannot mistake an unwritten module for a missing one.
+    pub(super) fn is_registered_module(&self, module_id: ModuleId) -> bool {
+        self.modules.is_registered(module_id)
+    }
+
+    /// Returns a module whose payload is written, published or not.
+    ///
+    /// Use this when a check reads module facts such as layouts or const-eval
+    /// results. A written payload is complete; publication only adds the index
+    /// tables. Returns `None` while the slot is still unwritten, which callers
+    /// must treat as "defer" rather than "malformed".
+    pub(super) fn written_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&nia_backend_ir::BackendModule> {
+        self.modules.get(module_id)
+    }
+
     /// Target layouts of every backend module whose payload is written.
     ///
     /// This deliberately spans modules that are written but not yet published,
@@ -1035,6 +1057,44 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// The three readiness states must stay independently observable, so
+    /// validation can reject a foreign owner without rejecting one that is
+    /// merely mid-lowering.
+    #[test]
+    fn separates_registered_written_and_published_module_states() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let written = module_ids.allocate();
+        let unwritten = module_ids.allocate();
+        let foreign = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(written);
+        let ty = interner.primitive(PrimitiveTy::I32);
+        drop(interner);
+        let store = Arc::new(nia_backend_ir::BackendModuleStore::new([
+            written, unwritten,
+        ]));
+        store.publish(enum_module(written, ty, global(written, 1), "written"));
+        let (index, mut publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
+
+        // Written but not yet published.
+        assert!(index.is_registered_module(written));
+        assert!(index.written_module(written).is_some());
+        assert!(index.module(written).is_none());
+
+        // Registered, payload still absent.
+        assert!(index.is_registered_module(unwritten));
+        assert!(index.written_module(unwritten).is_none());
+        assert!(index.module(unwritten).is_none());
+
+        // Never part of this program.
+        assert!(!index.is_registered_module(foreign));
+        assert!(index.written_module(foreign).is_none());
+        assert!(index.module(foreign).is_none());
+
+        publisher.publish(written);
+        assert!(index.module(written).is_some());
     }
 
     /// Registration precedes payload writing, and partition validation runs in
