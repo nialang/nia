@@ -587,6 +587,81 @@ fn main() i32 {
     assert!(ir.contains("call void @log"), "{ir}");
 }
 
+/// An extern declaration must not claim a compiler-owned vtable symbol.
+///
+/// Without program preflight LLVM renames the vtable global to `<name>.1` and
+/// every dispatch site silently follows the renamed identity, while the extern
+/// keeps the name the linker was asked to resolve.
+#[test]
+fn rejects_external_symbols_owned_by_trait_object_vtables() {
+    let root = temp_dir("rejects_external_symbols_owned_by_trait_object_vtables");
+    let main = root.join("main.nia");
+    let program = |extra: &str| {
+        format!(
+            r#"
+trait Source {{
+    fn add(& self, rhs: i32) i32;
+}}
+
+struct Counter {{
+    value: i32,
+}}
+
+extend Counter : Source {{
+    fn add(& self, rhs: i32) i32 {{
+        self.value + rhs
+    }}
+}}
+{extra}
+fn read(source: & Source) i32 {{
+    source.add(4)
+}}
+
+fn main() i32 {{
+    let mut counter = Counter {{ value: 8 }};
+    read(& counter)
+}}
+"#
+        )
+    };
+    std::fs::write(&main, program("")).expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let vtable_symbol = output.modules[0]
+        .ir
+        .lines()
+        .find(|line| line.starts_with("@nia__vtable__"))
+        .and_then(|line| line.split_whitespace().next())
+        .expect("emitted vtable global")
+        .trim_start_matches('@')
+        .to_string();
+
+    // The same source path keeps the module hash, so the discovered symbol is
+    // still the one this program's vtable will request.
+    std::fs::write(
+        &main,
+        program(&format!("\nextern static mut {vtable_symbol}: i32;\n")),
+    )
+    .expect("write colliding source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.modules.is_empty(), "{:?}", output.modules.len());
+    assert!(
+        has_internal_diagnostic(
+            &output.diagnostics,
+            codes::INVALID_BACKEND_IR,
+            &format!("extern global reuses `{vtable_symbol}` already owned by trait-object vtable"),
+        ),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
 #[test]
 fn emits_trait_object_supertrait_upcast_metadata_offset() {
     let root = temp_dir("emits_trait_object_supertrait_upcast_metadata_offset");

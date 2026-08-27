@@ -3311,6 +3311,18 @@ acceptance item only when its phase-wide evidence is complete.
       driver case failed roughly two runs in three. A direct owner regression
       publishes one of two registered modules and pins the skip, beside the
       existing test that pins the written-but-unpublished span.
+- [x] Batch 556 extends native symbol preflight through trait-object dispatch
+      tables. Vtable globals are externally visible, so program preflight now
+      reproduces the emitter's vtable symbol for every published table and
+      reserves it in the same value namespace as functions, globals, concrete
+      instances, and closure entries. The reproduction mirrors the emitter's
+      constant const-expression resolver rather than the richer instance
+      mangling, defers when a mangle input is absent from Backend IR, and
+      rejects two distinct vtable identities that resolve to one symbol. A
+      source-level regression proves an extern global can no longer claim a
+      live vtable symbol; without the reservation LLVM silently renamed the
+      table to `<symbol>.1` and left every dispatch site following the renamed
+      identity while the extern kept the requested linker name.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
