@@ -149,12 +149,22 @@ impl ProgramIndex {
         self.modules.module_ids()
     }
 
+    /// Target layouts of every backend module whose payload is written.
+    ///
+    /// This deliberately spans modules that are written but not yet published,
+    /// because artifact target agreement is a whole-store property rather than
+    /// an index-visibility one. Registration is a third, earlier state: the
+    /// store lists an id before lowering writes its payload, and partition
+    /// validation runs inside that window. Such ids are skipped rather than
+    /// indexed, since a registered-but-unwritten module has no layout to
+    /// compare and `module_at` may not index it.
     pub(super) fn module_target_layouts(
         &self,
     ) -> impl Iterator<Item = nia_layout::TargetDataLayout> + '_ {
         self.module_ids()
             .iter()
-            .map(|module_id| self.module_at(*module_id).layouts.target)
+            .filter_map(|module_id| self.modules.get(*module_id))
+            .map(|module| module.layouts.target)
     }
 
     pub(super) fn module_for_partition(
@@ -1024,6 +1034,30 @@ mod tests {
                     pointer_align: 4,
                 },
             ]
+        );
+    }
+
+    /// Registration precedes payload writing, and partition validation runs in
+    /// that window. Target-layout iteration must skip an unwritten slot instead
+    /// of indexing it, which previously aborted codegen with an ICE whenever a
+    /// partition became ready before the last module finished lowering.
+    #[test]
+    fn target_layout_iteration_skips_registered_but_unwritten_modules() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first = module_ids.allocate();
+        let second = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(first);
+        let first_ty = interner.primitive(PrimitiveTy::I32);
+        drop(interner);
+        let store = Arc::new(nia_backend_ir::BackendModuleStore::new([first, second]));
+        store.publish(enum_module(first, first_ty, global(first, 1), "first"));
+        let (index, _publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
+
+        assert!(store.get(second).is_none());
+        assert_eq!(
+            index.module_target_layouts().collect::<Vec<_>>(),
+            vec![nia_layout::TargetDataLayout::LP64]
         );
     }
 

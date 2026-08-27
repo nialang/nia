@@ -3158,6 +3158,17 @@ self-referential map shape and makes the readonly context `Send + Sync +
 'static`. One `Arc<ProgramIndex>` is built before validation and shared by all
 unit tasks; no task rebuilds the whole-program index.
 
+A backend module passes through three distinct readiness states, and index
+accessors must name the one they require. It is *registered* when the store
+reserves its slot, *written* when lowering publishes its payload into that slot,
+and *published* when the index has indexed its items. Position-resolving
+accessors require a written payload; visibility accessors additionally require
+publication. Partition definition validation deliberately runs before the last
+module is written, so any whole-program iteration reachable from it must skip
+registered-but-unwritten slots rather than index them. Artifact target agreement
+is a whole-store property and therefore still spans written modules that are not
+yet published.
+
 Finalized backend lowering also publishes one `CodegenPartitionPlan`. Each
 source unit has two non-synonymous identities: `CodegenUnitId::SourceModule {
 module_id, ordinal }` locates work only inside the current session, while

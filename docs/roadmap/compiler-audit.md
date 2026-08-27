@@ -3299,6 +3299,18 @@ acceptance item only when its phase-wide evidence is complete.
       requested. A source-to-object regression covers both the conditional
       allowance and function/global collisions with the requested unsigned
       division and remainder helpers.
+- [x] Batch 555 repairs backend target-layout iteration across the three module
+      readiness states. A backend module is registered before lowering writes
+      its payload and written before the index publishes it; partition
+      definition validation deliberately runs inside the first window. Target
+      agreement is a whole-store property, so iteration still spans written but
+      unpublished modules, while a registered-but-unwritten slot is skipped
+      instead of indexed. Previously it was indexed unconditionally, so any
+      partition that became ready before the last module finished lowering
+      aborted codegen with an `INVALID_BACKEND_IR` ICE; the multi-module LLVM
+      driver case failed roughly two runs in three. A direct owner regression
+      publishes one of two registered modules and pins the skip, beside the
+      existing test that pins the written-but-unpublished span.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
