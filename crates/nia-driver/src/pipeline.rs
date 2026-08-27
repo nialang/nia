@@ -132,10 +132,10 @@ impl ExecutableCacheReference {
     /// Decodes an exact-length cache reference, rejecting malformed lengths.
     pub fn decode(encoded: &[u8]) -> Option<Self> {
         (encoded.len() == Self::ENCODED_LEN).then_some(())?;
-        let mut parts = encoded.chunks_exact(size_of::<u64>()).map(|bytes| {
-            let bytes: [u8; size_of::<u64>()] = bytes.try_into().expect("exact u64 chunk");
-            u64::from_le_bytes(bytes)
-        });
+        // `ENCODED_LEN` is an exact multiple of the chunk width, so the length
+        // checked above leaves no trailing bytes.
+        let (chunks, _) = encoded.as_chunks::<{ size_of::<u64>() }>();
+        let mut parts = chunks.iter().copied().map(u64::from_le_bytes);
         let mut fingerprint = || Some([parts.next()?, parts.next()?]);
         let cache_key = LinkResultCacheKey::from_parts(fingerprint()?);
         let components = LinkResultFingerprintComponents {
@@ -219,10 +219,10 @@ impl StaticArchiveCacheReference {
     /// Decodes an exact-length archive cache reference.
     pub fn decode(encoded: &[u8]) -> Option<Self> {
         (encoded.len() == Self::ENCODED_LEN).then_some(())?;
-        let mut parts = encoded.chunks_exact(size_of::<u64>()).map(|bytes| {
-            let bytes: [u8; size_of::<u64>()] = bytes.try_into().expect("exact u64 chunk");
-            u64::from_le_bytes(bytes)
-        });
+        // `ENCODED_LEN` is an exact multiple of the chunk width, so the length
+        // checked above leaves no trailing bytes.
+        let (chunks, _) = encoded.as_chunks::<{ size_of::<u64>() }>();
+        let mut parts = chunks.iter().copied().map(u64::from_le_bytes);
         let mut fingerprint = || Some([parts.next()?, parts.next()?]);
         let cache_key = ArchiveCacheKey::from_parts(fingerprint()?);
         let components = ArchiveFingerprintComponents {
