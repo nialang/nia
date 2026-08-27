@@ -2476,6 +2476,16 @@ compiler-owned symbol. LLVM's automatic numeric renaming is never a valid
 resolution for these collisions because it changes the requested linker
 identity.
 
+Trait-object dispatch tables are part of that reserved namespace. Their globals
+are externally visible, so preflight reproduces the emitter's vtable symbol for
+every published table and reserves it alongside ordinary generated symbols. The
+reproduction must match the emitter exactly, including its constant
+const-expression resolver, because the emitted name is the identity the linker
+resolves rather than the richer instance mangling. One vtable identity may be
+reserved once and reached from several partitions; two distinct identities
+resolving to one symbol is rejected, and a mangle input absent from Backend IR
+defers reservation instead of registering a guessed name.
+
 ### 11.2 `nia-backend-lower`
 
 Lowers checked modules into backend IR. It uses definitions, lowered types,

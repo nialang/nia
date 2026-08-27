@@ -27,7 +27,7 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{TargetDataLayout, TypeLayout};
 use nia_mangle::{
     MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_closure_entry_symbol,
-    mangle_instance_symbol_id, mangle_symbol_id,
+    mangle_instance_symbol_id, mangle_symbol_id, mangle_type_with,
 };
 use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind};
@@ -260,6 +260,7 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
             );
         }
     }
+    record_vtable_symbols(index, &mut values, diagnostics);
     validate_external_symbol_collisions(index, &values, diagnostics);
 }
 
@@ -356,6 +357,122 @@ fn record_external_symbol(
                 has_definition: is_definition,
             },
         );
+    }
+}
+
+/// Reproduces `ModuleCodegen::trait_object_vtable_symbol` for program preflight.
+///
+/// Vtable globals are externally visible, so their names belong to the same
+/// linker namespace as ordinary functions, globals, instances, and closure
+/// entries. This helper must stay byte-identical to the emitter, including its
+/// `Some(0)` const-expression resolver: the emitted name is what the linker
+/// sees, not the semantically richer instance mangling. Returns `None` when a
+/// mangle input is absent from Backend IR so preflight defers instead of
+/// reserving a guessed name.
+fn expected_trait_object_vtable_symbol(
+    index: &ProgramIndex,
+    key: &nia_backend_ir::BackendTraitObjectVtableKey,
+) -> Option<String> {
+    let missing = Cell::new(false);
+    let mangle_ty = |ty: InternedTyId| {
+        if index.type_store().get(ty).is_none() {
+            missing.set(true);
+            return String::new();
+        }
+        mangle_type_with(
+            index.type_store(),
+            ty,
+            MangleResolvers::new(
+                |module_id| {
+                    index
+                        .module(module_id)
+                        .map(|module| {
+                            MangleModuleId::from_normalized_source_path(
+                                module.source_identity.normalized_path(),
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            missing.set(true);
+                            MangleModuleId::from_normalized_source_path("")
+                        })
+                },
+                |def_id| {
+                    index
+                        .struct_item(def_id)
+                        .map(|item| mangle_symbol_id(item.name))
+                        .or_else(|| {
+                            index
+                                .union_item(def_id)
+                                .map(|item| mangle_symbol_id(item.name))
+                        })
+                        .or_else(|| {
+                            index
+                                .enum_item(def_id)
+                                .map(|item| mangle_symbol_id(item.name))
+                        })
+                        .or_else(|| {
+                            index
+                                .function(def_id)
+                                .map(|item| mangle_symbol_id(item.name))
+                        })
+                        .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+                },
+                |_| Some(0),
+            ),
+        )
+    };
+    let self_part = mangle_ty(key.self_ty);
+    let object_part = mangle_ty(key.object_ty);
+    (!missing.get()).then(|| format!("nia__vtable__{self_part}__as__{object_part}"))
+}
+
+/// Reserves compiler-generated trait-object vtable symbols in the program value
+/// namespace.
+///
+/// One vtable key may be published by several modules, because non-defining
+/// partitions emit an external declaration of the same table. Those repeats
+/// share one reservation. Two *distinct* keys resolving to one symbol is an
+/// aliasing bug: LLVM would rename the second global and silently change the
+/// linker identity that dispatch sites already reference.
+fn record_vtable_symbols(
+    index: &ProgramIndex,
+    values: &mut HashMap<String, &'static str>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut owners = HashMap::<String, nia_backend_ir::BackendTraitObjectVtableKey>::new();
+    for module_id in index.module_ids() {
+        let Some(module) = index.module(*module_id) else {
+            continue;
+        };
+        for vtable in &module.trait_object_vtables {
+            let Some(symbol) = expected_trait_object_vtable_symbol(index, &vtable.key) else {
+                continue;
+            };
+            if let Some(previous) = owners.get(&symbol) {
+                if *previous != vtable.key {
+                    diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        vtable.span,
+                        format!(
+                            "backend IR generated symbol collision: trait-object vtable reuses `{symbol}` already used by a different vtable identity"
+                        ),
+                    ));
+                }
+                continue;
+            }
+            if let Some(previous_kind) = values.get(&symbol) {
+                diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    vtable.span,
+                    format!(
+                        "backend IR generated symbol collision: trait-object vtable reuses `{symbol}` already used by {previous_kind}"
+                    ),
+                ));
+                continue;
+            }
+            owners.insert(symbol.clone(), vtable.key.clone());
+            values.insert(symbol, "trait-object vtable");
+        }
     }
 }
 
