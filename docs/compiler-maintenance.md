@@ -974,6 +974,10 @@ signals, not architecture goals.
   require written owners to publish an evaluated `const_eval.array_lengths`
   fact. Const-expression ownership is part of backend IR identity, not merely
   an optional lookup detail.
+- The same const-argument owner validation applies to module-level instance
+  metadata and struct/union layout keys. These keys are consumed before body
+  lowering, so checking only their type handles can let foreign expressions
+  reach ABI lookup through an apparently valid instance record.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is

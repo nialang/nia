@@ -3935,6 +3935,12 @@ acceptance item only when its phase-wide evidence is complete.
       but unwritten owners remain readiness-deferred, and written owners must
       publish an evaluated array-length fact; a foreign owner has focused
       Function IR regression coverage.
+- [x] Batch 653 closes module-level instance and layout-key const-expression
+      ownership. Struct, union, global, and function instance metadata plus
+      aggregate layout keys now use the same const-argument validator before
+      lookup and ABI checks, rejecting missing owners while preserving readiness
+      deferral for registered but unwritten modules; function-instance metadata
+      has focused foreign-owner coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

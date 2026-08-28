@@ -840,6 +840,7 @@ fn validates_extern_abi_types_before_llvm() {
 fn validates_function_instance_abi_metadata_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
+    let foreign_module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -860,7 +861,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         def_id,
         name: sym("template"),
         link_name: None,
-        generics: vec![sym("T"), sym("U")],
+        generics: vec![sym("T"), sym("U"), sym("V")],
         params: vec![param.clone()],
         return_type: i32_ty,
         is_extern: false,
@@ -876,7 +877,13 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         arg_module_id: module_id,
         self_arg: None,
         args: vec![i32_ty],
-        const_args: Vec::new(),
+        const_args: vec![ConstGenericArg {
+            ty: i32_ty,
+            value: ConstGenericValue::ConstExpr(GlobalConstExprId {
+                module_id: foreign_module_id,
+                const_expr_id: ConstExprId(0),
+            }),
+        }],
         symbol: "bad\0function_instance".to_string(),
         params: vec![BackendParam {
             receiver: Some(nia_ids::ReceiverKind::Value),
@@ -932,8 +939,8 @@ fn validates_function_instance_abi_metadata_before_llvm() {
         "function instance extern flag does not match its source template",
         "function instance variadic flag does not match its source template",
         "function instance attributes do not match its source template",
+        "const argument expression",
         "backend IR function instance symbol must not be empty or contain NUL",
-        "backend IR function instance symbol does not match its instance identity",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),

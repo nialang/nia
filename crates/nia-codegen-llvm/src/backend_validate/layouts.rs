@@ -359,7 +359,7 @@ impl BackendValidator<'_> {
             self.validate_type(*ty, nia_span::Span::default());
         }
         for arg in &key.const_args {
-            self.validate_type(arg.ty, nia_span::Span::default());
+            self.validate_const_arg(arg, nia_span::Span::default());
         }
     }
 
