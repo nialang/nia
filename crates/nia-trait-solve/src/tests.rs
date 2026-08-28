@@ -1339,3 +1339,73 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
     ));
     assert_eq!(active, vec![(left_signed, left_unsigned)]);
 }
+
+#[test]
+fn array_layout_builtin_equivalence_recurses_through_operand_types() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let u8_ty = append.primitive(PrimitiveTy::U8);
+    let nominal_def = GlobalDefId {
+        module_id,
+        def_id: DefId(64),
+    };
+    let nominal = |value| {
+        append.intern(TyKind::Nominal {
+            def_id: nominal_def,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: usize_ty,
+                value: ConstGenericValue::Int(value),
+            }],
+        })
+    };
+    let left_operand = nominal(nia_ty::IntConst::signed(7));
+    let right_operand = nominal(nia_ty::IntConst::unsigned(7));
+    let left = append.intern(TyKind::Array {
+        len: ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: left_operand,
+        },
+        elem: u8_ty,
+    });
+    let right = append.intern(TyKind::Array {
+        len: ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: right_operand,
+        },
+        elem: u8_ty,
+    });
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let trait_impls = Vec::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+
+    assert!(solver.types_equivalent(left, right));
+
+    let align = append.intern(TyKind::Array {
+        len: ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Align,
+            ty: right_operand,
+        },
+        elem: u8_ty,
+    });
+    assert!(!solver.types_equivalent(left, align));
+}

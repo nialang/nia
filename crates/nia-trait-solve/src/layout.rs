@@ -503,7 +503,25 @@ impl TypeEquivalence for TraitSolver<'_> {
     }
 
     fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
-        left == right
+        if left == right {
+            return true;
+        }
+        match (left, right) {
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => {
+                left_builtin == right_builtin
+                    && self.structural_types_equivalent(*left_ty, *right_ty)
+            }
+            _ => false,
+        }
     }
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {

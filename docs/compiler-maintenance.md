@@ -330,6 +330,10 @@ it does not make a reset implicit.
   const arguments, and associated-type bindings through the same recursive
   equivalence used for the public trait-object pointer; rebuilt pointee handles
   must not split extension, instance, or ABI matching.
+- Trait-solver structural equivalence must recurse through the operand type of
+  equal `ArrayLenTy::Builtin` kinds in both its shared type-equivalence adapter
+  and projection-aware array comparison. Selection-only pattern matching is
+  insufficient because projection cycle guards consume the general relation.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;

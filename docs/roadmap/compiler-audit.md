@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-28):
 
-- Implementation batches: 599 completed entries in this ledger.
+- Implementation batches: 600 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3634,6 +3634,14 @@ acceptance item only when its phase-wide evidence is complete.
       structural payload classes and mismatch short-circuiting;
       `nia-backend-lower` (121 tests), workspace check, strict Clippy,
       formatting, and diff checks pass.
+- [x] Batch 600 closes trait-solver structural equivalence for array layout
+      builtin operands. Both the shared `TypeEquivalence` adapter and the
+      projection-aware array-length relation now recursively compare operands
+      of equal `size`/`align` kinds, so projection guards cannot diverge on
+      nominal operands with equal const bits but distinct representations. A
+      focused owner regression covers equality and builtin discrimination;
+      `nia-trait-solve` (18 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

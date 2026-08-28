@@ -292,6 +292,20 @@ impl TraitSolver<'_> {
         if left == right {
             return true;
         }
+        if let (
+            ArrayLenTy::Builtin {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) = (left, right)
+        {
+            return left_builtin == right_builtin
+                && self.structural_types_equivalent(*left_ty, *right_ty);
+        }
         match (
             self.const_arg_from_array_len(left),
             self.const_arg_from_array_len(right),
