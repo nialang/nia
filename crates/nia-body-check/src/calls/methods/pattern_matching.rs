@@ -142,15 +142,49 @@ impl<'a> BodyChecker<'a> {
                 len: pattern_len,
                 elem: pattern_elem,
             }) => match actual_kind {
-                Some(TyKind::Array { len, elem })
-                    if self.match_array_len_pattern(&pattern_len, &len, const_substitutions) =>
-                {
-                    self.match_type_pattern_with_consts(
-                        pattern_elem,
-                        elem,
-                        substitutions,
-                        const_substitutions,
-                    )
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem,
+                }) => {
+                    let mut candidate_substitutions = substitutions.clone();
+                    let mut candidate_const_substitutions = const_substitutions.clone();
+                    let length_matches = match (&pattern_len, &actual_len) {
+                        (
+                            ArrayLenTy::Builtin {
+                                builtin: pattern_builtin,
+                                ty: pattern_ty,
+                            },
+                            ArrayLenTy::Builtin {
+                                builtin: actual_builtin,
+                                ty: actual_ty,
+                            },
+                        ) if pattern_builtin == actual_builtin => self
+                            .match_type_pattern_with_consts(
+                                *pattern_ty,
+                                *actual_ty,
+                                &mut candidate_substitutions,
+                                &mut candidate_const_substitutions,
+                            ),
+                        _ => self.match_array_len_pattern(
+                            &pattern_len,
+                            &actual_len,
+                            &mut candidate_const_substitutions,
+                        ),
+                    };
+                    if length_matches
+                        && self.match_type_pattern_with_consts(
+                            pattern_elem,
+                            elem,
+                            &mut candidate_substitutions,
+                            &mut candidate_const_substitutions,
+                        )
+                    {
+                        *substitutions = candidate_substitutions;
+                        *const_substitutions = candidate_const_substitutions;
+                        true
+                    } else {
+                        false
+                    }
                 }
                 _ => false,
             },

@@ -3550,6 +3550,12 @@ acceptance item only when its phase-wide evidence is complete.
       visible to matching and preventing stale substitutions. The
       `nia-backend-lower` owner suite (118 tests), workspace check, and strict
       Clippy pass.
+- [x] Batch 588 closes body-check method-pattern matching for array layout
+      operands. Array patterns now compare equal `ArrayLenTy::Builtin` kinds by
+      recursively matching their operand types and commit type/const
+      substitutions only after the element also matches. A method regression
+      infers an extension target `[u8; size[T]()]` from a concrete receiver;
+      `nia-body-check` (271 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

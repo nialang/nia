@@ -280,6 +280,10 @@ it does not make a reset implicit.
   nominal const-argument type metadata as well as ordinary type arguments.
   Const arguments carry a type identity that can contain a still-unbound type
   parameter even when their value itself is concrete.
+- Method-pattern matching must treat `ArrayLenTy::Builtin` as structural when
+  both sides use the same layout builtin. Match its operand through the same
+  staged type/const substitutions as the array element; otherwise an extension
+  target such as `[u8; size[T]()]` cannot infer `T` from a matching receiver.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;

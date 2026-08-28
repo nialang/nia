@@ -62,6 +62,22 @@ fn main(values: &[i32; 2]) i32 {
 }
 
 #[test]
+fn infers_extension_type_from_array_layout_builtin_operand() {
+    let checked = pipeline(
+        r#"
+extend[T] [u8; std::builtin::size[T]()] where T: Sized {
+    fn marker(&self) usize { 1usize }
+}
+
+fn main(value: &[u8; std::builtin::size[i32]()]) usize {
+    value.marker()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn selects_repeated_type_parameter_over_independent_parameters() {
     let checked = pipeline(
         r#"
