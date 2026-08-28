@@ -852,10 +852,14 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
     match (left.kind(), right.kind()) {
         (Some(TyKind::Error), Some(TyKind::Error)) => true,
         (Some(TyKind::ConstOnly), Some(TyKind::ConstOnly)) => true,
+        (Some(TyKind::Opaque), Some(TyKind::Opaque)) => true,
         (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
         (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
         (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
         (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
+        (Some(TyKind::Tuple(left_elems)), Some(TyKind::Tuple(right_elems))) => {
+            typed_ref_slices_equivalent(left.store, left_elems, right.store, right_elems)
+        }
         (
             Some(TyKind::Pointer {
                 is_readonly: left_readonly,
@@ -1026,6 +1030,39 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
             }),
         ) => {
             typed_ref_slices_equivalent(left.store, left_params, right.store, right_params)
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        store: left.store,
+                        ty: *left_return,
+                    },
+                    TypedTyRef {
+                        store: right.store,
+                        ty: *right_return,
+                    },
+                )
+        }
+        (
+            Some(TyKind::ClosureState {
+                closure_id: left_id,
+                captures: left_captures,
+                params: left_params,
+                return_type: left_return,
+            }),
+            Some(TyKind::ClosureState {
+                closure_id: right_id,
+                captures: right_captures,
+                params: right_params,
+                return_type: right_return,
+            }),
+        ) => {
+            left_id == right_id
+                && typed_ref_slices_equivalent(
+                    left.store,
+                    left_captures,
+                    right.store,
+                    right_captures,
+                )
+                && typed_ref_slices_equivalent(left.store, left_params, right.store, right_params)
                 && typed_refs_equivalent(
                     TypedTyRef {
                         store: left.store,
@@ -1981,6 +2018,50 @@ mod tests {
                 store: &right,
                 ty: right_mismatch,
             }
+        ));
+    }
+
+    #[test]
+    fn composite_equivalence_recurses_through_tuple_elements() {
+        let module_id = module();
+        let left = TypeStore::new();
+        let right = TypeStore::new();
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_usize = left_append.primitive(PrimitiveTy::Usize);
+        let right_usize = right_append.primitive(PrimitiveTy::Usize);
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(10),
+        };
+        let left_nominal = left_append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: left_usize,
+                value: ConstGenericValue::Int(nia_ty::IntConst::signed(6)),
+            }],
+        });
+        let right_nominal = right_append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: right_usize,
+                value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(6)),
+            }],
+        });
+        let left_tuple = left_append.intern(TyKind::Tuple(vec![left_nominal]));
+        let right_tuple = right_append.intern(TyKind::Tuple(vec![right_nominal]));
+
+        assert!(typed_refs_equivalent(
+            TypedTyRef {
+                store: &left,
+                ty: left_tuple,
+            },
+            TypedTyRef {
+                store: &right,
+                ty: right_tuple,
+            },
         ));
     }
 }

@@ -825,6 +825,11 @@ signals, not architecture goals.
   values can appear after generic substitution; compare their payloads
   recursively instead of letting a rebuilt composite fall through to a false
   leaf result.
+- Executable reachability's paired `TypedTyRef` relation is explicitly
+  cross-store. Every composite constructor used in a reachable impl target
+  must recurse through the left and right stores; a raw handle shortcut is
+  valid only before structural comparison, never for nested tuple or closure
+  payloads.
 
 ## 8. Build And Standard Library Work
 
