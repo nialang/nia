@@ -39,8 +39,9 @@ use nia_backend_ir::{
     BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
     BackendGlobal, BackendGlobalInstance, BackendGlobalInstanceKey, BackendLayouts, BackendModule,
     BackendModuleReadiness, BackendModuleStore, BackendProgram, BackendStruct,
-    BackendStructInstanceKey, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
-    BackendTraitObjectVtableKey, BackendUnion,
+    BackendStructInstance, BackendStructInstanceKey, BackendTraitObjectVtable,
+    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion,
+    BackendUnionInstance,
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -746,7 +747,7 @@ pub fn plan_backend_program_with_timings(
             ));
         }
     });
-    assign_unique_aggregate_instance_owners(&mut lowered_modules);
+    assign_unique_aggregate_instance_owners(&mut lowered_modules, type_store);
     assign_unique_vtable_owners(&mut lowered_modules, type_store);
 
     BackendItemPlan {
@@ -760,11 +761,14 @@ pub fn plan_backend_program_with_timings(
     }
 }
 
-fn assign_unique_aggregate_instance_owners(modules: &mut [BackendModule]) {
+fn assign_unique_aggregate_instance_owners(
+    modules: &mut [BackendModule],
+    type_store: &nia_ty::TypeStore,
+) {
     // Generic instances may be discovered from several modules. Equal definitions are assigned
     // to the lexicographically earliest normalized source path, giving stable ownership without
     // depending on traversal or worker completion order.
-    let mut struct_owners = HashMap::<BackendStructInstanceKey, (usize, usize)>::new();
+    let mut struct_owners = Vec::<(BackendStructInstanceKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (item_index, item) in module.struct_instances.iter().enumerate() {
             let key = BackendStructInstanceKey {
@@ -772,38 +776,52 @@ fn assign_unique_aggregate_instance_owners(modules: &mut [BackendModule]) {
                 args: item.args.clone(),
                 const_args: item.const_args.clone(),
             };
-            let Some(&(owner_module_index, owner_item_index)) = struct_owners.get(&key) else {
-                struct_owners.insert(key, (module_index, item_index));
+            let Some(owner_position) = struct_owners.iter().position(|(candidate, _)| {
+                backend_struct_instance_keys_match(type_store, candidate, &key)
+            }) else {
+                struct_owners.push((key, (module_index, item_index)));
                 continue;
             };
+            let (_, (owner_module_index, owner_item_index)) = struct_owners[owner_position];
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.struct_instances[owner_item_index];
-            assert_eq!(
-                owner, item,
+            assert!(
+                backend_struct_instance_payloads_match(type_store, owner, item),
                 "Nia ICE: backend struct instance has conflicting definitions in modules {:?} and {:?}",
-                owner_module.id, module.id
+                owner_module.id,
+                module.id
             );
             if module.source_identity.normalized_path()
                 < owner_module.source_identity.normalized_path()
             {
-                struct_owners.insert(key, (module_index, item_index));
+                struct_owners[owner_position] = (key, (module_index, item_index));
             }
         }
     }
     for (module_index, module) in modules.iter_mut().enumerate() {
-        module.struct_instances.retain(|item| {
-            let key = BackendStructInstanceKey {
-                def_id: item.def_id,
-                args: item.args.clone(),
-                const_args: item.const_args.clone(),
-            };
-            struct_owners
-                .get(&key)
-                .is_some_and(|(owner, _)| *owner == module_index)
-        });
+        let instances = std::mem::take(&mut module.struct_instances);
+        module.struct_instances = instances
+            .into_iter()
+            .enumerate()
+            .filter_map(|(item_index, item)| {
+                let key = BackendStructInstanceKey {
+                    def_id: item.def_id,
+                    args: item.args.clone(),
+                    const_args: item.const_args.clone(),
+                };
+                struct_owners
+                    .iter()
+                    .any(|(candidate, (owner_module, owner_index))| {
+                        *owner_module == module_index
+                            && *owner_index == item_index
+                            && backend_struct_instance_keys_match(type_store, candidate, &key)
+                    })
+                    .then_some(item)
+            })
+            .collect();
     }
 
-    let mut union_owners = HashMap::<BackendStructInstanceKey, (usize, usize)>::new();
+    let mut union_owners = Vec::<(BackendStructInstanceKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (item_index, item) in module.union_instances.iter().enumerate() {
             let key = BackendStructInstanceKey {
@@ -811,36 +829,125 @@ fn assign_unique_aggregate_instance_owners(modules: &mut [BackendModule]) {
                 args: item.args.clone(),
                 const_args: item.const_args.clone(),
             };
-            let Some(&(owner_module_index, owner_item_index)) = union_owners.get(&key) else {
-                union_owners.insert(key, (module_index, item_index));
+            let Some(owner_position) = union_owners.iter().position(|(candidate, _)| {
+                backend_struct_instance_keys_match(type_store, candidate, &key)
+            }) else {
+                union_owners.push((key, (module_index, item_index)));
                 continue;
             };
+            let (_, (owner_module_index, owner_item_index)) = union_owners[owner_position];
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.union_instances[owner_item_index];
-            assert_eq!(
-                owner, item,
+            assert!(
+                backend_union_instance_payloads_match(type_store, owner, item),
                 "Nia ICE: backend union instance has conflicting definitions in modules {:?} and {:?}",
-                owner_module.id, module.id
+                owner_module.id,
+                module.id
             );
             if module.source_identity.normalized_path()
                 < owner_module.source_identity.normalized_path()
             {
-                union_owners.insert(key, (module_index, item_index));
+                union_owners[owner_position] = (key, (module_index, item_index));
             }
         }
     }
     for (module_index, module) in modules.iter_mut().enumerate() {
-        module.union_instances.retain(|item| {
-            let key = BackendStructInstanceKey {
-                def_id: item.def_id,
-                args: item.args.clone(),
-                const_args: item.const_args.clone(),
-            };
-            union_owners
-                .get(&key)
-                .is_some_and(|(owner, _)| *owner == module_index)
-        });
+        let instances = std::mem::take(&mut module.union_instances);
+        module.union_instances = instances
+            .into_iter()
+            .enumerate()
+            .filter_map(|(item_index, item)| {
+                let key = BackendStructInstanceKey {
+                    def_id: item.def_id,
+                    args: item.args.clone(),
+                    const_args: item.const_args.clone(),
+                };
+                union_owners
+                    .iter()
+                    .any(|(candidate, (owner_module, owner_index))| {
+                        *owner_module == module_index
+                            && *owner_index == item_index
+                            && backend_struct_instance_keys_match(type_store, candidate, &key)
+                    })
+                    .then_some(item)
+            })
+            .collect();
     }
+}
+
+fn backend_struct_instance_keys_match(
+    type_store: &nia_ty::TypeStore,
+    left: &BackendStructInstanceKey,
+    right: &BackendStructInstanceKey,
+) -> bool {
+    let equivalence = BackendVtableTypeEquivalence { type_store };
+    left.def_id == right.def_id
+        && equivalence.same_type_args_for_equiv(&left.args, &right.args)
+        && equivalence.same_const_generic_args_for_equiv(&left.const_args, &right.const_args)
+}
+
+fn backend_fields_match(
+    type_store: &nia_ty::TypeStore,
+    left: &[nia_backend_ir::BackendField],
+    right: &[nia_backend_ir::BackendField],
+) -> bool {
+    let equivalence = BackendVtableTypeEquivalence { type_store };
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.def_id == right.def_id
+                && left.name == right.name
+                && equivalence.same_type_for_equiv(left.ty, right.ty)
+        })
+}
+
+fn backend_struct_instance_payloads_match(
+    type_store: &nia_ty::TypeStore,
+    left: &BackendStructInstance,
+    right: &BackendStructInstance,
+) -> bool {
+    left.def_id == right.def_id
+        && left.name == right.name
+        && left.symbol == right.symbol
+        && left.is_extern == right.is_extern
+        && backend_struct_instance_keys_match(
+            type_store,
+            &BackendStructInstanceKey {
+                def_id: left.def_id,
+                args: left.args.clone(),
+                const_args: left.const_args.clone(),
+            },
+            &BackendStructInstanceKey {
+                def_id: right.def_id,
+                args: right.args.clone(),
+                const_args: right.const_args.clone(),
+            },
+        )
+        && backend_fields_match(type_store, &left.fields, &right.fields)
+}
+
+fn backend_union_instance_payloads_match(
+    type_store: &nia_ty::TypeStore,
+    left: &BackendUnionInstance,
+    right: &BackendUnionInstance,
+) -> bool {
+    left.def_id == right.def_id
+        && left.name == right.name
+        && left.symbol == right.symbol
+        && left.is_extern == right.is_extern
+        && backend_struct_instance_keys_match(
+            type_store,
+            &BackendStructInstanceKey {
+                def_id: left.def_id,
+                args: left.args.clone(),
+                const_args: left.const_args.clone(),
+            },
+            &BackendStructInstanceKey {
+                def_id: right.def_id,
+                args: right.args.clone(),
+                const_args: right.const_args.clone(),
+            },
+        )
+        && backend_fields_match(type_store, &left.fields, &right.fields)
 }
 
 struct BackendVtableTypeEquivalence<'a> {

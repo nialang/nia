@@ -156,6 +156,11 @@ it does not make a reset implicit.
   keys through structural type equivalence before selecting a deterministic
   source owner. Rebuilt nominal or const-generic handles must not produce
   duplicate LLVM tables merely because their interner identities differ.
+- Backend aggregate-instance ownership applies the same semantic-key rule to
+  struct and union instances. Equal nominal definitions from different module
+  products are compared by type/const arguments and recursively checked field
+  payloads before deterministic owner selection; raw instance-key hashing is
+  not a semantic identity boundary.
 - Trait obligations remain complete across phase and consumer boundaries. The
   self type, trait identity, type and const arguments, and associated-type
   bindings are one semantic product; candidate filters and final validators
