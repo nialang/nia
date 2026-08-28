@@ -3512,6 +3512,13 @@ acceptance item only when its phase-wide evidence is complete.
       eligible for inference from later arguments. A focused const-check
       regression proves the premature `cannot infer ... T` diagnostic is gone;
       `nia-const-check` (40 tests), workspace check, and strict Clippy pass.
+- [x] Batch 582 closes body-check generic-shape recursion for array layout
+      metadata. `type_contains_generic_param` now visits the type operand of
+      `ArrayLenTy::Builtin`, preventing an incomplete `size[T]` expected array
+      from forcing premature literal layout evaluation. Focused regressions
+      cover successful inference, a real length mismatch, and the unresolved
+      generic diagnostic without the misleading layout error; `nia-body-check`
+      (269 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

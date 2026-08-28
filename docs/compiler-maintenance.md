@@ -256,6 +256,11 @@ it does not make a reset implicit.
   provides the same type parameter, `size[T]`/`align[T]` metadata must not cause
   the expected array to be classified as permanently concrete and emit a
   premature inference failure.
+- Body-check generic call shape checks must recurse through the type operand of
+  `ArrayLenTy::Builtin`. A generic parameter hidden only in `size[T]`/`align[T]`
+  makes the expected array incomplete; checking an array literal against that
+  expected type would otherwise emit a misleading layout-computation error
+  before reporting the actual unresolved generic.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
