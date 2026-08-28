@@ -3946,6 +3946,12 @@ acceptance item only when its phase-wide evidence is complete.
       layout, and type lookup, while preserving resolved integer, boolean,
       character, and evaluated-expression values; the shared validator has a
       focused generic-parameter regression.
+- [x] Batch 655 closes declaration-membership const-expression readiness.
+      Standalone instance metadata, trait-object vtables, vtable entries, and
+      referenced function/global instances now add every const-expression
+      owner to the dependency closure before lookup; an instance metadata
+      regression proves LLVM preparation remains pending until that owner is
+      published.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
