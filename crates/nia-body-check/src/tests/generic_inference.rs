@@ -117,6 +117,74 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_generic_from_array_layout_builtin_and_marker() {
+    let checked = pipeline(
+        r#"
+fn inspect[T](value: [u8; std::builtin::size[T]()], marker: T) T {
+    _ = value;
+    marker
+}
+
+fn main() i32 {
+    inspect([1u8, 2u8, 3u8, 4u8], 1i32)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_array_layout_builtin_length_mismatch_after_type_inference() {
+    let checked = pipeline(
+        r#"
+fn inspect[T](value: [u8; std::builtin::size[T]()], marker: T) T {
+    _ = value;
+    marker
+}
+
+fn main() i32 {
+    inspect([1u8, 2u8, 3u8], 1i32)
+}
+"#,
+    );
+    assert!(!checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn reports_missing_generic_type_hidden_in_array_layout_builtin() {
+    let checked = pipeline(
+        r#"
+fn inspect[T](value: [u8; std::builtin::size[T]()]) usize {
+    _ = value;
+    0usize
+}
+
+fn main() usize {
+    inspect([1u8, 2u8, 3u8, 4u8])
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer generic parameter `T`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
+                .summary
+                .contains("array length is not a valid constant")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_implicit_trailing_generic_argument_inference() {
     let checked = pipeline(
         r#"

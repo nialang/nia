@@ -1778,8 +1778,12 @@ impl<'a> BodyChecker<'a> {
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
-            | Some(TyKind::Array { elem, .. })
             | Some(TyKind::Optional { elem }) => self.type_contains_generic_param(*elem),
+            Some(TyKind::Array { len, elem }) => {
+                self.type_contains_generic_param(*elem)
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                        if self.type_contains_generic_param(*ty))
+            }
             Some(TyKind::Range { bound, .. }) => {
                 bound.is_some_and(|bound| self.type_contains_generic_param(bound))
             }
