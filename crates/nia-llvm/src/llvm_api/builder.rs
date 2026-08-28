@@ -2385,6 +2385,68 @@ mod tests {
     }
 
     #[test]
+    fn rejects_allocated_type_query_on_non_alloca_instruction() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("allocated-type-opcode").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context
+                    .void_type()
+                    .fn_type(&[context.i32_type().into()], false)
+                    .unwrap(),
+                None,
+            )
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder().unwrap();
+        builder.position_at_end(block);
+        let operand = function
+            .get_nth_param(0)
+            .unwrap()
+            .unwrap()
+            .into_int_value()
+            .unwrap();
+        let value = builder.build_int_add(operand, operand, "add").unwrap();
+        let instruction = BasicValueEnum::from(value)
+            .as_instruction_value()
+            .expect("integer add should be an instruction");
+
+        let error = instruction
+            .get_allocated_type()
+            .expect_err("allocated type on integer add");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("allocated-type query requires an alloca")
+        ));
+    }
+
+    #[test]
+    fn returns_allocated_type_for_alloca_instruction() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("allocated-type-alloca").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder().unwrap();
+        builder.position_at_end(block);
+        let value = builder.build_alloca(context.i32_type(), "slot").unwrap();
+        let instruction = BasicValueEnum::from(value)
+            .as_instruction_value()
+            .expect("alloca should be an instruction");
+
+        assert_eq!(
+            instruction.get_allocated_type().unwrap(),
+            BasicTypeEnum::from(context.i32_type())
+        );
+    }
+
+    #[test]
     fn rejects_out_of_bounds_aggregate_index_before_llvm_call() {
         let context = Context::create().unwrap();
         let module = context.create_module("aggregate-index").unwrap();

@@ -293,6 +293,10 @@ it does not make a reset implicit.
 - LLVM DIBuilder array subranges represent element counts, so reject negative
   lengths before calling the signed C API. A typed debug wrapper must not let a
   negative source count become a malformed DWARF range.
+- LLVM instruction inspection APIs with opcode-specific preconditions must
+  check the opcode in the typed wrapper before entering the C API. In
+  particular, allocated-type queries accept only `alloca`; an arbitrary
+  `InstructionValue` is not proof that LLVM can inspect it as an allocation.
 - Backend IR validation recursively validates const-argument types in every
   type constructor, so malformed or session-mismatched metadata cannot bypass
   the validator merely by appearing in a const generic argument.
