@@ -412,6 +412,50 @@ fn failed_array_element_match_does_not_publish_const_length_inference() {
 }
 
 #[test]
+fn failed_tuple_match_does_not_publish_earlier_type_inference() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let bool_ty = append.primitive(PrimitiveTy::Bool);
+    let u8_ty = append.primitive(PrimitiveTy::U8);
+    let generic_name = SymbolId::from_stable_hash(13);
+    let generic_ty = append.intern(TyKind::GenericParam(generic_name));
+    let pattern = append.intern(TyKind::Tuple(vec![generic_ty, u8_ty]));
+    let actual = append.intern(TyKind::Tuple(vec![bool_ty, bool_ty]));
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    let mut substitutions = SymbolMap::default();
+    let mut const_substitutions = SymbolMap::default();
+
+    assert!(!solver.match_impl_pattern_with_consts(
+        pattern,
+        actual,
+        &mut substitutions,
+        &mut const_substitutions,
+    ));
+    assert!(substitutions.is_empty());
+    assert!(const_substitutions.is_empty());
+}
+
+#[test]
 fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

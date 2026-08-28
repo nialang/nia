@@ -3682,6 +3682,13 @@ acceptance item only when its phase-wide evidence is complete.
       tuple regression covers signed/unsigned const representations;
       `nia-executable-reachability` (16 tests), workspace check, strict
       Clippy, formatting, and diff checks pass.
+- [x] Batch 607 makes trait-solver impl-pattern inference transactional across
+      every recursive type shape. Matching now stages substitutions at each
+      recursion boundary and commits them only after the complete composite
+      candidate succeeds, so tuple, callable, and nominal mismatches cannot
+      leak bindings discovered by earlier fields. A focused tuple regression
+      covers the rollback contract; `nia-trait-solve` (21 tests), workspace
+      check, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
