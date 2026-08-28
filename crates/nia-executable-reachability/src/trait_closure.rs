@@ -149,12 +149,10 @@ fn extend_reachable_traits_from_generic_instantiation(
         program_signatures,
         extension_index,
     } = context;
-    if !visited.insert(reachable_generic_instantiation_key(instantiation)) {
+    if !should_visit_generic_instantiation(instantiation, visited, active_defs) {
         return;
     }
-    if !active_defs.insert(instantiation.def_id) {
-        return;
-    }
+    active_defs.insert(instantiation.def_id);
     extend_reachable_traits_from_trait_default_instantiation(
         use_module_id,
         program_signatures,
@@ -591,6 +589,22 @@ fn reachable_generic_instantiation_key(
         args: instantiation.args.clone(),
         const_args: instantiation.const_args.clone(),
     }
+}
+
+/// Checks the path-local definition guard before publishing the global key.
+///
+/// A recursive call to the same definition can carry a different concrete
+/// argument list. It is intentionally deferred while that definition is
+/// active, but must remain eligible when reached from a later sibling branch.
+fn should_visit_generic_instantiation(
+    instantiation: &nia_sema_ir::GenericInstantiation,
+    visited: &mut HashSet<ReachableGenericInstantiationKey>,
+    active_defs: &HashSet<GlobalDefId>,
+) -> bool {
+    if active_defs.contains(&instantiation.def_id) {
+        return false;
+    }
+    visited.insert(reachable_generic_instantiation_key(instantiation))
 }
 
 fn instantiate_nested_generic_instantiation(
@@ -1302,6 +1316,47 @@ mod tests {
 
         assert_ne!(first, second);
         assert_eq!(first, same);
+    }
+
+    #[test]
+    fn recursive_definition_guard_does_not_poison_sibling_instance_keys() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(3),
+        };
+        let instantiation = |ty| nia_sema_ir::GenericInstantiation {
+            def_id,
+            self_arg: None,
+            args: vec![ty],
+            const_args: Vec::new(),
+            generics: vec![SymbolId::from_stable_hash(stable_hash("T"))],
+            span: nia_span::Span::default(),
+            source_def_id: None,
+        };
+        let first = instantiation(i32_ty);
+        let second = instantiation(bool_ty);
+        let mut visited = HashSet::new();
+        let active = HashSet::from([def_id]);
+
+        assert!(!should_visit_generic_instantiation(
+            &first,
+            &mut visited,
+            &active,
+        ));
+        assert!(visited.is_empty());
+
+        let inactive = HashSet::new();
+        assert!(should_visit_generic_instantiation(
+            &second,
+            &mut visited,
+            &inactive,
+        ));
+        assert_eq!(visited.len(), 1);
     }
 
     #[test]

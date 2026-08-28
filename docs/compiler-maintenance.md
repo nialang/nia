@@ -216,6 +216,11 @@ it does not make a reset implicit.
   may discover substitutions before a later field fails; the failed candidate
   must leave type, const, and array-length maps unchanged before another impl
   is tried.
+- Generic trait-reachability DFS keeps its definition recursion guard
+  path-local and checks it before inserting the complete instantiation key into
+  `visited`. A recursively encountered sibling instance may be deferred while
+  its definition is active, but must not be permanently suppressed by a stale
+  visited mark from that rejected branch.
 - Frontend vtable-instantiation facts and backend vtable-entry lowering must
   traverse the same source-supertrait graph. Substitute type and const
   arguments at each edge and key the active path guard by the complete trait
