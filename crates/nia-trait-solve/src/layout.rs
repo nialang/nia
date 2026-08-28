@@ -586,13 +586,15 @@ impl TypeEquivalence for TraitSolver<'_> {
         right: &[ConstGenericArg],
     ) -> bool {
         left.len() == right.len()
-            && left.iter().zip(right).all(|(left, right)| {
-                self.structural_types_equivalent(left.ty, right.ty)
-                    && match (&left.value, &right.value) {
+            && left.iter().zip(right).all(|(left_arg, right_arg)| {
+                self.structural_types_equivalent(left_arg.ty, right_arg.ty)
+                    && match (&left_arg.value, &right_arg.value) {
                         (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
                             left.bits() == right.bits()
                         }
-                        (left, right) => left == right,
+                        (left, right) => {
+                            self.const_generic_values_equivalent(left_arg.ty, left, right)
+                        }
                     }
             })
     }

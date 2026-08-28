@@ -144,12 +144,18 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     };
 
     assert_ne!(actual, layout_key);
+    assert!(context.solver(&[]).types_equivalent(actual, layout_key));
     assert!(context.solver(&[]).layout_of(actual));
 
     let unresolved_context = TraitSolverContext {
         const_expr_value: None,
         ..context
     };
+    assert!(
+        !unresolved_context
+            .solver(&[])
+            .types_equivalent(actual, layout_key)
+    );
     assert!(!unresolved_context.solver(&[]).layout_of(actual));
 }
 

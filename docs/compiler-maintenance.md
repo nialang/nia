@@ -373,6 +373,11 @@ it does not make a reset implicit.
   when comparing against a `Layouts` product. Rebuilt expression handles from
   the layout interner are equivalent only when both values resolve; without
   evaluator facts, raw expression identity remains the conservative fallback.
+- Trait-solver shared structural equivalence must apply the configured
+  `const_expr_value` evaluator to nominal const arguments as well as array
+  lengths. Projection and trait-goal guards must not split rebuilt nominal
+  handles whose expressions resolve to the same value, while unresolved
+  expressions remain identity-only.
 - Backend aggregate layout-product validation must match materialized instance
   declarations through the validator's structural type and const-argument
   equivalence. Raw vector equality can skip validation when signed and unsigned

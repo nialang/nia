@@ -3815,6 +3815,11 @@ acceptance item only when its phase-wide evidence is complete.
       lengths and nominal const arguments through the solver evaluator, so
       rebuilt handles match only when values resolve; owner tests cover
       cross-module evaluated and unresolved cases.
+- [x] Batch 627 closes trait-solver shared const-argument equivalence for
+      evaluated expressions. Nominal const arguments in structural type
+      comparison now use the configured evaluator, aligning projection and
+      trait-goal guards with array-length semantics; owner tests cover
+      cross-module evaluated and unresolved cases.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
