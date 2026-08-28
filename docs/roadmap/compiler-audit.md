@@ -3336,6 +3336,94 @@ acceptance item only when its phase-wide evidence is complete.
       regression pinning all three states independently. The complete
       `std_hash_map` CLI suite now passes 7 of 7, having failed 7 of 7 before
       this batch and batch 555.
+- [x] Batch 558 restores the registration-based nominal-owner guard after a
+      temporary regression in the backend validator. The validator now accepts
+      nominal identities for both registered-but-unwritten and written-but-
+      unpublished owners while still rejecting foreign module ids. Focused
+      readiness tests cover all three module states; the `nia-codegen-llvm`
+      library suite (306 tests), workspace check, and strict Clippy pass.
+- [x] Batch 559 adds the missing owner-state matrix for array-length
+      const-expressions. Validation now has direct coverage for registered but
+      unwritten owners (defer), written but unpublished owners (read payload),
+      and foreign owners (reject), matching the readiness contract used by the
+      backend validator.
+- [x] Batch 560 closes the LLVM bitcode input boundary. Empty serialized input
+      is rejected before `LLVMParseBitcodeInContext2`; without this preflight,
+      LLVM treats an empty buffer as a fatal parser error and terminates the
+      process instead of returning a recoverable diagnostic. An owner-level
+      regression pins the typed error path.
+- [x] Batch 561 extends the LLVM bitcode boundary to truncated and
+      non-bitcode buffers. `Context::parse_bitcode_module` now recognizes both
+      LLVM-documented raw and wrapped signatures before entering the C parser,
+      rejecting empty, short, and wrong-magic input through one typed error
+      path. This prevents obvious malformed buffers from reaching LLVM's fatal
+      short-header diagnostic while preserving both supported bitcode forms.
+- [x] Batch 562 closes the LLVM debug-info subrange handle boundary.
+      `DebugInfoBuilder::create_array_type` now checks the metadata returned by
+      `LLVMDIBuilderGetOrCreateSubrange` before passing it to the array-type
+      constructor, keeping a null intermediate out of LLVM's metadata graph.
+      A real DI array construction regression covers the successful path.
+- [x] Batch 563 adds direct target-machine boundary coverage. Invalid target
+      triples now have an owner-level regression that requires a typed error,
+      while a minimal native module configures target data/triple and emits a
+      non-empty object buffer through the same wrapper used by codegen. This
+      pins both target construction failure handling and successful buffer
+      ownership without relying on a larger compiler fixture.
+- [x] Batch 564 diagnoses the previously ambiguous workspace-test timeout.
+      A resource-traced `configured_success` run acquired its build session and
+      launched `nia build`; the long phase was the real configured `build check`
+      compiler work, not a permit wait or executor permission failure. A full
+      workspace run now returns an explicit shell timeout (`124`) when its
+      external 180-second budget expires before all CLI cases finish. No test
+      serialization or resource-accounting change is justified by this
+      evidence; retain the 180-second invocation as an insufficient ad-hoc
+      budget rather than changing test concurrency or resource accounting.
+- [x] Batch 565 repairs lossless syntax delimiter ownership under malformed
+      input. Green-tree construction now closes a delimiter only when the
+      closing token matches its opener; mismatched closers remain in the active
+      node so unmatched delimiters, spans, and child paths stay structurally
+      faithful for parser recovery and incremental origins. A `([)]` regression
+      covers the nested mismatch and exact source reconstruction. `nia-syntax`
+      (12 tests) and `nia-parser` (119 tests) pass with strict Clippy.
+- [x] Batch 566 completes the build-case timeout diagnosis with a proportionate
+      gate. The full `nia-cli --test build_cases` suite passes 14/14 in 318.67s
+      under a 1800-second external budget, including the previously long
+      configured build. The earlier 180-second workspace command therefore
+      expired before the suite could finish; no executor-permission or resource
+      permit defect was observed. Full-workspace acceptance should use a budget
+      that reflects this measured build workload rather than serializing tests.
+- [x] Batch 567 closes the full workspace test evidence gap. With the normal
+      libtest concurrency and shared resource accounting, `cargo test
+      --workspace --no-fail-fast` completed with exit code 0 under a 1800-second
+      outer budget. This run covered the previously slow CLI build cases,
+      compiler-query suites, runtime executable tests, cache/loader tests, and
+      all workspace doctests; no test failures were reported. The old 180-second
+      timeout was solely an inadequate external command budget.
+- [x] Batch 568 repairs nested LLVM array-constant construction. The typed
+      `ArrayType::const_array` wrapper now validates each operand against the
+      outer array type and passes that same type to `LLVMConstArray2`; using the
+      inner element type previously rejected valid nested arrays and could send
+      an invalid element contract across the FFI boundary. A real `[[i32; 2];
+      2]` owner regression covers the constructed value type; `nia-llvm` and
+      `nia-codegen-llvm` suites plus strict Clippy pass.
+- [x] Batch 569 aligns fixed-vector array initializers across backend validation
+      and LLVM lowering. `VectorType` now owns a checked constant-array
+      constructor, and static initializer lowering dispatches fixed-vector
+      elements through it instead of rejecting an array shape already admitted
+      by Backend IR validation. Owner coverage checks the LLVM value type, while
+      a complete BackendProgram regression emits a `[2 x <4 x i32>]` global;
+      workspace check, both owner/consumer suites, and strict Clippy pass.
+- [x] Batch 570 completes named-const SIMD materialization in static data.
+      `StaticInit::Vector` preserves lane identity independently from array and
+      repeat aggregates through const lowering, generic instantiation,
+      reachability, fingerprints, Backend IR validation, and LLVM constant
+      emission. Simplification folds only all-zero vectors, retaining repeated
+      nonzero lanes as vectors. Backend validation rejects wrong lane counts and
+      primitive lane kinds before LLVM; a source-level regression emits named
+      vector constants both directly and inside an array, while hand-built IR
+      coverage pins malformed-lane rejection and zero-vector array emission.
+      The affected lowering, body-check, and LLVM suites, workspace check, and
+      strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
