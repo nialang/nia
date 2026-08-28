@@ -708,7 +708,18 @@ impl ProgramIndex {
     }
 
     pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&TypeLayout> {
-        let position = self.tables().type_layouts.get(&ty).copied()?;
+        let position = self.tables().type_layouts.get(&ty).copied().or_else(|| {
+            self.tables()
+                .type_layouts
+                .iter()
+                .find(|(candidate, _)| {
+                    let equivalence = ProgramTypeEquivalence {
+                        type_store: &self.type_store,
+                    };
+                    equivalence.same_type_for_equiv(ty, **candidate)
+                })
+                .map(|(_, position)| *position)
+        })?;
         Some(&self.module_at(position.module).layouts.types[position.layout].1)
     }
 
@@ -1600,7 +1611,7 @@ mod tests {
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
-                types: Vec::new(),
+                types: vec![(owner_i32, nia_layout::TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
@@ -1707,6 +1718,10 @@ mod tests {
                 std::slice::from_ref(&query_const),
             ),
             Some(owner_module)
+        );
+        assert_eq!(
+            index.type_layout(argument_i32),
+            Some(&nia_layout::TypeLayout { size: 4, align: 4 })
         );
         assert!(
             index

@@ -3741,6 +3741,12 @@ acceptance item only when its phase-wide evidence is complete.
       cross-module regression covers struct and union entities plus layouts;
       `nia-codegen-llvm` (314 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
+- [x] Batch 615 closes LLVM ProgramIndex type-layout lookup across rebuilt
+      handles. `type_layout` now keeps its exact map fast path and scans indexed
+      candidates through structural `TypeEquivalence` when a composite handle
+      comes from another interner. The owner regression covers a rebuilt
+      primitive handle; `nia-codegen-llvm` (314 tests), workspace check, strict
+      Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
