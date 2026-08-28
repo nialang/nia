@@ -475,16 +475,32 @@ pub enum AttributeLoc {
 
 #[derive(Debug, Clone, Copy)]
 /// Non-owning LLVM attribute handle tied to its originating context.
-pub struct Attribute {
+///
+/// Attributes cannot outlive the context arena that allocated them:
+///
+/// ```compile_fail
+/// use nia_llvm::Context;
+///
+/// let attribute = {
+///     let context = Context::create().unwrap();
+///     context.create_string_attribute("target-cpu", "generic").unwrap()
+/// };
+/// drop(attribute);
+/// ```
+pub struct Attribute<'ctx> {
     pub(super) raw: LLVMAttributeRef,
+    _marker: PhantomData<&'ctx Context>,
 }
 
-impl Attribute {
+impl<'ctx> Attribute<'ctx> {
     pub(super) fn new(raw: LLVMAttributeRef) -> LlvmResult<Self> {
         if raw.is_null() {
             Err(LlvmError::error("LLVM returned a null attribute"))
         } else {
-            Ok(Self { raw })
+            Ok(Self {
+                raw,
+                _marker: PhantomData,
+            })
         }
     }
 
@@ -2176,7 +2192,7 @@ impl<'ctx> FunctionValue<'ctx> {
     }
 
     /// Attaches `attribute` at the selected function location.
-    pub fn add_attribute(self, loc: AttributeLoc, attribute: Attribute) {
+    pub fn add_attribute(self, loc: AttributeLoc, attribute: Attribute<'ctx>) {
         let index = match loc {
             AttributeLoc::Function => LLVMAttributeFunctionIndex,
         };

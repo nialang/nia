@@ -145,12 +145,20 @@ impl Context {
     }
 
     /// Creates an enum attribute and rejects a null LLVM result.
-    pub fn create_enum_attribute(&self, kind_id: u32, val: u64) -> LlvmResult<Attribute> {
+    pub fn create_enum_attribute<'ctx>(
+        &'ctx self,
+        kind_id: u32,
+        val: u64,
+    ) -> LlvmResult<Attribute<'ctx>> {
         Attribute::new(unsafe { LLVMCreateEnumAttribute(self.raw, kind_id, val) })
     }
 
     /// Creates a string attribute and rejects a null LLVM result.
-    pub fn create_string_attribute(&self, key: &str, value: &str) -> LlvmResult<Attribute> {
+    pub fn create_string_attribute<'ctx>(
+        &'ctx self,
+        key: &str,
+        value: &str,
+    ) -> LlvmResult<Attribute<'ctx>> {
         let key_len = checked_u32_count(key.len(), "LLVM string attribute key is too long")?;
         let value_len = checked_u32_count(value.len(), "LLVM string attribute value is too long")?;
         Attribute::new(unsafe {

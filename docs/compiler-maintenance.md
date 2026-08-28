@@ -297,6 +297,9 @@ it does not make a reset implicit.
   check the opcode in the typed wrapper before entering the C API. In
   particular, allocated-type queries accept only `alloca`; an arbitrary
   `InstructionValue` is not proof that LLVM can inspect it as an allocation.
+- Every non-owning LLVM handle allocated in a context arena must carry that
+  context lifetime in its Rust type. This includes attributes: a non-null raw
+  handle does not make it valid after the originating `Context` is dropped.
 - Backend IR validation recursively validates const-argument types in every
   type constructor, so malformed or session-mismatched metadata cannot bypass
   the validator merely by appearing in a const generic argument.
