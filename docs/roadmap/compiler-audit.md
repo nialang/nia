@@ -3525,6 +3525,13 @@ acceptance item only when its phase-wide evidence is complete.
       referenced only through `size[...]`/`align[...]`. A lowering regression
       covers a nested struct used solely by array layout metadata;
       `nia-backend-lower` (118 tests), workspace check, and strict Clippy pass.
+- [x] Batch 584 closes program-signature substitution of array layout metadata.
+      `substitute_type` now recursively substitutes `ArrayLenTy::Builtin.ty`,
+      so generic trait and extension signatures do not retain stale type
+      operands inside `size[T]`/`align[T]`. An owner regression verifies the
+      lowered array metadata uses the concrete substitution;
+      `nia-program-signatures` (5 tests), workspace check, and strict Clippy
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

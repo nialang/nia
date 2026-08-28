@@ -416,7 +416,18 @@ pub(super) fn substitute_type(
             append.intern(TyKind::SlicePointee { elem })
         }
         Some(TyKind::Array { len, elem }) => {
-            let len = substitute_array_len(len.clone(), const_substitutions);
+            let len = substitute_array_len(
+                append,
+                module,
+                type_store,
+                len.clone(),
+                substitutions,
+                const_substitutions,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
+            );
             let elem = substitute_type(
                 append,
                 module,
@@ -1000,14 +1011,31 @@ fn substitute_const_arg(
 }
 
 fn substitute_array_len(
+    append: &TypeStoreAppend,
+    module: &ExtensionModuleInput<'_>,
+    type_store: &TypeStore,
     len: nia_ty::ArrayLenTy,
+    substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    target: TypeSubstitutionTarget<'_>,
 ) -> nia_ty::ArrayLenTy {
     match len {
         nia_ty::ArrayLenTy::GenericParam(name) => const_substitutions
             .get(&name)
             .and_then(nia_ty::array_len_from_const_arg)
             .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
+        nia_ty::ArrayLenTy::Builtin { builtin, ty } => nia_ty::ArrayLenTy::Builtin {
+            builtin,
+            ty: substitute_type(
+                append,
+                module,
+                type_store,
+                ty,
+                substitutions,
+                const_substitutions,
+                target,
+            ),
+        },
         len => len,
     }
 }

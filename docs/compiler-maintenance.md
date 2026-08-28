@@ -265,6 +265,10 @@ it does not make a reset implicit.
   `ArrayLenTy::Builtin.ty` alongside the array element. A nominal struct or
   union used only as the operand of `size[...]`/`align[...]` still owns layout
   and concrete instance products required by lowering.
+- Program-signature type substitution must recursively substitute
+  `ArrayLenTy::Builtin.ty`. Array-length metadata is a full type-bearing
+  component; leaving its generic operand untouched produces stale generic
+  identities in lowered trait and extension signatures.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
