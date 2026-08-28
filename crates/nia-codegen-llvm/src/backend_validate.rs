@@ -365,8 +365,8 @@ fn record_external_symbol(
 /// Vtable globals are externally visible, so their names belong to the same
 /// linker namespace as ordinary functions, globals, instances, and closure
 /// entries. This helper must stay byte-identical to the emitter, including its
-/// `Some(0)` const-expression resolver: the emitted name is what the linker
-/// sees, not the semantically richer instance mangling. Returns `None` when a
+/// const-expression resolver: the emitted name is what the linker sees, not
+/// the semantically richer instance mangling. Returns `None` when a
 /// mangle input is absent from Backend IR so preflight defers instead of
 /// reserving a guessed name.
 fn expected_trait_object_vtable_symbol(
@@ -417,7 +417,11 @@ fn expected_trait_object_vtable_symbol(
                         })
                         .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
                 },
-                |_| Some(0),
+                |const_expr: nia_ids::GlobalConstExprId| {
+                    index.module(const_expr.module_id).and_then(|module| {
+                        module.const_eval.array_lengths.get(&const_expr).copied()
+                    })
+                },
             ),
         )
     };
@@ -2224,8 +2228,18 @@ fn definition_owner_matches(module_id: ModuleId, def_id: GlobalDefId) -> bool {
 
 #[cfg(test)]
 mod owner_tests {
-    use super::{definition_owner_matches, member_owner_matches, missing_declaration_diagnostic};
-    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+    use std::sync::Arc;
+
+    use super::{
+        definition_owner_matches, expected_trait_object_vtable_symbol, member_owner_matches,
+        missing_declaration_diagnostic,
+    };
+    use crate::program_index::ProgramIndex;
+    use nia_backend_ir::{BackendConstFacts, BackendLayouts, BackendModule, BackendModuleStore};
+    use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
+    use nia_layout::{TargetDataLayout, TypeLayout};
+    use nia_source::SourceIdentity;
+    use nia_ty::{ArrayLenTy, TyKind, TypeStore};
 
     #[test]
     fn aggregate_members_require_the_nominal_module_owner() {
@@ -2291,5 +2305,81 @@ mod owner_tests {
                 .summary
                 .contains("without a matching published owner")
         );
+    }
+
+    #[test]
+    fn vtable_symbol_uses_evaluated_array_lengths() {
+        let mut modules = ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(module_id);
+        let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+        let left_expr = GlobalConstExprId {
+            module_id,
+            const_expr_id: ConstExprId(0),
+        };
+        let right_expr = GlobalConstExprId {
+            module_id,
+            const_expr_id: ConstExprId(1),
+        };
+        let left = interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr(left_expr),
+            elem: i32_ty,
+        });
+        let right = interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr(right_expr),
+            elem: i32_ty,
+        });
+        drop(interner);
+
+        let mut module = BackendModule {
+            id: module_id,
+            source_identity: SourceIdentity::new("vtable-symbols.nia"),
+            name: "vtable-symbols".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: TargetDataLayout::LP64,
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        };
+        module.const_eval.array_lengths.insert(left_expr, 4);
+        module.const_eval.array_lengths.insert(right_expr, 8);
+        let store = Arc::new(BackendModuleStore::new([module_id]));
+        store.publish(module);
+        let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        publisher.publish(module_id);
+
+        let left_symbol = expected_trait_object_vtable_symbol(
+            &index,
+            &nia_backend_ir::BackendTraitObjectVtableKey {
+                self_ty: left,
+                object_ty: i32_ty,
+            },
+        );
+        let right_symbol = expected_trait_object_vtable_symbol(
+            &index,
+            &nia_backend_ir::BackendTraitObjectVtableKey {
+                self_ty: right,
+                object_ty: i32_ty,
+            },
+        );
+        assert_ne!(left_symbol, right_symbol);
     }
 }

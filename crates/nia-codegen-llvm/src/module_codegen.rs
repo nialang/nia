@@ -813,7 +813,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         })
                         .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
                 },
-                |_| Some(0),
+                |const_expr: nia_ids::GlobalConstExprId| {
+                    self.program
+                        .module(const_expr.module_id)
+                        .and_then(|module| {
+                            module.const_eval.array_lengths.get(&const_expr).copied()
+                        })
+                },
             ),
         );
         self.mangled_types.borrow_mut().insert(ty, mangled.clone());
