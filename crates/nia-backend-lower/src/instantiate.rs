@@ -96,6 +96,58 @@ fn same_trait_object_pointee_with<Context>(
         && same_bindings(context, left.bindings, right.bindings)
 }
 
+fn same_associated_type_bindings_with<Context>(
+    context: &mut Context,
+    left: &[nia_ty::AssociatedTypeBindingTy],
+    right: &[nia_ty::AssociatedTypeBindingTy],
+    same_binding: impl Fn(
+        &mut Context,
+        &nia_ty::AssociatedTypeBindingTy,
+        &nia_ty::AssociatedTypeBindingTy,
+    ) -> bool
+    + Copy,
+) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    fn visit<Context>(
+        context: &mut Context,
+        left: &[nia_ty::AssociatedTypeBindingTy],
+        right: &[nia_ty::AssociatedTypeBindingTy],
+        index: usize,
+        used: &mut [bool],
+        same_binding: impl Fn(
+            &mut Context,
+            &nia_ty::AssociatedTypeBindingTy,
+            &nia_ty::AssociatedTypeBindingTy,
+        ) -> bool
+        + Copy,
+    ) -> bool {
+        let Some(binding) = left.get(index) else {
+            return true;
+        };
+        for (right_index, candidate) in right.iter().enumerate() {
+            if used[right_index] || !same_binding(context, binding, candidate) {
+                continue;
+            }
+            used[right_index] = true;
+            if visit(context, left, right, index + 1, used, same_binding) {
+                return true;
+            }
+            used[right_index] = false;
+        }
+        false
+    }
+    visit(
+        context,
+        left,
+        right,
+        0,
+        &mut vec![false; right.len()],
+        same_binding,
+    )
+}
+
 fn classify_effective_generic_names(
     generics: &[SymbolId],
     const_generics: &[SymbolId],
@@ -2574,21 +2626,9 @@ impl<'a> ModuleLowerer<'a> {
         left: &[nia_ty::AssociatedTypeBindingTy],
         right: &[nia_ty::AssociatedTypeBindingTy],
     ) -> bool {
-        if left.len() != right.len() {
-            return false;
-        }
-        let mut used = vec![false; right.len()];
-        left.iter().all(|left_binding| {
-            let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
-                (!used[index]
-                    && self.associated_type_binding_keys_match(left_binding, right_binding)
-                    && self.types_match(left_binding.ty, right_binding.ty))
-                .then_some(index)
-            }) else {
-                return false;
-            };
-            used[index] = true;
-            true
+        same_associated_type_bindings_with(self, left, right, |lowerer, left, right| {
+            lowerer.associated_type_binding_keys_match(left, right)
+                && lowerer.types_match(left.ty, right.ty)
         })
     }
 
@@ -2681,7 +2721,10 @@ impl<'a> ModuleLowerer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TraitObjectPointeeMatch, same_array_len_with, same_trait_object_pointee_with};
+    use super::{
+        TraitObjectPointeeMatch, same_array_len_with, same_associated_type_bindings_with,
+        same_trait_object_pointee_with,
+    };
     use nia_ty::{
         ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, TypeStore,
     };
@@ -2811,6 +2854,36 @@ mod tests {
             |_, _, _| panic!("trait mismatch must not compare type arguments"),
             |_, _, _| panic!("trait mismatch must not compare const arguments"),
             |_, _, _| panic!("trait mismatch must not compare associated bindings"),
+        ));
+    }
+
+    #[test]
+    fn associated_binding_matching_backtracks_duplicate_keys() {
+        let store = TypeStore::new();
+        let append = store.append_for_module(nia_ids::ModuleIdAllocator::new().allocate());
+        let ty_one = append.primitive(PrimitiveTy::I32);
+        let ty_two = append.primitive(PrimitiveTy::I64);
+        let binding = |ty| nia_ty::AssociatedTypeBindingTy {
+            trait_id: None,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            name: nia_symbol::SymbolId::EMPTY,
+            ty,
+        };
+        let left = [binding(ty_one), binding(ty_two)];
+        let right = [binding(ty_two), binding(ty_one)];
+        assert!(same_associated_type_bindings_with(
+            &mut (),
+            &left,
+            &right,
+            |_, left, right| left.ty == right.ty,
+        ));
+        let mismatch = [binding(ty_one), binding(ty_one)];
+        assert!(!same_associated_type_bindings_with(
+            &mut (),
+            &left,
+            &mismatch,
+            |_, left, right| left.ty == right.ty,
         ));
     }
 }

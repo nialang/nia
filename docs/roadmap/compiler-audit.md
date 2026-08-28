@@ -3783,6 +3783,13 @@ acceptance item only when its phase-wide evidence is complete.
       The owner regression verifies active definitions leave visited keys
       untouched; `nia-executable-reachability` (18 tests), recursive driver
       tests, workspace check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 621 closes backend-lower associated-binding order sensitivity.
+      Trait-object and projection type comparison now matches duplicate
+      associated binding keys through a complete backtracking bijection instead
+      of a greedy first candidate. Reordered equal bindings remain equivalent,
+      while repeated values cannot hide a missing sibling; `nia-backend-lower`
+      (124 tests), workspace check, strict Clippy, formatting, and diff checks
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
