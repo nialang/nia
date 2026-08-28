@@ -159,8 +159,10 @@ it does not make a reset implicit.
   products check exact argument arity before pairwise matching so malformed or
   stale upstream facts fail closed instead of benefiting from truncated `zip`
   comparisons. Inference probes clone their substitution state and commit it
-  only after the complete impl header and associated binding set matches; a
-  failed nested binding must not leak a partial generic inference. Associated
+  only after the complete impl header and associated binding set matches; every
+  recursive composite pattern is one transaction, so a failed nested field
+  (including tuples, callable signatures, and nominal arguments) must not leak
+  a partial generic inference. Associated
   binding vectors are unordered semantic sets: comparisons consume every
   candidate at most once and backtrack over compatible keys, since a greedy
   first match can reject a later valid permutation. This applies to fast shape

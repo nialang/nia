@@ -219,6 +219,32 @@ impl TraitSolver<'_> {
         substitutions: &mut SymbolMap<InternedTyId>,
         const_substitutions: &mut SymbolMap<ConstGenericArg>,
     ) -> bool {
+        // A composite pattern is one transactional candidate: an early field
+        // may bind a parameter, but that binding must not escape if a later
+        // field rejects the same candidate. Keeping the rollback here at the
+        // recursion boundary covers every payload shape uniformly.
+        let mut candidate_substitutions = substitutions.clone();
+        let mut candidate_const_substitutions = const_substitutions.clone();
+        let matched = self.match_impl_pattern_with_consts_inner(
+            pattern,
+            actual,
+            &mut candidate_substitutions,
+            &mut candidate_const_substitutions,
+        );
+        if matched {
+            *substitutions = candidate_substitutions;
+            *const_substitutions = candidate_const_substitutions;
+        }
+        matched
+    }
+
+    fn match_impl_pattern_with_consts_inner(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
         let pattern = self.normalize(pattern);
         let actual = self.normalize(actual);
         if let Some(resolved_pattern) = self.resolve_projection_ty(pattern)
