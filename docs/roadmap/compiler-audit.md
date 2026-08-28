@@ -3897,6 +3897,10 @@ acceptance item only when its phase-wide evidence is complete.
       function-item references now require an exact `FunctionPointer` result
       type instead of accepting ordinary data pointers hidden by LLVM opaque
       pointer types; malformed reference IR has a focused regression.
+- [x] Batch 644 closes the backend static-integer range boundary. `StaticInit::Int`
+      values are now checked for signedness, primitive width, Unicode scalar
+      validity, and target pointer width before LLVM constant construction;
+      malformed bool/char/32-bit integer initializers have owner regressions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -3,7 +3,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_ty::{IntConst, PrimitiveTy, TyKind};
 
 use super::{BackendValidator, FunctionInstanceRef};
 use crate::literals::parse_float_literal;
@@ -12,20 +12,7 @@ impl BackendValidator<'_> {
     pub(super) fn validate_static_init(&mut self, ty: InternedTyId, init: &StaticInit, span: Span) {
         match init {
             StaticInit::Zero => {}
-            StaticInit::Int(_) => {
-                if !matches!(
-                    self.ty_kind(ty),
-                    Some(TyKind::Primitive(primitive))
-                        if primitive.is_integer()
-                            || matches!(*primitive, PrimitiveTy::Bool | PrimitiveTy::Char)
-                ) {
-                    self.invalid_static_scalar(
-                        ty,
-                        span,
-                        "integer initializer target is not integer-like",
-                    );
-                }
-            }
+            StaticInit::Int(value) => self.validate_static_integer(ty, *value, span),
             StaticInit::Float(text) => {
                 let valid_type = matches!(
                     self.ty_kind(ty),
@@ -255,6 +242,40 @@ impl BackendValidator<'_> {
             span,
             format!("backend IR static initializer has an invalid scalar contract: {message}"),
         ));
+    }
+
+    fn validate_static_integer(&mut self, ty: InternedTyId, value: IntConst, span: Span) {
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
+            self.invalid_static_scalar(ty, span, "integer initializer target is not integer-like");
+            return;
+        };
+        let pointer_width = self
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+            .unwrap_or(0);
+        let fits = match *primitive {
+            PrimitiveTy::Bool => !value.is_signed() && matches!(value.bits(), 0 | 1),
+            PrimitiveTy::Char => {
+                !value.is_signed()
+                    && u32::try_from(value.bits())
+                        .ok()
+                        .and_then(char::from_u32)
+                        .is_some()
+            }
+            primitive if primitive.is_integer() => {
+                value.fits_primitive_int(primitive, pointer_width)
+            }
+            _ => false,
+        };
+        if !fits {
+            self.invalid_static_scalar(
+                ty,
+                span,
+                "integer initializer value is outside its target type",
+            );
+        }
     }
 
     fn validate_static_vector_lane(&mut self, elem: PrimitiveTy, lane: &StaticInit, span: Span) {

@@ -963,6 +963,10 @@ signals, not architecture goals.
   the backend boundary. LLVM's opaque pointer representation can otherwise
   hide a malformed ordinary-data-pointer result from the source-level type
   contract.
+- Static integer initializers must be range-checked against their destination
+  primitive before LLVM constant construction. This includes signedness,
+  `bool`/`char` validity, and target pointer width; bit-pattern truncation is
+  not a valid recovery for malformed static IR.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout
