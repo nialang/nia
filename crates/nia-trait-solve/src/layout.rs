@@ -376,7 +376,6 @@ impl TraitSolver<'_> {
         match (left, right) {
             (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
-            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => left == right,
             (
                 ArrayLenTy::Builtin {
                     builtin: left_builtin,
@@ -390,7 +389,16 @@ impl TraitSolver<'_> {
                 left_builtin == right_builtin
                     && self.types_equivalent_in_layout_interner(*left_ty, *right_ty, layouts, seen)
             }
-            _ => false,
+            _ => match (
+                self.const_arg_from_array_len(left),
+                self.const_arg_from_array_len(right),
+            ) {
+                (Some(left), Some(right)) => {
+                    self.types_equivalent_in_layout_interner(left.ty, right.ty, layouts, seen)
+                        && self.const_generic_values_equivalent(left.ty, &left.value, &right.value)
+                }
+                _ => false,
+            },
         }
     }
 
@@ -402,16 +410,12 @@ impl TraitSolver<'_> {
         seen: &mut HashSet<(InternedTyId, InternedTyId)>,
     ) -> bool {
         left.len() == right.len()
-            && left.iter().zip(right).all(|(left, right)| {
-                self.types_equivalent_in_layout_interner(left.ty, right.ty, layouts, seen)
-                    && match (&left.value, &right.value) {
+            && left.iter().zip(right).all(|(left_arg, right_arg)| {
+                self.types_equivalent_in_layout_interner(left_arg.ty, right_arg.ty, layouts, seen)
+                    && match (&left_arg.value, &right_arg.value) {
                         (
                             nia_ty::ConstGenericValue::GenericParam(left),
                             nia_ty::ConstGenericValue::GenericParam(right),
-                        ) => left == right,
-                        (
-                            nia_ty::ConstGenericValue::ConstExpr(left),
-                            nia_ty::ConstGenericValue::ConstExpr(right),
                         ) => left == right,
                         (
                             nia_ty::ConstGenericValue::Int(left),
@@ -425,7 +429,9 @@ impl TraitSolver<'_> {
                             nia_ty::ConstGenericValue::Char(left),
                             nia_ty::ConstGenericValue::Char(right),
                         ) => left == right,
-                        _ => false,
+                        (left, right) => {
+                            self.const_generic_values_equivalent(left_arg.ty, left, right)
+                        }
                     }
             })
     }
