@@ -3905,6 +3905,10 @@ acceptance item only when its phase-wide evidence is complete.
       `IntConst` lanes now reuse scalar signedness and width checks, preventing
       LLVM lane truncation from accepting malformed values; an out-of-range
       vector lane has a focused backend regression.
+- [x] Batch 646 closes the backend function-reference signature boundary.
+      Function-item address expressions now require the result pointer's full
+      function signature to match the referenced item, preventing opaque LLVM
+      pointers from hiding incompatible function-pointer metadata.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

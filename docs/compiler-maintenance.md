@@ -962,7 +962,8 @@ signals, not architecture goals.
 - Function-item reference expressions must produce a `FunctionPointer` type at
   the backend boundary. LLVM's opaque pointer representation can otherwise
   hide a malformed ordinary-data-pointer result from the source-level type
-  contract.
+  contract; the function pointer signature must also match the referenced
+  function value exactly.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is

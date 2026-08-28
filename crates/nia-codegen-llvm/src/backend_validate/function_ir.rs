@@ -1431,6 +1431,12 @@ impl BackendValidator<'_> {
                         "function reference result is not a function pointer",
                     );
                 }
+                if !self.same_type(result_ty, inner.ty) {
+                    self.invalid_operator(
+                        span,
+                        "function reference result type does not match its function item",
+                    );
+                }
             }
             UnaryOp::Deref => {
                 let expected = match self.index.ty_kind(inner.ty) {

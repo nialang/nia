@@ -6895,6 +6895,18 @@ fn validates_backend_ir_call_signatures_before_llvm() {
                 FunctionOp::Expr(FunctionExpr {
                     span,
                     ty: wrong_function_params_ty,
+                    kind: FunctionExprKind::Unary {
+                        op: nia_ast::UnaryOp::RefReadOnly,
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty: function_pointer_ty,
+                            kind: FunctionExprKind::Function(target_id),
+                        }),
+                    },
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: wrong_function_params_ty,
                     kind: FunctionExprKind::Function(target_id),
                 }),
                 FunctionOp::Expr(FunctionExpr {
@@ -7054,6 +7066,7 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         "builtin-operator call has an invalid ABI contract: operator trait",
         "backend IR operator has an invalid contract: binary result type",
         "backend IR operator has an invalid contract: function reference result is not a function pointer",
+        "backend IR operator has an invalid contract: function reference result type does not match its function item",
         "function value has an invalid signature contract: value type",
         "function value has an invalid signature contract: parameter types",
         "function value has an invalid signature contract: return type",
