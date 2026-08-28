@@ -663,6 +663,22 @@ impl ProgramIndex {
             .trait_object_vtables
             .get(key)
             .copied()
+            .or_else(|| {
+                self.tables()
+                    .trait_object_vtables
+                    .values()
+                    .find(|position| {
+                        let candidate = &self.module_at(position.module).trait_object_vtables
+                            [position.item]
+                            .key;
+                        let equivalence = ProgramTypeEquivalence {
+                            type_store: &self.type_store,
+                        };
+                        equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
+                            && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty)
+                    })
+                    .copied()
+            })
             .map(Self::item_owner)
     }
 
@@ -1374,6 +1390,8 @@ mod tests {
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let rebuilt_interner = type_store.append_for_module(semantic_module_id);
+        let rebuilt_i32_ty = rebuilt_interner.primitive(PrimitiveTy::I32);
         let function_def = global(semantic_module_id, 1);
         let struct_def = global(semantic_module_id, 2);
         let enum_def = global(semantic_module_id, 3);
@@ -1384,6 +1402,13 @@ mod tests {
             is_readonly: true,
             trait_id: TraitId::Source(trait_def),
             trait_args: vec![i32_ty],
+            trait_const_args: Vec::new(),
+            associated_type_bindings: Vec::new(),
+        });
+        let rebuilt_object_ty = rebuilt_interner.intern(TyKind::TraitObject {
+            is_readonly: true,
+            trait_id: TraitId::Source(trait_def),
+            trait_args: vec![rebuilt_i32_ty],
             trait_const_args: Vec::new(),
             associated_type_bindings: Vec::new(),
         });
@@ -1576,6 +1601,13 @@ mod tests {
         );
         assert_eq!(
             index.trait_object_vtable_owner(&program.modules[0].trait_object_vtables[0].key),
+            Some(module_id)
+        );
+        assert_eq!(
+            index.trait_object_vtable_owner(&BackendTraitObjectVtableKey {
+                self_ty: rebuilt_i32_ty,
+                object_ty: rebuilt_object_ty,
+            }),
             Some(module_id)
         );
     }
