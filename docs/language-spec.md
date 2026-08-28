@@ -1811,6 +1811,8 @@ They do not execute arbitrary compile-time programs:
 static a = 1 + 2;           // allowed: integer static expression
 static hello: [u8; 3] = b"hi\0"; // allowed: byte-array static data
 static p = &hello[0];       // allowed: global static address
+const lanes: u8x4 = std::builtin::splat[u8x4](3);
+static laneCopy: u8x4 = lanes; // allowed: named const SIMD data
 static bad = { 1 + 2 };     // error: block execution is not static data
 ```
 

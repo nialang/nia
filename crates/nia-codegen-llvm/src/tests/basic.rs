@@ -192,6 +192,35 @@ fn make(value: u8) u8x16 {
 }
 
 #[test]
+fn emits_named_const_vectors_in_static_data() {
+    let root = temp_dir("emits_named_const_vectors_in_static_data");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+const filled: u8x4 = std::builtin::splat[u8x4](3);
+const changed: u8x4 = std::builtin::insert(filled, 2, 9);
+static copy: u8x4 = changed;
+static copies: [u8x4; 2] = [filled, changed];
+
+fn main() u8 {
+    std::builtin::extract(copy, 2) + std::builtin::extract(copies[0], 0)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("<4 x i8>"), "{ir}");
+    assert!(ir.contains("[2 x <4 x i8>]"), "{ir}");
+}
+
+#[test]
 fn emits_vector_lane_builtins() {
     let root = temp_dir("emits_vector_lane_builtins");
     let main = root.join("main.nia");

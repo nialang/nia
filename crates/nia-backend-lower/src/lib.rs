@@ -1443,7 +1443,7 @@ impl ReachableAggregateRoots {
         init: &nia_static_ir::StaticInit,
     ) {
         match init {
-            nia_static_ir::StaticInit::Array(elems) => {
+            nia_static_ir::StaticInit::Array(elems) | nia_static_ir::StaticInit::Vector(elems) => {
                 for elem in elems {
                     self.add_static_init(lowerer, elem);
                 }

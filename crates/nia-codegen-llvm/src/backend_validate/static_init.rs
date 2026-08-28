@@ -135,6 +135,33 @@ impl BackendValidator<'_> {
                     self.validate_static_init(elem_ty, elem, span);
                 }
             }
+            StaticInit::Vector(lanes) => {
+                let Some(TyKind::Vector {
+                    elem,
+                    lanes: expected,
+                }) = self.ty_kind(ty).cloned()
+                else {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        span,
+                        "backend IR vector static initializer target is not vector",
+                    ));
+                    return;
+                };
+                if usize::try_from(expected).ok() != Some(lanes.len()) {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        span,
+                        format!(
+                            "backend IR vector static initializer has {} lanes but its vector type requires {expected}",
+                            lanes.len()
+                        ),
+                    ));
+                }
+                for lane in lanes {
+                    self.validate_static_vector_lane(elem, lane, span);
+                }
+            }
             StaticInit::Repeat { value, count } => {
                 let Some(elem_ty) = self.array_elem_ty(ty) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
@@ -204,6 +231,43 @@ impl BackendValidator<'_> {
             span,
             format!("backend IR static initializer has an invalid scalar contract: {message}"),
         ));
+    }
+
+    fn validate_static_vector_lane(&mut self, elem: PrimitiveTy, lane: &StaticInit, span: Span) {
+        let valid = match lane {
+            StaticInit::Zero => true,
+            StaticInit::Int(_) => {
+                elem.is_integer() || matches!(elem, PrimitiveTy::Bool | PrimitiveTy::Char)
+            }
+            StaticInit::Float(text) => {
+                matches!(elem, PrimitiveTy::F32 | PrimitiveTy::F64)
+                    && parse_float_literal(text).is_some_and(|value| {
+                        value.is_finite()
+                            && (elem == PrimitiveTy::F64 || (value as f32).is_finite())
+                    })
+            }
+            StaticInit::Bool(_) => elem == PrimitiveTy::Bool,
+            StaticInit::Char(value) => {
+                elem == PrimitiveTy::Char && char::from_u32(*value).is_some()
+            }
+            StaticInit::Byte(_) => elem == PrimitiveTy::U8,
+            StaticInit::Chars(_)
+            | StaticInit::Bytes(_)
+            | StaticInit::Array(_)
+            | StaticInit::Vector(_)
+            | StaticInit::Repeat { .. }
+            | StaticInit::Struct(_)
+            | StaticInit::NullPtr
+            | StaticInit::AddrOfGlobal { .. }
+            | StaticInit::AddrOfFunction { .. } => false,
+        };
+        if !valid {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "backend IR vector static initializer lane does not match its primitive element type",
+            ));
+        }
     }
 
     fn validate_static_global_address(

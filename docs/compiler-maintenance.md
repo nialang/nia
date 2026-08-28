@@ -91,16 +91,18 @@ and other expected failures use explicit result and diagnostic channels.
   signedness before writeback. A final assignment conversion is too late:
   `u8 += 1` must diagnose the intermediate overflow just as runtime code does.
 - Static initializer admission and lowering must agree on the complete value
-  set represented by `StaticInit`. Named const values of integer, float, and
-  boolean type (including local and imported bindings) lower to their actual
-  payload; arrays and nominal structs are admitted recursively only when every
-  leaf has an equivalent static-data representation. Aggregate lowering uses
-  the checked destination element and canonically substituted field types, and
-  restores integer signedness at every leaf without truncating its bits. A
-  tuple remains rejected while `StaticInit` has no tuple variant; unions,
-  pointers, and other const values remain rejected until they have an explicit
-  equivalent materialization contract. A recovery `Zero` is never a publishable
-  initializer, even when an earlier checker already reported the source error.
+  set represented by `StaticInit`. Named const values of integer, float,
+  boolean, and fixed SIMD-vector type (including local and imported bindings)
+  lower to their actual payload; vector lanes use the explicit vector
+  initializer, while arrays and nominal structs are admitted recursively only
+  when every leaf has an equivalent static-data representation. Aggregate
+  lowering uses the checked destination element and canonically substituted
+  field types, and restores integer signedness at every leaf without truncating
+  its bits. A tuple remains rejected while `StaticInit` has no tuple variant;
+  unions, pointers, and other const values remain rejected until they have an
+  explicit equivalent materialization contract. A recovery `Zero` is never a
+  publishable initializer, even when an earlier checker already reported the
+  source error.
 - Treat LLVM-emitted wide arithmetic/conversion libcalls as reachable compiler
   builtins, not implicit host linker dependencies. Collect them from typed
   Function IR, include every requested symbol in the builtins fingerprint, and

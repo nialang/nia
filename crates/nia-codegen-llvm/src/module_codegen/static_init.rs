@@ -52,6 +52,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::Float(text) => self.static_float_init_value(ty, text, span),
             StaticInit::Char(value) => self.static_char_init_value_in(ty, *value, span),
             StaticInit::Array(elems) => self.static_array_init_value_in(ty, elems, span),
+            StaticInit::Vector(lanes) => self.static_vector_init_value_in(ty, lanes, span),
             StaticInit::Repeat { value, count } => {
                 self.static_repeat_init_value_in(ty, value, *count, span)
             }
@@ -242,6 +243,41 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.const_array_from_values_in(*elem, &values, span)
     }
 
+    fn static_vector_init_value_in(
+        &self,
+        ty: InternedTyId,
+        lanes: &[StaticInit],
+        span: Span,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Vector {
+            elem,
+            lanes: expected,
+        }) = self.ty_kind(ty).cloned()
+        else {
+            return Err(self.error(span, "vector static initializer target is not vector"));
+        };
+        if usize::try_from(expected).ok() != Some(lanes.len()) {
+            return Err(self.error(
+                span,
+                "vector static initializer lane count does not match its type",
+            ));
+        }
+        let lane_ty = self
+            .program
+            .type_store()
+            .append_for_module(self.source.id)
+            .primitive(elem);
+        let values = lanes
+            .iter()
+            .map(|lane| self.static_init_value_in(lane_ty, lane, span))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.llvm_basic_type_in(ty, span)?
+            .into_vector_type()?
+            .const_vector(&values)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
+    }
+
     fn static_repeat_init_value_in(
         &self,
         ty: InternedTyId,
@@ -383,6 +419,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 )
                 .map(Into::into)
                 .map_err(Self::diagnostic_from_llvm_error),
+            BasicTypeEnum::VectorType(ty) => ty
+                .const_array(
+                    &values
+                        .iter()
+                        .map(|value| value.into_vector_value())
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error),
             _ => Err(self.error(
                 span,
                 "array static initializer element type is not supported",
@@ -418,7 +463,9 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         }
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
-        StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
+        StaticInit::Array(elems) | StaticInit::Vector(elems) => {
+            elems.iter().all(is_zero_static_init)
+        }
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
         StaticInit::AddrOfGlobal { .. } | StaticInit::AddrOfFunction { .. } => false,

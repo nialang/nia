@@ -36,7 +36,9 @@ impl<'a> BodyChecker<'a> {
     fn contains_static_recovery(init: &StaticInit) -> bool {
         match init {
             StaticInit::Zero => true,
-            StaticInit::Array(values) => values.iter().any(Self::contains_static_recovery),
+            StaticInit::Array(values) | StaticInit::Vector(values) => {
+                values.iter().any(Self::contains_static_recovery)
+            }
             StaticInit::Repeat { value, .. } => Self::contains_static_recovery(value),
             StaticInit::Struct(fields) => fields
                 .iter()
@@ -592,6 +594,21 @@ impl<'a> BodyChecker<'a> {
                     values
                         .into_iter()
                         .map(|value| self.lower_static_const_value(value, elem))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            nia_const_check::ConstValue::Vector(values) => {
+                let TyKind::Vector { elem, lanes } = self.interner.get(ty).cloned()? else {
+                    return None;
+                };
+                if usize::try_from(lanes).ok()? != values.len() {
+                    return None;
+                }
+                let lane_ty = self.interner.primitive(elem);
+                Some(StaticInit::Vector(
+                    values
+                        .into_iter()
+                        .map(|value| self.lower_static_const_value(value, lane_ty))
                         .collect::<Option<Vec<_>>>()?,
                 ))
             }
