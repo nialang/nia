@@ -954,15 +954,17 @@ impl<'ctx> ArrayType<'ctx> {
 
     /// Creates a nested array constant from elements of this array type.
     pub fn const_array(self, values: &[ArrayValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
-        let elem_ty = unsafe { LLVMGetElementType(self.as_type_ref()) };
-        validate_constant_elements(values, elem_ty)?;
+        // Each value is an element whose type is this array type. The inner
+        // element type belongs to the nested arrays and is not the operand
+        // type required by LLVMConstArray2.
+        validate_constant_elements(values, self.as_type_ref())?;
         let value_count =
             checked_u64_count(values.len(), "LLVM nested array constant is too large")?;
         let mut values = values
             .iter()
             .map(|value| value.as_value_ref())
             .collect::<Vec<_>>();
-        let raw = unsafe { LLVMConstArray2(elem_ty, values.as_mut_ptr(), value_count) };
+        let raw = unsafe { LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), value_count) };
         Ok(ArrayValue::new(require_value(raw, "array constant array")?))
     }
 }
@@ -1004,6 +1006,22 @@ impl<'ctx> VectorType<'ctx> {
             .collect::<Vec<_>>();
         let raw = unsafe { LLVMConstVector(values.as_mut_ptr(), self.len()) };
         Ok(VectorValue::new(require_value(raw, "vector constant")?))
+    }
+
+    /// Creates an array constant from fixed-vector elements of this type.
+    pub fn const_array(self, values: &[VectorValue<'ctx>]) -> LlvmResult<ArrayValue<'ctx>> {
+        validate_constant_elements(values, self.as_type_ref())?;
+        let value_count =
+            checked_u64_count(values.len(), "LLVM vector constant array is too large")?;
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
+        let raw = unsafe { LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), value_count) };
+        Ok(ArrayValue::new(require_value(
+            raw,
+            "vector constant array",
+        )?))
     }
 
     /// Creates a zero-initialized vector constant.
@@ -1718,6 +1736,45 @@ mod tests {
             error,
             LlvmError::Error(message) if message.contains("constant array element 0 type does not match")
         ));
+    }
+
+    #[test]
+    fn builds_nested_array_constant_with_array_element_type() {
+        let context = Context::create().unwrap();
+        let inner_type = context.i32_type().array_type(2).unwrap();
+        let inner = context
+            .i32_type()
+            .const_array(&[
+                context.i32_type().const_int(1, false).unwrap(),
+                context.i32_type().const_int(2, false).unwrap(),
+            ])
+            .unwrap();
+        let outer_type = inner_type.array_type(2).unwrap();
+
+        let outer = inner_type.const_array(&[inner, inner]).unwrap();
+
+        assert_eq!(outer.get_type().unwrap(), outer_type);
+        assert_eq!(outer_type.get_element_type().unwrap(), inner_type.into());
+    }
+
+    #[test]
+    fn builds_array_constant_from_fixed_vectors() {
+        let context = Context::create().unwrap();
+        let vector_type = BasicTypeEnum::from(context.i32_type())
+            .vector_type(2)
+            .unwrap();
+        let vector = vector_type
+            .const_vector(&[
+                context.i32_type().const_int(1, false).unwrap().into(),
+                context.i32_type().const_int(2, false).unwrap().into(),
+            ])
+            .unwrap();
+        let array_type = vector_type.array_type(2).unwrap();
+
+        let array = vector_type.const_array(&[vector, vector]).unwrap();
+
+        assert_eq!(array.get_type().unwrap(), array_type);
+        assert_eq!(array_type.get_element_type().unwrap(), vector_type.into());
     }
 
     #[test]
