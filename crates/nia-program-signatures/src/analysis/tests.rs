@@ -172,6 +172,85 @@ fn type_equivalence_resolves_nominal_const_expression_summaries() {
 }
 
 #[test]
+fn trait_goal_guard_resolves_const_expression_summaries() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let left = type_store.append_for_module(left_module);
+    let right = type_store.append_for_module(right_module);
+    let left_usize = left.primitive(PrimitiveTy::Usize);
+    let right_usize = right.primitive(PrimitiveTy::Usize);
+    let trait_id = TraitId::Source(GlobalDefId {
+        module_id: left_module,
+        def_id: nia_defs::DefId(801),
+    });
+    let left_expr = nia_ids::GlobalConstExprId {
+        module_id: left_module,
+        const_expr_id: nia_ids::ConstExprId(4),
+    };
+    let right_expr = nia_ids::GlobalConstExprId {
+        module_id: right_module,
+        const_expr_id: nia_ids::ConstExprId(5),
+    };
+    let argument = |ty, expr| nia_ty::ConstGenericArg {
+        ty,
+        value: nia_ty::ConstGenericValue::ConstExpr(expr),
+    };
+    let left_goal = TraitGoal {
+        self_ty: left_usize,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: vec![argument(left_usize, left_expr)],
+    };
+    let right_goal = TraitGoal {
+        self_ty: right_usize,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: vec![argument(right_usize, right_expr)],
+    };
+    let mut const_expr_summaries = HashMap::new();
+    for expr in [left_expr, right_expr] {
+        const_expr_summaries.insert(
+            expr,
+            nia_ty::ConstExprSummary {
+                span: Span::default(),
+                literal_array_len: Some(6),
+            },
+        );
+    }
+    let lowering = nia_type_lower::TypeLowering {
+        type_uses: HashMap::new(),
+        const_exprs: HashMap::new(),
+        const_expr_summaries,
+        diagnostics: Vec::new(),
+    };
+
+    assert!(trait_goals_equivalent(
+        &type_store,
+        &lowering,
+        &left_goal,
+        &right_goal,
+    ));
+    let unresolved_goal = TraitGoal {
+        trait_const_args: vec![argument(
+            right_usize,
+            nia_ids::GlobalConstExprId {
+                module_id: right_module,
+                const_expr_id: nia_ids::ConstExprId(6),
+            },
+        )],
+        ..right_goal
+    };
+    assert!(!trait_goals_equivalent(
+        &type_store,
+        &lowering,
+        &left_goal,
+        &unresolved_goal,
+    ));
+}
+
+#[test]
 fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave() {
     let mut graph =
         ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()));
@@ -484,8 +563,19 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
         self_ty: unsigned,
         ..left_goal.clone()
     };
+    let lowering = nia_type_lower::TypeLowering {
+        type_uses: HashMap::new(),
+        const_exprs: HashMap::new(),
+        const_expr_summaries: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
 
-    assert!(trait_goals_equivalent(&type_store, &left_goal, &right_goal));
+    assert!(trait_goals_equivalent(
+        &type_store,
+        &lowering,
+        &left_goal,
+        &right_goal,
+    ));
     let other = left.intern(TyKind::Nominal {
         def_id: GlobalDefId {
             module_id: left_module,
@@ -496,6 +586,7 @@ fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
     });
     assert!(!trait_goals_equivalent(
         &type_store,
+        &lowering,
         &left_goal,
         &TraitGoal {
             self_ty: other,
