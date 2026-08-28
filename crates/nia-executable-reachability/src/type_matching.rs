@@ -429,17 +429,26 @@ fn match_type_pattern<'a>(
             Some(TyKind::Array {
                 len: actual_len,
                 elem: actual_elem,
-            }) if match_array_len_pattern(len, actual_len, substitutions) => match_type_pattern(
-                TypedTyRef {
-                    store: pattern.store,
-                    ty: *elem,
-                },
-                TypedTyRef {
-                    store: actual.store,
-                    ty: *actual_elem,
-                },
+            }) if match_array_len_pattern(
+                pattern.store,
+                len,
+                actual.store,
+                actual_len,
                 substitutions,
-            ),
+            ) =>
+            {
+                match_type_pattern(
+                    TypedTyRef {
+                        store: pattern.store,
+                        ty: *elem,
+                    },
+                    TypedTyRef {
+                        store: actual.store,
+                        ty: *actual_elem,
+                    },
+                    substitutions,
+                )
+            }
             _ => false,
         },
         TyKind::Range { kind, bound } => match actual.kind() {
@@ -689,12 +698,38 @@ fn match_type_pattern<'a>(
 }
 
 fn match_array_len_pattern(
+    pattern_store: &TypeStore,
     pattern: &nia_ty::ArrayLenTy,
+    actual_store: &TypeStore,
     actual: &nia_ty::ArrayLenTy,
     substitutions: &mut PatternSubstitutions,
 ) -> bool {
     if pattern == actual {
         return true;
+    }
+    if let (
+        nia_ty::ArrayLenTy::Builtin {
+            builtin: pattern_builtin,
+            ty: pattern_ty,
+        },
+        nia_ty::ArrayLenTy::Builtin {
+            builtin: actual_builtin,
+            ty: actual_ty,
+        },
+    ) = (pattern, actual)
+    {
+        return pattern_builtin == actual_builtin
+            && match_type_pattern(
+                TypedTyRef {
+                    store: pattern_store,
+                    ty: *pattern_ty,
+                },
+                TypedTyRef {
+                    store: actual_store,
+                    ty: *actual_ty,
+                },
+                substitutions,
+            );
     }
     let nia_ty::ArrayLenTy::GenericParam(name) = pattern else {
         return false;
@@ -1730,6 +1765,54 @@ mod tests {
 
         assert_eq!(matched.array_lens.get(&const_name), Some(&builtin_len));
         assert!(!matched.consts.contains_key(&const_name));
+    }
+
+    #[test]
+    fn array_pattern_infers_type_from_builtin_length_operand() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let generic_name = symbol("T");
+        let generic_ty = append.intern(TyKind::GenericParam(generic_name));
+        let pattern = append.intern(TyKind::Array {
+            len: ArrayLenTy::Builtin {
+                builtin: nia_ids::LayoutBuiltin::Size,
+                ty: generic_ty,
+            },
+            elem: i32_ty,
+        });
+        let actual = append.intern(TyKind::Array {
+            len: ArrayLenTy::Builtin {
+                builtin: nia_ids::LayoutBuiltin::Size,
+                ty: i32_ty,
+            },
+            elem: i32_ty,
+        });
+        let generic_params = [nia_item_signatures::GenericParamSignature {
+            name: generic_name,
+            kind: nia_item_signatures::GenericParamSignatureKind::Type,
+        }];
+        let matched = match_reachable_extension_impl(
+            TypedTyRef {
+                store: &store,
+                ty: pattern,
+            },
+            std::iter::empty(),
+            &generic_params,
+            TypedTyRef {
+                store: &store,
+                ty: actual,
+            },
+            std::iter::empty(),
+            &[],
+            &[],
+        )
+        .expect("layout builtin operand should bind the type parameter");
+        assert!(matches!(
+            matched.types.get(&generic_name),
+            Some(SubstitutionTy::Canonical(ty)) if *ty == i32_ty
+        ));
     }
 
     #[test]

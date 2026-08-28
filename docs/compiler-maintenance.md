@@ -288,6 +288,10 @@ it does not make a reset implicit.
   lengths use the same builtin, recursively match their type operands in the
   candidate substitution transaction. Treating the complete length as opaque
   loses type-generic impl candidates that are selected through layout metadata.
+- Executable-reachability extension matching must preserve the two-store type
+  identity boundary while recursively matching layout builtin operands. The
+  operand is type evidence for generic recovery, but it must be compared using
+  the `TypedTyRef` stores rather than raw interned handles.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
