@@ -236,6 +236,13 @@ it does not make a reset implicit.
   must be diagnosed just like `Self` in an ordinary nested type. Erased-type
   reconstruction must recursively normalize the same metadata so accepted
   signatures retain their complete layout and identity.
+- Associated-type projection normalization during object-safety checks must
+  match a binding by the complete trait instance: trait identity, type
+  arguments, and const arguments. The root trait's const arguments must remain
+  available for unqualified bindings, while inherited qualified bindings use
+  their own const arguments; matching only the trait and type arguments can
+  resolve a projection against a sibling const instance and hide `Self` from
+  object-safety validation.
 - Monomorphization depth limits must inspect type structure carried by const
   arguments as well as ordinary type arguments. Check `ConstGenericArg::ty` at
   both recursive type traversal and concrete instance admission, or deeply

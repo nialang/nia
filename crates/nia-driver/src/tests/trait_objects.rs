@@ -1215,6 +1215,61 @@ fn read(bad: & Bad) {
 }
 
 #[test]
+fn trait_object_projection_binding_matches_const_trait_instance() {
+    let root = temp_dir("trait_object_projection_binding_matches_const_trait_instance");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Slot[N: usize] {
+    type Item;
+
+    fn get(& self) [Self as Slot[N]]::Item;
+}
+
+trait Bad : Slot[1, Item = i32] + Slot[2, Item = Self] {}
+
+fn read(bad: & Bad) {
+    _ = bad;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("returns `Self`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn trait_object_projection_binding_accepts_distinct_const_instances() {
+    let root = temp_dir("trait_object_projection_binding_accepts_distinct_const_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Slot[N: usize] {
+    type Item;
+
+    fn get(& self) [Self as Slot[N]]::Item;
+}
+
+trait Good : Slot[1, Item = i32] + Slot[2, Item = bool] {}
+
+fn read(good: & Good) {
+    _ = good;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn trait_object_accepts_concrete_layout_builtin_array_length() {
     let root = temp_dir("trait_object_accepts_concrete_layout_builtin_array_length");
     write(
