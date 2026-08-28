@@ -1630,6 +1630,31 @@ impl TypeEquivalence for MonoTypeEquivalence<'_> {
                         (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
                             left.bits() == right.bits()
                         }
+                        (ConstGenericValue::Int(left), ConstGenericValue::ConstExpr(right))
+                        | (ConstGenericValue::ConstExpr(right), ConstGenericValue::Int(left)) => {
+                            self.const_by_module
+                                .get(&right.module_id)
+                                .and_then(|const_check| {
+                                    const_check.array_lengths.get(right).copied()
+                                })
+                                .is_some_and(|right| left.bits() == u128::from(right))
+                        }
+                        (
+                            ConstGenericValue::ConstExpr(left),
+                            ConstGenericValue::ConstExpr(right),
+                        ) => {
+                            left == right
+                                || self
+                                    .const_by_module
+                                    .get(&left.module_id)
+                                    .and_then(|const_check| {
+                                        const_check.array_lengths.get(left).copied()
+                                    })
+                                    .zip(self.const_by_module.get(&right.module_id).and_then(
+                                        |const_check| const_check.array_lengths.get(right).copied(),
+                                    ))
+                                    .is_some_and(|(left, right)| left == right)
+                        }
                         (left, right) => left == right,
                     }
             })
@@ -1956,6 +1981,37 @@ mod tests {
             &const_by_module,
             &left_key,
             &right_key,
+        ));
+
+        let left_const = ConstGenericArg {
+            ty: left_u8,
+            value: ConstGenericValue::ConstExpr(left_expr),
+        };
+        let right_const = ConstGenericArg {
+            ty: right_u8,
+            value: ConstGenericValue::ConstExpr(right_expr),
+        };
+        let mut left_key_with_const = left_key.clone();
+        left_key_with_const.trait_const_args = vec![left_const];
+        let mut right_key_with_const = right_key.clone();
+        right_key_with_const.trait_const_args = vec![right_const];
+        assert!(projection_keys_match_semantic(
+            &type_store,
+            &const_by_module,
+            &left_key_with_const,
+            &right_key_with_const,
+        ));
+        let unresolved_expr = GlobalConstExprId {
+            module_id: right_module,
+            const_expr_id: nia_ids::ConstExprId(3),
+        };
+        right_key_with_const.trait_const_args[0].value =
+            ConstGenericValue::ConstExpr(unresolved_expr);
+        assert!(!projection_keys_match_semantic(
+            &type_store,
+            &const_by_module,
+            &left_key_with_const,
+            &right_key_with_const,
         ));
     }
 }

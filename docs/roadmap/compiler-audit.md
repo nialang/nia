@@ -3830,6 +3830,11 @@ acceptance item only when its phase-wide evidence is complete.
       all lowered modules' array-length facts for nested const arguments;
       evaluated cross-module handles match while unresolved expressions remain
       distinct in the owner regression.
+- [x] Batch 630 closes monomorphization nominal const-expression guards.
+      Projection-instantiation key comparison now reuses each module's
+      evaluated array-length facts for nested const arguments, including
+      integer spellings and foreign expressions; unresolved handles remain
+      distinct in the owner regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

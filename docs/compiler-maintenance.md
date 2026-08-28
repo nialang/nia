@@ -367,6 +367,10 @@ it does not make a reset implicit.
   expression handles with the same evaluated length can describe the same
   recursive projection; raw expression identity alone can let equivalent
   cycles expand independently.
+- Monomorphization projection-key equivalence must apply the same per-module
+  const facts to nominal const arguments. Evaluated expression values may match
+  integer spellings or foreign expressions; unresolved expressions must stay
+  distinct to avoid collapsing unrelated instances.
 - Trait-solver structural type equivalence must use its configured
   `const_expr_value` evaluator when comparing array lengths. This keeps
   projection and trait-goal matching consistent with const-argument
