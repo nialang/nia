@@ -1904,8 +1904,14 @@ impl<'a> ModuleLowerer<'a> {
                 | TyKind::Slice { elem, .. }
                 | TyKind::SlicePointee { elem },
             ) => self.extension_pattern_generics_are_bound(*elem, substitutions),
-            Some(TyKind::Array { elem, .. }) => {
-                self.extension_pattern_generics_are_bound(*elem, substitutions)
+            Some(TyKind::Array { len, elem }) => {
+                let length_bound = match len {
+                    nia_ty::ArrayLenTy::Builtin { ty, .. } => {
+                        self.extension_pattern_generics_are_bound(*ty, substitutions)
+                    }
+                    _ => true,
+                };
+                length_bound && self.extension_pattern_generics_are_bound(*elem, substitutions)
             }
             Some(TyKind::Range { bound, .. }) => bound.is_none_or(|bound| {
                 self.extension_pattern_generics_are_bound(bound, substitutions)
@@ -2003,7 +2009,11 @@ impl<'a> ModuleLowerer<'a> {
                 | TyKind::Slice { elem, .. }
                 | TyKind::SlicePointee { elem },
             ) => self.extension_pattern_contains_generic(*elem),
-            Some(TyKind::Array { elem, .. }) => self.extension_pattern_contains_generic(*elem),
+            Some(TyKind::Array { len, elem }) => {
+                self.extension_pattern_contains_generic(*elem)
+                    || matches!(len, nia_ty::ArrayLenTy::Builtin { ty, .. }
+                        if self.extension_pattern_contains_generic(*ty))
+            }
             Some(TyKind::Range { bound, .. }) => {
                 bound.is_some_and(|bound| self.extension_pattern_contains_generic(bound))
             }
