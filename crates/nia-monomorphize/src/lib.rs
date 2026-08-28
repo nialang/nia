@@ -715,7 +715,11 @@ impl MonoCollector<'_> {
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => self.ty_exceeds_instance_depth(elem, next),
-            TyKind::Array { elem, .. } => self.ty_exceeds_instance_depth(elem, next),
+            TyKind::Array { len, elem } => {
+                self.ty_exceeds_instance_depth(elem, next)
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                        if self.ty_exceeds_instance_depth(ty, next))
+            }
             TyKind::Range { bound, .. } => {
                 bound.is_some_and(|bound| self.ty_exceeds_instance_depth(bound, next))
             }

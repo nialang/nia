@@ -3499,6 +3499,12 @@ acceptance item only when its phase-wide evidence is complete.
       proves all three filter classes detect generic, projection, and error
       operands; `nia-backend-lower` (117 tests), workspace check, and strict
       Clippy pass.
+- [x] Batch 580 closes the monomorphization depth recursion gap for array
+      layout metadata. `ty_exceeds_instance_depth` now visits the type operand
+      of `ArrayLenTy::Builtin`, so deeply nested types hidden behind `size[T]`
+      or `align[T]` cannot bypass the convergence diagnostic. A direct owner
+      regression covers the previously accepted path; `nia-monomorphize` (14
+      tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
