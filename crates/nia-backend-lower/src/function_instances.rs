@@ -16,7 +16,7 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{ConstGenericArg, TyKind};
+use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind};
 
 struct PlannedFunctionInstance {
     def_id: GlobalDefId,
@@ -310,7 +310,11 @@ impl<'a> ModuleLowerer<'a> {
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => self.ty_exceeds_backend_instance_depth(*elem, next),
-            TyKind::Array { elem, .. } => self.ty_exceeds_backend_instance_depth(*elem, next),
+            TyKind::Array { len, elem } => {
+                self.ty_exceeds_backend_instance_depth(*elem, next)
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                        if self.ty_exceeds_backend_instance_depth(*ty, next))
+            }
             TyKind::Range { bound, .. } => {
                 bound.is_some_and(|bound| self.ty_exceeds_backend_instance_depth(bound, next))
             }
@@ -824,8 +828,10 @@ pub(crate) fn contains_generic_param(
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem },
         ) => contains_generic_param(elem, ty_kind, cache.as_deref_mut()),
-        Some(TyKind::Array { elem, .. }) => {
+        Some(TyKind::Array { len, elem }) => {
             contains_generic_param(elem, ty_kind, cache.as_deref_mut())
+                || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                    if contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
         }
         Some(TyKind::Range { bound, .. }) => {
             bound.is_some_and(|bound| contains_generic_param(bound, ty_kind, cache.as_deref_mut()))
@@ -940,7 +946,11 @@ pub(crate) fn contains_unresolved_projection(
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem },
         ) => contains_unresolved_projection(elem, ty_kind),
-        Some(TyKind::Array { elem, .. }) => contains_unresolved_projection(elem, ty_kind),
+        Some(TyKind::Array { len, elem }) => {
+            contains_unresolved_projection(elem, ty_kind)
+                || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                    if contains_unresolved_projection(ty, ty_kind))
+        }
         Some(TyKind::Tuple(elems)) => elems
             .into_iter()
             .any(|elem| contains_unresolved_projection(elem, ty_kind)),
@@ -1046,7 +1056,11 @@ pub(crate) fn contains_error(
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem },
         ) => contains_error(elem, ty_kind, None),
-        Some(TyKind::Array { elem, .. }) => contains_error(elem, ty_kind, None),
+        Some(TyKind::Array { len, elem }) => {
+            contains_error(elem, ty_kind, None)
+                || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                    if contains_error(ty, ty_kind, None))
+        }
         Some(TyKind::Tuple(elems)) => elems
             .into_iter()
             .any(|elem| contains_error(elem, ty_kind, None)),
@@ -1155,7 +1169,7 @@ mod tests {
     use super::*;
     use nia_defs::DefId;
     use nia_ids::{GlobalDefId, ModuleIdAllocator, TypeStoreIndex};
-    use nia_ty::{ConstGenericValue, IntConst, PrimitiveTy};
+    use nia_ty::{ArrayLenTy, ConstGenericValue, IntConst, PrimitiveTy};
 
     #[test]
     fn backend_instance_limit_counts_existing_and_new_instances() {
@@ -1310,6 +1324,49 @@ mod tests {
             ty
         )));
         assert!(contains_error(test_ty(5), &mut |ty| kind(ty), None));
+    }
+
+    #[test]
+    fn recursive_type_filters_visit_layout_builtin_array_length_types() {
+        let mut modules = ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let generic = test_ty(0);
+        let projection = test_ty(1);
+        let error = test_ty(2);
+        let array = |len_ty| TyKind::Array {
+            len: ArrayLenTy::Builtin {
+                builtin: nia_ty::LayoutBuiltin::Size,
+                ty: len_ty,
+            },
+            elem: test_ty(3),
+        };
+        let kind = |ty: InternedTyId| match ty.index.index() {
+            0 => Some(TyKind::GenericParam(
+                nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("N")),
+            )),
+            1 => Some(TyKind::Projection {
+                self_ty: test_ty(3),
+                trait_id: nia_ids::TraitId::Source(GlobalDefId {
+                    module_id,
+                    def_id: DefId(0),
+                }),
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+                name: nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("Item")),
+            }),
+            2 => Some(TyKind::Error),
+            3 => Some(TyKind::Primitive(PrimitiveTy::U8)),
+            4 => Some(array(generic)),
+            5 => Some(array(projection)),
+            6 => Some(array(error)),
+            _ => None,
+        };
+
+        assert!(contains_generic_param(test_ty(4), &mut |ty| kind(ty), None));
+        assert!(contains_unresolved_projection(test_ty(5), &mut |ty| kind(
+            ty
+        )));
+        assert!(contains_error(test_ty(6), &mut |ty| kind(ty), None));
     }
 
     fn test_ty(index: u32) -> InternedTyId {

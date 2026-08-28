@@ -275,6 +275,11 @@ it does not make a reset implicit.
   instance collectors and top-level backend type registration must likewise
   enqueue those types from nominal, trait-object, associated-binding, and
   projection positions.
+- Backend recursive type filters must also inspect the operand type of
+  `ArrayLenTy::Builtin`. Arrays can carry generic parameters, unresolved
+  projections, or error types only through `size[T]`/`align[T]` metadata; depth,
+  generic-parameter, unresolved-projection, and error filters must visit that
+  operand with the same recursion budget as the array element.
 - Target-relative primitive widths must not be encoded as host constants in
   builtin validation. In particular, atomic `isize`/`usize` values use the
   configured target pointer width before the native-width admission check;
