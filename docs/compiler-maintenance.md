@@ -189,6 +189,10 @@ it does not make a reset implicit.
   binding, and candidate substitutions are committed only after the complete
   permutation succeeds; otherwise a repeated binding can hide an incompatible
   sibling obligation.
+- Body-check generic inference uses the same unordered, backtracking bijection
+  for associated-type bindings. A generic key may initially match an earlier
+  actual binding but must yield it when a later concrete key needs that slot;
+  publish the inferred type or const map only after a complete assignment.
 - Supertrait declarations are persisted as complete trait obligations too. Any
   associated-type binding attached to a supertrait travels through collection,
   type-root discovery, cache encoding, body assumptions, impl validation, and
