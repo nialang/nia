@@ -847,9 +847,10 @@ signals, not architecture goals.
   recursively instead of letting a rebuilt composite fall through to a false
   leaf result.
 - ProgramIndex instance maps may use interned argument handles as an exact
-  fast path, but lookups for structs, unions, and globals must retain a
-  definition-grouped semantic fallback. Compare rebuilt type payloads and
-  integer const arguments through `TypeEquivalence`, and keep a global's
+  fast path, but lookups for structs, unions, functions, and globals must
+  retain a definition-grouped semantic fallback. Compare rebuilt type payloads
+  and integer const arguments through `TypeEquivalence`, preserve a function's
+  optional receiver and argument-module identity, and keep a global's
   argument-module identity in the match; otherwise cross-module codegen can
   silently miss an already materialized owner.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
