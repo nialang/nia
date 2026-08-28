@@ -1967,7 +1967,16 @@ impl<'a> ModuleLowerer<'a> {
                 self.extension_pattern_generics_are_bound(*error, substitutions)
                     && self.extension_pattern_generics_are_bound(*value, substitutions)
             }
-            Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter()
+                    .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
+                    && const_args
+                        .iter()
+                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
                 .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions)),
             Some(TyKind::TraitObject {
@@ -2066,7 +2075,16 @@ impl<'a> ModuleLowerer<'a> {
                 self.extension_pattern_contains_generic(*error)
                     || self.extension_pattern_contains_generic(*value)
             }
-            Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter()
+                    .any(|arg| self.extension_pattern_contains_generic(*arg))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
                 .any(|arg| self.extension_pattern_contains_generic(*arg)),
             Some(TyKind::TraitObject {
