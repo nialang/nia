@@ -3538,6 +3538,12 @@ acceptance item only when its phase-wide evidence is complete.
       to provide the sole type evidence while preserving real mismatch
       diagnostics. A focused generic-inference regression covers this path;
       `nia-body-check` (270 tests), workspace check, and strict Clippy pass.
+- [x] Batch 586 closes backend extension-pattern matching for array layout
+      operands. Extension target matching now compares equivalent builtin array
+      lengths structurally and stages any type substitutions, so `size[T]` /
+      `align[T]` patterns cannot miss a receiver or leak bindings after a later
+      element mismatch. The backend-lower owner suite (118 tests), workspace
+      check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
