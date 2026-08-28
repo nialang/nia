@@ -946,6 +946,10 @@ signals, not architecture goals.
   nominal const arguments. Expression values may match integer spellings or
   foreign expressions only when both sides resolve; unresolved expressions
   remain identity-only during validation.
+- C ABI boundaries must reject unresolved array lengths in extern-struct
+  fields. `Infer` and `GenericParam` lengths have no concrete field layout;
+  the frontend ABI checker and LLVM backend validator must enforce the same
+  contract before lowering or emission.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout

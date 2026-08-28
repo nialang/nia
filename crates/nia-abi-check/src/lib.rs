@@ -375,11 +375,11 @@ impl AbiChecker<'_> {
             }
             Some(TyKind::Array { len, elem }) => {
                 if context == ExternTyContext::StructField {
-                    if matches!(len, ArrayLenTy::Infer) {
+                    if matches!(len, ArrayLenTy::Infer | ArrayLenTy::GenericParam(_)) {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::STATIC_CHECK,
                             span,
-                            "extern struct field cannot use inferred array length",
+                            "extern struct field cannot use an unresolved array length",
                         ));
                     }
                     self.check_extern_ty_inner(
@@ -742,6 +742,44 @@ extern fn consume(header: Header);
         });
         let checked = check_module_abi(&defs, &type_store, &signatures);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn rejects_generic_array_lengths_inside_extern_structs() {
+        let (module, errors) = parse_module(
+            r#"
+extern struct Header[N: usize] {
+    values: [u8; N],
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
+        let checked = check_module_abi(&defs, &type_store, &signatures);
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("unresolved array length")),
+            "{checked:?}"
+        );
     }
 
     #[test]

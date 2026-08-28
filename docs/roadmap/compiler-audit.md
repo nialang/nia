@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Implementation batches: 639 completed entries in this ledger.
+- Implementation batches: 640 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3880,6 +3880,10 @@ acceptance item only when its phase-wide evidence is complete.
       `array_layout` helper now rejects zero-alignment element layouts instead
       of returning an invalid `TypeLayout`; the owner regression covers the
       malformed input contract.
+- [x] Batch 640 closes the extern-struct unresolved array-length ABI boundary.
+      Both the frontend ABI checker and LLVM backend validator now reject
+      `Infer` and `GenericParam` field lengths before C layout/codegen; the
+      `nia-abi-check` owner regression covers generic extern-struct fields.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
