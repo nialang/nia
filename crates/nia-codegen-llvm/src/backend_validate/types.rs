@@ -583,6 +583,26 @@ impl BackendValidator<'_> {
                             nia_ty::ConstGenericValue::Int(left),
                             nia_ty::ConstGenericValue::Int(right),
                         ) => left.bits() == right.bits(),
+                        (
+                            nia_ty::ConstGenericValue::Int(left),
+                            nia_ty::ConstGenericValue::ConstExpr(right),
+                        )
+                        | (
+                            nia_ty::ConstGenericValue::ConstExpr(right),
+                            nia_ty::ConstGenericValue::Int(left),
+                        ) => self
+                            .array_len_value(&ArrayLenTy::ConstExpr(*right))
+                            .is_some_and(|right| left.bits() == u128::from(right)),
+                        (
+                            nia_ty::ConstGenericValue::ConstExpr(left),
+                            nia_ty::ConstGenericValue::ConstExpr(right),
+                        ) => {
+                            left == right
+                                || self
+                                    .array_len_value(&ArrayLenTy::ConstExpr(*left))
+                                    .zip(self.array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                                    .is_some_and(|(left, right)| left == right)
+                        }
                         (left, right) => left == right,
                     }
             })
@@ -862,6 +882,73 @@ mod tests {
 
         validator.validate_array_len(&nia_ty::ArrayLenTy::ConstExpr(len_id), Span::default());
         assert!(validator.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn same_const_args_resolves_cross_module_expression_values() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let left_module = module_ids.allocate();
+        let right_module = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let left_ty = {
+            let interner = type_store.append_for_module(left_module);
+            interner.primitive(PrimitiveTy::I32)
+        };
+        let right_ty = {
+            let interner = type_store.append_for_module(right_module);
+            interner.primitive(PrimitiveTy::I32)
+        };
+        let left_expr = GlobalConstExprId {
+            module_id: left_module,
+            const_expr_id: ConstExprId(0),
+        };
+        let right_expr = GlobalConstExprId {
+            module_id: right_module,
+            const_expr_id: ConstExprId(1),
+        };
+        let mut left = test_module(left_module, left_ty);
+        left.const_eval.array_lengths.insert(left_expr, 4);
+        let mut right = test_module(right_module, right_ty);
+        right.const_eval.array_lengths.insert(right_expr, 4);
+        let store = Arc::new(BackendModuleStore::new([left_module, right_module]));
+        store.publish(left);
+        store.publish(right);
+        let (index, mut publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        publisher.publish(left_module);
+        publisher.publish(right_module);
+        let validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+        let left_arg = nia_ty::ConstGenericArg {
+            ty: left_ty,
+            value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+        };
+        let right_arg = nia_ty::ConstGenericArg {
+            ty: right_ty,
+            value: nia_ty::ConstGenericValue::ConstExpr(right_expr),
+        };
+        assert!(validator.same_const_args(
+            std::slice::from_ref(&left_arg),
+            std::slice::from_ref(&right_arg),
+        ));
+        assert!(validator.same_const_args(
+            &[nia_ty::ConstGenericArg {
+                ty: left_ty,
+                value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+            }],
+            &[right_arg],
+        ));
+        assert!(!validator.same_const_args(
+            &[nia_ty::ConstGenericArg {
+                ty: left_ty,
+                value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+            }],
+            &[nia_ty::ConstGenericArg {
+                ty: right_ty,
+                value: nia_ty::ConstGenericValue::ConstExpr(GlobalConstExprId {
+                    module_id: right_module,
+                    const_expr_id: ConstExprId(2),
+                }),
+            }],
+        ));
     }
 
     #[test]
