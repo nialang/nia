@@ -254,6 +254,109 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
     assert_eq!(modules[1].trait_object_vtables.len(), 1);
 }
 
+#[test]
+fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let left_append = type_store.append_for_module(left_module);
+    let right_append = type_store.append_for_module(right_module);
+    let left_i32 = left_append.primitive(nia_ty::PrimitiveTy::I32);
+    let right_i32 = right_append.primitive(nia_ty::PrimitiveTy::I32);
+    let left_usize = left_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let right_usize = right_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let def_id = GlobalDefId {
+        module_id: left_module,
+        def_id: DefId(92),
+    };
+    let left_arg = left_append.intern(nia_ty::TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: left_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(5)),
+        }],
+    });
+    let right_arg = right_append.intern(nia_ty::TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(5)),
+        }],
+    });
+    let field_id = GlobalDefId {
+        module_id: left_module,
+        def_id: DefId(93),
+    };
+    let field = |ty| nia_backend_ir::BackendField {
+        def_id: field_id,
+        name: SymbolId::EMPTY,
+        ty,
+        span: nia_span::Span::default(),
+    };
+    let instance = |args, field_ty, symbol: &str| nia_backend_ir::BackendStructInstance {
+        def_id,
+        name: SymbolId::EMPTY,
+        args: vec![args],
+        const_args: Vec::new(),
+        symbol: symbol.to_string(),
+        fields: vec![field(field_ty)],
+        is_extern: false,
+        span: nia_span::Span::default(),
+    };
+    let empty_layouts = || nia_backend_ir::BackendLayouts {
+        target: TargetDataLayout::LP64,
+        types: Vec::new(),
+        structs: Vec::new(),
+        unions: Vec::new(),
+        enums: Vec::new(),
+        struct_instances: Vec::new(),
+        union_instances: Vec::new(),
+    };
+    let module = |id: nia_ids::ModuleId,
+                  source_identity: &str,
+                  instances: Vec<nia_backend_ir::BackendStructInstance>| {
+        nia_backend_ir::BackendModule {
+            id,
+            source_identity: nia_source::SourceIdentity::new(source_identity),
+            name: source_identity.to_string(),
+            const_eval: nia_backend_ir::BackendConstFacts::default(),
+            layouts: empty_layouts(),
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: instances,
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }
+    };
+    let mut modules = vec![
+        module(
+            right_module,
+            "b",
+            vec![instance(right_arg, right_i32, "instance")],
+        ),
+        module(
+            left_module,
+            "a",
+            vec![instance(left_arg, left_i32, "instance")],
+        ),
+    ];
+
+    assign_unique_aggregate_instance_owners(&mut modules, &type_store);
+
+    assert!(modules[0].struct_instances.is_empty());
+    assert_eq!(modules[1].struct_instances.len(), 1);
+}
+
 mod cfg_and_scalar_passes;
 mod diagnostics;
 mod finalization_contracts;

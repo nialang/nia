@@ -3697,6 +3697,14 @@ acceptance item only when its phase-wide evidence is complete.
       const representations across module-owned interners;
       `nia-backend-lower` (122 tests), workspace check, strict Clippy,
       formatting, and diff checks pass.
+- [x] Batch 609 closes backend aggregate-instance owner identity across rebuilt
+      handles. Struct and union instance ownership now compares semantic
+      nominal keys and recursively equivalent field payloads before retaining
+      the deterministic source owner, preventing duplicate materializations
+      from module-local interner representations. A cross-module owner
+      regression covers structurally rebuilt type arguments and field types;
+      `nia-backend-lower` (123 tests), workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
