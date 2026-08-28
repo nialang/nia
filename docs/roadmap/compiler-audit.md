@@ -3889,6 +3889,10 @@ acceptance item only when its phase-wide evidence is complete.
       the selected operation, unsupported non-dispatch operators, and operand
       or result types that violate the direct unary/binary operator contracts;
       malformed call regressions cover trait mismatch and result-shape errors.
+- [x] Batch 642 closes the backend builtin-method receiver boundary. Validator
+      checks now require each builtin method receiver to match its `self_ty`
+      through a direct value or pointer view and reject readonly pointers for
+      mutable slice methods; malformed call coverage exercises the mismatch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

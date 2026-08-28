@@ -955,6 +955,10 @@ signals, not architecture goals.
   operation, and the operands/result must satisfy the same type contract as
   direct operator expressions; arity-only validation can otherwise let
   malformed metadata reach codegen.
+- Backend builtin-method callees must validate the receiver expression against
+  their `self_ty` metadata, including pointer views and mutable receiver
+  permissions. Method-specific checks on metadata alone are insufficient when
+  codegen loads or projects the receiver according to its actual shape.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout

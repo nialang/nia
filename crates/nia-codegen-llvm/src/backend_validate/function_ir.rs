@@ -3202,6 +3202,7 @@ impl BackendValidator<'_> {
             } => {
                 self.validate_type(*self_ty, span);
                 self.validate_expr(receiver);
+                self.validate_builtin_method_receiver(*method, *self_ty, receiver, span);
                 if !call_args.is_empty() {
                     self.invalid_call_contract(
                         span,
@@ -3472,6 +3473,37 @@ impl BackendValidator<'_> {
                 "builtin-method",
                 "iter must be resolved before LLVM codegen",
             ),
+        }
+    }
+
+    fn validate_builtin_method_receiver(
+        &mut self,
+        method: nia_function_ir::FunctionBuiltinMethod,
+        self_ty: nia_ids::InternedTyId,
+        receiver: &FunctionExpr,
+        span: Span,
+    ) {
+        let receiver_matches = self.same_type(receiver.ty, self_ty)
+            || match self.index.ty_kind(receiver.ty) {
+                Some(TyKind::Pointer { is_readonly, elem }) if self.same_type(*elem, self_ty) => {
+                    if method == nia_function_ir::FunctionBuiltinMethod::SlicePtrMut && *is_readonly
+                    {
+                        self.invalid_call_contract(
+                            span,
+                            "builtin-method",
+                            "mutable pointer method has a readonly receiver pointer",
+                        );
+                    }
+                    true
+                }
+                _ => false,
+            };
+        if !receiver_matches {
+            self.invalid_call_contract(
+                span,
+                "builtin-method",
+                "receiver type does not match builtin method metadata",
+            );
         }
     }
 
