@@ -1380,10 +1380,10 @@ impl BackendValidator<'_> {
                 if context != ExternAbiTypeContext::StructField {
                     self.extern_abi_error(span, format!("{description} cannot use array by value"));
                 } else {
-                    if matches!(len, ArrayLenTy::Infer) {
+                    if matches!(len, ArrayLenTy::Infer | ArrayLenTy::GenericParam(_)) {
                         self.extern_abi_error(
                             span,
-                            "extern struct field cannot use inferred array length",
+                            "extern struct field cannot use an unresolved array length",
                         );
                     }
                     self.validate_extern_abi_type(

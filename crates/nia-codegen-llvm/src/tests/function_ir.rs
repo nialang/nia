@@ -718,6 +718,10 @@ fn validates_extern_abi_types_before_llvm() {
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty]));
     let optional_ty = interner.intern(TyKind::Optional { elem: i32_ty });
+    let generic_array_ty = interner.intern(TyKind::Array {
+        len: nia_ty::ArrayLenTy::GenericParam(sym("N")),
+        elem: i32_ty,
+    });
     let variadic_function_ty = interner.intern(TyKind::FunctionPointer {
         params: vec![bool_ty],
         return_type: i32_ty,
@@ -761,12 +765,23 @@ fn validates_extern_abi_types_before_llvm() {
         def_id: struct_id,
         name: sym("MalformedExternStruct"),
         generics: Vec::new(),
-        fields: vec![BackendField {
-            def_id: field_id,
-            name: sym("value"),
-            ty: optional_ty,
-            span,
-        }],
+        fields: vec![
+            BackendField {
+                def_id: field_id,
+                name: sym("value"),
+                ty: optional_ty,
+                span,
+            },
+            BackendField {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(4),
+                },
+                name: sym("values"),
+                ty: generic_array_ty,
+                span,
+            },
+        ],
         is_extern: true,
         span,
     };
@@ -811,6 +826,7 @@ fn validates_extern_abi_types_before_llvm() {
         "extern return type cannot use tuple by value",
         "extern global cannot use `char` directly",
         "extern struct field cannot use optional by value",
+        "extern struct field cannot use an unresolved array length",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, expected),
