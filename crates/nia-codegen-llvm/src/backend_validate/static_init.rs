@@ -249,13 +249,23 @@ impl BackendValidator<'_> {
             self.invalid_static_scalar(ty, span, "integer initializer target is not integer-like");
             return;
         };
+        if !self.static_integer_fits(*primitive, value) {
+            self.invalid_static_scalar(
+                ty,
+                span,
+                "integer initializer value is outside its target type",
+            );
+        }
+    }
+
+    fn static_integer_fits(&self, primitive: PrimitiveTy, value: IntConst) -> bool {
         let pointer_width = self
             .target
             .pointer_size
             .checked_mul(8)
             .and_then(|bits| u32::try_from(bits).ok())
             .unwrap_or(0);
-        let fits = match *primitive {
+        match primitive {
             PrimitiveTy::Bool => !value.is_signed() && matches!(value.bits(), 0 | 1),
             PrimitiveTy::Char => {
                 !value.is_signed()
@@ -268,22 +278,13 @@ impl BackendValidator<'_> {
                 value.fits_primitive_int(primitive, pointer_width)
             }
             _ => false,
-        };
-        if !fits {
-            self.invalid_static_scalar(
-                ty,
-                span,
-                "integer initializer value is outside its target type",
-            );
         }
     }
 
     fn validate_static_vector_lane(&mut self, elem: PrimitiveTy, lane: &StaticInit, span: Span) {
         let valid = match lane {
             StaticInit::Zero => true,
-            StaticInit::Int(_) => {
-                elem.is_integer() || matches!(elem, PrimitiveTy::Bool | PrimitiveTy::Char)
-            }
+            StaticInit::Int(value) => self.static_integer_fits(elem, *value),
             StaticInit::Float(text) => {
                 matches!(elem, PrimitiveTy::F32 | PrimitiveTy::F64)
                     && parse_float_literal(text).is_some_and(|value| {

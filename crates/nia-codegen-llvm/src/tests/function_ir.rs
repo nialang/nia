@@ -1513,6 +1513,10 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
     let f32_ty = interner.primitive(PrimitiveTy::F32);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let u8_ty = interner.primitive(PrimitiveTy::U8);
+    let vector_i32_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 4,
+    });
     let pointer_ty = interner.intern(TyKind::Pointer {
         is_readonly: true,
         elem: i32_ty,
@@ -1552,6 +1556,16 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
             i32_ty,
             StaticInit::Int(nia_ty::IntConst::unsigned(1_u128 << 32)),
         ),
+        global(
+            12,
+            vector_i32_ty,
+            StaticInit::Vector(vec![
+                StaticInit::Int(nia_ty::IntConst::unsigned(1_u128 << 32)),
+                StaticInit::Zero,
+                StaticInit::Zero,
+                StaticInit::Zero,
+            ]),
+        ),
     ];
     drop(interner);
 
@@ -1566,6 +1580,13 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
                     (f32_ty, TypeLayout { size: 4, align: 4 }),
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (u8_ty, TypeLayout { size: 1, align: 1 }),
+                    (
+                        vector_i32_ty,
+                        TypeLayout {
+                            size: 16,
+                            align: 16,
+                        },
+                    ),
                     (pointer_ty, TypeLayout { size: 8, align: 8 }),
                     (char_array_ty, TypeLayout { size: 4, align: 4 }),
                 ],
@@ -1593,6 +1614,7 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
         "null pointer initializer target is not a pointer",
         "char string contains an invalid Unicode scalar",
         "byte string initializer target is not u8 array",
+        "vector static initializer lane does not match its primitive element type",
     ] {
         assert!(
             has_internal_diagnostic(&output.diagnostics, codes::INVALID_BACKEND_IR, message),

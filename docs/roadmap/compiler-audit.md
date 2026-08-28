@@ -3901,6 +3901,10 @@ acceptance item only when its phase-wide evidence is complete.
       values are now checked for signedness, primitive width, Unicode scalar
       validity, and target pointer width before LLVM constant construction;
       malformed bool/char/32-bit integer initializers have owner regressions.
+- [x] Batch 645 closes the backend vector-static integer lane boundary. Vector
+      `IntConst` lanes now reuse scalar signedness and width checks, preventing
+      LLVM lane truncation from accepting malformed values; an out-of-range
+      vector lane has a focused backend regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
