@@ -2433,6 +2433,11 @@ impl<'ctx> InstructionValue<'ctx> {
 
     /// Returns the allocation type of an `alloca` instruction.
     pub fn get_allocated_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
+        if self.get_opcode() != LLVMOpcode::LLVMAlloca {
+            return Err(LlvmError::error(
+                "LLVM allocated-type query requires an alloca instruction",
+            ));
+        }
         BasicTypeEnum::new(unsafe { LLVMGetAllocatedType(self.raw) })
     }
 

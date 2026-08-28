@@ -3454,6 +3454,12 @@ acceptance item only when its phase-wide evidence is complete.
       the signed subrange API, preventing malformed DWARF ranges from crossing
       the typed wrapper. An owner-level regression pins the recoverable error;
       the existing successful subrange construction remains covered.
+- [x] Batch 574 closes the LLVM instruction-query opcode boundary.
+      `InstructionValue::get_allocated_type` now requires an `alloca` opcode
+      before calling LLVM's allocation-specific inspection API. Owner-level
+      regressions cover both rejection of an integer `add` and successful type
+      recovery from a real `alloca`; the affected LLVM suite, workspace check,
+      strict Clippy, Rustdoc, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
