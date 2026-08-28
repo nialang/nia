@@ -30,6 +30,9 @@ pub fn fat_pointer_layout(target: TargetDataLayout) -> Option<TypeLayout> {
 
 /// Computes a contiguous array representation with checked arithmetic.
 pub fn array_layout(element: &TypeLayout, len: u64) -> Option<TypeLayout> {
+    if element.align == 0 {
+        return None;
+    }
     Some(TypeLayout {
         size: element.size.checked_mul(len)?,
         align: element.align,
@@ -202,6 +205,11 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn array_layout_rejects_zero_alignment() {
+        assert_eq!(array_layout(&TypeLayout { size: 4, align: 0 }, 2,), None);
     }
 
     #[test]

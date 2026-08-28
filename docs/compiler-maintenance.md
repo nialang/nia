@@ -946,6 +946,10 @@ signals, not architecture goals.
   nominal const arguments. Expression values may match integer spellings or
   foreign expressions only when both sides resolve; unresolved expressions
   remain identity-only during validation.
+- Layout arithmetic helpers must reject malformed input layouts before
+  returning a product. In particular, `array_layout` must not propagate a
+  zero alignment into a `Some(TypeLayout)` result; every valid computed layout
+  has a positive alignment for downstream ABI and LLVM consumers.
 - Type lowering's local type-equivalence checks must reuse its recorded
   `ConstExprSummary` values. Range-bound and nested nominal comparisons may
   treat distinct const-expression handles as equal only when both resolve to
