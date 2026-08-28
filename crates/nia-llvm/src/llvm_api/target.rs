@@ -260,3 +260,42 @@ fn dispose_llvm_message(ptr: *mut std::os::raw::c_char) {
         unsafe { LLVMDisposeMessage(ptr) };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_unknown_target_triple_before_machine_construction() {
+        let error = TargetMachine::for_triple(
+            "nia-unknown-does-not-exist",
+            "generic",
+            "",
+            OptimizationLevel::None,
+        )
+        .expect_err("unknown target triple must be rejected");
+
+        assert!(matches!(error, LlvmError::Error(message) if
+            message.contains("target") || message.contains("triple")));
+    }
+
+    #[test]
+    fn configures_module_and_emits_native_object() {
+        let context = super::super::Context::create().expect("create LLVM context");
+        let module = context
+            .create_module("native-object-boundary")
+            .expect("create LLVM module");
+        let target = TargetMachine::native_with_opt_level(OptimizationLevel::None)
+            .expect("create native target machine");
+
+        target
+            .configure_module(&module)
+            .expect("configure module target data and triple");
+        module.verify().expect("empty module should verify");
+        let object = target.emit_object(&module).expect("emit native object");
+        assert!(
+            !object.is_empty(),
+            "native object buffer must contain bytes"
+        );
+    }
+}
