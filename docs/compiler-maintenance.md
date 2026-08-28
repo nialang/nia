@@ -334,6 +334,12 @@ it does not make a reset implicit.
   equal `ArrayLenTy::Builtin` kinds in both its shared type-equivalence adapter
   and projection-aware array comparison. Selection-only pattern matching is
   insufficient because projection cycle guards consume the general relation.
+- Body-check projection-obligation equivalence must cover both trait-object
+  views (`TraitObject` and `TraitObjectPointee`) as complete structural values.
+  Their readonly mode, trait identity, generic arguments, and unordered
+  associated-type bindings all participate in the cycle guard; falling through
+  to the default mismatch path can duplicate obligations or miss a valid
+  inherited projection.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
