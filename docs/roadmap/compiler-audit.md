@@ -3424,6 +3424,22 @@ acceptance item only when its phase-wide evidence is complete.
       coverage pins malformed-lane rejection and zero-vector array emission.
       The affected lowering, body-check, and LLVM suites, workspace check, and
       strict Clippy pass.
+- [x] Batch 571 completes positional tuple materialization in static data and
+      aligns the static checker's const-value admission with the materializer.
+      `StaticInit::Tuple` preserves positional identity independently from
+      arrays, vectors, and nominal fields through direct and named-const
+      lowering, generic instantiation, reachability, fingerprints,
+      optimization, Backend IR validation, and LLVM struct constants. Only an
+      all-zero tuple folds to `Zero`; repeated nonzero positions remain a
+      tuple. Static checking now recursively admits tuple and fixed-vector const
+      values when every leaf is representable, closing the SIMD admission gap
+      left outside batch 570. A source-level regression emits direct, named,
+      array-contained, and zero-sized tuples, preserving the backend's `{}`
+      canonical representation for zero-sized values. Malformed Backend IR
+      coverage rejects both arity and element-type mismatches before LLVM.
+      `nia-static-check` (14 tests), `nia-static-ir` (4), `nia-body-check` (266),
+      `nia-backend-lower` (116), and `nia-codegen-llvm` (311) pass with strict
+      Clippy and workspace check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

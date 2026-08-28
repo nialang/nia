@@ -525,7 +525,7 @@ fn main() i32 {
 }
 
 #[test]
-fn unsupported_const_static_initializer_does_not_publish_recovery_zero() {
+fn tuple_const_static_initializers_publish_typed_data() {
     let checked = pipeline(
         r#"
 const pair: (i32, i32) = (1, 2);
@@ -534,39 +534,25 @@ static copies: [(i32, i32); 1] = [pair];
 "#,
     );
 
-    assert!(
-        checked.ir.global_inits.is_empty(),
-        "{:?}",
-        checked.ir.global_inits
-    );
-    // Publishing nothing is only half the contract. Without a diagnostic the
-    // global is indistinguishable from `static copy: (i32, i32);`, which is
-    // legitimately zero-initialized, so the refusal reaches the executable as
-    // silently wrong data instead of an error.
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("not representable as static data")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.ir.global_inits.len(), 2);
+    assert!(checked.ir.global_inits.values().any(
+        |init| matches!(init.as_ref(), nia_static_ir::StaticInit::Tuple(values) if values.len() == 2)
+    ));
+    assert!(checked.ir.global_inits.values().any(|init| {
+        matches!(init.as_ref(), nia_static_ir::StaticInit::Array(values)
+            if matches!(values.as_slice(), [nia_static_ir::StaticInit::Tuple(tuple)] if tuple.len() == 2))
+    }));
 }
 
 /// Each refused const value kind must report, not just decline.
 ///
-/// Tuple, optional, and enum were each confirmed to reach a linked executable
-/// as zeroed storage: the tuple read `0` instead of `1`, the present optional
-/// read as `null`, and the enum held a value outside its declared variant set.
+/// Optional and enum were each confirmed to reach a linked executable as
+/// zeroed storage: the present optional read as `null`, and the enum held a
+/// value outside its declared variant set.
 #[test]
 fn each_unrepresentable_const_static_kind_reports_its_kind() {
     for (kind, source) in [
-        (
-            "tuple",
-            r#"
-const value: (i32, i32) = (1, 2);
-static copy: (i32, i32) = value;
-"#,
-        ),
         (
             "optional",
             r#"

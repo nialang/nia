@@ -135,6 +135,30 @@ impl BackendValidator<'_> {
                     self.validate_static_init(elem_ty, elem, span);
                 }
             }
+            StaticInit::Tuple(elems) => {
+                let Some(TyKind::Tuple(expected)) = self.ty_kind(ty).cloned() else {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        span,
+                        "backend IR tuple static initializer target is not tuple",
+                    ));
+                    return;
+                };
+                if expected.len() != elems.len() {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        nia_diagnostic::codes::INVALID_BACKEND_IR,
+                        span,
+                        format!(
+                            "backend IR tuple static initializer has {} elements but its tuple type requires {}",
+                            elems.len(),
+                            expected.len()
+                        ),
+                    ));
+                }
+                for (elem_ty, elem) in expected.into_iter().zip(elems) {
+                    self.validate_static_init(elem_ty, elem, span);
+                }
+            }
             StaticInit::Vector(lanes) => {
                 let Some(TyKind::Vector {
                     elem,
@@ -254,6 +278,7 @@ impl BackendValidator<'_> {
             StaticInit::Chars(_)
             | StaticInit::Bytes(_)
             | StaticInit::Array(_)
+            | StaticInit::Tuple(_)
             | StaticInit::Vector(_)
             | StaticInit::Repeat { .. }
             | StaticInit::Struct(_)

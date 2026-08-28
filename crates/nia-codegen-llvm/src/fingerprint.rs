@@ -1642,6 +1642,13 @@ impl<'a> Encoder<'a> {
                     self.static_init(value);
                 }
             }
+            StaticInit::Tuple(values) => {
+                self.tag(15);
+                self.len(values.len());
+                for value in values {
+                    self.static_init(value);
+                }
+            }
             StaticInit::Repeat { value, count } => {
                 self.tag(9);
                 self.static_init(value);

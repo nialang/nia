@@ -246,7 +246,9 @@ impl StaticChecker<'_> {
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Bool(_) => None,
-            ExprKind::Tuple(_) => Some("tuple static initializer is not representable"),
+            ExprKind::Tuple(elems) => elems
+                .iter()
+                .find_map(|elem| self.static_init_reject_reason(elem)),
             ExprKind::Closure { .. } => Some("closure values require runtime state"),
             ExprKind::ArrayLiteral { elems } => match elems {
                 ArrayElements::List(elems) => elems
@@ -610,7 +612,9 @@ impl StaticChecker<'_> {
     fn const_value_is_static_data(value: &ConstValue) -> bool {
         match value {
             ConstValue::Int(_) | ConstValue::Float(_) | ConstValue::Bool(_) => true,
-            ConstValue::Array(values) => values.iter().all(Self::const_value_is_static_data),
+            ConstValue::Tuple(values) | ConstValue::Array(values) | ConstValue::Vector(values) => {
+                values.iter().all(Self::const_value_is_static_data)
+            }
             ConstValue::Struct(fields) => fields.values().all(Self::const_value_is_static_data),
             _ => false,
         }
@@ -1117,7 +1121,7 @@ static mut pairCopy: Pair = pair;
     }
 
     #[test]
-    fn rejects_tuple_static_initializers_without_a_static_ir_variant() {
+    fn accepts_tuple_static_initializers() {
         let checked = check(
             r#"
 const pair: (i32, i32) = (1, 2);
@@ -1126,21 +1130,17 @@ static mut directCopy: (i32, i32) = (3, 4);
 "#,
         );
 
-        assert!(
-            checked
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.summary.contains("tuple static initializer")),
-            "{:?}",
-            checked.diagnostics
-        );
-        assert!(
-            checked.diagnostics.iter().any(|diagnostic| diagnostic
-                .summary
-                .contains("const value is not representable as static initializer data")),
-            "{:?}",
-            checked.diagnostics
-        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn fixed_vectors_are_static_data_when_all_lanes_are_representable() {
+        let value = ConstValue::Vector(vec![
+            ConstValue::Int(nia_ty::IntConst::unsigned(1)),
+            ConstValue::Int(nia_ty::IntConst::unsigned(2)),
+        ]);
+
+        assert!(StaticChecker::const_value_is_static_data(&value));
     }
 
     #[test]
