@@ -1572,7 +1572,19 @@ impl TypeEquivalence for MonoTypeEquivalence<'_> {
     }
 
     fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
-        left == right
+        match (left, right) {
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            _ => left == right,
+        }
     }
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
@@ -1744,7 +1756,7 @@ mod tests {
     use nia_sema_ir::GenericInstantiation;
     use nia_span::Span;
     use nia_symbol::stable_hash;
-    use nia_ty::{ArrayLenTy, PrimitiveTy};
+    use nia_ty::{ArrayLenTy, ConstGenericValue, IntConst, PrimitiveTy};
 
     include!("tests/monomorphize/test_support.rs");
 
@@ -1792,6 +1804,59 @@ mod tests {
                 ty: right_ty,
                 value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(5)),
             }],
+            name: left_key.name,
+        };
+        assert!(projection_keys_match_semantic(
+            &type_store,
+            &left_key,
+            &right_key
+        ));
+    }
+
+    #[test]
+    fn projection_guard_matches_structural_array_layout_operands() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let u8_ty = append.primitive(PrimitiveTy::U8);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let nominal_def = GlobalDefId {
+            module_id,
+            def_id: DefId(2),
+        };
+        let nominal = |value| {
+            append.intern(TyKind::Nominal {
+                def_id: nominal_def,
+                args: vec![i32_ty],
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value,
+                }],
+            })
+        };
+        let array = |operand| {
+            append.intern(TyKind::Array {
+                len: ArrayLenTy::Builtin {
+                    builtin: nia_ty::LayoutBuiltin::Size,
+                    ty: operand,
+                },
+                elem: u8_ty,
+            })
+        };
+        let left_key = ProjectionInstantiationKey {
+            self_ty: array(nominal(ConstGenericValue::Int(IntConst::signed_bits(7)))),
+            trait_id: nia_ty::TraitId::Source(nominal_def),
+            trait_args: vec![i32_ty],
+            trait_const_args: vec![],
+            name: sym("Output"),
+        };
+        let right_key = ProjectionInstantiationKey {
+            self_ty: array(nominal(ConstGenericValue::Int(IntConst::unsigned(7)))),
+            trait_id: left_key.trait_id,
+            trait_args: vec![i32_ty],
+            trait_const_args: vec![],
             name: left_key.name,
         };
         assert!(projection_keys_match_semantic(

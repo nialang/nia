@@ -303,6 +303,9 @@ it does not make a reset implicit.
   types structurally through the active `TypeEquivalence` owner. Equivalent
   nominal const representations can use distinct handles while describing the
   same vtable ABI payload.
+- Monomorphization projection-guard equivalence must apply the same recursive
+  layout-operand comparison. Rebuilt projection keys can carry distinct but
+  semantically equal nominal const types inside `size[...]` metadata.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
