@@ -3649,6 +3649,13 @@ acceptance item only when its phase-wide evidence is complete.
       bindings instead of treating these rebuilt identities as mismatches;
       `nia-body-check` (273 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
+- [x] Batch 602 closes trait-solver projection equivalence recursion for
+      container and identity-only type variants. Projection-aware comparison
+      now handles tuples, closure states, opaque/builtin/self types, and nested
+      projection operands consistently with the shared type equivalence layer;
+      a tuple-nested projection regression proves semantic const metadata is
+      preserved through recursive comparison. `nia-trait-solve` (19 tests),
+      workspace check, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
