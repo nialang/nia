@@ -3656,6 +3656,13 @@ acceptance item only when its phase-wide evidence is complete.
       a tuple-nested projection regression proves semantic const metadata is
       preserved through recursive comparison. `nia-trait-solve` (19 tests),
       workspace check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 603 closes trait-solver layout lookup recursion for composite keys.
+      Layout interner equivalence now walks tuple and closure-state payloads,
+      including nested capture/parameter/return types, so rebuilt layout keys
+      with semantically equal const metadata remain discoverable. A tuple
+      layout lookup regression covers cross-representation nominal arguments;
+      `nia-trait-solve` (20 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -100,6 +100,9 @@ impl TraitSolver<'_> {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
+            (Some(TyKind::Tuple(left)), Some(TyKind::Tuple(right))) => {
+                self.type_slices_equivalent_in_layout_interner(left, right, layouts, seen)
+            }
             (
                 Some(TyKind::Pointer {
                     is_readonly: left_readonly,
@@ -252,6 +255,40 @@ impl TraitSolver<'_> {
                     layouts,
                     seen,
                 )
+            }
+            (
+                Some(TyKind::ClosureState {
+                    closure_id: left_id,
+                    captures: left_captures,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::ClosureState {
+                    closure_id: right_id,
+                    captures: right_captures,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_id == right_id
+                    && self.type_slices_equivalent_in_layout_interner(
+                        left_captures,
+                        right_captures,
+                        layouts,
+                        seen,
+                    )
+                    && self.type_slices_equivalent_in_layout_interner(
+                        left_params,
+                        right_params,
+                        layouts,
+                        seen,
+                    )
+                    && self.types_equivalent_in_layout_interner(
+                        *left_return,
+                        *right_return,
+                        layouts,
+                        seen,
+                    )
             }
             (Some(TyKind::Optional { elem: left }), Some(TyKind::Optional { elem: right })) => {
                 self.types_equivalent_in_layout_interner(*left, *right, layouts, seen)

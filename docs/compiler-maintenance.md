@@ -811,6 +811,11 @@ signals, not architecture goals.
   inside a container must use the same cycle-aware relation as a top-level
   projection; adding a new `TyKind` variant requires updating this relation and
   its owner regression matrix.
+- Layout lookup has the same cross-store identity constraint: layout keys may
+  contain rebuilt tuples or closure states whose nested handles come from a
+  different interner. The layout equivalence walker must recurse through those
+  constructors and compare const-argument types semantically before deciding a
+  product is absent.
 
 ## 8. Build And Standard Library Work
 
