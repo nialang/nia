@@ -59,6 +59,28 @@ fn same_array_len_with(
     }
 }
 
+fn array_len_values_match(
+    left: &nia_ty::ArrayLenTy,
+    right: &nia_ty::ArrayLenTy,
+    mut array_value: impl FnMut(nia_ids::GlobalConstExprId) -> Option<u64>,
+) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left, right) {
+        (nia_ty::ArrayLenTy::ConstValue(left), nia_ty::ArrayLenTy::ConstExpr(right))
+        | (nia_ty::ArrayLenTy::ConstExpr(right), nia_ty::ArrayLenTy::ConstValue(left)) => {
+            array_value(*right).is_some_and(|right| *left == right)
+        }
+        (nia_ty::ArrayLenTy::ConstExpr(left), nia_ty::ArrayLenTy::ConstExpr(right)) => {
+            array_value(*left)
+                .zip(array_value(*right))
+                .is_some_and(|(left, right)| left == right)
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 fn same_array_len_with_values(
     left: &nia_ty::ArrayLenTy,
@@ -1811,7 +1833,12 @@ impl<'a> ModuleLowerer<'a> {
                             },
                         ) if pattern_builtin == actual_builtin => self
                             .match_extension_type_pattern(*pattern_ty, *actual_ty, &mut candidate),
-                        _ => pattern_len == actual_len,
+                        _ => array_len_values_match(&pattern_len, &actual_len, |id| {
+                            self.input
+                                .program
+                                .const_array_lengths(id.module_id)
+                                .and_then(|lengths| lengths.get(&id).copied())
+                        }),
                     };
                     if length_matches
                         && self.match_extension_type_pattern(pattern_elem, elem, &mut candidate)
@@ -2787,8 +2814,9 @@ impl<'a> ModuleLowerer<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TraitObjectPointeeMatch, same_array_len_with, same_array_len_with_values,
-        same_associated_type_bindings_with, same_trait_object_pointee_with,
+        TraitObjectPointeeMatch, array_len_values_match, same_array_len_with,
+        same_array_len_with_values, same_associated_type_bindings_with,
+        same_trait_object_pointee_with,
     };
     use nia_ty::{
         ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, TypeStore,
@@ -2859,6 +2887,16 @@ mod tests {
             &ArrayLenTy::ConstExpr(right),
             &mut |_, _| false,
             &mut |id| (id == left).then_some(4),
+        ));
+        assert!(array_len_values_match(
+            &ArrayLenTy::ConstValue(4),
+            &ArrayLenTy::ConstExpr(left),
+            |id| (id == left).then_some(4),
+        ));
+        assert!(!array_len_values_match(
+            &ArrayLenTy::ConstExpr(left),
+            &ArrayLenTy::ConstExpr(right),
+            |id| (id == left).then_some(4),
         ));
     }
 

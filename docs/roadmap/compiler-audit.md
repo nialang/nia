@@ -3859,6 +3859,11 @@ acceptance item only when its phase-wide evidence is complete.
       matching. Generic type matching now consumes program array-length facts
       for `TyKind::Array` metadata, aligning direct arrays with nominal const
       arguments while preserving identity-only behavior for unresolved handles.
+- [x] Batch 636 closes backend-lower extension array-pattern const-expression
+      matching. Extension target recovery now applies program array-length
+      facts to non-builtin array lengths, allowing evaluated expression handles
+      to match integer and foreign spellings while unresolved patterns remain
+      identity-only.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
