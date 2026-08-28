@@ -38,6 +38,26 @@ struct MethodTraitImplContext {
     associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
 }
 
+fn same_array_len_with(
+    left: &ArrayLenTy,
+    right: &ArrayLenTy,
+    same_type: &mut impl FnMut(InternedTyId, InternedTyId) -> bool,
+) -> bool {
+    match (left, right) {
+        (
+            ArrayLenTy::Builtin {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) => left_builtin == right_builtin && same_type(*left_ty, *right_ty),
+        _ => left == right,
+    }
+}
+
 impl From<TraitObligation> for TraitGoal {
     fn from(obligation: TraitObligation) -> Self {
         Self {
@@ -2015,8 +2035,9 @@ impl<'a> BodyChecker<'a> {
                     elem: right_elem,
                 }),
             ) => {
-                left_len == right_len
-                    && self.types_equivalent_without_projection_resolution(left_elem, right_elem)
+                same_array_len_with(&left_len, &right_len, &mut |left, right| {
+                    self.types_equivalent_without_projection_resolution(left, right)
+                }) && self.types_equivalent_without_projection_resolution(left_elem, right_elem)
             }
             (
                 Some(TyKind::Range {
@@ -2159,5 +2180,48 @@ impl<'a> BodyChecker<'a> {
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_array_len_with;
+    use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TypeStore};
+
+    #[test]
+    fn array_length_equivalence_recurses_through_builtin_operands() {
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(nia_ids::ModuleIdAllocator::new().allocate());
+        let left_ty = append.primitive(PrimitiveTy::I32);
+        let right_ty = append.primitive(PrimitiveTy::I64);
+        let left = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Size,
+            ty: left_ty,
+        };
+        let right = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Size,
+            ty: right_ty,
+        };
+        let mut calls = 0;
+        assert!(same_array_len_with(&left, &right, &mut |left, right| {
+            calls += 1;
+            left == left_ty && right == right_ty
+        }));
+        assert_eq!(calls, 1);
+
+        let different_builtin = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Align,
+            ty: right_ty,
+        };
+        assert!(!same_array_len_with(
+            &left,
+            &different_builtin,
+            &mut |_, _| panic!("different builtins must not inspect operands")
+        ));
+        assert!(same_array_len_with(
+            &ArrayLenTy::ConstValue(4),
+            &ArrayLenTy::ConstValue(4),
+            &mut |_, _| panic!("non-builtin lengths must use exact equality")
+        ));
     }
 }

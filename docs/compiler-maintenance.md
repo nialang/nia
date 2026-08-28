@@ -285,6 +285,10 @@ it does not make a reset implicit.
   complete length as an opaque value makes equivalent layout operands with
   distinct handles compare unequal; other length forms retain exact identity
   semantics until a canonical value is available.
+- Body-check projection-obligation equivalence must apply the same recursive
+  comparison to equal `ArrayLenTy::Builtin` kinds. Projection-cycle and
+  obligation deduplication can otherwise split equivalent arrays solely because
+  their layout operand handles were rebuilt independently.
 - Extension-pattern generic presence and bound checks must recurse through
   nominal const-argument type metadata as well as ordinary type arguments.
   Const arguments carry a type identity that can contain a still-unbound type

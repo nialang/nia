@@ -3610,6 +3610,14 @@ acceptance item only when its phase-wide evidence is complete.
       covers recursive operand dispatch and builtin discrimination;
       `nia-backend-lower` (120 tests), workspace check, strict Clippy,
       formatting, and diff checks pass.
+- [x] Batch 597 closes body-check projection-obligation equivalence for layout
+      builtin operands. Structural equivalence now recursively compares the
+      operand types of same-kind `size`/`align` lengths, preventing rebuilt
+      projection keys from diverging on semantically equal array metadata while
+      preserving exact identity for other length forms. The owner helper test
+      covers recursive dispatch and builtin discrimination; `nia-body-check`
+      (273 tests), workspace check, strict Clippy, formatting, and diff checks
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
