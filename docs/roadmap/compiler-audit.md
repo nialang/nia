@@ -3864,6 +3864,12 @@ acceptance item only when its phase-wide evidence is complete.
       facts to non-builtin array lengths, allowing evaluated expression handles
       to match integer and foreign spellings while unresolved patterns remain
       identity-only.
+- [x] Batch 637 closes type-lower local equivalence for evaluated const
+      expressions. Range-bound and nested nominal comparisons now reuse the
+      lowering owner's `ConstExprSummary` literal lengths, allowing distinct
+      handles to match only when they resolve to the same value; unresolved
+      expressions remain identity-only. `nia-type-lower` (19 tests), owner
+      check, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
