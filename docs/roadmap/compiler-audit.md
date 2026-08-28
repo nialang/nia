@@ -3855,6 +3855,10 @@ acceptance item only when its phase-wide evidence is complete.
       now reuses published array-length facts, so evaluated expression handles
       match equivalent integer/foreign spellings while unresolved handles stay
       distinct.
+- [x] Batch 635 closes backend-lower direct array-type const-expression
+      matching. Generic type matching now consumes program array-length facts
+      for `TyKind::Array` metadata, aligning direct arrays with nominal const
+      arguments while preserving identity-only behavior for unresolved handles.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
