@@ -152,6 +152,10 @@ it does not make a reset implicit.
 - Backend products contain backend facts and stable semantic handles, not
   snapshots of semantic stores. Compiler phases receive only the capabilities
   required for their work.
+- Backend vtable ownership deduplicates complete `(self type, object type)`
+  keys through structural type equivalence before selecting a deterministic
+  source owner. Rebuilt nominal or const-generic handles must not produce
+  duplicate LLVM tables merely because their interner identities differ.
 - Trait obligations remain complete across phase and consumer boundaries. The
   self type, trait identity, type and const arguments, and associated-type
   bindings are one semantic product; candidate filters and final validators

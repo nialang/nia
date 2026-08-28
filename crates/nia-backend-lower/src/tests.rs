@@ -14,6 +14,7 @@ use nia_item_signatures::{
     ItemSignatureInput, ItemSignatureSource, ProgramFunctionSignature, collect_item_signatures,
 };
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
+use nia_layout::TargetDataLayout;
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module_with_symbols;
@@ -166,6 +167,91 @@ fn vtable_owner_payloads_match_structural_array_layout_operands() {
     };
 
     assert!(backend_vtable_payloads_match(&type_store, &left, &right));
+}
+
+#[test]
+fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let left_append = type_store.append_for_module(left_module);
+    let right_append = type_store.append_for_module(right_module);
+    let left_i32 = left_append.primitive(nia_ty::PrimitiveTy::I32);
+    let right_i32 = right_append.primitive(nia_ty::PrimitiveTy::I32);
+    let left_usize = left_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let right_usize = right_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let nominal_def = GlobalDefId {
+        module_id: left_module,
+        def_id: DefId(91),
+    };
+    let left_object = left_append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: left_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(7)),
+        }],
+    });
+    let right_object = right_append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
+        }],
+    });
+    let trait_id = nia_ids::TraitId::Source(nominal_def);
+    let vtable = |self_ty, object_ty| nia_backend_ir::BackendTraitObjectVtable {
+        key: BackendTraitObjectVtableKey { self_ty, object_ty },
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        entries: Vec::new(),
+        span: nia_span::Span::default(),
+    };
+    let empty_layouts = || nia_backend_ir::BackendLayouts {
+        target: TargetDataLayout::LP64,
+        types: Vec::new(),
+        structs: Vec::new(),
+        unions: Vec::new(),
+        enums: Vec::new(),
+        struct_instances: Vec::new(),
+        union_instances: Vec::new(),
+    };
+    let empty_module =
+        |id: nia_ids::ModuleId,
+         source_identity: &str,
+         table: Vec<nia_backend_ir::BackendTraitObjectVtable>| {
+            nia_backend_ir::BackendModule {
+                id,
+                source_identity: nia_source::SourceIdentity::new(source_identity),
+                name: source_identity.to_string(),
+                const_eval: nia_backend_ir::BackendConstFacts::default(),
+                layouts: empty_layouts(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+                enums: Vec::new(),
+                globals: Vec::new(),
+                global_instances: Vec::new(),
+                functions: Vec::new(),
+                function_instances: Vec::new(),
+                closure_entries: Vec::new(),
+                trait_object_vtables: table,
+                generic_instantiations: Vec::new(),
+            }
+        };
+    let mut modules = vec![
+        empty_module(right_module, "b", vec![vtable(right_i32, right_object)]),
+        empty_module(left_module, "a", vec![vtable(left_i32, left_object)]),
+    ];
+
+    assign_unique_vtable_owners(&mut modules, &type_store);
+
+    assert!(modules[0].trait_object_vtables.is_empty());
+    assert_eq!(modules[1].trait_object_vtables.len(), 1);
 }
 
 mod cfg_and_scalar_passes;

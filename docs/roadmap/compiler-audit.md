@@ -3689,6 +3689,14 @@ acceptance item only when its phase-wide evidence is complete.
       leak bindings discovered by earlier fields. A focused tuple regression
       covers the rollback contract; `nia-trait-solve` (21 tests), workspace
       check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 608 closes backend vtable owner identity across rebuilt handles.
+      Final module ownership now compares complete vtable keys through
+      structural type equivalence before retaining the lexicographically
+      stable owner, so semantically equal nominal and const-generic spellings
+      cannot emit duplicate tables. An owner regression covers signed/unsigned
+      const representations across module-owned interners;
+      `nia-backend-lower` (122 tests), workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

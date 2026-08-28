@@ -895,13 +895,20 @@ impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
 }
 
 fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_ty::TypeStore) {
-    let mut owners = HashMap::<BackendTraitObjectVtableKey, (usize, usize)>::new();
+    // Vtable keys carry complete type payloads. Match them through the same
+    // structural equivalence used for payload validation so semantically equal
+    // rebuilt const representations share one owner.
+    let mut owners = Vec::<(BackendTraitObjectVtableKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
-            let Some(&(owner_module_index, owner_vtable_index)) = owners.get(&vtable.key) else {
-                owners.insert(vtable.key.clone(), (module_index, vtable_index));
+            let Some(owner_position) = owners
+                .iter()
+                .position(|(key, _)| backend_vtable_keys_match(type_store, key, &vtable.key))
+            else {
+                owners.push((vtable.key.clone(), (module_index, vtable_index)));
                 continue;
             };
+            let (_, (owner_module_index, owner_vtable_index)) = owners[owner_position];
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.trait_object_vtables[owner_vtable_index];
             assert!(
@@ -914,17 +921,37 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
             if module.source_identity.normalized_path()
                 < owner_module.source_identity.normalized_path()
             {
-                owners.insert(vtable.key.clone(), (module_index, vtable_index));
+                owners[owner_position] = (vtable.key.clone(), (module_index, vtable_index));
             }
         }
     }
     for (module_index, module) in modules.iter_mut().enumerate() {
-        module.trait_object_vtables.retain(|vtable| {
-            owners
-                .get(&vtable.key)
-                .is_some_and(|(owner, _)| *owner == module_index)
-        });
+        let vtables = std::mem::take(&mut module.trait_object_vtables);
+        module.trait_object_vtables = vtables
+            .into_iter()
+            .enumerate()
+            .filter_map(|(vtable_index, vtable)| {
+                owners
+                    .iter()
+                    .any(|(key, (owner_module, owner_index))| {
+                        *owner_module == module_index
+                            && *owner_index == vtable_index
+                            && backend_vtable_keys_match(type_store, key, &vtable.key)
+                    })
+                    .then_some(vtable)
+            })
+            .collect();
     }
+}
+
+fn backend_vtable_keys_match(
+    type_store: &nia_ty::TypeStore,
+    left: &BackendTraitObjectVtableKey,
+    right: &BackendTraitObjectVtableKey,
+) -> bool {
+    let equivalence = BackendVtableTypeEquivalence { type_store };
+    equivalence.same_type_for_equiv(left.self_ty, right.self_ty)
+        && equivalence.same_type_for_equiv(left.object_ty, right.object_ty)
 }
 
 fn backend_vtable_payloads_match(
