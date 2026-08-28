@@ -1120,12 +1120,29 @@ impl ProgramIndex {
         &self,
         object_ty: InternedTyId,
     ) -> impl Iterator<Item = &BackendTraitObjectVtable> {
-        let positions = self
-            .tables()
-            .trait_object_vtables_by_object_ty
-            .get(&object_ty)
-            .cloned()
-            .unwrap_or_default();
+        let positions = {
+            let tables = self.tables();
+            let exact = tables
+                .trait_object_vtables_by_object_ty
+                .get(&object_ty)
+                .cloned()
+                .unwrap_or_default();
+            if !exact.is_empty() {
+                exact
+            } else {
+                let equivalence = ProgramTypeEquivalence {
+                    type_store: &self.type_store,
+                };
+                tables
+                    .trait_object_vtables_by_object_ty
+                    .iter()
+                    .filter(|(candidate, _)| {
+                        equivalence.same_type_for_equiv(object_ty, **candidate)
+                    })
+                    .flat_map(|(_, positions)| positions.iter().copied())
+                    .collect()
+            }
+        };
         positions
             .into_iter()
             .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
@@ -1135,7 +1152,27 @@ impl ProgramIndex {
         &self,
         key: &nia_backend_ir::BackendTraitObjectVtableKey,
     ) -> Option<&BackendTraitObjectVtable> {
-        let position = self.tables().trait_object_vtables.get(key).copied()?;
+        let position = self
+            .tables()
+            .trait_object_vtables
+            .get(key)
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .trait_object_vtables
+                    .values()
+                    .find(|position| {
+                        let candidate = &self.module_at(position.module).trait_object_vtables
+                            [position.item]
+                            .key;
+                        let equivalence = ProgramTypeEquivalence {
+                            type_store: &self.type_store,
+                        };
+                        equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
+                            && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty)
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).trait_object_vtables[position.item])
     }
 
@@ -1609,6 +1646,20 @@ mod tests {
                 object_ty: rebuilt_object_ty,
             }),
             Some(module_id)
+        );
+        assert_eq!(
+            index
+                .trait_object_vtables_for_object_ty(rebuilt_object_ty)
+                .count(),
+            1
+        );
+        assert!(
+            index
+                .trait_object_vtable(&BackendTraitObjectVtableKey {
+                    self_ty: rebuilt_i32_ty,
+                    object_ty: rebuilt_object_ty,
+                })
+                .is_some()
         );
     }
 
