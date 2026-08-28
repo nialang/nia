@@ -3754,6 +3754,14 @@ acceptance item only when its phase-wide evidence is complete.
       equivalent trait-object handles from separate appenders;
       `nia-codegen-llvm` (314 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
+- [x] Batch 617 extends LLVM ProgramIndex vtable equivalence to value and
+      iteration APIs. `trait_object_vtable` and
+      `trait_object_vtables_for_object_ty` now share the complete structural
+      key fallback used by owner lookup, so rebuilt object handles remain
+      discoverable by declaration and dispatch consumers. The existing
+      cross-interner vtable regression covers all three APIs;
+      `nia-codegen-llvm` (314 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
