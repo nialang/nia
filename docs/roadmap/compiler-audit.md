@@ -3957,6 +3957,11 @@ acceptance item only when its phase-wide evidence is complete.
       their owning module's const facts instead of collapsing every expression
       to zero; a focused regression proves distinct evaluated lengths retain
       distinct deterministic keys.
+- [x] Batch 657 closes trait-object vtable symbol collisions for const arrays.
+      Backend preflight and LLVM emission now encode each `ConstExpr` array
+      length from its owner module's evaluated facts instead of mapping every
+      expression to `0`; a focused regression proves distinct array lengths
+      produce distinct linker symbols.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

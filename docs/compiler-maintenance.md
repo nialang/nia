@@ -991,6 +991,10 @@ signals, not architecture goals.
   values. Mapping every `ConstExpr` to one fallback value creates collisions in
   hash-set-derived vtable ordering and makes generated declaration order depend
   on iteration details.
+- Trait-object vtable linker symbols must encode evaluated const-array lengths
+  consistently in both backend preflight and LLVM emission. A fixed resolver
+  value can alias distinct object identities under the same externally visible
+  global name even when their dispatch metadata differs.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
