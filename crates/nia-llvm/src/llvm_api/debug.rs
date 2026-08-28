@@ -475,15 +475,8 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     }
 
     pub fn create_subroutine_type(&self, file: DIFile<'ctx>) -> LlvmResult<DISubroutineType<'ctx>> {
-        let mut tys = [std::ptr::null_mut()];
         let raw = unsafe {
-            LLVMDIBuilderCreateSubroutineType(
-                self.raw,
-                file.raw,
-                tys.as_mut_ptr(),
-                tys.len() as u32,
-                0,
-            )
+            LLVMDIBuilderCreateSubroutineType(self.raw, file.raw, std::ptr::null_mut(), 0, 0)
         };
         DISubroutineType::new(raw)
     }
@@ -713,5 +706,39 @@ mod tests {
             .create_array_type(element, 32, 8, 4)
             .expect("array debug type should be created");
         assert!(!array.raw.is_null());
+    }
+
+    #[test]
+    fn creates_empty_subroutine_type_without_null_parameter_operand() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("debug-subroutine").unwrap();
+        let builder = module.create_debug_info_builder().unwrap();
+        let file = builder.create_file("main.nia", ".").unwrap();
+        let unit = builder
+            .create_compile_unit(file, "nia-test", false)
+            .unwrap();
+        let subroutine = builder.create_subroutine_type(file).unwrap();
+        let function_type = context.void_type().fn_type(&[], false).unwrap();
+        let function = module.add_function("main", function_type, None).unwrap();
+        builder
+            .create_function(DIFunctionInput {
+                scope: unit,
+                file,
+                name: "main",
+                linkage_name: "main",
+                line: 1,
+                scope_line: 1,
+                subroutine_type: subroutine,
+                is_local_to_unit: false,
+                is_optimized: false,
+            })
+            .map(|subprogram| function.set_subprogram(subprogram))
+            .unwrap();
+        builder.finalize();
+
+        let ir = module.ir_string().unwrap();
+        assert!(ir.contains("!DISubroutineType(types: !"), "{ir}");
+        assert!(ir.contains("= !{}"), "{ir}");
+        assert!(!ir.contains("= !{null}"), "{ir}");
     }
 }
