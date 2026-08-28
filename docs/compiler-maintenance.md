@@ -179,6 +179,11 @@ it does not make a reset implicit.
   permissive prefilter is still unsound when it changes which candidate wins.
   Backend extension instantiation and backend type equivalence preserve this
   rule so code generation cannot select a weaker instance than body checking.
+- Const-execution generic inference treats associated-type bindings as an
+  unordered bijection. Each actual binding may satisfy at most one pattern
+  binding, and candidate substitutions are committed only after the complete
+  permutation succeeds; otherwise a repeated binding can hide an incompatible
+  sibling obligation.
 - Supertrait declarations are persisted as complete trait obligations too. Any
   associated-type binding attached to a supertrait travels through collection,
   type-root discovery, cache encoding, body assumptions, impl validation, and
