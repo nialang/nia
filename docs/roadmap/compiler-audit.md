@@ -3968,6 +3968,10 @@ acceptance item only when its phase-wide evidence is complete.
       absent, instead of silently substituting the caller slot or offset `0`.
       Existing dynamic-call and upcast matrices continue to cover valid direct,
       inherited, and const-generic supertrait paths.
+- [x] Batch 659 closes the typed LLVM struct-GEP boundary. The builder now
+      checks that the supplied pointee is a struct and that its field index is
+      in range before entering `LLVMBuildStructGEP2`; wrapper regressions cover
+      scalar pointees and out-of-bounds fields.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
