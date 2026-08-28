@@ -1940,7 +1940,7 @@ impl BackendValidator<'_> {
             | BinaryOp::Ge => self.is_numeric_operator_type(lhs_ty) || self.is_char_type(lhs_ty),
             BinaryOp::Eq | BinaryOp::Ne => self.is_comparable_operator_type(lhs_ty),
             BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
-                self.is_integer_operator_type(lhs_ty)
+                self.is_bitwise_operator_type(lhs_ty)
             }
             BinaryOp::Shl | BinaryOp::Shr => self.is_integer_operator_type(lhs_ty),
             BinaryOp::And | BinaryOp::Or => true,
@@ -2221,6 +2221,17 @@ impl BackendValidator<'_> {
             Some(TyKind::Vector { elem, .. }) => elem.is_integer(),
             _ => false,
         }
+    }
+
+    fn is_bitwise_operator_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        self.is_integer_operator_type(ty)
+            || matches!(
+                self.index.ty_kind(ty),
+                Some(TyKind::Vector {
+                    elem: PrimitiveTy::Bool,
+                    ..
+                })
+            )
     }
 
     fn is_numeric_operator_type(&self, ty: nia_ids::InternedTyId) -> bool {
@@ -3318,6 +3329,21 @@ impl BackendValidator<'_> {
             // Intrinsic value operators are intentionally selected in LLVM codegen; backend
             // lowering only rewrites them when a source-level extension method wins dispatch.
             FunctionCallee::BuiltinOperator(operator) => {
+                let Some(method) = operator.op.method() else {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-operator",
+                        "operator has no builtin trait dispatch contract",
+                    );
+                    return;
+                };
+                if method.trait_id() != operator.trait_id {
+                    self.invalid_call_contract(
+                        span,
+                        "builtin-operator",
+                        "operator trait does not match its operation",
+                    );
+                }
                 let expected = match operator.op {
                     nia_function_ir::FunctionBuiltinOperatorOp::Unary(_) => 1,
                     nia_function_ir::FunctionBuiltinOperatorOp::Binary(_) => 2,
@@ -3328,6 +3354,21 @@ impl BackendValidator<'_> {
                         "builtin-operator",
                         "argument count does not match operator arity",
                     );
+                } else {
+                    match operator.op {
+                        nia_function_ir::FunctionBuiltinOperatorOp::Unary(op) => {
+                            self.validate_unary(call_result_ty, op, &call_args[0], span);
+                        }
+                        nia_function_ir::FunctionBuiltinOperatorOp::Binary(op) => {
+                            self.validate_binary_contract(
+                                call_result_ty,
+                                call_args[0].ty,
+                                op,
+                                call_args[1].ty,
+                                span,
+                            );
+                        }
+                    }
                 }
             }
         }
