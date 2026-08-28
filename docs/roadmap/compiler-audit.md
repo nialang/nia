@@ -3845,6 +3845,11 @@ acceptance item only when its phase-wide evidence is complete.
       published array-length facts for expression-valued const arguments;
       the evaluator-aware helper matches integer/foreign spellings while its
       no-facts wrapper remains identity-only.
+- [x] Batch 633 closes body-check projection array-length equivalence for
+      evaluated const expressions. Projection and trait-object structural
+      comparisons now consume module/program array-length facts, allowing
+      rebuilt expression handles to match equivalent values while unresolved
+      expressions remain distinct.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
