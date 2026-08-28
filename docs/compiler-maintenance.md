@@ -247,6 +247,10 @@ it does not make a reset implicit.
   arguments as well as ordinary type arguments. Check `ConstGenericArg::ty` at
   both recursive type traversal and concrete instance admission, or deeply
   nested const metadata can bypass convergence protection.
+- Monomorphization depth limits must inspect the type operand of
+  `ArrayLenTy::Builtin` as well as an array's element. A deeply nested type can
+  be carried only by `size[T]` or `align[T]`; skipping that operand allows an
+  otherwise unbounded concrete instance to evade the same convergence guard.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
