@@ -1045,6 +1045,23 @@ impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
                         (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
                             left.bits() == right.bits()
                         }
+                        (ConstGenericValue::Int(left), ConstGenericValue::ConstExpr(right))
+                        | (ConstGenericValue::ConstExpr(right), ConstGenericValue::Int(left)) => {
+                            self.array_lengths
+                                .get(right)
+                                .is_some_and(|right| left.bits() == u128::from(*right))
+                        }
+                        (
+                            ConstGenericValue::ConstExpr(left),
+                            ConstGenericValue::ConstExpr(right),
+                        ) => {
+                            left == right
+                                || self
+                                    .array_lengths
+                                    .get(left)
+                                    .zip(self.array_lengths.get(right))
+                                    .is_some_and(|(left, right)| left == right)
+                        }
                         (left, right) => left == right,
                     }
             })

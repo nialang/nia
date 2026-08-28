@@ -3825,6 +3825,11 @@ acceptance item only when its phase-wide evidence is complete.
       array-length facts for expression-valued const arguments, including
       integer spellings and foreign expressions; unresolved expressions retain
       identity-only behavior in the owner regression.
+- [x] Batch 629 closes backend-lower nominal const-expression deduplication.
+      Aggregate-instance and trait-object-vtable owner comparisons now reuse
+      all lowered modules' array-length facts for nested const arguments;
+      evaluated cross-module handles match while unresolved expressions remain
+      distinct in the owner regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
