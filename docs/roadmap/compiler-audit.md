@@ -3769,6 +3769,13 @@ acceptance item only when its phase-wide evidence is complete.
       generic binding yields an earlier candidate so a later concrete binding
       can use it; `nia-body-check` (276 tests), workspace check, strict Clippy,
       formatting, and diff checks pass.
+- [x] Batch 619 closes executable-reachability pattern substitution leakage.
+      Extension target matching now treats every recursive type pattern as a
+      transaction, so late tuple/nominal/array/callable/trait-object
+      mismatches cannot publish partial type, const, or array-length bindings.
+      A tuple late-mismatch regression verifies the maps remain unchanged;
+      `nia-executable-reachability` (17 tests), workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

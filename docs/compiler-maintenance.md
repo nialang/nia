@@ -211,6 +211,11 @@ it does not make a reset implicit.
   remove a node before returning from a DFS branch, including error or missing
   signature paths; a global visited set can incorrectly hide a valid sibling
   supertrait.
+- Executable-reachability extension matching is transactional at every type
+  pattern boundary. A tuple, nominal, array, callable, or trait-object match
+  may discover substitutions before a later field fails; the failed candidate
+  must leave type, const, and array-length maps unchanged before another impl
+  is tried.
 - Frontend vtable-instantiation facts and backend vtable-entry lowering must
   traverse the same source-supertrait graph. Substitute type and const
   arguments at each edge and key the active path guard by the complete trait
