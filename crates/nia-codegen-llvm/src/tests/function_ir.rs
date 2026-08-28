@@ -6807,7 +6807,11 @@ fn validates_backend_ir_call_signatures_before_llvm() {
                     FunctionCallee::BuiltinMethod {
                         method: nia_function_ir::FunctionBuiltinMethod::SliceLen,
                         self_ty: i32_ty,
-                        receiver: Box::new(integer()),
+                        receiver: Box::new(FunctionExpr {
+                            span,
+                            ty: bool_ty,
+                            kind: FunctionExprKind::Bool(true),
+                        }),
                     },
                     vec![integer()],
                 )),
