@@ -3595,6 +3595,14 @@ acceptance item only when its phase-wide evidence is complete.
       representations. The owner regression covers signed/unsigned const
       metadata; `nia-monomorphize` (14 tests), workspace check, and strict
       Clippy pass.
+- [x] Batch 595 closes backend aggregate layout-product matching for
+      structurally equal const arguments. Materialized struct and union
+      declarations now use the validator's structural type/const equivalence
+      instead of raw vector equality, so signed/unsigned representations with
+      equal bits cannot cause malformed aggregate products to be skipped. An
+      owner regression proves the mismatched field layout is diagnosed through
+      the equivalent const metadata; `nia-codegen-llvm` (312 tests), workspace
+      check, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

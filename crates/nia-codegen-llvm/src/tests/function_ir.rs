@@ -2492,6 +2492,120 @@ fn rejects_malformed_layout_contracts_before_llvm() {
 }
 
 #[test]
+fn validates_aggregate_products_with_structurally_equal_const_args() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let def_id = GlobalDefId {
+        module_id,
+        def_id: DefId(40),
+    };
+    let field_id = GlobalDefId {
+        module_id,
+        def_id: DefId(41),
+    };
+    let signed_arg = ConstGenericArg {
+        ty: i32_ty,
+        value: ConstGenericValue::Int(IntConst::signed_bits(7)),
+    };
+    let unsigned_arg = ConstGenericArg {
+        ty: i32_ty,
+        value: ConstGenericValue::Int(IntConst::unsigned(7)),
+    };
+    let nominal_ty = interner.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![signed_arg.clone()],
+    });
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (nominal_ty, TypeLayout { size: 8, align: 4 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: vec![(
+                    nia_backend_ir::BackendStructInstanceKey {
+                        def_id,
+                        args: Vec::new(),
+                        const_args: vec![signed_arg],
+                    },
+                    StructLayout {
+                        layout: TypeLayout { size: 8, align: 4 },
+                        fields: vec![FieldLayout {
+                            def_id: field_id.def_id,
+                            offset: 0,
+                            layout: TypeLayout { size: 8, align: 4 },
+                        }],
+                    },
+                )],
+                union_instances: Vec::new(),
+            },
+            structs: vec![BackendStruct {
+                def_id,
+                name: sym("ConstPacket"),
+                generics: vec![sym("N")],
+                fields: vec![BackendField {
+                    def_id: field_id,
+                    name: sym("value"),
+                    ty: i32_ty,
+                    span,
+                }],
+                is_extern: false,
+                span,
+            }],
+            struct_instances: vec![nia_backend_ir::BackendStructInstance {
+                def_id,
+                name: sym("ConstPacket7"),
+                args: Vec::new(),
+                const_args: vec![unsigned_arg],
+                symbol: "const_packet_7".to_string(),
+                fields: vec![BackendField {
+                    def_id: field_id,
+                    name: sym("value"),
+                    ty: i32_ty,
+                    span,
+                }],
+                is_extern: false,
+                span,
+            }],
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "field layout does not match its declared type"
+    ));
+}
+
+#[test]
 fn emits_bitmask_with_32_bit_usize_result() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

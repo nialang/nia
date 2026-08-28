@@ -306,6 +306,11 @@ it does not make a reset implicit.
 - Monomorphization projection-guard equivalence must apply the same recursive
   layout-operand comparison. Rebuilt projection keys can carry distinct but
   semantically equal nominal const types inside `size[...]` metadata.
+- Backend aggregate layout-product validation must match materialized instance
+  declarations through the validator's structural type and const-argument
+  equivalence. Raw vector equality can skip validation when signed and unsigned
+  representations carry the same const bits, allowing a malformed product to
+  pass without checking its declared fields.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
