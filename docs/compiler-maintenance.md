@@ -284,6 +284,9 @@ it does not make a reset implicit.
   both sides use the same layout builtin. Match its operand through the same
   staged type/const substitutions as the array element; otherwise an extension
   target such as `[u8; size[T]()]` cannot infer `T` from a matching receiver.
+- Method specificity ordering must use that same structural layout-operand
+  recursion. A concrete `[u8; size[i32]()]` extension must subsume the generic
+  `[u8; size[T]()]` candidate, or otherwise-valid calls become ambiguous.
 - Trait-solver impl-pattern matching follows the same rule: when both array
   lengths use the same builtin, recursively match their type operands in the
   candidate substitution transaction. Treating the complete length as opaque

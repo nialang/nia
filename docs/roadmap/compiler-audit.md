@@ -3569,6 +3569,13 @@ acceptance item only when its phase-wide evidence is complete.
       handle assumptions. An owner regression covers generic recovery;
       `nia-executable-reachability` (15 tests), workspace check, and strict
       Clippy pass.
+- [x] Batch 591 closes method-specificity ordering for array layout operands.
+      Structural subsumption now recursively matches the type operands of
+      equivalent `ArrayLenTy::Builtin` values, so a concrete
+      `[u8; size[i32]()]` extension outranks a generic `[u8; size[T]()]`
+      extension instead of producing a false ambiguity. The owner regression
+      proves the concrete candidate is selected; `nia-body-check` (272 tests),
+      workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

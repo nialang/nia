@@ -447,6 +447,20 @@ impl<'a> BodyChecker<'a> {
         if self.array_lens_match(general, specific) {
             return true;
         }
+        if let (
+            ArrayLenTy::Builtin {
+                builtin: general_builtin,
+                ty: general_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: specific_builtin,
+                ty: specific_ty,
+            },
+        ) = (general, specific)
+            && general_builtin == specific_builtin
+        {
+            return self.pattern_subsumes_inner(*general_ty, *specific_ty, substitutions);
+        }
         let ArrayLenTy::GenericParam(name) = general else {
             return false;
         };
