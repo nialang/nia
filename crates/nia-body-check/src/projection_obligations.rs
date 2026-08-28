@@ -1991,7 +1991,18 @@ impl<'a> BodyChecker<'a> {
             self.interner.get(left).cloned(),
             self.interner.get(right).cloned(),
         ) {
+            (Some(TyKind::Error), Some(TyKind::Error))
+            | (Some(TyKind::ConstOnly), Some(TyKind::ConstOnly))
+            | (Some(TyKind::Opaque), Some(TyKind::Opaque))
+            | (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+            (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
+            (Some(TyKind::Tuple(left)), Some(TyKind::Tuple(right))) => {
+                left.len() == right.len()
+                    && left.iter().zip(&right).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, *right)
+                    })
+            }
             (
                 Some(TyKind::Pointer {
                     is_readonly: left_const,
@@ -2113,6 +2124,35 @@ impl<'a> BodyChecker<'a> {
                 left_params.len() == right_params.len()
                     && left_params.iter().zip(right_params).all(|(left, right)| {
                         self.types_equivalent_without_projection_resolution(*left, right)
+                    })
+                    && self
+                        .types_equivalent_without_projection_resolution(left_return, right_return)
+            }
+            (
+                Some(TyKind::ClosureState {
+                    closure_id: left_id,
+                    captures: left_captures,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::ClosureState {
+                    closure_id: right_id,
+                    captures: right_captures,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_id == right_id
+                    && left_captures.len() == right_captures.len()
+                    && left_params.len() == right_params.len()
+                    && left_captures
+                        .iter()
+                        .zip(&right_captures)
+                        .all(|(left, right)| {
+                            self.types_equivalent_without_projection_resolution(*left, *right)
+                        })
+                    && left_params.iter().zip(&right_params).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, *right)
                     })
                     && self
                         .types_equivalent_without_projection_resolution(left_return, right_return)

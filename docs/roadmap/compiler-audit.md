@@ -3663,6 +3663,12 @@ acceptance item only when its phase-wide evidence is complete.
       layout lookup regression covers cross-representation nominal arguments;
       `nia-trait-solve` (20 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
+- [x] Batch 604 closes body-check projection-obligation recursion for composite
+      associated types. Structural comparison now handles tuples, closure
+      states, and identity-only variants consistently with type matching;
+      focused where-bound regressions cover tuple-associated outputs and
+      nominal const metadata inside tuples. `nia-body-check` (275 tests),
+      workspace check, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
