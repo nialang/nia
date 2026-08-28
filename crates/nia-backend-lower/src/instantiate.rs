@@ -1651,8 +1651,33 @@ impl<'a> ModuleLowerer<'a> {
                 len: pattern_len,
                 elem: pattern_elem,
             }) => match self.ty_kind(actual).cloned() {
-                Some(TyKind::Array { len, elem }) if pattern_len == len => {
-                    self.match_extension_type_pattern(pattern_elem, elem, substitutions)
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem,
+                }) => {
+                    let mut candidate = substitutions.clone();
+                    let length_matches = match (&pattern_len, &actual_len) {
+                        (
+                            nia_ty::ArrayLenTy::Builtin {
+                                builtin: pattern_builtin,
+                                ty: pattern_ty,
+                            },
+                            nia_ty::ArrayLenTy::Builtin {
+                                builtin: actual_builtin,
+                                ty: actual_ty,
+                            },
+                        ) if pattern_builtin == actual_builtin => self
+                            .match_extension_type_pattern(*pattern_ty, *actual_ty, &mut candidate),
+                        _ => pattern_len == actual_len,
+                    };
+                    if length_matches
+                        && self.match_extension_type_pattern(pattern_elem, elem, &mut candidate)
+                    {
+                        *substitutions = candidate;
+                        true
+                    } else {
+                        false
+                    }
                 }
                 _ => false,
             },

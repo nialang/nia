@@ -273,6 +273,9 @@ it does not make a reset implicit.
   length builtin operands as for array elements. When `size[T]` is the only
   evidence for `T`, matching equivalent layout builtins must recurse into their
   operand before deciding that the call has an unresolved generic.
+- Backend extension-target matching must stage substitutions while comparing
+  array layout builtin operands. Matching `size[T]` structurally can bind a
+  type parameter, but a later element mismatch must roll that binding back.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
