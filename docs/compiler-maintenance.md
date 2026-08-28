@@ -959,6 +959,10 @@ signals, not architecture goals.
   their `self_ty` metadata, including pointer views and mutable receiver
   permissions. Method-specific checks on metadata alone are insufficient when
   codegen loads or projects the receiver according to its actual shape.
+- Function-item reference expressions must produce a `FunctionPointer` type at
+  the backend boundary. LLVM's opaque pointer representation can otherwise
+  hide a malformed ordinary-data-pointer result from the source-level type
+  contract.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout

@@ -3893,6 +3893,10 @@ acceptance item only when its phase-wide evidence is complete.
       checks now require each builtin method receiver to match its `self_ty`
       through a direct value or pointer view and reject readonly pointers for
       mutable slice methods; malformed call coverage exercises the mismatch.
+- [x] Batch 643 closes the backend function-reference result boundary. Unary
+      function-item references now require an exact `FunctionPointer` result
+      type instead of accepting ordinary data pointers hidden by LLVM opaque
+      pointer types; malformed reference IR has a focused regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
