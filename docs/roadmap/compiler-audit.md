@@ -3473,6 +3473,16 @@ acceptance item only when its phase-wide evidence is complete.
       disposal cannot run after the owning module has been freed. A compile-fail
       owner regression proves a builder cannot escape a local module; LLVM and
       codegen checks plus strict doctests cover the updated public boundary.
+- [x] Batch 577 closes a Phase A object-safety recursion gap. Object-safety
+      traversal now visits builtin array-length types plus every const-argument
+      type in nominal values, trait objects, projections, and associated
+      bindings. `Self` hidden in `std::builtin::size[Self]()` previously let an
+      ABI-dependent method enter a trait object; the checker now rejects it,
+      while a concrete `u32` layout length remains accepted. Erased-type
+      reconstruction recursively normalizes the same metadata. Focused driver
+      regressions cover both rejection and the valid control case;
+      `nia-body-check` (266 tests), the trait-object driver suite (29), and
+      `nia-compiler-query` (255) pass with workspace check and strict Clippy.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

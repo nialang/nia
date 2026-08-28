@@ -229,6 +229,13 @@ it does not make a reset implicit.
   contract. Until vtable metadata and lookup define one, reject such traits at
   object construction rather than silently erasing the item while retaining a
   source-level promise.
+- Object-safety type traversal must inspect every type-bearing part of a method
+  signature, including builtin array-length metadata and the type of each
+  nominal, trait-object, projection, or associated-binding const argument.
+  `Self` in any of these positions changes the erased ABI or object identity and
+  must be diagnosed just like `Self` in an ordinary nested type. Erased-type
+  reconstruction must recursively normalize the same metadata so accepted
+  signatures retain their complete layout and identity.
 - Monomorphization depth limits must inspect type structure carried by const
   arguments as well as ordinary type arguments. Check `ConstGenericArg::ty` at
   both recursive type traversal and concrete instance admission, or deeply
