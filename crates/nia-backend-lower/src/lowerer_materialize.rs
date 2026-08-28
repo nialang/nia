@@ -418,6 +418,12 @@ impl ModuleLowerer<'_> {
                     .map(|elem| self.instantiate_static_init(elem, substitutions))
                     .collect(),
             ),
+            nia_static_ir::StaticInit::Tuple(elems) => nia_static_ir::StaticInit::Tuple(
+                elems
+                    .into_iter()
+                    .map(|elem| self.instantiate_static_init(elem, substitutions))
+                    .collect(),
+            ),
             nia_static_ir::StaticInit::Vector(elems) => nia_static_ir::StaticInit::Vector(
                 elems
                     .into_iter()

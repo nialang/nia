@@ -36,7 +36,7 @@ impl<'a> BodyChecker<'a> {
     fn contains_static_recovery(init: &StaticInit) -> bool {
         match init {
             StaticInit::Zero => true,
-            StaticInit::Array(values) | StaticInit::Vector(values) => {
+            StaticInit::Array(values) | StaticInit::Tuple(values) | StaticInit::Vector(values) => {
                 values.iter().any(Self::contains_static_recovery)
             }
             StaticInit::Repeat { value, .. } => Self::contains_static_recovery(value),
@@ -161,6 +161,28 @@ impl<'a> BodyChecker<'a> {
                     count: self.lower_array_repeat_count(count),
                 },
             },
+            ExprKind::Tuple(elems) => {
+                let elem_tys = self.expr_ty(expr).and_then(|ty| {
+                    let ty = self.normalization.normalize(ty);
+                    match self.interner.get(ty).cloned() {
+                        Some(TyKind::Tuple(elems)) => Some(elems),
+                        _ => None,
+                    }
+                });
+                StaticInit::Tuple(
+                    elems
+                        .iter()
+                        .enumerate()
+                        .map(|(index, elem)| {
+                            elem_tys
+                                .as_ref()
+                                .and_then(|types| types.get(index).copied())
+                                .map(|ty| self.lower_static_init_with_target(elem, ty))
+                                .unwrap_or_else(|| self.lower_static_init(elem))
+                        })
+                        .collect(),
+                )
+            }
             ExprKind::TypedStructLiteral { fields, .. }
             | ExprKind::QualifiedStructLiteral { fields, .. } => {
                 // Static aggregate layout is always driven by the nominal type
@@ -594,6 +616,21 @@ impl<'a> BodyChecker<'a> {
                     values
                         .into_iter()
                         .map(|value| self.lower_static_const_value(value, elem))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            nia_const_check::ConstValue::Tuple(values) => {
+                let TyKind::Tuple(elems) = self.interner.get(ty).cloned()? else {
+                    return None;
+                };
+                if elems.len() != values.len() {
+                    return None;
+                }
+                Some(StaticInit::Tuple(
+                    values
+                        .into_iter()
+                        .zip(elems)
+                        .map(|(value, elem_ty)| self.lower_static_const_value(value, elem_ty))
                         .collect::<Option<Vec<_>>>()?,
                 ))
             }

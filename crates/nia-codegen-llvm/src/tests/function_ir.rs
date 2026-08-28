@@ -1432,6 +1432,61 @@ fn rejects_malformed_static_vector_lanes_before_llvm() {
 }
 
 #[test]
+fn rejects_malformed_static_tuple_elements_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let tuple_ty = interner.intern(TyKind::Tuple(vec![i32_ty, bool_ty]));
+    let global = BackendGlobal {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_tuple"),
+        link_name: None,
+        ty: tuple_ty,
+        is_let: true,
+        is_extern: false,
+        init: Some(StaticInit::Tuple(vec![StaticInit::Bool(true)])),
+        span: Span::default(),
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![(tuple_ty, TypeLayout { size: 8, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![global],
+        Vec::new(),
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "tuple static initializer has 1 elements"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "bool initializer target is not bool"
+    ));
+}
+
+#[test]
 fn validates_static_scalar_initializer_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

@@ -52,6 +52,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::Float(text) => self.static_float_init_value(ty, text, span),
             StaticInit::Char(value) => self.static_char_init_value_in(ty, *value, span),
             StaticInit::Array(elems) => self.static_array_init_value_in(ty, elems, span),
+            StaticInit::Tuple(elems) => self.static_tuple_init_value_in(ty, elems, span),
             StaticInit::Vector(lanes) => self.static_vector_init_value_in(ty, lanes, span),
             StaticInit::Repeat { value, count } => {
                 self.static_repeat_init_value_in(ty, value, *count, span)
@@ -278,6 +279,42 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map_err(Self::diagnostic_from_llvm_error)
     }
 
+    fn static_tuple_init_value_in(
+        &self,
+        ty: InternedTyId,
+        elems: &[StaticInit],
+        span: Span,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Tuple(expected)) = self.ty_kind(ty) else {
+            return Err(self.error(span, "tuple static initializer target is not tuple"));
+        };
+        if expected.len() != elems.len() {
+            return Err(self.error(
+                span,
+                "tuple static initializer element count does not match its type",
+            ));
+        }
+        let struct_ty = self.llvm_basic_type_in(ty, span)?.into_struct_type()?;
+        // LLVM type lowering canonicalizes every zero-sized value to `{}`.
+        // Preserve that physical representation instead of passing the tuple's
+        // logical positions to a struct with no fields.
+        if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
+            return struct_ty
+                .const_zero()
+                .map(Into::into)
+                .map_err(Self::diagnostic_from_llvm_error);
+        }
+        let values = expected
+            .iter()
+            .zip(elems)
+            .map(|(elem_ty, elem)| self.static_init_value_in(*elem_ty, elem, span))
+            .collect::<Result<Vec<_>, _>>()?;
+        struct_ty
+            .const_named_struct(&values)
+            .map(Into::into)
+            .map_err(Self::diagnostic_from_llvm_error)
+    }
+
     fn static_repeat_init_value_in(
         &self,
         ty: InternedTyId,
@@ -463,7 +500,7 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         }
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
-        StaticInit::Array(elems) | StaticInit::Vector(elems) => {
+        StaticInit::Array(elems) | StaticInit::Tuple(elems) | StaticInit::Vector(elems) => {
             elems.iter().all(is_zero_static_init)
         }
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),

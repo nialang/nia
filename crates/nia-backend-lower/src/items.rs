@@ -486,6 +486,22 @@ fn simplify_static_init(init: StaticInit) -> (StaticInit, bool) {
                 (StaticInit::Array(elems), changed)
             }
         }
+        StaticInit::Tuple(elems) => {
+            let mut changed = false;
+            let elems = elems
+                .into_iter()
+                .map(|elem| {
+                    let (elem, elem_changed) = simplify_static_init(elem);
+                    changed |= elem_changed;
+                    elem
+                })
+                .collect::<Vec<_>>();
+            if elems.iter().all(is_zero_static_init) {
+                (StaticInit::Zero, true)
+            } else {
+                (StaticInit::Tuple(elems), changed)
+            }
+        }
         StaticInit::Vector(elems) => {
             let mut changed = false;
             let elems = elems
@@ -567,7 +583,7 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Float(text) => is_zero_float_static_init(text),
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
-        StaticInit::Array(elems) | StaticInit::Vector(elems) => {
+        StaticInit::Array(elems) | StaticInit::Tuple(elems) | StaticInit::Vector(elems) => {
             elems.iter().all(is_zero_static_init)
         }
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
@@ -654,6 +670,23 @@ mod tests {
             simplify_static_init(StaticInit::Vector(vec![
                 StaticInit::Int(nia_ty::IntConst::unsigned(0)),
                 StaticInit::Int(nia_ty::IntConst::unsigned(0)),
+            ])),
+            (StaticInit::Zero, true)
+        );
+    }
+
+    #[test]
+    fn tuple_simplification_preserves_field_identity() {
+        let init = StaticInit::Tuple(vec![
+            StaticInit::Int(nia_ty::IntConst::unsigned(3)),
+            StaticInit::Int(nia_ty::IntConst::unsigned(3)),
+        ]);
+
+        assert_eq!(simplify_static_init(init.clone()), (init, false));
+        assert_eq!(
+            simplify_static_init(StaticInit::Tuple(vec![
+                StaticInit::Int(nia_ty::IntConst::unsigned(0)),
+                StaticInit::Bool(false),
             ])),
             (StaticInit::Zero, true)
         );
