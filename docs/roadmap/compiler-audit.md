@@ -3576,6 +3576,12 @@ acceptance item only when its phase-wide evidence is complete.
       extension instead of producing a false ambiguity. The owner regression
       proves the concrete candidate is selected; `nia-body-check` (272 tests),
       workspace check, and strict Clippy pass.
+- [x] Batch 592 closes const-call generic inference through array layout
+      operands. Const generic substitution now recurses through equivalent
+      `ArrayLenTy::Builtin` operands, allowing a `size[T]` parameter to infer
+      `T` from a typed `size[i32]` argument before the final substituted-type
+      validation. An owner regression covers operand-only evidence;
+      `nia-const-check` (41 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

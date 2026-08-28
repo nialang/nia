@@ -1165,6 +1165,26 @@ const RESULT: usize = inspect([1u8, 2u8, 3u8, 4u8], 1i32);
 }
 
 #[test]
+fn const_generic_inference_through_layout_builtin_operand() {
+    let fixture = check_source(
+        r#"
+const fn inspect[T](value: [u8; std::builtin::size[T]()]) usize {
+    let _unused = value;
+    7
+}
+
+const VALUE: [u8; std::builtin::size[i32]()] = [1u8, 2u8, 3u8, 4u8];
+const RESULT: usize = inspect(VALUE);
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn evaluates_nominal_scalar_union_return_literal() {
     let fixture = check_source(
         r#"
