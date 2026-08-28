@@ -3588,6 +3588,13 @@ acceptance item only when its phase-wide evidence is complete.
       equal nominal const representations do not produce false conflicts. The
       backend owner regression covers signed/unsigned const metadata;
       `nia-backend-lower` (119 tests), workspace check, and strict Clippy pass.
+- [x] Batch 594 closes monomorphization projection-guard equivalence for array
+      layout operands. Projection-key comparison now recursively compares
+      operand types for equivalent `ArrayLenTy::Builtin` values, preserving
+      deduplication when nominal const metadata has distinct but equal
+      representations. The owner regression covers signed/unsigned const
+      metadata; `nia-monomorphize` (14 tests), workspace check, and strict
+      Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
