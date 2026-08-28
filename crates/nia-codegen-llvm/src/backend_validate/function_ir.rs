@@ -2759,9 +2759,14 @@ impl BackendValidator<'_> {
                 );
                 self.validate_builtin_usize_result(result_ty, span);
             }
-            FunctionBuiltinValue::Int(_) => {
+            FunctionBuiltinValue::Int(value) => {
                 if !self.is_integer_type(result_ty) {
                     self.invalid_builtin_value(span, "integer constant result is not integer-like");
+                } else if !self.builtin_integer_fits(result_ty, *value) {
+                    self.invalid_builtin_value(
+                        span,
+                        "integer constant value is outside its result type",
+                    );
                 }
             }
         }
@@ -2773,6 +2778,39 @@ impl BackendValidator<'_> {
             Some(TyKind::Primitive(PrimitiveTy::Usize))
         ) {
             self.invalid_builtin_value(span, "result type is not usize");
+        }
+    }
+
+    fn builtin_integer_fits(&self, ty: nia_ids::InternedTyId, value: nia_ty::IntConst) -> bool {
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
+            return false;
+        };
+        let pointer_width = self
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+            .unwrap_or(0);
+        match *primitive {
+            PrimitiveTy::Bool => !value.is_signed() && matches!(value.bits(), 0 | 1),
+            PrimitiveTy::Char => {
+                !value.is_signed()
+                    && u32::try_from(value.bits())
+                        .ok()
+                        .and_then(char::from_u32)
+                        .is_some()
+            }
+            primitive if primitive.is_integer() => {
+                value.fits_primitive_int(primitive, pointer_width)
+                    || (value.is_signed()
+                        && primitive.is_signed_integer()
+                        && primitive.integer_bits(pointer_width).is_some_and(|bits| {
+                            bits < u128::BITS
+                                && value.bits() < (1_u128 << bits)
+                                && value.bits() >= (1_u128 << (bits - 1))
+                        }))
+            }
+            _ => false,
         }
     }
 

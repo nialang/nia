@@ -4641,6 +4641,13 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         }),
         FunctionOp::Expr(FunctionExpr {
             span,
+            ty: bool_ty,
+            kind: FunctionExprKind::BuiltinValue(nia_function_ir::FunctionBuiltinValue::Int(
+                nia_ty::IntConst::unsigned(2),
+            )),
+        }),
+        FunctionOp::Expr(FunctionExpr {
+            span,
             ty: i32_ty,
             kind: FunctionExprKind::StaticArrayPointer {
                 allocation: nia_function_ir::PromotedAllocationId::new(module_id, span),
@@ -4771,6 +4778,7 @@ fn validates_tagged_union_expression_contracts_before_llvm() {
         "builtin value has an invalid contract: result type is not usize",
         "field base type is not nominal",
         "integer constant result is not integer-like",
+        "integer constant value is outside its result type",
         "static array pointer has an invalid contract: result type is not a pointer",
         "result pointer element does not match the promoted array",
         "readonly metadata does not match its result",

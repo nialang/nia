@@ -3909,6 +3909,11 @@ acceptance item only when its phase-wide evidence is complete.
       Function-item address expressions now require the result pointer's full
       function signature to match the referenced item, preventing opaque LLVM
       pointers from hiding incompatible function-pointer metadata.
+- [x] Batch 647 closes the backend builtin-integer range boundary. Function
+      builtin integer values now validate signedness, primitive width,
+      Unicode scalar validity, and target pointer width before LLVM constant
+      construction; an out-of-range `bool` value has a focused backend
+      regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
