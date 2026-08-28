@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-26):
+Current snapshot (2026-08-28):
 
-- Implementation batches: 522 completed entries in this ledger.
+- Implementation batches: 599 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3626,6 +3626,14 @@ acceptance item only when its phase-wide evidence is complete.
       handles and a deliberately mismatched parameter ABI;
       `nia-codegen-llvm` (313 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
+- [x] Batch 599 closes backend semantic matching for trait-object pointee
+      identities. `ModuleLowerer::types_match` now compares the trait identity,
+      recursively matched type and const arguments, and unordered associated
+      type bindings instead of treating rebuilt `TraitObjectPointee` handles as
+      unequal leaves. The owner regression verifies dispatch across all three
+      structural payload classes and mismatch short-circuiting;
+      `nia-backend-lower` (121 tests), workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

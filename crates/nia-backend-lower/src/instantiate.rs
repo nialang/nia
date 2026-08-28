@@ -59,6 +59,43 @@ fn same_array_len_with(
     }
 }
 
+struct TraitObjectPointeeMatch<'a> {
+    trait_id: TraitId,
+    args: &'a [InternedTyId],
+    const_args: &'a [nia_ty::ConstGenericArg],
+    bindings: &'a [nia_ty::AssociatedTypeBindingTy],
+}
+
+// Keep all pointee payload classes in one dispatch so semantic callers cannot
+// accidentally compare only the visible trait arguments.
+fn same_trait_object_pointee_with<Context>(
+    context: &mut Context,
+    left: TraitObjectPointeeMatch<'_>,
+    right: TraitObjectPointeeMatch<'_>,
+    same_type: impl Fn(&mut Context, InternedTyId, InternedTyId) -> bool,
+    same_const_args: impl Fn(
+        &mut Context,
+        &[nia_ty::ConstGenericArg],
+        &[nia_ty::ConstGenericArg],
+    ) -> bool,
+    same_bindings: impl Fn(
+        &mut Context,
+        &[nia_ty::AssociatedTypeBindingTy],
+        &[nia_ty::AssociatedTypeBindingTy],
+    ) -> bool,
+) -> bool {
+    left.trait_id == right.trait_id
+        && left.args.len() == right.args.len()
+        && same_const_args(context, left.const_args, right.const_args)
+        && left.bindings.len() == right.bindings.len()
+        && left
+            .args
+            .iter()
+            .zip(right.args)
+            .all(|(left, right)| same_type(context, *left, *right))
+        && same_bindings(context, left.bindings, right.bindings)
+}
+
 fn classify_effective_generic_names(
     generics: &[SymbolId],
     const_generics: &[SymbolId],
@@ -2383,6 +2420,37 @@ impl<'a> ModuleLowerer<'a> {
                     && self.associated_type_bindings_match(&left_bindings, &right_bindings)
             }
             (
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    trait_const_args: left_const_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    trait_const_args: right_const_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => same_trait_object_pointee_with(
+                self,
+                TraitObjectPointeeMatch {
+                    trait_id: left_trait,
+                    args: &left_args,
+                    const_args: &left_const_args,
+                    bindings: &left_bindings,
+                },
+                TraitObjectPointeeMatch {
+                    trait_id: right_trait,
+                    args: &right_args,
+                    const_args: &right_const_args,
+                    bindings: &right_bindings,
+                },
+                |lowerer, left, right| lowerer.types_match(left, right),
+                |lowerer, left, right| lowerer.const_generic_args_match_semantic(left, right),
+                |lowerer, left, right| lowerer.associated_type_bindings_match(left, right),
+            ),
+            (
                 Some(TyKind::Range {
                     kind: left_kind,
                     bound: left_bound,
@@ -2560,8 +2628,10 @@ impl<'a> ModuleLowerer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::same_array_len_with;
-    use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TypeStore};
+    use super::{TraitObjectPointeeMatch, same_array_len_with, same_trait_object_pointee_with};
+    use nia_ty::{
+        ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, TypeStore,
+    };
 
     #[test]
     fn array_length_matching_recurses_through_builtin_operands() {
@@ -2597,6 +2667,97 @@ mod tests {
             &ArrayLenTy::ConstValue(4),
             &ArrayLenTy::ConstValue(4),
             &mut |_, _| panic!("non-builtin lengths must use exact equality")
+        ));
+    }
+
+    #[test]
+    fn trait_object_pointee_matching_dispatches_all_structural_components() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let left_ty = append.primitive(PrimitiveTy::I32);
+        let right_ty = append.primitive(PrimitiveTy::I64);
+        let const_ty = append.primitive(PrimitiveTy::Usize);
+        let trait_id = nia_ids::TraitId::Source(nia_ids::GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(1),
+        });
+        let left_const = ConstGenericArg {
+            ty: const_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::signed_bits(7)),
+        };
+        let right_const = ConstGenericArg {
+            ty: const_ty,
+            value: ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
+        };
+        let left_args = [left_ty];
+        let right_args = [right_ty];
+        let left_consts = [left_const];
+        let right_consts = [right_const];
+        let left_bindings = [nia_ty::AssociatedTypeBindingTy {
+            trait_id: Some(trait_id),
+            trait_args: vec![left_ty],
+            trait_const_args: left_consts.to_vec(),
+            name: nia_symbol::SymbolId::EMPTY,
+            ty: left_ty,
+        }];
+        let right_bindings = [nia_ty::AssociatedTypeBindingTy {
+            trait_id: Some(trait_id),
+            trait_args: vec![right_ty],
+            trait_const_args: right_consts.to_vec(),
+            name: nia_symbol::SymbolId::EMPTY,
+            ty: right_ty,
+        }];
+        let mut calls = [0_u8; 3];
+
+        assert!(same_trait_object_pointee_with(
+            &mut calls,
+            TraitObjectPointeeMatch {
+                trait_id,
+                args: &left_args,
+                const_args: &left_consts,
+                bindings: &left_bindings,
+            },
+            TraitObjectPointeeMatch {
+                trait_id,
+                args: &right_args,
+                const_args: &right_consts,
+                bindings: &right_bindings,
+            },
+            |calls, left, right| {
+                calls[0] += 1;
+                left == left_ty && right == right_ty
+            },
+            |calls, left, right| {
+                calls[1] += 1;
+                left[0].value != right[0].value
+            },
+            |calls, left, right| {
+                calls[2] += 1;
+                left[0].ty == left_ty && right[0].ty == right_ty
+            },
+        ));
+        assert_eq!(calls, [1, 1, 1]);
+
+        let other_trait = nia_ids::TraitId::Builtin(nia_ids::BuiltinTrait::Sized);
+        assert!(!same_trait_object_pointee_with(
+            &mut (),
+            TraitObjectPointeeMatch {
+                trait_id,
+                args: &left_args,
+                const_args: &left_consts,
+                bindings: &left_bindings,
+            },
+            TraitObjectPointeeMatch {
+                trait_id: other_trait,
+                args: &right_args,
+                const_args: &right_consts,
+                bindings: &right_bindings,
+            },
+            |_, _, _| panic!("trait mismatch must not compare type arguments"),
+            |_, _, _| panic!("trait mismatch must not compare const arguments"),
+            |_, _, _| panic!("trait mismatch must not compare associated bindings"),
         ));
     }
 }
