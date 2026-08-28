@@ -3790,6 +3790,11 @@ acceptance item only when its phase-wide evidence is complete.
       while repeated values cannot hide a missing sibling; `nia-backend-lower`
       (124 tests), workspace check, strict Clippy, formatting, and diff checks
       pass.
+- [x] Batch 622 closes ProgramIndex array-length equivalence across rebuilt
+      const-expression handles. Evaluated `ConstExpr` values now match
+      equivalent `ConstValue` and foreign expressions through backend module
+      const facts, while unresolved expressions retain identity-only behavior;
+      the owner regression covers both positive and negative cases.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

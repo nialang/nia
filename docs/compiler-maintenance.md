@@ -876,6 +876,11 @@ signals, not architecture goals.
   iteration APIs must use the same complete-key relation. Matching only one
   erased type or trusting raw key equality can select the wrong owner or report
   a missing dispatch table.
+- ProgramIndex array-length equivalence must resolve evaluated `ConstExpr`
+  handles through their owning backend modules. A const expression from a
+  rebuilt or foreign module can be equivalent to a `ConstValue`, or to another
+  expression with the same evaluated length; raw expression-id equality is only
+  an exact fast path when no evaluation facts are available.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

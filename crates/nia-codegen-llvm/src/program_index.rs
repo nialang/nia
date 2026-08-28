@@ -108,6 +108,7 @@ pub(super) struct BackendLayoutInstance<'a> {
 
 struct ProgramTypeEquivalence<'a> {
     type_store: &'a TypeStore,
+    modules: &'a BackendModuleStore,
 }
 
 impl TypeEquivalence for ProgramTypeEquivalence<'_> {
@@ -127,6 +128,25 @@ impl TypeEquivalence for ProgramTypeEquivalence<'_> {
                     ty: right_ty,
                 },
             ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
+            | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
+                .modules
+                .get(right.module_id)
+                .and_then(|module| module.const_eval.array_lengths.get(right))
+                .is_some_and(|right| left == right),
+            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
+                left == right
+                    || self
+                        .modules
+                        .get(left.module_id)
+                        .and_then(|module| module.const_eval.array_lengths.get(left))
+                        .zip(
+                            self.modules
+                                .get(right.module_id)
+                                .and_then(|module| module.const_eval.array_lengths.get(right)),
+                        )
+                        .is_some_and(|(left, right)| left == right)
+            }
             _ => left == right,
         }
     }
@@ -673,6 +693,7 @@ impl ProgramIndex {
                             .key;
                         let equivalence = ProgramTypeEquivalence {
                             type_store: &self.type_store,
+                            modules: &self.modules,
                         };
                         equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
                             && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty)
@@ -695,6 +716,7 @@ impl ProgramIndex {
     ) -> bool {
         let equivalence = ProgramTypeEquivalence {
             type_store: &self.type_store,
+            modules: &self.modules,
         };
         equivalence.same_type_args_for_equiv(left_args, right_args)
             && equivalence.same_const_generic_args_for_equiv(left_const_args, right_const_args)
@@ -731,6 +753,7 @@ impl ProgramIndex {
                 .find(|(candidate, _)| {
                     let equivalence = ProgramTypeEquivalence {
                         type_store: &self.type_store,
+                        modules: &self.modules,
                     };
                     equivalence.same_type_for_equiv(ty, **candidate)
                 })
@@ -1132,6 +1155,7 @@ impl ProgramIndex {
             } else {
                 let equivalence = ProgramTypeEquivalence {
                     type_store: &self.type_store,
+                    modules: &self.modules,
                 };
                 tables
                     .trait_object_vtables_by_object_ty
@@ -1167,6 +1191,7 @@ impl ProgramIndex {
                             .key;
                         let equivalence = ProgramTypeEquivalence {
                             type_store: &self.type_store,
+                            modules: &self.modules,
                         };
                         equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
                             && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty)
@@ -1913,6 +1938,76 @@ mod tests {
                 is_readonly: true,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn type_equivalence_matches_evaluated_array_lengths_across_expression_owners() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let left_module = module_ids.allocate();
+        let right_module = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let left_expr = nia_ids::GlobalConstExprId {
+            module_id: left_module,
+            const_expr_id: nia_ids::ConstExprId(1),
+        };
+        let right_expr = nia_ids::GlobalConstExprId {
+            module_id: right_module,
+            const_expr_id: nia_ids::ConstExprId(2),
+        };
+        let left_module_data = BackendModule {
+            id: left_module,
+            source_identity: nia_source::SourceIdentity::new("left"),
+            name: "left".to_string(),
+            const_eval: BackendConstFacts {
+                array_lengths: [(left_expr, 4)].into_iter().collect(),
+            },
+            ..enum_module(
+                left_module,
+                {
+                    let interner = type_store.append_for_module(left_module);
+                    interner.primitive(PrimitiveTy::U8)
+                },
+                global(left_module, 1),
+                "left",
+            )
+        };
+        let right_module_data = BackendModule {
+            id: right_module,
+            source_identity: nia_source::SourceIdentity::new("right"),
+            name: "right".to_string(),
+            const_eval: BackendConstFacts {
+                array_lengths: [(right_expr, 4)].into_iter().collect(),
+            },
+            ..enum_module(
+                right_module,
+                {
+                    let interner = type_store.append_for_module(right_module);
+                    interner.primitive(PrimitiveTy::U8)
+                },
+                global(right_module, 1),
+                "right",
+            )
+        };
+        let modules = BackendModuleStore::new([left_module, right_module]);
+        modules.publish(left_module_data);
+        modules.publish(right_module_data);
+        let equivalence = ProgramTypeEquivalence {
+            type_store: &type_store,
+            modules: &modules,
+        };
+
+        assert!(equivalence.same_array_len_for_equiv(
+            &ArrayLenTy::ConstValue(4),
+            &ArrayLenTy::ConstExpr(left_expr),
+        ));
+        assert!(equivalence.same_array_len_for_equiv(
+            &ArrayLenTy::ConstExpr(left_expr),
+            &ArrayLenTy::ConstExpr(right_expr),
+        ));
+        assert!(!equivalence.same_array_len_for_equiv(
+            &ArrayLenTy::ConstValue(5),
+            &ArrayLenTy::ConstExpr(left_expr),
         ));
     }
 
