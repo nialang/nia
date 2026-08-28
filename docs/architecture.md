@@ -290,11 +290,13 @@ Nia-owned optimization consumers:
   emission. This is compiler-throughput infrastructure rather than a generated
   code optimization: repeated module, item, function-instance, vtable, and
   layout lookups should use the index instead of rescanning backend modules on
-  each query. Exact instance-layout keys are indexed as a fast path, enum
-  variants are indexed with their owning enum and ordinal for emission, trait
-  object vtables are indexed both by exact object type and by object trait for
-  bounded semantic-equivalence fallback, and type-layout lookup is served directly
-  from the index. Module codegen also memoizes trait-object vtable global
+  each query. Exact instance, aggregate-layout, and type-layout keys are
+  indexed as fast paths; struct, union, function, and global instance accessors
+  retain definition-grouped semantic fallback for rebuilt handles. Enum
+  variants are indexed with their owning enum and ordinal for emission, and
+  trait-object vtables are indexed both by exact object type and by object trait
+  for bounded semantic-equivalence fallback. Module codegen also memoizes
+  trait-object vtable global
   lookup results after the exact key fast path, so repeated coercions avoid
   rescanning declared vtables. Structural type-argument matching is retained for
   types whose const expressions normalize to the same value, and module codegen
