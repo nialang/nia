@@ -524,7 +524,10 @@ fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
                     .push(GreenElement::Token(green_token));
             }
             None if let Some(close) = delimiter_close(green_token.kind())
-                && stack.len() > 1 =>
+                && stack.len() > 1
+                && stack
+                    .last()
+                    .is_some_and(|node| delimiter_matches(&node.kind, &close)) =>
             {
                 let mut node = stack.pop().expect("delimiter node");
                 if let SyntaxKind::Delimited {
@@ -608,6 +611,31 @@ fn delimiter_close(kind: &SyntaxKind) -> Option<TokenKind> {
         | SyntaxKind::Token(TokenKind::RBracket) => token_kind(kind),
         _ => None,
     }
+}
+
+fn delimiter_matches(kind: &SyntaxKind, close: &TokenKind) -> bool {
+    matches!(
+        (kind, close),
+        (
+            SyntaxKind::Delimited {
+                open: TokenKind::LParen,
+                ..
+            },
+            &TokenKind::RParen
+        ) | (
+            SyntaxKind::Delimited {
+                open: TokenKind::LBrace,
+                ..
+            },
+            &TokenKind::RBrace
+        ) | (
+            SyntaxKind::Delimited {
+                open: TokenKind::LBracket,
+                ..
+            },
+            &TokenKind::RBracket
+        )
+    )
 }
 
 fn token_kind(kind: &SyntaxKind) -> Option<TokenKind> {
@@ -993,6 +1021,40 @@ mod tests {
                 Some(NodePosition::ChildPath(path)) if !path.steps().is_empty()
             )
         }));
+    }
+
+    #[test]
+    fn mismatched_closers_do_not_close_the_wrong_delimiter() {
+        let tree = parse_source("([)]", None);
+        let root_children = tree.green_root().children();
+        let Some(GreenElement::Node(paren)) = root_children.first() else {
+            panic!("expected unmatched parenthesis node");
+        };
+        assert!(matches!(
+            paren.kind(),
+            SyntaxKind::Delimited {
+                open: TokenKind::LParen,
+                close: None
+            }
+        ));
+        let Some(GreenElement::Node(bracket)) = paren.children().get(1) else {
+            panic!("expected nested bracket node");
+        };
+        assert!(matches!(
+            bracket.kind(),
+            SyntaxKind::Delimited {
+                open: TokenKind::LBracket,
+                close: Some(TokenKind::RBracket)
+            }
+        ));
+        assert!(bracket.children().iter().any(|child| {
+            matches!(
+                child,
+                GreenElement::Token(token)
+                    if matches!(token.kind(), SyntaxKind::Token(TokenKind::RParen))
+            )
+        }));
+        assert_eq!(tree.full_text(), "([)]");
     }
 
     #[test]
