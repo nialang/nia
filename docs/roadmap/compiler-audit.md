@@ -3762,6 +3762,13 @@ acceptance item only when its phase-wide evidence is complete.
       cross-interner vtable regression covers all three APIs;
       `nia-codegen-llvm` (314 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
+- [x] Batch 618 closes body-check associated-binding inference reuse. Generic
+      type and const inference now assigns pattern and actual bindings through
+      a backtracking bijection, preserving per-candidate substitutions until a
+      complete permutation succeeds. A trait-object regression proves a
+      generic binding yields an earlier candidate so a later concrete binding
+      can use it; `nia-body-check` (276 tests), workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

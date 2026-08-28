@@ -1359,6 +1359,149 @@ impl<'a> BodyChecker<'a> {
         true
     }
 
+    /// Matches all associated bindings as one transaction.
+    ///
+    /// A binding key is not necessarily unique: trait arguments and the
+    /// associated value can distinguish otherwise identical names. Matching
+    /// each pattern with `find` is therefore order-dependent and may consume
+    /// the only candidate needed by a later pattern. The recursive search
+    /// keeps actual bindings distinct and publishes substitutions only after
+    /// a complete assignment succeeds.
+    fn infer_associated_type_bindings(
+        &mut self,
+        patterns: &[AssociatedTypeBindingTy],
+        actuals: &[AssociatedTypeBindingTy],
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> Option<Vec<usize>> {
+        if patterns.len() != actuals.len() {
+            return None;
+        }
+        let mut used = vec![false; actuals.len()];
+        let mut matched = vec![0; patterns.len()];
+        let mut candidate = substitutions.clone();
+        if self.infer_associated_type_bindings_inner(
+            patterns,
+            actuals,
+            0,
+            &mut used,
+            &mut matched,
+            &mut candidate,
+        ) {
+            *substitutions = candidate;
+            Some(matched)
+        } else {
+            None
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn infer_associated_type_bindings_inner(
+        &mut self,
+        patterns: &[AssociatedTypeBindingTy],
+        actuals: &[AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+        matched: &mut [usize],
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index] {
+                continue;
+            }
+            let mut candidate = substitutions.clone();
+            if !self.try_infer_associated_type_binding(pattern, actual, &mut candidate) {
+                continue;
+            }
+            used[actual_index] = true;
+            matched[pattern_index] = actual_index;
+            let success = self.infer_associated_type_bindings_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+                matched,
+                &mut candidate,
+            );
+            used[actual_index] = false;
+            if success {
+                *substitutions = candidate;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Const-generic counterpart of [`Self::infer_associated_type_bindings`].
+    fn infer_associated_const_bindings(
+        &mut self,
+        patterns: &[AssociatedTypeBindingTy],
+        actuals: &[AssociatedTypeBindingTy],
+        substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> Option<Vec<usize>> {
+        if patterns.len() != actuals.len() {
+            return None;
+        }
+        let mut used = vec![false; actuals.len()];
+        let mut matched = vec![0; patterns.len()];
+        let mut candidate = substitutions.clone();
+        if self.infer_associated_const_bindings_inner(
+            patterns,
+            actuals,
+            0,
+            &mut used,
+            &mut matched,
+            &mut candidate,
+        ) {
+            *substitutions = candidate;
+            Some(matched)
+        } else {
+            None
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn infer_associated_const_bindings_inner(
+        &mut self,
+        patterns: &[AssociatedTypeBindingTy],
+        actuals: &[AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+        matched: &mut [usize],
+        substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index] {
+                continue;
+            }
+            let mut candidate = substitutions.clone();
+            if !self.try_infer_associated_const_binding(pattern, actual, &mut candidate) {
+                continue;
+            }
+            used[actual_index] = true;
+            matched[pattern_index] = actual_index;
+            let success = self.infer_associated_const_bindings_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+                matched,
+                &mut candidate,
+            );
+            used[actual_index] = false;
+            if success {
+                *substitutions = candidate;
+                return true;
+            }
+        }
+        false
+    }
+
     pub(crate) fn materialize_inferred_type(
         &mut self,
         inferred: &crate::inference::InferredType,
@@ -2211,16 +2354,14 @@ impl<'a> BodyChecker<'a> {
                     {
                         self.infer_generics_from_type(pattern.ty, actual.ty, substitutions, span);
                     }
-                    for pattern_binding in pattern_bindings {
-                        if let Some(actual_binding) =
-                            actual_bindings.iter().find(|actual_binding| {
-                                self.try_infer_associated_type_binding(
-                                    &pattern_binding,
-                                    actual_binding,
-                                    substitutions,
-                                )
-                            })
+                    if let Some(matches) = self.infer_associated_type_bindings(
+                        &pattern_bindings,
+                        &actual_bindings,
+                        substitutions,
+                    ) {
+                        for (pattern_binding, actual_index) in pattern_bindings.iter().zip(matches)
                         {
+                            let actual_binding = &actual_bindings[actual_index];
                             for (pattern, actual) in pattern_binding
                                 .trait_args
                                 .iter()
@@ -2280,16 +2421,14 @@ impl<'a> BodyChecker<'a> {
                     {
                         self.infer_generics_from_type(pattern.ty, actual.ty, substitutions, span);
                     }
-                    for pattern_binding in pattern_bindings {
-                        if let Some(actual_binding) =
-                            actual_bindings.iter().find(|actual_binding| {
-                                self.try_infer_associated_type_binding(
-                                    &pattern_binding,
-                                    actual_binding,
-                                    substitutions,
-                                )
-                            })
+                    if let Some(matches) = self.infer_associated_type_bindings(
+                        &pattern_bindings,
+                        &actual_bindings,
+                        substitutions,
+                    ) {
+                        for (pattern_binding, actual_index) in pattern_bindings.iter().zip(matches)
                         {
+                            let actual_binding = &actual_bindings[actual_index];
                             for (pattern, actual) in pattern_binding
                                 .trait_args
                                 .iter()
@@ -2618,10 +2757,13 @@ impl<'a> BodyChecker<'a> {
                 for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args) {
                     self.infer_const_generic_from_arg(pattern, actual, substitutions, span);
                 }
-                for pattern in pattern_bindings {
-                    if let Some(actual) = actual_bindings.iter().find(|actual| {
-                        self.try_infer_associated_const_binding(&pattern, actual, substitutions)
-                    }) {
+                if let Some(matches) = self.infer_associated_const_bindings(
+                    &pattern_bindings,
+                    &actual_bindings,
+                    substitutions,
+                ) {
+                    for (pattern, actual_index) in pattern_bindings.iter().zip(matches) {
+                        let actual = &actual_bindings[actual_index];
                         for (pattern_arg, actual_arg) in
                             pattern.trait_args.iter().zip(actual.trait_args.iter())
                         {
@@ -2677,10 +2819,13 @@ impl<'a> BodyChecker<'a> {
                 for (pattern, actual) in pattern_const_args.iter().zip(actual_const_args) {
                     self.infer_const_generic_from_arg(pattern, actual, substitutions, span);
                 }
-                for pattern in pattern_bindings {
-                    if let Some(actual) = actual_bindings.iter().find(|actual| {
-                        self.try_infer_associated_const_binding(&pattern, actual, substitutions)
-                    }) {
+                if let Some(matches) = self.infer_associated_const_bindings(
+                    &pattern_bindings,
+                    &actual_bindings,
+                    substitutions,
+                ) {
+                    for (pattern, actual_index) in pattern_bindings.iter().zip(matches) {
+                        let actual = &actual_bindings[actual_index];
                         for (pattern_arg, actual_arg) in
                             pattern.trait_args.iter().zip(actual.trait_args.iter())
                         {

@@ -620,6 +620,53 @@ fn main(value: &Child[
 }
 
 #[test]
+fn associated_binding_inference_does_not_reuse_candidates() {
+    let checked = pipeline(
+        r#"
+trait Slot[T] {
+    type Item;
+}
+
+trait Both : Slot[i32] + Slot[bool] {}
+
+struct Store {}
+
+extend Store : Slot[i32] {
+    type Item = bool;
+}
+
+extend Store : Slot[bool] {
+    type Item = bool;
+}
+
+extend Store : Both {}
+
+fn inspect[T](value: &Both[
+    [Self as Slot[T]]::Item = bool,
+    [Self as Slot[i32]]::Item = bool,
+]) usize {
+    _ = value;
+    7
+}
+
+fn main() usize {
+    let store = Store {};
+    let value: &Both[
+        [Self as Slot[i32]]::Item = bool,
+        [Self as Slot[bool]]::Item = bool,
+    ] = &store;
+    inspect(value)
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.is_empty(),
+        "inference must backtrack to a distinct associated binding candidate: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn infers_const_generic_lengths_through_tuple_arguments() {
     let checked = pipeline(
         r#"
