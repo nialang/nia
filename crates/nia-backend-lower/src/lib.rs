@@ -768,6 +768,7 @@ fn assign_unique_aggregate_instance_owners(
     // Generic instances may be discovered from several modules. Equal definitions are assigned
     // to the lexicographically earliest normalized source path, giving stable ownership without
     // depending on traversal or worker completion order.
+    let array_lengths = backend_array_lengths(modules);
     let mut struct_owners = Vec::<(BackendStructInstanceKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (item_index, item) in module.struct_instances.iter().enumerate() {
@@ -777,7 +778,7 @@ fn assign_unique_aggregate_instance_owners(
                 const_args: item.const_args.clone(),
             };
             let Some(owner_position) = struct_owners.iter().position(|(candidate, _)| {
-                backend_struct_instance_keys_match(type_store, candidate, &key)
+                backend_struct_instance_keys_match(type_store, &array_lengths, candidate, &key)
             }) else {
                 struct_owners.push((key, (module_index, item_index)));
                 continue;
@@ -786,7 +787,7 @@ fn assign_unique_aggregate_instance_owners(
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.struct_instances[owner_item_index];
             assert!(
-                backend_struct_instance_payloads_match(type_store, owner, item),
+                backend_struct_instance_payloads_match(type_store, &array_lengths, owner, item),
                 "Nia ICE: backend struct instance has conflicting definitions in modules {:?} and {:?}",
                 owner_module.id,
                 module.id
@@ -814,7 +815,12 @@ fn assign_unique_aggregate_instance_owners(
                     .any(|(candidate, (owner_module, owner_index))| {
                         *owner_module == module_index
                             && *owner_index == item_index
-                            && backend_struct_instance_keys_match(type_store, candidate, &key)
+                            && backend_struct_instance_keys_match(
+                                type_store,
+                                &array_lengths,
+                                candidate,
+                                &key,
+                            )
                     })
                     .then_some(item)
             })
@@ -830,7 +836,7 @@ fn assign_unique_aggregate_instance_owners(
                 const_args: item.const_args.clone(),
             };
             let Some(owner_position) = union_owners.iter().position(|(candidate, _)| {
-                backend_struct_instance_keys_match(type_store, candidate, &key)
+                backend_struct_instance_keys_match(type_store, &array_lengths, candidate, &key)
             }) else {
                 union_owners.push((key, (module_index, item_index)));
                 continue;
@@ -839,7 +845,7 @@ fn assign_unique_aggregate_instance_owners(
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.union_instances[owner_item_index];
             assert!(
-                backend_union_instance_payloads_match(type_store, owner, item),
+                backend_union_instance_payloads_match(type_store, &array_lengths, owner, item),
                 "Nia ICE: backend union instance has conflicting definitions in modules {:?} and {:?}",
                 owner_module.id,
                 module.id
@@ -867,7 +873,12 @@ fn assign_unique_aggregate_instance_owners(
                     .any(|(candidate, (owner_module, owner_index))| {
                         *owner_module == module_index
                             && *owner_index == item_index
-                            && backend_struct_instance_keys_match(type_store, candidate, &key)
+                            && backend_struct_instance_keys_match(
+                                type_store,
+                                &array_lengths,
+                                candidate,
+                                &key,
+                            )
                     })
                     .then_some(item)
             })
@@ -875,12 +886,29 @@ fn assign_unique_aggregate_instance_owners(
     }
 }
 
+fn backend_array_lengths(modules: &[BackendModule]) -> HashMap<GlobalConstExprId, u64> {
+    modules
+        .iter()
+        .flat_map(|module| {
+            module
+                .const_eval
+                .array_lengths
+                .iter()
+                .map(|(id, value)| (*id, *value))
+        })
+        .collect()
+}
+
 fn backend_struct_instance_keys_match(
     type_store: &nia_ty::TypeStore,
+    array_lengths: &HashMap<GlobalConstExprId, u64>,
     left: &BackendStructInstanceKey,
     right: &BackendStructInstanceKey,
 ) -> bool {
-    let equivalence = BackendVtableTypeEquivalence { type_store };
+    let equivalence = BackendVtableTypeEquivalence {
+        type_store,
+        array_lengths,
+    };
     left.def_id == right.def_id
         && equivalence.same_type_args_for_equiv(&left.args, &right.args)
         && equivalence.same_const_generic_args_for_equiv(&left.const_args, &right.const_args)
@@ -888,10 +916,14 @@ fn backend_struct_instance_keys_match(
 
 fn backend_fields_match(
     type_store: &nia_ty::TypeStore,
+    array_lengths: &HashMap<GlobalConstExprId, u64>,
     left: &[nia_backend_ir::BackendField],
     right: &[nia_backend_ir::BackendField],
 ) -> bool {
-    let equivalence = BackendVtableTypeEquivalence { type_store };
+    let equivalence = BackendVtableTypeEquivalence {
+        type_store,
+        array_lengths,
+    };
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
             left.def_id == right.def_id
@@ -902,6 +934,7 @@ fn backend_fields_match(
 
 fn backend_struct_instance_payloads_match(
     type_store: &nia_ty::TypeStore,
+    array_lengths: &HashMap<GlobalConstExprId, u64>,
     left: &BackendStructInstance,
     right: &BackendStructInstance,
 ) -> bool {
@@ -911,6 +944,7 @@ fn backend_struct_instance_payloads_match(
         && left.is_extern == right.is_extern
         && backend_struct_instance_keys_match(
             type_store,
+            array_lengths,
             &BackendStructInstanceKey {
                 def_id: left.def_id,
                 args: left.args.clone(),
@@ -922,11 +956,12 @@ fn backend_struct_instance_payloads_match(
                 const_args: right.const_args.clone(),
             },
         )
-        && backend_fields_match(type_store, &left.fields, &right.fields)
+        && backend_fields_match(type_store, array_lengths, &left.fields, &right.fields)
 }
 
 fn backend_union_instance_payloads_match(
     type_store: &nia_ty::TypeStore,
+    array_lengths: &HashMap<GlobalConstExprId, u64>,
     left: &BackendUnionInstance,
     right: &BackendUnionInstance,
 ) -> bool {
@@ -936,6 +971,7 @@ fn backend_union_instance_payloads_match(
         && left.is_extern == right.is_extern
         && backend_struct_instance_keys_match(
             type_store,
+            array_lengths,
             &BackendStructInstanceKey {
                 def_id: left.def_id,
                 args: left.args.clone(),
@@ -947,11 +983,12 @@ fn backend_union_instance_payloads_match(
                 const_args: right.const_args.clone(),
             },
         )
-        && backend_fields_match(type_store, &left.fields, &right.fields)
+        && backend_fields_match(type_store, array_lengths, &left.fields, &right.fields)
 }
 
 struct BackendVtableTypeEquivalence<'a> {
     type_store: &'a nia_ty::TypeStore,
+    array_lengths: &'a HashMap<GlobalConstExprId, u64>,
 }
 
 impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
@@ -975,6 +1012,19 @@ impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
                     ty: right_ty,
                 },
             ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            (nia_ty::ArrayLenTy::ConstValue(left), nia_ty::ArrayLenTy::ConstExpr(right))
+            | (nia_ty::ArrayLenTy::ConstExpr(right), nia_ty::ArrayLenTy::ConstValue(left)) => self
+                .array_lengths
+                .get(right)
+                .is_some_and(|right| left == right),
+            (nia_ty::ArrayLenTy::ConstExpr(left), nia_ty::ArrayLenTy::ConstExpr(right)) => {
+                left == right
+                    || self
+                        .array_lengths
+                        .get(left)
+                        .zip(self.array_lengths.get(right))
+                        .is_some_and(|(left, right)| left == right)
+            }
             _ => left == right,
         }
     }
@@ -1005,13 +1055,13 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
     // Vtable keys carry complete type payloads. Match them through the same
     // structural equivalence used for payload validation so semantically equal
     // rebuilt const representations share one owner.
+    let array_lengths = backend_array_lengths(modules);
     let mut owners = Vec::<(BackendTraitObjectVtableKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
-            let Some(owner_position) = owners
-                .iter()
-                .position(|(key, _)| backend_vtable_keys_match(type_store, key, &vtable.key))
-            else {
+            let Some(owner_position) = owners.iter().position(|(key, _)| {
+                backend_vtable_keys_match(type_store, &array_lengths, key, &vtable.key)
+            }) else {
                 owners.push((vtable.key.clone(), (module_index, vtable_index)));
                 continue;
             };
@@ -1019,7 +1069,7 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.trait_object_vtables[owner_vtable_index];
             assert!(
-                backend_vtable_payloads_match(type_store, owner, vtable),
+                backend_vtable_payloads_match(type_store, &array_lengths, owner, vtable),
                 "Nia ICE: trait-object vtable {:?} has conflicting definitions in modules {:?} and {:?}: owner={owner:?}, duplicate={vtable:?}",
                 vtable.key,
                 owner_module.id,
@@ -1043,7 +1093,12 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
                     .any(|(key, (owner_module, owner_index))| {
                         *owner_module == module_index
                             && *owner_index == vtable_index
-                            && backend_vtable_keys_match(type_store, key, &vtable.key)
+                            && backend_vtable_keys_match(
+                                type_store,
+                                &array_lengths,
+                                key,
+                                &vtable.key,
+                            )
                     })
                     .then_some(vtable)
             })
@@ -1053,20 +1108,28 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
 
 fn backend_vtable_keys_match(
     type_store: &nia_ty::TypeStore,
+    array_lengths: &HashMap<GlobalConstExprId, u64>,
     left: &BackendTraitObjectVtableKey,
     right: &BackendTraitObjectVtableKey,
 ) -> bool {
-    let equivalence = BackendVtableTypeEquivalence { type_store };
+    let equivalence = BackendVtableTypeEquivalence {
+        type_store,
+        array_lengths,
+    };
     equivalence.same_type_for_equiv(left.self_ty, right.self_ty)
         && equivalence.same_type_for_equiv(left.object_ty, right.object_ty)
 }
 
 fn backend_vtable_payloads_match(
     type_store: &nia_ty::TypeStore,
+    array_lengths: &HashMap<GlobalConstExprId, u64>,
     left: &BackendTraitObjectVtable,
     right: &BackendTraitObjectVtable,
 ) -> bool {
-    let equivalence = BackendVtableTypeEquivalence { type_store };
+    let equivalence = BackendVtableTypeEquivalence {
+        type_store,
+        array_lengths,
+    };
     left.trait_id == right.trait_id
         && equivalence.same_type_args_for_equiv(&left.trait_args, &right.trait_args)
         && equivalence

@@ -351,6 +351,10 @@ it does not make a reset implicit.
   types structurally through the active `TypeEquivalence` owner. Equivalent
   nominal const representations can use distinct handles while describing the
   same vtable ABI payload.
+- Backend aggregate and vtable owner deduplication must resolve evaluated
+  `ArrayLenTy::ConstExpr` facts across all lowered modules. Distinct expression
+  handles with the same evaluated length describe the same backend shape; raw
+  expression identity is only a fallback when evaluation facts are unavailable.
 - Monomorphization projection-guard equivalence must apply the same recursive
   layout-operand comparison. Rebuilt projection keys can carry distinct but
   semantically equal nominal const types inside `size[...]` metadata.
