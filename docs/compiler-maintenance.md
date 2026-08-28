@@ -967,6 +967,9 @@ signals, not architecture goals.
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
   not a valid recovery for malformed static IR.
+- Vector static integer lanes use the same range contract as scalar static
+  initializers. Lane-kind checks must not accept an out-of-range `IntConst`
+  merely because LLVM can truncate it to the vector element width.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout
