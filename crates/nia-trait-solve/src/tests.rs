@@ -16,6 +16,73 @@ fn const_param(ty: InternedTyId, name: SymbolId) -> ConstGenericArg {
 }
 
 #[test]
+fn structural_equivalence_resolves_const_expression_array_lengths() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let left = type_store.append_for_module(left_module);
+    let right = type_store.append_for_module(right_module);
+    let left_u8 = left.primitive(PrimitiveTy::U8);
+    let right_u8 = right.primitive(PrimitiveTy::U8);
+    let left_expr = GlobalConstExprId {
+        module_id: left_module,
+        const_expr_id: nia_ids::ConstExprId(1),
+    };
+    let right_expr = GlobalConstExprId {
+        module_id: right_module,
+        const_expr_id: nia_ids::ConstExprId(2),
+    };
+    let left_array = left.intern(TyKind::Array {
+        len: ArrayLenTy::ConstExpr(left_expr),
+        elem: left_u8,
+    });
+    let right_array = right.intern(TyKind::Array {
+        len: ArrayLenTy::ConstExpr(right_expr),
+        elem: right_u8,
+    });
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let const_expr_value = |id, _| {
+        [left_expr, right_expr]
+            .contains(&id)
+            .then(|| ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)))
+    };
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: left_module,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: Some(&const_expr_value),
+        impl_is_visible: None,
+    };
+
+    assert!(
+        context
+            .solver(&[])
+            .types_equivalent(left_array, right_array)
+    );
+
+    let unresolved_context = TraitSolverContext {
+        const_expr_value: None,
+        ..context
+    };
+    assert!(
+        !unresolved_context
+            .solver(&[])
+            .types_equivalent(left_array, right_array)
+    );
+}
+
+#[test]
 fn enum_classification_reads_new_types_from_canonical_store() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

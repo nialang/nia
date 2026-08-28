@@ -363,6 +363,11 @@ it does not make a reset implicit.
   expression handles with the same evaluated length can describe the same
   recursive projection; raw expression identity alone can let equivalent
   cycles expand independently.
+- Trait-solver structural type equivalence must use its configured
+  `const_expr_value` evaluator when comparing array lengths. This keeps
+  projection and trait-goal matching consistent with const-argument
+  equivalence while preserving identity-only behavior when evaluation is not
+  available.
 - Backend aggregate layout-product validation must match materialized instance
   declarations through the validator's structural type and const-argument
   equivalence. Raw vector equality can skip validation when signed and unsigned

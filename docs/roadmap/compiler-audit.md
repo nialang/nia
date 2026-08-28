@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Implementation batches: 624 completed entries in this ledger.
+- Implementation batches: 625 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3805,6 +3805,11 @@ acceptance item only when its phase-wide evidence is complete.
       const-array facts from all participating modules, so rebuilt
       `ConstExpr` handles with equal values converge to one guard key; the
       owner regression covers the cross-module array case.
+- [x] Batch 625 closes trait-solver structural equivalence for evaluated array
+      lengths. The shared `TypeEquivalence` adapter now delegates non-builtin
+      array lengths through the solver's const-expression evaluator, aligning
+      structural array comparison with const-generic value comparison; owner
+      tests cover evaluated and unresolved expression behavior.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

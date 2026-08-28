@@ -557,7 +557,16 @@ impl TypeEquivalence for TraitSolver<'_> {
                 left_builtin == right_builtin
                     && self.structural_types_equivalent(*left_ty, *right_ty)
             }
-            _ => false,
+            _ => match (
+                self.const_arg_from_array_len(left),
+                self.const_arg_from_array_len(right),
+            ) {
+                (Some(left), Some(right)) => {
+                    self.structural_types_equivalent(left.ty, right.ty)
+                        && self.const_generic_values_equivalent(left.ty, &left.value, &right.value)
+                }
+                _ => false,
+            },
         }
     }
 
