@@ -967,7 +967,8 @@ signals, not architecture goals.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
-  not a valid recovery for malformed static IR.
+  not a valid recovery for malformed static IR. Valid target-width signed
+  bit-patterns such as `i32::MIN` remain accepted.
 - Vector static integer lanes use the same range contract as scalar static
   initializers. Lane-kind checks must not accept an out-of-range `IntConst`
   merely because LLVM can truncate it to the vector element width.

@@ -1566,6 +1566,11 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
                 StaticInit::Zero,
             ]),
         ),
+        global(
+            13,
+            i32_ty,
+            StaticInit::Int(nia_ty::IntConst::signed_bits(1_u128 << 31)),
+        ),
     ];
     drop(interner);
 
@@ -1622,6 +1627,14 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
             output.diagnostics
         );
     }
+    let out_of_range_integer_count = output
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.summary == "backend IR static initializer has an invalid scalar contract: integer initializer value is outside its target type"
+        })
+        .count();
+    assert_eq!(out_of_range_integer_count, 3);
 }
 
 #[test]
