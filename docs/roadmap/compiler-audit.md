@@ -3556,6 +3556,12 @@ acceptance item only when its phase-wide evidence is complete.
       substitutions only after the element also matches. A method regression
       infers an extension target `[u8; size[T]()]` from a concrete receiver;
       `nia-body-check` (271 tests), workspace check, and strict Clippy pass.
+- [x] Batch 589 closes trait-solver impl-pattern matching for array layout
+      operands. User impl candidates now recursively match type operands of
+      equivalent `ArrayLenTy::Builtin` lengths within the existing staged
+      substitution transaction. A solver regression proves type-generic impl
+      selection through `size[T]`; `nia-trait-solve` (17 tests), workspace
+      check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

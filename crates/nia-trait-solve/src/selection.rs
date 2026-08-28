@@ -360,11 +360,30 @@ impl TraitSolver<'_> {
                     // later element pattern rejects the same candidate.
                     let mut candidate_substitutions = substitutions.clone();
                     let mut candidate_const_substitutions = const_substitutions.clone();
-                    if !self.match_array_len_pattern(
-                        &len,
-                        &actual_len,
-                        &mut candidate_const_substitutions,
-                    ) {
+                    let length_matches = match (&len, &actual_len) {
+                        (
+                            ArrayLenTy::Builtin {
+                                builtin: pattern_builtin,
+                                ty: pattern_ty,
+                            },
+                            ArrayLenTy::Builtin {
+                                builtin: actual_builtin,
+                                ty: actual_ty,
+                            },
+                        ) if pattern_builtin == actual_builtin => self
+                            .match_impl_pattern_with_consts(
+                                *pattern_ty,
+                                *actual_ty,
+                                &mut candidate_substitutions,
+                                &mut candidate_const_substitutions,
+                            ),
+                        _ => self.match_array_len_pattern(
+                            &len,
+                            &actual_len,
+                            &mut candidate_const_substitutions,
+                        ),
+                    };
+                    if !length_matches {
                         return false;
                     }
                     if !self.match_impl_pattern_with_consts(
