@@ -249,6 +249,17 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_const_arg(&mut self, arg: &nia_ty::ConstGenericArg, span: Span) {
         self.validate_type(arg.ty, span);
+        if let nia_ty::ConstGenericValue::GenericParam(name) = arg.value {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR const generic `{}` reached LLVM codegen",
+                    mangle_symbol_id(name)
+                ),
+            ));
+            return;
+        }
         let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value else {
             return;
         };
@@ -738,6 +749,7 @@ mod tests {
     use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_span::Span;
+    use nia_symbol::{SymbolId, stable_hash};
     use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
     use crate::program_index::ProgramIndex;
@@ -1003,6 +1015,36 @@ mod tests {
             validator.diagnostics[0]
                 .summary
                 .contains("belongs to missing module")
+        );
+    }
+
+    #[test]
+    fn validate_const_arg_rejects_generic_parameter_value() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(owner);
+        let ty = interner.primitive(PrimitiveTy::I32);
+        drop(interner);
+
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+        validator.validate_const_arg(
+            &nia_ty::ConstGenericArg {
+                ty,
+                value: nia_ty::ConstGenericValue::GenericParam(SymbolId::from_stable_hash(
+                    stable_hash("N"),
+                )),
+            },
+            Span::default(),
+        );
+
+        assert_eq!(validator.diagnostics.len(), 1);
+        assert!(
+            validator.diagnostics[0]
+                .summary
+                .contains("backend IR const generic")
         );
     }
 }

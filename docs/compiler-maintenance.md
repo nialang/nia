@@ -978,6 +978,10 @@ signals, not architecture goals.
   metadata and struct/union layout keys. These keys are consumed before body
   lowering, so checking only their type handles can let foreign expressions
   reach ABI lookup through an apparently valid instance record.
+- `ConstGenericValue::GenericParam` is a frontend template placeholder and
+  must be rejected at the backend boundary. Instance, layout, and type lookup
+  may consume only resolved integer/boolean/character values or evaluated
+  expression handles with validated owners.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
