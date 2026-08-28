@@ -820,6 +820,11 @@ signals, not architecture goals.
   contract as matching and layout lookup. Keep tuples, closure states, and
   identity-only variants in the relation so associated-type checks do not
   reject a valid composite merely because normalization rebuilt its handles.
+- Backend instantiation matching must remain closed over the full `TyKind`
+  shape as well. Tuple, closure-state, volatile-pointer, and slice-pointee
+  values can appear after generic substitution; compare their payloads
+  recursively instead of letting a rebuilt composite fall through to a false
+  leaf result.
 
 ## 8. Build And Standard Library Work
 
