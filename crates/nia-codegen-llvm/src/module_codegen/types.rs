@@ -14,10 +14,20 @@ use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 
+#[cfg(test)]
 pub(super) fn const_args_match_semantic(
     left: &[nia_ty::ConstGenericArg],
     right: &[nia_ty::ConstGenericArg],
+    same_type: impl FnMut(InternedTyId, InternedTyId) -> bool,
+) -> bool {
+    const_args_match_semantic_with_array_lengths(left, right, same_type, |_| None)
+}
+
+fn const_args_match_semantic_with_array_lengths(
+    left: &[nia_ty::ConstGenericArg],
+    right: &[nia_ty::ConstGenericArg],
     mut same_type: impl FnMut(InternedTyId, InternedTyId) -> bool,
+    mut array_length: impl FnMut(nia_ids::GlobalConstExprId) -> Option<u64>,
 ) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
@@ -27,6 +37,20 @@ pub(super) fn const_args_match_semantic(
                         nia_ty::ConstGenericValue::Int(left),
                         nia_ty::ConstGenericValue::Int(right),
                     ) => left.bits() == right.bits(),
+                    (
+                        nia_ty::ConstGenericValue::Int(left),
+                        nia_ty::ConstGenericValue::ConstExpr(right),
+                    )
+                    | (
+                        nia_ty::ConstGenericValue::ConstExpr(right),
+                        nia_ty::ConstGenericValue::Int(left),
+                    ) => array_length(*right).is_some_and(|right| left.bits() == u128::from(right)),
+                    (
+                        nia_ty::ConstGenericValue::ConstExpr(left),
+                        nia_ty::ConstGenericValue::ConstExpr(right),
+                    ) => array_length(*left)
+                        .zip(array_length(*right))
+                        .is_some_and(|(left, right)| left == right),
                     (left, right) => left == right,
                 }
         })
@@ -1282,7 +1306,22 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         left: &[nia_ty::ConstGenericArg],
         right: &[nia_ty::ConstGenericArg],
     ) -> bool {
-        const_args_match_semantic(left, right, |left, right| self.same_type(left, right))
+        const_args_match_semantic_with_array_lengths(
+            left,
+            right,
+            |left, right| self.same_type(left, right),
+            |id| {
+                self.program
+                    .module(id.module_id)
+                    .and_then(|module| module.const_eval.array_lengths.get(&id))
+                    .or_else(|| {
+                        (id.module_id == self.source.id)
+                            .then(|| self.source.const_eval.array_lengths.get(&id))
+                            .flatten()
+                    })
+                    .copied()
+            },
+        )
     }
 
     pub(super) fn same_optional_type(
@@ -1391,8 +1430,15 @@ impl TypeEquivalence for ModuleCodegen<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-    use super::layout_field_matches;
-    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+    use super::{
+        const_args_match_semantic, const_args_match_semantic_with_array_lengths,
+        layout_field_matches,
+    };
+    use nia_ids::{
+        ConstExprId, DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleIdAllocator,
+        TypeStoreId, TypeStoreIndex,
+    };
+    use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst};
 
     #[test]
     fn layout_field_matching_requires_the_aggregate_module_owner() {
@@ -1420,6 +1466,48 @@ mod tests {
                 module_id: foreign_module,
                 def_id: local_field,
             }
+        ));
+    }
+
+    #[test]
+    fn const_argument_matching_uses_array_length_facts_when_available() {
+        let ty = InternedTyId::new(TypeStoreId::fresh(), TypeStoreIndex::from_store_index(0));
+        let mut modules = ModuleIdAllocator::new();
+        let left_expr = GlobalConstExprId {
+            module_id: modules.allocate(),
+            const_expr_id: ConstExprId(1),
+        };
+        let right_expr = GlobalConstExprId {
+            module_id: modules.allocate(),
+            const_expr_id: ConstExprId(2),
+        };
+        let left = ConstGenericArg {
+            ty,
+            value: ConstGenericValue::ConstExpr(left_expr),
+        };
+        let right = ConstGenericArg {
+            ty,
+            value: ConstGenericValue::ConstExpr(right_expr),
+        };
+        assert!(const_args_match_semantic_with_array_lengths(
+            std::slice::from_ref(&left),
+            std::slice::from_ref(&right),
+            |left, right| left == right,
+            |id| (id == left_expr || id == right_expr).then_some(4),
+        ));
+        assert!(const_args_match_semantic_with_array_lengths(
+            std::slice::from_ref(&left),
+            std::slice::from_ref(&ConstGenericArg {
+                ty,
+                value: ConstGenericValue::Int(IntConst::unsigned(4)),
+            }),
+            |left, right| left == right,
+            |id| (id == left_expr).then_some(4),
+        ));
+        assert!(!const_args_match_semantic(
+            std::slice::from_ref(&left),
+            std::slice::from_ref(&right),
+            |left, right| left == right,
         ));
     }
 }
