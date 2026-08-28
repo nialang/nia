@@ -631,6 +631,27 @@ impl ProgramIndex {
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
             .copied()
+            .or_else(|| {
+                self.tables()
+                    .function_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item =
+                            &self.module_at(position.module).function_instances[position.item];
+                        item.arg_module_id == arg_module_id
+                            && self.function_instance_args_match(
+                                self_arg,
+                                args,
+                                const_args,
+                                item.self_arg,
+                                &item.args,
+                                &item.const_args,
+                            )
+                    })
+                    .copied()
+            })
             .map(Self::item_owner)
     }
 
@@ -661,6 +682,25 @@ impl ProgramIndex {
         };
         equivalence.same_type_args_for_equiv(left_args, right_args)
             && equivalence.same_const_generic_args_for_equiv(left_const_args, right_const_args)
+    }
+
+    fn function_instance_args_match(
+        &self,
+        left_self_arg: Option<InternedTyId>,
+        left_args: &[InternedTyId],
+        left_const_args: &[ConstGenericArg],
+        right_self_arg: Option<InternedTyId>,
+        right_args: &[InternedTyId],
+        right_const_args: &[ConstGenericArg],
+    ) -> bool {
+        match (left_self_arg, right_self_arg) {
+            (Some(left), Some(right)) if !self.instance_args_match(&[left], &[], &[right], &[]) => {
+                return false;
+            }
+            (None, None) => {}
+            _ => return false,
+        }
+        self.instance_args_match(left_args, left_const_args, right_args, right_const_args)
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
@@ -763,7 +803,28 @@ impl ProgramIndex {
             .function_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
-            .copied()?;
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .function_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item =
+                            &self.module_at(position.module).function_instances[position.item];
+                        item.arg_module_id == arg_module_id
+                            && self.function_instance_args_match(
+                                self_arg,
+                                args,
+                                const_args,
+                                item.self_arg,
+                                &item.args,
+                                &item.const_args,
+                            )
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).function_instances[position.item])
     }
 
@@ -1459,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn global_instance_lookup_matches_semantically_equal_rebuilt_arguments() {
+    fn instance_lookup_matches_semantically_equal_rebuilt_arguments() {
         let mut module_ids = ModuleIdAllocator::new();
         let owner_module = module_ids.allocate();
         let argument_module = module_ids.allocate();
@@ -1471,6 +1532,7 @@ mod tests {
         let owner_usize = owner_append.primitive(PrimitiveTy::Usize);
         let argument_usize = argument_append.primitive(PrimitiveTy::Usize);
         let def_id = global(owner_module, 77);
+        let function_def = global(owner_module, 78);
         let stored_const = ConstGenericArg {
             ty: owner_usize,
             value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(13)),
@@ -1504,7 +1566,7 @@ mod tests {
                 name: sym("VALUE"),
                 arg_module_id: argument_module,
                 args: vec![owner_i32],
-                const_args: vec![stored_const],
+                const_args: vec![stored_const.clone()],
                 symbol: "VALUE_i32_13".to_string(),
                 ty: owner_i32,
                 is_let: true,
@@ -1512,7 +1574,23 @@ mod tests {
                 span: Span::default(),
             }],
             functions: Vec::new(),
-            function_instances: Vec::new(),
+            function_instances: vec![BackendFunctionInstance {
+                def_id: function_def,
+                name: sym("compute"),
+                arg_module_id: argument_module,
+                self_arg: None,
+                args: vec![owner_i32],
+                const_args: vec![stored_const],
+                symbol: "compute_i32_13".to_string(),
+                params: Vec::new(),
+                return_type: owner_i32,
+                is_extern: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: None,
+                span: Span::default(),
+            }],
             closure_entries: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
@@ -1532,7 +1610,32 @@ mod tests {
             .expect("semantic fallback should find the rebuilt global instance");
         assert_eq!(item.def_id, def_id);
         assert_eq!(
-            index.global_instance_owner(def_id, argument_module, &[argument_i32], &[query_const],),
+            index.global_instance_owner(
+                def_id,
+                argument_module,
+                &[argument_i32],
+                std::slice::from_ref(&query_const),
+            ),
+            Some(owner_module)
+        );
+        let function_item = index
+            .function_instance(
+                function_def,
+                argument_module,
+                None,
+                &[argument_i32],
+                std::slice::from_ref(&query_const),
+            )
+            .expect("semantic fallback should find the rebuilt function instance");
+        assert_eq!(function_item.def_id, function_def);
+        assert_eq!(
+            index.function_instance_owner(
+                function_def,
+                argument_module,
+                None,
+                &[argument_i32],
+                &[query_const],
+            ),
             Some(owner_module)
         );
     }

@@ -3727,6 +3727,13 @@ acceptance item only when its phase-wide evidence is complete.
       `usize` handles with signed/unsigned const spellings; `nia-codegen-llvm`
       (314 tests), workspace check, strict Clippy, formatting, and diff checks
       pass.
+- [x] Batch 613 extends LLVM ProgramIndex semantic lookup to function
+      instances. Function and owner queries now fall back by definition while
+      matching the optional receiver, type arguments, integer const bits, and
+      argument-module identity across rebuilt handles. The cross-module
+      regression covers both global and function instances; `nia-codegen-llvm`
+      (314 tests), workspace check, strict Clippy, formatting, and diff checks
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
