@@ -486,6 +486,22 @@ fn simplify_static_init(init: StaticInit) -> (StaticInit, bool) {
                 (StaticInit::Array(elems), changed)
             }
         }
+        StaticInit::Vector(elems) => {
+            let mut changed = false;
+            let elems = elems
+                .into_iter()
+                .map(|elem| {
+                    let (elem, elem_changed) = simplify_static_init(elem);
+                    changed |= elem_changed;
+                    elem
+                })
+                .collect::<Vec<_>>();
+            if elems.iter().all(is_zero_static_init) {
+                (StaticInit::Zero, true)
+            } else {
+                (StaticInit::Vector(elems), changed)
+            }
+        }
         StaticInit::Repeat { value, count } => {
             let (value, changed) = simplify_static_init(*value);
             if count == 0 || is_zero_static_init(&value) {
@@ -551,7 +567,9 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Float(text) => is_zero_float_static_init(text),
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
-        StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
+        StaticInit::Array(elems) | StaticInit::Vector(elems) => {
+            elems.iter().all(is_zero_static_init)
+        }
         StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
         StaticInit::Int(_)
@@ -621,5 +639,23 @@ mod tests {
         };
 
         assert!(is_zero_static_init(&init));
+    }
+
+    #[test]
+    fn vector_simplification_preserves_lane_identity() {
+        let init = StaticInit::Vector(vec![
+            StaticInit::Int(nia_ty::IntConst::unsigned(3)),
+            StaticInit::Int(nia_ty::IntConst::unsigned(3)),
+            StaticInit::Int(nia_ty::IntConst::unsigned(9)),
+        ]);
+
+        assert_eq!(simplify_static_init(init.clone()), (init, false));
+        assert_eq!(
+            simplify_static_init(StaticInit::Vector(vec![
+                StaticInit::Int(nia_ty::IntConst::unsigned(0)),
+                StaticInit::Int(nia_ty::IntConst::unsigned(0)),
+            ])),
+            (StaticInit::Zero, true)
+        );
     }
 }

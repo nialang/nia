@@ -1309,6 +1309,129 @@ fn validates_static_array_initializer_length_before_llvm() {
 }
 
 #[test]
+fn emits_static_arrays_of_zero_vectors() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let vector_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 4,
+    });
+    let array_ty = interner.intern(TyKind::Array {
+        len: ArrayLenTy::ConstValue(2),
+        elem: vector_ty,
+    });
+    let global = BackendGlobal {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("vectors"),
+        link_name: None,
+        ty: array_ty,
+        is_let: true,
+        is_extern: false,
+        init: Some(StaticInit::Array(vec![StaticInit::Zero, StaticInit::Zero])),
+        span: Span::default(),
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (
+                    vector_ty,
+                    TypeLayout {
+                        size: 16,
+                        align: 16,
+                    },
+                ),
+                (
+                    array_ty,
+                    TypeLayout {
+                        size: 32,
+                        align: 16,
+                    },
+                ),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![global],
+        Vec::new(),
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(output.modules.len(), 1);
+    assert!(output.modules[0].ir.contains("[2 x <4 x i32>]"));
+}
+
+#[test]
+fn rejects_malformed_static_vector_lanes_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let vector_ty = interner.intern(TyKind::Vector {
+        elem: PrimitiveTy::U8,
+        lanes: 2,
+    });
+    let global = BackendGlobal {
+        def_id: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        name: sym("invalid_vector"),
+        link_name: None,
+        ty: vector_ty,
+        is_let: true,
+        is_extern: false,
+        init: Some(StaticInit::Vector(vec![StaticInit::Bool(true)])),
+        span: Span::default(),
+    };
+    let program = single_module_program(
+        module_id,
+        BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![(vector_ty, TypeLayout { size: 2, align: 2 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            enums: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![global],
+        Vec::new(),
+    );
+    drop(interner);
+
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "vector static initializer has 1 lanes"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "vector static initializer lane does not match"
+    ));
+}
+
+#[test]
 fn validates_static_scalar_initializer_contracts_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

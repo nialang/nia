@@ -49,6 +49,8 @@ pub enum StaticInit {
     Bytes(Vec<u8>),
     /// Aggregate elements in declaration order.
     Array(Vec<StaticInit>),
+    /// Fixed SIMD-vector lanes in lane order.
+    Vector(Vec<StaticInit>),
     /// Repeated aggregate value and materialized count.
     Repeat {
         /// Value repeated for each materialized element.
@@ -110,7 +112,7 @@ impl StaticInit {
 
     fn visit_refs(&self, sink: &mut impl StaticInitRefSink) {
         match self {
-            Self::Array(elements) => {
+            Self::Array(elements) | Self::Vector(elements) => {
                 for element in elements {
                     element.visit_refs(sink);
                 }
