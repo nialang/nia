@@ -355,6 +355,10 @@ it does not make a reset implicit.
   `ArrayLenTy::ConstExpr` facts across all lowered modules. Distinct expression
   handles with the same evaluated length describe the same backend shape; raw
   expression identity is only a fallback when evaluation facts are unavailable.
+- Backend-lower owner equivalence must apply the same facts to nominal const
+  arguments nested in aggregate and vtable keys. An expression-valued const
+  argument may match an integer spelling or foreign expression only when its
+  array-length fact resolves; unrelated expressions remain distinct.
 - Monomorphization projection-guard equivalence must apply the same recursive
   layout-operand comparison. Rebuilt projection keys can carry distinct but
   semantically equal nominal const types inside `size[...]` metadata.

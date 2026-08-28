@@ -220,6 +220,53 @@ fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
         &left,
         &right
     ));
+
+    let nominal_def = GlobalDefId {
+        module_id: left_module,
+        def_id: DefId(90),
+    };
+    let left_usize = left_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let right_usize = right_append.primitive(nia_ty::PrimitiveTy::Usize);
+    let left_nominal = left_append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: left_usize,
+            value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+        }],
+    });
+    let right_nominal = right_append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::ConstExpr(right_expr),
+        }],
+    });
+    assert!(backend_vtable_keys_match(
+        &type_store,
+        &lengths,
+        &key(left_nominal),
+        &key(right_nominal),
+    ));
+    let unresolved_expr = nia_ids::GlobalConstExprId {
+        module_id: right_module,
+        const_expr_id: nia_ids::ConstExprId(3),
+    };
+    let unresolved_nominal = right_append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::ConstExpr(unresolved_expr),
+        }],
+    });
+    assert!(!backend_vtable_keys_match(
+        &type_store,
+        &lengths,
+        &key(left_nominal),
+        &key(unresolved_nominal),
+    ));
 }
 
 #[test]
