@@ -8656,6 +8656,133 @@ fn validates_static_function_address_signatures_before_llvm() {
 }
 
 #[test]
+fn validates_static_function_address_instance_with_structurally_equal_args() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.append_for_module(module_id);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let usize_ty = interner.primitive(PrimitiveTy::Usize);
+    let nominal_def = GlobalDefId {
+        module_id,
+        def_id: DefId(10),
+    };
+    let signed_arg = ConstGenericArg {
+        ty: usize_ty,
+        value: ConstGenericValue::Int(IntConst::signed_bits(7)),
+    };
+    let unsigned_arg = ConstGenericArg {
+        ty: usize_ty,
+        value: ConstGenericValue::Int(IntConst::unsigned(7)),
+    };
+    let declared_arg_ty = interner.intern(TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![signed_arg],
+    });
+    let referenced_arg_ty = interner.intern(TyKind::Nominal {
+        def_id: nominal_def,
+        args: Vec::new(),
+        const_args: vec![unsigned_arg],
+    });
+    let function_id = GlobalDefId {
+        module_id,
+        def_id: DefId(0),
+    };
+    let pointer_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![bool_ty],
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
+            name: "main".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![
+                    (bool_ty, TypeLayout { size: 1, align: 1 }),
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (usize_ty, TypeLayout { size: 8, align: 8 }),
+                    (pointer_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: vec![BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(1),
+                },
+                name: sym("callback"),
+                link_name: None,
+                ty: pointer_ty,
+                is_let: true,
+                is_extern: false,
+                init: Some(StaticInit::AddrOfFunction {
+                    function: function_id,
+                    args: vec![referenced_arg_ty],
+                    const_args: Vec::new(),
+                }),
+                span,
+            }],
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: vec![BackendFunctionInstance {
+                def_id: function_id,
+                name: sym("target"),
+                arg_module_id: module_id,
+                self_arg: None,
+                args: vec![declared_arg_ty],
+                const_args: Vec::new(),
+                symbol: "target_7".to_string(),
+                params: vec![BackendParam {
+                    local_id: None,
+                    name: None,
+                    receiver: None,
+                    passing_ty: i32_ty,
+                    local_ty: i32_ty,
+                    span,
+                }],
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                attributes: Vec::new(),
+                local_names: Default::default(),
+                function_body: None,
+                span,
+            }],
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }]
+        .into(),
+    };
+
+    drop(interner);
+    let output = emit_owned_llvm_ir(program, type_store);
+
+    assert!(output.modules.is_empty());
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "function address parameter types do not match its target"
+    ));
+}
+
+#[test]
 fn validates_backend_ir_static_address_path_shape_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

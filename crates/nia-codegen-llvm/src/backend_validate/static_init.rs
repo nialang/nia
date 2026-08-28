@@ -385,7 +385,7 @@ impl BackendValidator<'_> {
                 .or_else(|| {
                     self.index.function_instances_for(function).find(|item| {
                         item.self_arg.is_none()
-                            && item.args.as_slice() == args
+                            && self.same_type_args(&item.args, args)
                             && self.same_const_args(&item.const_args, const_args)
                     })
                 })
