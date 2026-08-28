@@ -3922,6 +3922,9 @@ acceptance item only when its phase-wide evidence is complete.
       variant values now fit their declared backing primitive before LLVM tag
       construction; malformed explicit discriminants have focused enum
       expression coverage.
+- [x] Batch 650 aligns static signed bit-pattern validation with builtin and
+      literal lowering. Target-width encodings such as `i32::MIN` are accepted
+      while out-of-range static integer initializers remain rejected.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

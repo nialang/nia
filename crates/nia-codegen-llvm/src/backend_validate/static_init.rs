@@ -276,6 +276,13 @@ impl BackendValidator<'_> {
             }
             primitive if primitive.is_integer() => {
                 value.fits_primitive_int(primitive, pointer_width)
+                    || (value.is_signed()
+                        && primitive.is_signed_integer()
+                        && primitive.integer_bits(pointer_width).is_some_and(|bits| {
+                            bits < u128::BITS
+                                && value.bits() < (1_u128 << bits)
+                                && value.bits() >= (1_u128 << (bits - 1))
+                        }))
             }
             _ => false,
         }
