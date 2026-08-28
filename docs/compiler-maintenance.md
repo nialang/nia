@@ -946,6 +946,11 @@ signals, not architecture goals.
   nominal const arguments. Expression values may match integer spellings or
   foreign expressions only when both sides resolve; unresolved expressions
   remain identity-only during validation.
+- Type lowering's local type-equivalence checks must reuse its recorded
+  `ConstExprSummary` values. Range-bound and nested nominal comparisons may
+  treat distinct const-expression handles as equal only when both resolve to
+  the same literal array length; without a summary, preserve identity-only
+  behavior.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

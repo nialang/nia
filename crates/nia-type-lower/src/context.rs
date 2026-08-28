@@ -3,6 +3,90 @@
 
 use super::*;
 
+struct TypeLowererTypeEquivalence<'a> {
+    type_store: &'a TypeStore,
+    const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
+}
+
+impl TypeEquivalence for TypeLowererTypeEquivalence<'_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.type_store.get(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        if left == right {
+            return true;
+        }
+        match (left, right) {
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
+            | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
+                .literal_array_len_value(&ArrayLenTy::ConstExpr(*right))
+                .is_some_and(|right| *left == right),
+            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => self
+                .literal_array_len_value(&ArrayLenTy::ConstExpr(*left))
+                .zip(self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                .is_some_and(|(left, right)| left == right),
+            _ => false,
+        }
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        left == right || self.compute_same_type_for_equiv(left, right)
+    }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[ConstGenericArg],
+        right: &[ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type_for_equiv(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                            left.bits() == right.bits()
+                        }
+                        (ConstGenericValue::Int(left), ConstGenericValue::ConstExpr(right))
+                        | (ConstGenericValue::ConstExpr(right), ConstGenericValue::Int(left)) => {
+                            self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right))
+                                .is_some_and(|right| left.bits() == u128::from(right))
+                        }
+                        (
+                            ConstGenericValue::ConstExpr(left),
+                            ConstGenericValue::ConstExpr(right),
+                        ) => self
+                            .literal_array_len_value(&ArrayLenTy::ConstExpr(*left))
+                            .zip(self.literal_array_len_value(&ArrayLenTy::ConstExpr(*right)))
+                            .is_some_and(|(left, right)| left == right),
+                        (left, right) => left == right,
+                    }
+            })
+    }
+}
+
+impl TypeLowererTypeEquivalence<'_> {
+    fn literal_array_len_value(&self, len: &ArrayLenTy) -> Option<u64> {
+        match len {
+            ArrayLenTy::ConstValue(value) => Some(*value),
+            ArrayLenTy::ConstExpr(id) => self
+                .const_expr_summaries
+                .get(id)
+                .and_then(|summary| summary.literal_array_len),
+            _ => None,
+        }
+    }
+}
+
 impl TypeLowerer<'_, '_> {
     pub(crate) fn lower_where_clause(&mut self, clause: &WhereClause) {
         for predicate in &clause.predicates {
@@ -89,7 +173,11 @@ impl TypeLowerer<'_, '_> {
     }
 
     pub(crate) fn types_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {
-        left == right || self.type_store.get(left) == self.type_store.get(right)
+        TypeLowererTypeEquivalence {
+            type_store: self.type_store,
+            const_expr_summaries: &self.const_expr_summaries,
+        }
+        .same_type_for_equiv(left, right)
     }
 
     pub(crate) fn invalid_value_type_message(&mut self, ty: InternedTyId) -> Option<&'static str> {
@@ -140,5 +228,94 @@ impl TypeLowerer<'_, '_> {
         self.defs_cache
             .get(&module_id)
             .and_then(|defs| defs.as_deref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn type_equivalence_matches_evaluated_nominal_const_arguments() {
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let const_ty = append.primitive(PrimitiveTy::Usize);
+        let left_expr = GlobalConstExprId {
+            module_id,
+            const_expr_id: ConstExprId(1),
+        };
+        let right_expr = GlobalConstExprId {
+            module_id,
+            const_expr_id: ConstExprId(2),
+        };
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(7),
+        };
+        let make = |expr| {
+            append.intern(TyKind::Nominal {
+                def_id,
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: const_ty,
+                    value: ConstGenericValue::ConstExpr(expr),
+                }],
+            })
+        };
+        let left = make(left_expr);
+        let right = make(right_expr);
+        let summaries = HashMap::from([
+            (
+                left_expr,
+                ConstExprSummary {
+                    span: Span::default(),
+                    literal_array_len: Some(4),
+                },
+            ),
+            (
+                right_expr,
+                ConstExprSummary {
+                    span: Span::default(),
+                    literal_array_len: Some(4),
+                },
+            ),
+        ]);
+
+        let equivalence = TypeLowererTypeEquivalence {
+            type_store: &type_store,
+            const_expr_summaries: &summaries,
+        };
+        assert!(equivalence.same_type_for_equiv(left, right));
+    }
+
+    #[test]
+    fn type_equivalence_keeps_unresolved_const_arguments_distinct() {
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(module_id);
+        let const_ty = append.primitive(PrimitiveTy::Usize);
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(7),
+        };
+        let make = |const_expr_id| {
+            append.intern(TyKind::Nominal {
+                def_id,
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: const_ty,
+                    value: ConstGenericValue::ConstExpr(GlobalConstExprId {
+                        module_id,
+                        const_expr_id: ConstExprId(const_expr_id),
+                    }),
+                }],
+            })
+        };
+        let equivalence = TypeLowererTypeEquivalence {
+            type_store: &type_store,
+            const_expr_summaries: &HashMap::new(),
+        };
+        assert!(!equivalence.same_type_for_equiv(make(1), make(2)));
     }
 }

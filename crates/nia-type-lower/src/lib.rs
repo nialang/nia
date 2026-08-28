@@ -32,7 +32,7 @@ use nia_symbol::{
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, ConstGenericArg,
     ConstGenericValue, IntConst, LayoutBuiltin, PrimitiveTy, PrimitiveTypeSpelling, RangeTyKind,
-    TraitId, TyKind, TypeStore, TypeStoreAppend,
+    TraitId, TyKind, TypeEquivalence, TypeStore, TypeStoreAppend,
 };
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
