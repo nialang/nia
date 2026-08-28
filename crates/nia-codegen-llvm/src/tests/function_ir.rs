@@ -5869,6 +5869,7 @@ fn validates_backend_ir_propagation_contract_before_llvm() {
 fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
+    let foreign_module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -5942,7 +5943,12 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                         args: vec![i32_ty],
                                         const_args: vec![ConstGenericArg {
                                             ty: foreign_ty,
-                                            value: ConstGenericValue::Int(IntConst::unsigned(1)),
+                                            value: ConstGenericValue::ConstExpr(
+                                                GlobalConstExprId {
+                                                    module_id: foreign_module_id,
+                                                    const_expr_id: ConstExprId(0),
+                                                },
+                                            ),
                                         }],
                                     },
                                     args: Vec::new(),
@@ -5981,6 +5987,11 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
         &output.diagnostics,
         codes::INVALID_BACKEND_IR,
         "type belongs to a different compilation session"
+    ));
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "const argument expression"
     ));
 }
 
