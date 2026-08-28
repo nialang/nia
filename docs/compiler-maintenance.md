@@ -386,6 +386,10 @@ it does not make a reset implicit.
   lengths. Projection and trait-goal guards must not split rebuilt nominal
   handles whose expressions resolve to the same value, while unresolved
   expressions remain identity-only.
+- Program-signature equivalence may use only the `ConstExprSummary` facts
+  supplied by the active lowering product. Use those summaries for literal
+  array-length const arguments in nominal and trait identities; store-only
+  comparisons without a lowering product must remain identity-only.
 - Backend aggregate layout-product validation must match materialized instance
   declarations through the validator's structural type and const-argument
   equivalence. Raw vector equality can skip validation when signed and unsigned
