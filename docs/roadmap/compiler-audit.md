@@ -3467,6 +3467,12 @@ acceptance item only when its phase-wide evidence is complete.
       an attribute cannot escape a dropped context; the LLVM owner and codegen
       consumer suites, workspace check, strict Clippy/Rustdoc, formatting, and
       diff checks pass.
+- [x] Batch 576 closes LLVM DIBuilder module-lifetime ownership.
+      `DebugInfoBuilder` now carries a distinct borrow of the `Module` that
+      created it, in addition to the module's context lifetime, so finalize and
+      disposal cannot run after the owning module has been freed. A compile-fail
+      owner regression proves a builder cannot escape a local module; LLVM and
+      codegen checks plus strict doctests cover the updated public boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

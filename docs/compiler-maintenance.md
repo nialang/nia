@@ -300,6 +300,9 @@ it does not make a reset implicit.
 - Every non-owning LLVM handle allocated in a context arena must carry that
   context lifetime in its Rust type. This includes attributes: a non-null raw
   handle does not make it valid after the originating `Context` is dropped.
+- LLVM sub-owners must also borrow their immediate owner when disposal or
+  finalization touches it. A `DebugInfoBuilder` belongs to one `Module`, not
+  merely its context, and must be dropped before that module is disposed.
 - Backend IR validation recursively validates const-argument types in every
   type constructor, so malformed or session-mismatched metadata cannot bypass
   the validator merely by appearing in a const generic argument.

@@ -211,9 +211,23 @@ impl<'ctx> DILocation<'ctx> {
 }
 
 #[derive(Debug)]
-pub struct DebugInfoBuilder<'ctx> {
+/// Module-owned debug metadata builder.
+///
+/// The builder cannot outlive the module that owns its pending metadata:
+///
+/// ```compile_fail
+/// use nia_llvm::Context;
+///
+/// let context = Context::create().unwrap();
+/// let builder = {
+///     let module = context.create_module("debug").unwrap();
+///     module.create_debug_info_builder().unwrap()
+/// };
+/// builder.finalize();
+/// ```
+pub struct DebugInfoBuilder<'module, 'ctx> {
     raw: LLVMDIBuilderRef,
-    _marker: PhantomData<&'ctx Context>,
+    _marker: PhantomData<&'module Module<'ctx>>,
 }
 
 fn require_metadata(raw: LLVMMetadataRef, kind: &str) -> LlvmResult<LLVMMetadataRef> {
@@ -226,7 +240,7 @@ fn require_metadata(raw: LLVMMetadataRef, kind: &str) -> LlvmResult<LLVMMetadata
     }
 }
 
-impl<'ctx> DebugInfoBuilder<'ctx> {
+impl<'module, 'ctx> DebugInfoBuilder<'module, 'ctx> {
     pub(super) fn new(raw: LLVMDIBuilderRef) -> LlvmResult<Self> {
         if raw.is_null() {
             return Err(LlvmError::error("LLVM returned a null debug-info builder"));
@@ -637,7 +651,7 @@ fn checked_subroutine_type_count(parameter_count: usize) -> LlvmResult<u32> {
     checked_u32_count(count, "LLVM debug subroutine type has too many parameters")
 }
 
-impl<'ctx> Drop for DebugInfoBuilder<'ctx> {
+impl<'module, 'ctx> Drop for DebugInfoBuilder<'module, 'ctx> {
     fn drop(&mut self) {
         unsafe { LLVMDisposeDIBuilder(self.raw) };
     }
@@ -652,7 +666,9 @@ impl Context {
 
 impl<'ctx> Module<'ctx> {
     /// Creates a DIBuilder, surfacing LLVM allocation failure as an error.
-    pub fn create_debug_info_builder(&self) -> LlvmResult<DebugInfoBuilder<'ctx>> {
+    pub fn create_debug_info_builder<'module>(
+        &'module self,
+    ) -> LlvmResult<DebugInfoBuilder<'module, 'ctx>> {
         DebugInfoBuilder::new(unsafe { LLVMCreateDIBuilder(self.raw) })
     }
 
