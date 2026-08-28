@@ -3669,6 +3669,12 @@ acceptance item only when its phase-wide evidence is complete.
       focused where-bound regressions cover tuple-associated outputs and
       nominal const metadata inside tuples. `nia-body-check` (275 tests),
       workspace check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 605 closes backend instantiation type matching for omitted
+      `TyKind` shapes. `ModuleLowerer::types_match` now compares tuples,
+      closure states, volatile pointers, slice pointees, and identity-only
+      variants recursively after substitution; the backend-lower owner suite
+      (121 tests), workspace check, strict Clippy, formatting, and diff checks
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
