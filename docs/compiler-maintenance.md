@@ -386,6 +386,11 @@ it does not make a reset implicit.
   types can carry expression handles independently of nominal const arguments;
   evaluated handles may match integer or foreign spellings, while unresolved
   expressions remain identity-only.
+- Backend-lower extension target matching must apply the same evaluated
+  array-length relation to non-builtin `TyKind::Array` patterns. A concrete
+  target rebuilt from an expression handle can otherwise miss an equivalent
+  integer or foreign-expression receiver; absent facts must remain a strict
+  identity comparison.
 - Trait-solver layout-backed type lookup must apply the configured
   `const_expr_value` evaluator to array lengths and nominal const arguments
   when comparing against a `Layouts` product. Rebuilt expression handles from
