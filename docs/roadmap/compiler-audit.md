@@ -3876,6 +3876,10 @@ acceptance item only when its phase-wide evidence is complete.
       expression handles cannot bypass the path-local cycle guard; the owner
       regression covers equal evaluated values while unresolved handles remain
       conservative.
+- [x] Batch 639 closes the layout array alignment boundary. The public
+      `array_layout` helper now rejects zero-alignment element layouts instead
+      of returning an invalid `TypeLayout`; the owner regression covers the
+      malformed input contract.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
