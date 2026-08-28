@@ -3941,6 +3941,11 @@ acceptance item only when its phase-wide evidence is complete.
       lookup and ABI checks, rejecting missing owners while preserving readiness
       deferral for registered but unwritten modules; function-instance metadata
       has focused foreign-owner coverage.
+- [x] Batch 654 closes the backend unresolved-const-value boundary. Const
+      generic arguments now reject `GenericParam` values before instance,
+      layout, and type lookup, while preserving resolved integer, boolean,
+      character, and evaluated-expression values; the shared validator has a
+      focused generic-parameter regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
