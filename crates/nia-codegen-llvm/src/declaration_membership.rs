@@ -194,6 +194,7 @@ impl<'a> MembershipBuilder<'a> {
             self.add_type(item.ty);
             self.add_types(item.args.iter().copied());
             self.add_types(item.const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_dependencies(&item.const_args);
         }
     }
 
@@ -228,6 +229,7 @@ impl<'a> MembershipBuilder<'a> {
             self.add_types(item.self_arg);
             self.add_types(item.args.iter().copied());
             self.add_types(item.const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_dependencies(&item.const_args);
         }
     }
 
@@ -260,6 +262,7 @@ impl<'a> MembershipBuilder<'a> {
         }
         for reference in refs.function_instances {
             let key = reference.key();
+            self.add_const_arg_dependencies(&reference.const_args);
             if let Some(item) = self.index.function_instance(
                 reference.def_id,
                 reference.arg_module_id,
@@ -282,6 +285,7 @@ impl<'a> MembershipBuilder<'a> {
                 args: reference.args.clone(),
                 const_args: reference.const_args.clone(),
             };
+            self.add_const_arg_dependencies(&reference.const_args);
             if let Some(item) = self.index.global_instance(
                 reference.def_id,
                 reference.arg_module_id,
@@ -343,6 +347,7 @@ impl<'a> MembershipBuilder<'a> {
             self.add_types([item.key.self_ty, item.key.object_ty]);
             self.add_types(item.trait_args.iter().copied());
             self.add_types(item.trait_const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_dependencies(&item.trait_const_args);
         }
         if !self.expanded_vtables.insert(item.key.clone()) {
             return;
@@ -354,6 +359,7 @@ impl<'a> MembershipBuilder<'a> {
         for entry in &item.entries {
             self.add_types(entry.trait_args.iter().copied());
             self.add_types(entry.trait_const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_dependencies(&entry.trait_const_args);
             match &entry.function {
                 BackendTraitObjectVtableFunction::Function(def_id) => {
                     if let Some(function) = self.index.function(*def_id) {
@@ -376,6 +382,7 @@ impl<'a> MembershipBuilder<'a> {
                         args: args.clone(),
                         const_args: const_args.clone(),
                     };
+                    self.add_const_arg_dependencies(const_args);
                     if let Some(function) = self.index.function_instance(
                         *def_id,
                         *arg_module_id,
@@ -819,6 +826,34 @@ mod tests {
         module
     }
 
+    fn instance_owner_module_with_const(
+        module_id: ModuleId,
+        semantic_def: GlobalDefId,
+        caller: ModuleId,
+        ty: InternedTyId,
+        const_arg: ConstGenericArg,
+    ) -> BackendModule {
+        let mut module = empty_module(module_id, "instance-owner.nia");
+        module.function_instances.push(BackendFunctionInstance {
+            def_id: semantic_def,
+            name: SymbolId::EMPTY,
+            arg_module_id: caller,
+            self_arg: None,
+            args: vec![ty],
+            const_args: vec![const_arg],
+            symbol: "instance".to_string(),
+            params: Vec::new(),
+            return_type: ty,
+            is_extern: true,
+            is_variadic: false,
+            attributes: Vec::new(),
+            local_names: Default::default(),
+            function_body: None,
+            span: Span::default(),
+        });
+        module
+    }
+
     fn function_owner_module(
         module_id: ModuleId,
         def_id: GlobalDefId,
@@ -964,6 +999,64 @@ mod tests {
             builder.finish(unit)
         };
         let pending = match result {
+            CodegenDeclarationMembershipBuild::Pending(pending) => pending,
+            CodegenDeclarationMembershipBuild::Ready(_) => {
+                panic!("membership became ready before the const expression owner")
+            }
+        };
+        assert_eq!(pending.modules(), &[const_owner]);
+    }
+
+    #[test]
+    fn membership_waits_for_const_expression_owner_in_instance_metadata() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let caller = module_ids.allocate();
+        let instance_owner = module_ids.allocate();
+        let const_owner = module_ids.allocate();
+        let types = TypeStore::new();
+        let ty = types.append_for_module(caller).primitive(PrimitiveTy::I32);
+        let semantic_def = GlobalDefId {
+            module_id: caller,
+            def_id: DefId(9),
+        };
+        let const_arg = ConstGenericArg {
+            ty,
+            value: ConstGenericValue::ConstExpr(GlobalConstExprId {
+                module_id: const_owner,
+                const_expr_id: ConstExprId(0),
+            }),
+        };
+        let mut caller_backend = empty_module(caller, "caller.nia");
+        caller_backend.globals.push(BackendGlobal {
+            def_id: GlobalDefId {
+                module_id: caller,
+                def_id: DefId(0),
+            },
+            name: SymbolId::EMPTY,
+            link_name: None,
+            ty,
+            is_let: false,
+            is_extern: false,
+            init: Some(StaticInit::AddrOfFunction {
+                function: semantic_def,
+                args: vec![ty],
+                const_args: vec![const_arg.clone()],
+            }),
+            span: Span::default(),
+        });
+        let modules = vec![
+            caller_backend,
+            instance_owner_module_with_const(instance_owner, semantic_def, caller, ty, const_arg),
+            empty_module(const_owner, "const-owner.nia"),
+        ];
+        let owners = BackendModuleOwnerDirectory::from_modules(&modules);
+        let program = BackendProgram::new(modules);
+        let partition = caller_partition(&program, caller);
+        let (index, mut publisher) = ProgramIndex::new(program.module_store(), Arc::new(types));
+        publisher.publish(caller);
+        publisher.publish(instance_owner);
+
+        let pending = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before the const expression owner")

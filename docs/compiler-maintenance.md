@@ -982,6 +982,11 @@ signals, not architecture goals.
   must be rejected at the backend boundary. Instance, layout, and type lookup
   may consume only resolved integer/boolean/character values or evaluated
   expression handles with validated owners.
+- Declaration-membership readiness must collect module dependencies from every
+  standalone const-argument list, including instance metadata, vtable trait
+  arguments, vtable entries, and referenced instance keys. Recording only the
+  argument type misses the owner of a `GlobalConstExprId` and can schedule LLVM
+  lowering before its const-evaluation facts are published.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
