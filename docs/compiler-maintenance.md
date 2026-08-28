@@ -987,6 +987,10 @@ signals, not architecture goals.
   arguments, vtable entries, and referenced instance keys. Recording only the
   argument type misses the owner of a `GlobalConstExprId` and can schedule LLVM
   lowering before its const-evaluation facts are published.
+- Stable declaration-membership sort keys must preserve evaluated array-length
+  values. Mapping every `ConstExpr` to one fallback value creates collisions in
+  hash-set-derived vtable ordering and makes generated declaration order depend
+  on iteration details.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
