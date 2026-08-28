@@ -78,6 +78,26 @@ fn main(value: &[u8; std::builtin::size[i32]()]) usize {
 }
 
 #[test]
+fn selects_concrete_array_layout_operand_over_generic_extension() {
+    let checked = pipeline(
+        r#"
+extend[T] [u8; std::builtin::size[T]()] where T: Sized {
+    fn rank(&self) i32 { 1 }
+}
+
+extend [u8; std::builtin::size[i32]()] {
+    fn rank(&self) i32 { 2 }
+}
+
+fn main(value: &[u8; std::builtin::size[i32]()]) i32 {
+    value.rank()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn selects_repeated_type_parameter_over_independent_parameters() {
     let checked = pipeline(
         r#"
