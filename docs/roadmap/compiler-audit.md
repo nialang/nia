@@ -3449,6 +3449,11 @@ acceptance item only when its phase-wide evidence is complete.
       void and typed signatures to real `DISubprogram`s, inspect the referenced
       metadata list, and cover the count boundary. The `nia-llvm` owner suite,
       workspace check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 573 closes the LLVM DIBuilder array-length boundary. Debug array
+      construction now rejects negative element counts before passing them to
+      the signed subrange API, preventing malformed DWARF ranges from crossing
+      the typed wrapper. An owner-level regression pins the recoverable error;
+      the existing successful subrange construction remains covered.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

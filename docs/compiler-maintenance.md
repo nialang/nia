@@ -290,6 +290,9 @@ it does not make a reset implicit.
   it must be `null` for `void`, followed by the parameter type metadata. Keep
   return and parameter types separate in the typed API, and check the combined
   count before converting it to LLVM's `u32` field.
+- LLVM DIBuilder array subranges represent element counts, so reject negative
+  lengths before calling the signed C API. A typed debug wrapper must not let a
+  negative source count become a malformed DWARF range.
 - Backend IR validation recursively validates const-argument types in every
   type constructor, so malformed or session-mismatched metadata cannot bypass
   the validator merely by appearing in a const generic argument.

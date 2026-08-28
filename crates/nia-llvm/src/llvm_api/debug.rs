@@ -428,6 +428,11 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         align_in_bits: u32,
         len: i64,
     ) -> LlvmResult<DIType<'ctx>> {
+        if len < 0 {
+            return Err(LlvmError::error(
+                "LLVM debug array type length must be non-negative",
+            ));
+        }
         let subrange = require_metadata(
             unsafe { LLVMDIBuilderGetOrCreateSubrange(self.raw, 0, len) },
             "DI subrange",
@@ -742,6 +747,22 @@ mod tests {
             .create_array_type(element, 32, 8, 4)
             .expect("array debug type should be created");
         assert!(!array.raw.is_null());
+    }
+
+    #[test]
+    fn rejects_negative_array_debug_length_before_llvm_call() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("debug-array-negative").unwrap();
+        let builder = module.create_debug_info_builder().unwrap();
+        let element = builder.create_basic_type("u8", 8, 0x07).unwrap();
+
+        let error = builder
+            .create_array_type(element, 32, 8, -1)
+            .expect_err("negative debug array length");
+        assert_eq!(
+            error,
+            LlvmError::Error("LLVM debug array type length must be non-negative".to_string())
+        );
     }
 
     #[test]
