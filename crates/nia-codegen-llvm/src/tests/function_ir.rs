@@ -1545,6 +1545,13 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
         global(6, i32_ty, StaticInit::NullPtr),
         global(7, char_array_ty, StaticInit::Chars(vec![0xd800])),
         global(8, u8_ty, StaticInit::Bytes(vec![0])),
+        global(9, bool_ty, StaticInit::Int(nia_ty::IntConst::unsigned(2))),
+        global(10, char_ty, StaticInit::Int(nia_ty::IntConst::signed(-1))),
+        global(
+            11,
+            i32_ty,
+            StaticInit::Int(nia_ty::IntConst::unsigned(1_u128 << 32)),
+        ),
     ];
     drop(interner);
 
@@ -1579,6 +1586,7 @@ fn validates_static_scalar_initializer_contracts_before_llvm() {
     for message in [
         "bool initializer target is not bool",
         "integer initializer target is not integer-like",
+        "integer initializer value is outside its target type",
         "char initializer is not a Unicode scalar",
         "byte initializer target is not u8",
         "float initializer spelling or range is invalid",
