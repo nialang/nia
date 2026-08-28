@@ -317,23 +317,46 @@ impl Analyzer<'_> {
                     len: actual_len,
                     elem: actual_elem,
                 }) = self.ty_kind(actual_ty)
-                    && (matches!(len, ArrayLenTy::GenericParam(_))
-                        || len == actual_len
-                        || matches!(
-                            (
-                                self.array_len_const_value(len),
-                                self.array_len_const_value(actual_len),
-                            ),
-                            (Some(pattern), Some(actual)) if pattern == actual
-                        ))
                 {
-                    self.infer_generics_from_tys(
-                        span,
-                        target_module_id,
-                        elem,
-                        actual_elem,
-                        substitutions,
-                    )?;
+                    let lengths_match = matches!(len, ArrayLenTy::GenericParam(_))
+                        || len == actual_len
+                        || match (&len, &actual_len) {
+                            (
+                                ArrayLenTy::Builtin {
+                                    builtin: pattern_builtin,
+                                    ty: pattern_ty,
+                                },
+                                ArrayLenTy::Builtin {
+                                    builtin: actual_builtin,
+                                    ty: actual_ty,
+                                },
+                            ) if pattern_builtin == actual_builtin => {
+                                self.infer_generics_from_tys(
+                                    span,
+                                    target_module_id,
+                                    *pattern_ty,
+                                    *actual_ty,
+                                    substitutions,
+                                )?;
+                                true
+                            }
+                            _ => matches!(
+                                (
+                                    self.array_len_const_value(len.clone()),
+                                    self.array_len_const_value(actual_len.clone()),
+                                ),
+                                (Some(pattern), Some(actual)) if pattern == actual
+                            ),
+                        };
+                    if lengths_match {
+                        self.infer_generics_from_tys(
+                            span,
+                            target_module_id,
+                            elem,
+                            actual_elem,
+                            substitutions,
+                        )?;
+                    }
                 }
             }
             TyKind::Range { kind, bound } => {

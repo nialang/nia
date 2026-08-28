@@ -256,6 +256,10 @@ it does not make a reset implicit.
   provides the same type parameter, `size[T]`/`align[T]` metadata must not cause
   the expected array to be classified as permanently concrete and emit a
   premature inference failure.
+- Const-call generic inference must recurse through equivalent layout builtin
+  operands before validating the substituted target. A `size[T]` operand can
+  be the only type evidence for `T`; collect it during inference, then let the
+  final substituted-type check reject genuinely incompatible layouts.
 - Body-check generic call shape checks must recurse through the type operand of
   `ArrayLenTy::Builtin`. A generic parameter hidden only in `size[T]`/`align[T]`
   makes the expected array incomplete; checking an array literal against that
