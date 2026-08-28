@@ -325,8 +325,8 @@ impl BackendValidator<'_> {
             }
             let Some(item) = module.struct_instances.iter().find(|item| {
                 item.def_id == key.def_id
-                    && item.args == key.args
-                    && item.const_args == key.const_args
+                    && self.same_type_args(&item.args, &key.args)
+                    && self.same_const_args(&item.const_args, &key.const_args)
             }) else {
                 continue;
             };
@@ -345,8 +345,8 @@ impl BackendValidator<'_> {
             }
             let Some(item) = module.union_instances.iter().find(|item| {
                 item.def_id == key.def_id
-                    && item.args == key.args
-                    && item.const_args == key.const_args
+                    && self.same_type_args(&item.args, &key.args)
+                    && self.same_const_args(&item.const_args, &key.const_args)
             }) else {
                 continue;
             };
