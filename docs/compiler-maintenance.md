@@ -368,6 +368,11 @@ it does not make a reset implicit.
   projection and trait-goal matching consistent with const-argument
   equivalence while preserving identity-only behavior when evaluation is not
   available.
+- Trait-solver layout-backed type lookup must apply the configured
+  `const_expr_value` evaluator to array lengths and nominal const arguments
+  when comparing against a `Layouts` product. Rebuilt expression handles from
+  the layout interner are equivalent only when both values resolve; without
+  evaluator facts, raw expression identity remains the conservative fallback.
 - Backend aggregate layout-product validation must match materialized instance
   declarations through the validator's structural type and const-argument
   equivalence. Raw vector equality can skip validation when signed and unsigned

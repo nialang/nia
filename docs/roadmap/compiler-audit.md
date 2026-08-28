@@ -3810,6 +3810,11 @@ acceptance item only when its phase-wide evidence is complete.
       array lengths through the solver's const-expression evaluator, aligning
       structural array comparison with const-generic value comparison; owner
       tests cover evaluated and unresolved expression behavior.
+- [x] Batch 626 closes trait-solver layout-interner equivalence for evaluated
+      const expressions. Layout-backed `Sized` lookup now compares array
+      lengths and nominal const arguments through the solver evaluator, so
+      rebuilt handles match only when values resolve; owner tests cover
+      cross-module evaluated and unresolved cases.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
