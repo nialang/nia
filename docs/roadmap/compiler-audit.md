@@ -3544,6 +3544,12 @@ acceptance item only when its phase-wide evidence is complete.
       `align[T]` patterns cannot miss a receiver or leak bindings after a later
       element mismatch. The backend-lower owner suite (118 tests), workspace
       check, and strict Clippy pass.
+- [x] Batch 587 closes backend extension-pattern recursion through nominal
+      const-argument types. Generic-presence and bound checks now visit
+      `ConstGenericArg.ty` for nominal patterns, keeping hidden type parameters
+      visible to matching and preventing stale substitutions. The
+      `nia-backend-lower` owner suite (118 tests), workspace check, and strict
+      Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

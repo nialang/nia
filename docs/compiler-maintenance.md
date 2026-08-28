@@ -276,6 +276,10 @@ it does not make a reset implicit.
 - Backend extension-target matching must stage substitutions while comparing
   array layout builtin operands. Matching `size[T]` structurally can bind a
   type parameter, but a later element mismatch must roll that binding back.
+- Extension-pattern generic presence and bound checks must recurse through
+  nominal const-argument type metadata as well as ordinary type arguments.
+  Const arguments carry a type identity that can contain a still-unbound type
+  parameter even when their value itself is concrete.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
