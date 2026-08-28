@@ -161,6 +161,10 @@ it does not make a reset implicit.
   products are compared by type/const arguments and recursively checked field
   payloads before deterministic owner selection; raw instance-key hashing is
   not a semantic identity boundary.
+- Backend-lower trait-object and projection comparisons treat associated
+  bindings as unordered semantic sets. Candidate matching must be a complete
+  bijection with backtracking; a greedy first equal key can consume a value
+  needed by a later duplicate key and make equivalent types appear different.
 - `TypeEquivalence::same_const_generic_args_for_equiv` is the shared fallback
   for const metadata and compares integer values by bits, independent of their
   signed/unsigned representation. Specialized adapters may add evaluator
