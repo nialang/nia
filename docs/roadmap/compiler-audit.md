@@ -3675,6 +3675,13 @@ acceptance item only when its phase-wide evidence is complete.
       variants recursively after substitution; the backend-lower owner suite
       (121 tests), workspace check, strict Clippy, formatting, and diff checks
       pass.
+- [x] Batch 606 closes executable-reachability cross-store equivalence for
+      composite payloads. `TypedTyRef` structural comparison now handles
+      opaque, tuple, and closure-state types recursively, preserving semantic
+      matching when cached signatures rebuild nested handles. A dual-store
+      tuple regression covers signed/unsigned const representations;
+      `nia-executable-reachability` (16 tests), workspace check, strict
+      Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
