@@ -320,6 +320,11 @@ it does not make a reset implicit.
   equivalence. Raw vector equality can skip validation when signed and unsigned
   representations carry the same const bits, allowing a malformed product to
   pass without checking its declared fields.
+- Backend static function-address validation must use structural type-argument
+  matching when locating a materialized function instance. The fallback lookup
+  must not skip ABI checks merely because equivalent nominal argument handles
+  were rebuilt in a different order or compilation path; const arguments still
+  use the validator's canonical const comparison.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;

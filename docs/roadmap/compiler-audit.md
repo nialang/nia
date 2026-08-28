@@ -3618,6 +3618,14 @@ acceptance item only when its phase-wide evidence is complete.
       covers recursive dispatch and builtin discrimination; `nia-body-check`
       (273 tests), workspace check, strict Clippy, formatting, and diff checks
       pass.
+- [x] Batch 598 closes LLVM static function-address instance lookup for
+      structurally equal type arguments. The validator fallback now uses its
+      structural type equivalence alongside canonical const comparison, so an
+      equivalent nominal argument cannot make an instance ABI mismatch escape
+      validation. An owner regression uses distinct but equivalent nominal
+      handles and a deliberately mismatched parameter ABI;
+      `nia-codegen-llvm` (313 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
