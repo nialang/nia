@@ -161,6 +161,81 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
 }
 
 #[test]
+fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let u8_ty = append.intern(TyKind::Primitive(PrimitiveTy::U8));
+    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let generic_name = SymbolId::from_stable_hash(2);
+    let trait_id = TraitId::Source(GlobalDefId {
+        module_id,
+        def_id: DefId(3),
+    });
+    let generic_ty = append.intern(TyKind::GenericParam(generic_name));
+    let impl_ty = append.intern(TyKind::Array {
+        len: ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: generic_ty,
+        },
+        elem: u8_ty,
+    });
+    let actual_ty = append.intern(TyKind::Array {
+        len: ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: i32_ty,
+        },
+        elem: u8_ty,
+    });
+    let trait_impls = vec![ProgramTraitImplSignature {
+        module_id,
+        impl_id: TraitImplId(2),
+        builtin: None,
+        generics: vec![generic_name],
+        generic_params: vec![nia_item_signatures::GenericParamSignature {
+            name: generic_name,
+            kind: nia_item_signatures::GenericParamSignatureKind::Type,
+        }],
+        target_ty: impl_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        where_predicates: Vec::new(),
+        associated_types: Vec::new(),
+        associated_values: Vec::new(),
+    }];
+    let impl_index = ProgramTraitImplIndex::new(&trait_impls);
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: Some(&impl_index),
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    let TraitSelection::User(selection) = solver.select_user_impl(TraitGoal {
+        self_ty: actual_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    }) else {
+        panic!("layout builtin array operand should select the user impl");
+    };
+    assert_eq!(selection.substitutions.get(&generic_name), Some(&i32_ty));
+}
+
+#[test]
 fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

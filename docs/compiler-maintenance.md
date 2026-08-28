@@ -284,6 +284,10 @@ it does not make a reset implicit.
   both sides use the same layout builtin. Match its operand through the same
   staged type/const substitutions as the array element; otherwise an extension
   target such as `[u8; size[T]()]` cannot infer `T` from a matching receiver.
+- Trait-solver impl-pattern matching follows the same rule: when both array
+  lengths use the same builtin, recursively match their type operands in the
+  candidate substitution transaction. Treating the complete length as opaque
+  loses type-generic impl candidates that are selected through layout metadata.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
