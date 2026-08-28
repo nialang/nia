@@ -325,6 +325,11 @@ it does not make a reset implicit.
   must not skip ABI checks merely because equivalent nominal argument handles
   were rebuilt in a different order or compilation path; const arguments still
   use the validator's canonical const comparison.
+- Backend semantic type matching must treat `TraitObjectPointee` as a complete
+  structural type, not an opaque leaf. Compare the trait identity, type and
+  const arguments, and associated-type bindings through the same recursive
+  equivalence used for the public trait-object pointer; rebuilt pointee handles
+  must not split extension, instance, or ABI matching.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
