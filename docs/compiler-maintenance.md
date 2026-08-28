@@ -328,6 +328,11 @@ it does not make a reset implicit.
   comparison to equal `ArrayLenTy::Builtin` kinds. Projection-cycle and
   obligation deduplication can otherwise split equivalent arrays solely because
   their layout operand handles were rebuilt independently.
+- Body-check projection and trait-object structural equivalence must resolve
+  evaluated `ArrayLenTy::ConstExpr` values through `array_len_const_expr_value`.
+  Expression handles may match a `ConstValue` or another expression only when
+  the owner publishes an evaluated fact; unresolved expressions remain
+  identity-only so unrelated lengths are never collapsed.
 - Extension-pattern generic presence and bound checks must recurse through
   nominal const-argument type metadata as well as ordinary type arguments.
   Const arguments carry a type identity that can contain a still-unbound type

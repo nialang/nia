@@ -38,6 +38,7 @@ struct MethodTraitImplContext {
     associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
 }
 
+#[cfg(test)]
 fn same_array_len_with(
     left: &ArrayLenTy,
     right: &ArrayLenTy,
@@ -58,6 +59,38 @@ fn same_array_len_with(
     }
 }
 
+#[cfg(test)]
+fn same_array_len_with_values(
+    left: &ArrayLenTy,
+    right: &ArrayLenTy,
+    same_type: &mut impl FnMut(InternedTyId, InternedTyId) -> bool,
+    array_value: &mut impl FnMut(nia_ids::GlobalConstExprId) -> Option<u64>,
+) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left, right) {
+        (
+            ArrayLenTy::Builtin {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) => left_builtin == right_builtin && same_type(*left_ty, *right_ty),
+        (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
+        | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => {
+            array_value(*right).is_some_and(|right| *left == right)
+        }
+        (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => array_value(*left)
+            .zip(array_value(*right))
+            .is_some_and(|(left, right)| left == right),
+        _ => false,
+    }
+}
+
 impl From<TraitObligation> for TraitGoal {
     fn from(obligation: TraitObligation) -> Self {
         Self {
@@ -70,6 +103,36 @@ impl From<TraitObligation> for TraitGoal {
 }
 
 impl<'a> BodyChecker<'a> {
+    fn array_lengths_equivalent(&mut self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        if left == right {
+            return true;
+        }
+        match (left, right) {
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => {
+                left_builtin == right_builtin
+                    && self.types_equivalent_without_projection_resolution(*left_ty, *right_ty)
+            }
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
+            | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
+                .array_len_const_expr_value(*right)
+                .is_some_and(|right| *left == right),
+            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => self
+                .array_len_const_expr_value(*left)
+                .zip(self.array_len_const_expr_value(*right))
+                .is_some_and(|(left, right)| left == right),
+            _ => false,
+        }
+    }
+
     pub(crate) fn current_context_proves_trait_obligation(
         &mut self,
         self_ty: InternedTyId,
@@ -2046,9 +2109,8 @@ impl<'a> BodyChecker<'a> {
                     elem: right_elem,
                 }),
             ) => {
-                same_array_len_with(&left_len, &right_len, &mut |left, right| {
-                    self.types_equivalent_without_projection_resolution(left, right)
-                }) && self.types_equivalent_without_projection_resolution(left_elem, right_elem)
+                self.array_lengths_equivalent(&left_len, &right_len)
+                    && self.types_equivalent_without_projection_resolution(left_elem, right_elem)
             }
             (
                 Some(TyKind::Range {
@@ -2314,7 +2376,7 @@ impl<'a> BodyChecker<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::same_array_len_with;
+    use super::{same_array_len_with, same_array_len_with_values};
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TypeStore};
 
     #[test]
@@ -2351,6 +2413,45 @@ mod tests {
             &ArrayLenTy::ConstValue(4),
             &ArrayLenTy::ConstValue(4),
             &mut |_, _| panic!("non-builtin lengths must use exact equality")
+        ));
+    }
+
+    #[test]
+    fn array_length_equivalence_uses_evaluated_expression_values() {
+        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let left = ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
+            module_id: modules.allocate(),
+            const_expr_id: nia_ids::ConstExprId(1),
+        });
+        let right_id = nia_ids::GlobalConstExprId {
+            module_id: modules.allocate(),
+            const_expr_id: nia_ids::ConstExprId(2),
+        };
+        let right = ArrayLenTy::ConstExpr(right_id);
+        let left_id = match left {
+            ArrayLenTy::ConstExpr(id) => id,
+            _ => unreachable!(),
+        };
+        assert!(same_array_len_with_values(
+            &left,
+            &right,
+            &mut |_, _| false,
+            &mut |id| (id == left_id || id == right_id).then_some(4),
+        ));
+        assert!(same_array_len_with_values(
+            &left,
+            &ArrayLenTy::ConstValue(4),
+            &mut |_, _| false,
+            &mut |id| (id == left_id).then_some(4),
+        ));
+        assert!(!same_array_len_with_values(
+            &left,
+            &ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
+                module_id: right_id.module_id,
+                const_expr_id: nia_ids::ConstExprId(3),
+            }),
+            &mut |_, _| false,
+            &mut |id| (id == left_id || id == right_id).then_some(4),
         ));
     }
 }
