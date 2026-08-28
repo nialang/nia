@@ -39,6 +39,26 @@ pub(crate) struct FunctionBodyInstantiation<'a> {
     pub(crate) const_substitutions: &'a SymbolMap<nia_ty::ConstGenericArg>,
 }
 
+fn same_array_len_with(
+    left: &nia_ty::ArrayLenTy,
+    right: &nia_ty::ArrayLenTy,
+    same_type: &mut impl FnMut(InternedTyId, InternedTyId) -> bool,
+) -> bool {
+    match (left, right) {
+        (
+            nia_ty::ArrayLenTy::Builtin {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            nia_ty::ArrayLenTy::Builtin {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) => left_builtin == right_builtin && same_type(*left_ty, *right_ty),
+        _ => left == right,
+    }
+}
+
 fn classify_effective_generic_names(
     generics: &[SymbolId],
     const_generics: &[SymbolId],
@@ -2219,7 +2239,11 @@ impl<'a> ModuleLowerer<'a> {
                     len: right_len,
                     elem: right_elem,
                 }),
-            ) => left_len == right_len && self.types_match(left_elem, right_elem),
+            ) => {
+                same_array_len_with(&left_len, &right_len, &mut |left, right| {
+                    self.types_match(left, right)
+                }) && self.types_match(left_elem, right_elem)
+            }
             (
                 Some(TyKind::FunctionPointer {
                     params: left_params,
@@ -2531,5 +2555,48 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_array_len_with;
+    use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TypeStore};
+
+    #[test]
+    fn array_length_matching_recurses_through_builtin_operands() {
+        let type_store = TypeStore::new();
+        let append = type_store.append_for_module(nia_ids::ModuleIdAllocator::new().allocate());
+        let left_ty = append.primitive(PrimitiveTy::I32);
+        let right_ty = append.primitive(PrimitiveTy::I64);
+        let left = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Size,
+            ty: left_ty,
+        };
+        let right = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Size,
+            ty: right_ty,
+        };
+        let mut calls = 0;
+        assert!(same_array_len_with(&left, &right, &mut |left, right| {
+            calls += 1;
+            left == left_ty && right == right_ty
+        }));
+        assert_eq!(calls, 1);
+
+        let different_builtin = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Align,
+            ty: right_ty,
+        };
+        assert!(!same_array_len_with(
+            &left,
+            &different_builtin,
+            &mut |_, _| panic!("different builtins must not inspect operands")
+        ));
+        assert!(same_array_len_with(
+            &ArrayLenTy::ConstValue(4),
+            &ArrayLenTy::ConstValue(4),
+            &mut |_, _| panic!("non-builtin lengths must use exact equality")
+        ));
     }
 }

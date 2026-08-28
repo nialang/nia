@@ -280,6 +280,11 @@ it does not make a reset implicit.
 - Backend extension-target matching must stage substitutions while comparing
   array layout builtin operands. Matching `size[T]` structurally can bind a
   type parameter, but a later element mismatch must roll that binding back.
+- Backend semantic type matching must recurse through equal
+  `ArrayLenTy::Builtin` kinds before comparing array elements. Treating the
+  complete length as an opaque value makes equivalent layout operands with
+  distinct handles compare unequal; other length forms retain exact identity
+  semantics until a canonical value is available.
 - Extension-pattern generic presence and bound checks must recurse through
   nominal const-argument type metadata as well as ordinary type arguments.
   Const arguments carry a type identity that can contain a still-unbound type

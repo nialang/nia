@@ -3603,6 +3603,13 @@ acceptance item only when its phase-wide evidence is complete.
       owner regression proves the mismatched field layout is diagnosed through
       the equivalent const metadata; `nia-codegen-llvm` (312 tests), workspace
       check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 596 closes backend semantic array matching for layout builtin
+      operands. `ModuleLowerer::types_match` now recursively compares operand
+      types when both lengths use the same `size`/`align` builtin, while
+      preserving exact matching for other length forms. The owner helper test
+      covers recursive operand dispatch and builtin discrimination;
+      `nia-backend-lower` (120 tests), workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
