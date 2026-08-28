@@ -1636,6 +1636,12 @@ impl BackendValidator<'_> {
             );
             return;
         };
+        self.validate_enum_variant_value(
+            info.owner.backing_type,
+            info.variant.value,
+            info.index,
+            span,
+        );
         let owner = info.owner.def_id;
         let backing_type = info.owner.backing_type;
         let payload = info.variant.payload.clone();
@@ -1701,11 +1707,39 @@ impl BackendValidator<'_> {
             );
             return;
         };
+        self.validate_enum_variant_value(
+            info.owner.backing_type,
+            info.variant.value,
+            info.index,
+            span,
+        );
         if !self.same_type(result_ty, info.owner.backing_type) {
             self.invalid_enum(
                 span,
                 "variant tag result does not match the enum backing type",
             );
+        }
+    }
+
+    fn validate_enum_variant_value(
+        &mut self,
+        backing_type: nia_ids::InternedTyId,
+        explicit_value: Option<i128>,
+        index: usize,
+        span: Span,
+    ) {
+        let value = explicit_value.unwrap_or(index as i128);
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(backing_type) else {
+            return;
+        };
+        let pointer_width = self
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+            .unwrap_or(0);
+        if !nia_ty::IntConst::from_i128(value).fits_primitive_int(*primitive, pointer_width) {
+            self.invalid_enum(span, "variant value is outside its enum backing type");
         }
     }
 

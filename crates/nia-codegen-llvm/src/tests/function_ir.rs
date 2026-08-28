@@ -5053,7 +5053,7 @@ fn validates_enum_expression_contracts_before_llvm() {
                     BackendEnumVariant {
                         def_id: payload_variant,
                         name: sym("Some"),
-                        value: Some(1),
+                        value: Some(i128::from(i32::MAX) + 1),
                         payload: BackendEnumVariantPayload::Tuple(vec![i32_ty]),
                         span,
                     },
@@ -5076,6 +5076,7 @@ fn validates_enum_expression_contracts_before_llvm() {
     assert!(output.modules.is_empty());
     for expected in [
         "variant result type does not match its enum representation",
+        "variant value is outside its enum backing type",
         "variant payload field count does not match its declaration",
         "variant tag result does not match the enum backing type",
         "tag result does not match the enum backing type",

@@ -978,6 +978,9 @@ signals, not architecture goals.
 - Function builtin `usize` values must also fit the configured target pointer
   width before LLVM constant construction. A host-width `u64` value is not
   valid on a narrower target merely because the result type is `usize`.
+- Enum variant values must fit the enum's declared backing primitive before
+  LLVM tag construction. Backend metadata must not rely on LLVM's integer
+  truncation to recover an out-of-range explicit discriminant.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout
