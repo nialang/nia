@@ -1424,9 +1424,12 @@ impl BackendValidator<'_> {
                 }
                 if !matches!(
                     self.index.ty_kind(result_ty),
-                    Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+                    Some(TyKind::FunctionPointer { .. })
                 ) {
-                    self.invalid_operator(span, "function reference result is not pointer-like");
+                    self.invalid_operator(
+                        span,
+                        "function reference result is not a function pointer",
+                    );
                 }
             }
             UnaryOp::Deref => {
