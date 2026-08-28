@@ -215,6 +215,7 @@ impl<'ctx> Builder<'ctx> {
         index: u32,
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
+        validate_struct_gep_type(pointee_ty.as_type_ref(), index)?;
         let name = to_c_string(name)?;
         // SAFETY: The caller upholds the struct type, field index, and pointer
         // provenance contract documented above.
@@ -1698,6 +1699,25 @@ fn aggregate_element_type(aggregate: LLVMValueRef, index: u32) -> LlvmResult<LLV
     require_type(field_ty, "aggregate field")
 }
 
+/// Checks the structural preconditions that LLVM's struct-GEP entry point
+/// cannot infer through opaque pointers. Pointer provenance remains the
+/// caller's responsibility as documented on [`Builder::build_struct_gep`].
+fn validate_struct_gep_type(pointee_ty: LLVMTypeRef, index: u32) -> LlvmResult<()> {
+    let pointee_ty = require_type(pointee_ty, "struct GEP pointee")?;
+    if unsafe { LLVMGetTypeKind(pointee_ty) } != LLVMTypeKind::LLVMStructTypeKind {
+        return Err(LlvmError::error(
+            "LLVM struct GEP requires a struct pointee type",
+        ));
+    }
+    let field_count = unsafe { LLVMCountStructElementTypes(pointee_ty) };
+    if u64::from(index) >= u64::from(field_count) {
+        return Err(LlvmError::error(format!(
+            "LLVM struct GEP field index {index} is out of bounds for struct with {field_count} fields"
+        )));
+    }
+    Ok(())
+}
+
 fn validate_select_types(
     cond: LLVMValueRef,
     on_true: LLVMValueRef,
@@ -2271,6 +2291,40 @@ mod tests {
                 LlvmError::Error("LLVM test operand count exceeds u32".to_string())
             );
         }
+    }
+
+    #[test]
+    fn rejects_struct_gep_shape_and_index_before_llvm() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("struct-gep-contract").unwrap();
+        let function = module
+            .add_function(
+                "test",
+                context.void_type().fn_type(&[], false).unwrap(),
+                None,
+            )
+            .unwrap();
+        let block = context.append_basic_block(function, "entry").unwrap();
+        let builder = context.create_builder().unwrap();
+        builder.position_at_end(block);
+
+        let scalar = context.i32_type();
+        let scalar_ptr = builder.build_alloca(scalar, "scalar").unwrap();
+        let error = unsafe { builder.build_struct_gep(scalar, scalar_ptr, 0, "invalid") }
+            .expect_err("scalar pointee must be rejected");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("requires a struct pointee type")
+        ));
+
+        let structure = context.struct_type(&[scalar.into()], false).unwrap();
+        let structure_ptr = builder.build_alloca(structure, "structure").unwrap();
+        let error = unsafe { builder.build_struct_gep(structure, structure_ptr, 1, "invalid") }
+            .expect_err("out-of-bounds struct field must be rejected");
+        assert!(matches!(
+            error,
+            LlvmError::Error(message) if message.contains("field index 1 is out of bounds")
+        ));
     }
 
     #[test]
