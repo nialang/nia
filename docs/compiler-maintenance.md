@@ -950,6 +950,11 @@ signals, not architecture goals.
   fields. `Infer` and `GenericParam` lengths have no concrete field layout;
   the frontend ABI checker and LLVM backend validator must enforce the same
   contract before lowering or emission.
+- Backend `BuiltinOperator` callees must validate both metadata and operation
+  shape before LLVM emission. The trait id must own the selected unary/binary
+  operation, and the operands/result must satisfy the same type contract as
+  direct operator expressions; arity-only validation can otherwise let
+  malformed metadata reach codegen.
 - Layout arithmetic helpers must reject malformed input layouts before
   returning a product. In particular, `array_layout` must not propagate a
   zero alignment into a `Some(TypeLayout)` result; every valid computed layout

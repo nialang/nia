@@ -6821,6 +6821,26 @@ fn validates_backend_ir_call_signatures_before_llvm() {
                     }),
                     vec![integer(), integer()],
                 )),
+                FunctionOp::Expr(call(
+                    i32_ty,
+                    FunctionCallee::BuiltinOperator(nia_function_ir::FunctionBuiltinOperator {
+                        trait_id: nia_ids::BuiltinTrait::Add,
+                        op: nia_function_ir::FunctionBuiltinOperatorOp::Unary(
+                            nia_ast::UnaryOp::Neg,
+                        ),
+                    }),
+                    vec![integer()],
+                )),
+                FunctionOp::Expr(call(
+                    bool_ty,
+                    FunctionCallee::BuiltinOperator(nia_function_ir::FunctionBuiltinOperator {
+                        trait_id: nia_ids::BuiltinTrait::Neg,
+                        op: nia_function_ir::FunctionBuiltinOperatorOp::Binary(
+                            nia_ast::BinaryOp::Add,
+                        ),
+                    }),
+                    vec![integer(), integer()],
+                )),
                 FunctionOp::Expr(FunctionExpr {
                     span,
                     ty: bool_ty,
@@ -6985,6 +7005,8 @@ fn validates_backend_ir_call_signatures_before_llvm() {
         "builtin-method call has an invalid ABI contract: len receiver type",
         "builtin-method call has an invalid ABI contract: len result type",
         "builtin-operator call has an invalid ABI contract",
+        "builtin-operator call has an invalid ABI contract: operator trait",
+        "backend IR operator has an invalid contract: binary result type",
         "function value has an invalid signature contract: value type",
         "function value has an invalid signature contract: parameter types",
         "function value has an invalid signature contract: return type",

@@ -3884,6 +3884,11 @@ acceptance item only when its phase-wide evidence is complete.
       Both the frontend ABI checker and LLVM backend validator now reject
       `Infer` and `GenericParam` field lengths before C layout/codegen; the
       `nia-abi-check` owner regression covers generic extern-struct fields.
+- [x] Batch 641 closes the backend builtin-operator metadata/type boundary.
+      LLVM backend validation now rejects operators whose trait id does not own
+      the selected operation, unsupported non-dispatch operators, and operand
+      or result types that violate the direct unary/binary operator contracts;
+      malformed call regressions cover trait mismatch and result-shape errors.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
