@@ -284,6 +284,74 @@ fn projection_context_matching_uses_semantic_arguments() {
 }
 
 #[test]
+fn substitutes_generic_type_inside_array_layout_builtin() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let defs = defs_from_source(module_id, "struct Dummy {}");
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let generic = sym("T");
+    let generic_ty = append.intern(TyKind::GenericParam(generic));
+    let u32_ty = append.intern(TyKind::Primitive(PrimitiveTy::U32));
+    let array = append.intern(TyKind::Array {
+        len: nia_ty::ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: generic_ty,
+        },
+        elem: u32_ty,
+    });
+    let empty_signatures = nia_item_signatures::ItemSignatures {
+        functions: HashMap::new(),
+        structs: HashMap::new(),
+        unions: HashMap::new(),
+        traits: HashMap::new(),
+        trait_impls: Vec::new(),
+        enums: HashMap::new(),
+        type_aliases: HashMap::new(),
+        globals: HashMap::new(),
+        consts: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let lowering = nia_type_lower::TypeLowering {
+        type_uses: HashMap::new(),
+        const_exprs: HashMap::new(),
+        const_expr_summaries: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let normalization = nia_type_normalize::TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let module = ExtensionModuleInput {
+        module_id,
+        type_store: &type_store,
+        defs: &defs,
+        lowering: &lowering,
+        signatures: &empty_signatures,
+        function_signatures: &empty_signatures,
+        type_signatures: &empty_signatures,
+        normalization: &normalization,
+    };
+    let substitutions = SymbolMap::from_iter([(generic, u32_ty)]);
+    let substituted = substitute_type(
+        &append,
+        &module,
+        &type_store,
+        array,
+        &substitutions,
+        &SymbolMap::default(),
+        TypeSubstitutionTarget::default(),
+    );
+    assert!(matches!(
+        type_store.get(substituted),
+        Some(TyKind::Array {
+            len: nia_ty::ArrayLenTy::Builtin { ty, .. },
+            ..
+        }) if *ty == u32_ty
+    ));
+}
+
+#[test]
 fn trait_goal_assumption_identity_is_semantic_and_includes_self_type() {
     let mut module_ids = nia_ids::ModuleIdAllocator::new();
     let left_module = module_ids.allocate();
