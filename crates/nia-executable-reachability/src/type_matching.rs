@@ -250,6 +250,27 @@ fn match_type_pattern<'a>(
     actual: TypedTyRef<'a>,
     substitutions: &mut PatternSubstitutions,
 ) -> bool {
+    // A composite pattern is one candidate transaction. Recursive matching
+    // may bind an early field before a later field rejects the candidate; do
+    // not expose that partial binding to the caller.
+    let mut candidate = PatternSubstitutions {
+        types: substitutions.types.clone(),
+        consts: substitutions.consts.clone(),
+        array_lens: substitutions.array_lens.clone(),
+        const_param_types: substitutions.const_param_types.clone(),
+    };
+    if !match_type_pattern_inner(pattern, actual, &mut candidate) {
+        return false;
+    }
+    *substitutions = candidate;
+    true
+}
+
+fn match_type_pattern_inner<'a>(
+    pattern: TypedTyRef<'a>,
+    actual: TypedTyRef<'a>,
+    substitutions: &mut PatternSubstitutions,
+) -> bool {
     let Some(pattern_ty) = pattern.kind() else {
         return false;
     };
@@ -1886,6 +1907,36 @@ mod tests {
                 &mut substitutions,
             ));
         }
+    }
+
+    #[test]
+    fn composite_pattern_mismatch_does_not_leak_early_substitutions() {
+        let module_id = module();
+        let store = TypeStore::new();
+        let append = store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let i64_ty = append.primitive(PrimitiveTy::I64);
+        let bool_ty = append.primitive(PrimitiveTy::Bool);
+        let name = symbol("T");
+        let generic = append.intern(TyKind::GenericParam(name));
+        let pattern = append.intern(TyKind::Tuple(vec![generic, i32_ty]));
+        let actual = append.intern(TyKind::Tuple(vec![i64_ty, bool_ty]));
+        let mut substitutions = PatternSubstitutions::default();
+
+        assert!(!match_type_pattern(
+            TypedTyRef {
+                store: &store,
+                ty: pattern,
+            },
+            TypedTyRef {
+                store: &store,
+                ty: actual,
+            },
+            &mut substitutions,
+        ));
+        assert!(substitutions.types.is_empty());
+        assert!(substitutions.consts.is_empty());
+        assert!(substitutions.array_lens.is_empty());
     }
 
     #[test]
