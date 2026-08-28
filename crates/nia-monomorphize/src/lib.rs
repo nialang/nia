@@ -1100,7 +1100,12 @@ impl MonoCollector<'_> {
                     },
                 );
                 if active_projections.iter().any(|active| {
-                    projection_keys_match_semantic(self.type_store, active, &projection_key)
+                    projection_keys_match_semantic(
+                        self.type_store,
+                        &self.const_by_module,
+                        active,
+                        &projection_key,
+                    )
                 }) {
                     projection
                 } else {
@@ -1564,6 +1569,7 @@ impl MonoCollector<'_> {
 
 struct MonoTypeEquivalence<'a> {
     type_store: &'a TypeStore,
+    const_by_module: &'a HashMap<ModuleId, &'a ConstCheck>,
 }
 
 impl TypeEquivalence for MonoTypeEquivalence<'_> {
@@ -1583,6 +1589,27 @@ impl TypeEquivalence for MonoTypeEquivalence<'_> {
                     ty: right_ty,
                 },
             ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
+            | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
+                .const_by_module
+                .get(&right.module_id)
+                .and_then(|const_check| const_check.array_lengths.get(right).copied())
+                .is_some_and(|right| left == &right),
+            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
+                left == right
+                    || self
+                        .const_by_module
+                        .get(&left.module_id)
+                        .and_then(|const_check| const_check.array_lengths.get(left).copied())
+                        .zip(
+                            self.const_by_module
+                                .get(&right.module_id)
+                                .and_then(|const_check| {
+                                    const_check.array_lengths.get(right).copied()
+                                }),
+                        )
+                        .is_some_and(|(left, right)| left == right)
+            }
             _ => left == right,
         }
     }
@@ -1611,10 +1638,14 @@ impl TypeEquivalence for MonoTypeEquivalence<'_> {
 
 fn projection_keys_match_semantic(
     type_store: &TypeStore,
+    const_by_module: &HashMap<ModuleId, &ConstCheck>,
     left: &ProjectionInstantiationKey,
     right: &ProjectionInstantiationKey,
 ) -> bool {
-    let equivalence = MonoTypeEquivalence { type_store };
+    let equivalence = MonoTypeEquivalence {
+        type_store,
+        const_by_module,
+    };
     left.trait_id == right.trait_id
         && left.name == right.name
         && equivalence.same_type_for_equiv(left.self_ty, right.self_ty)
@@ -1757,6 +1788,7 @@ mod tests {
     use nia_span::Span;
     use nia_symbol::stable_hash;
     use nia_ty::{ArrayLenTy, ConstGenericValue, IntConst, PrimitiveTy};
+    use std::sync::Arc;
 
     include!("tests/monomorphize/test_support.rs");
 
@@ -1808,6 +1840,7 @@ mod tests {
         };
         assert!(projection_keys_match_semantic(
             &type_store,
+            &HashMap::new(),
             &left_key,
             &right_key
         ));
@@ -1861,8 +1894,68 @@ mod tests {
         };
         assert!(projection_keys_match_semantic(
             &type_store,
+            &HashMap::new(),
             &left_key,
             &right_key
+        ));
+    }
+
+    #[test]
+    fn projection_guard_matches_evaluated_const_expression_array_lengths() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let left_module = module_ids.allocate();
+        let right_module = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let left = type_store.append_for_module(left_module);
+        let right = type_store.append_for_module(right_module);
+        let left_u8 = left.primitive(PrimitiveTy::U8);
+        let right_u8 = right.primitive(PrimitiveTy::U8);
+        let left_expr = GlobalConstExprId {
+            module_id: left_module,
+            const_expr_id: nia_ids::ConstExprId(1),
+        };
+        let right_expr = GlobalConstExprId {
+            module_id: right_module,
+            const_expr_id: nia_ids::ConstExprId(2),
+        };
+        let left_array = left.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr(left_expr),
+            elem: left_u8,
+        });
+        let right_array = right.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr(right_expr),
+            elem: right_u8,
+        });
+        let trait_id = nia_ty::TraitId::Source(GlobalDefId {
+            module_id: left_module,
+            def_id: DefId(3),
+        });
+        let left_key = ProjectionInstantiationKey {
+            self_ty: left_array,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            name: sym("Output"),
+        };
+        let right_key = ProjectionInstantiationKey {
+            self_ty: right_array,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            name: left_key.name,
+        };
+        let mut left_check = ConstCheck::default();
+        Arc::make_mut(&mut left_check.array_lengths).insert(left_expr, 4);
+        let mut right_check = ConstCheck::default();
+        Arc::make_mut(&mut right_check.array_lengths).insert(right_expr, 4);
+        let const_by_module =
+            HashMap::from([(left_module, &left_check), (right_module, &right_check)]);
+
+        assert!(projection_keys_match_semantic(
+            &type_store,
+            &const_by_module,
+            &left_key,
+            &right_key,
         ));
     }
 }
