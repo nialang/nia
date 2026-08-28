@@ -3460,6 +3460,13 @@ acceptance item only when its phase-wide evidence is complete.
       regressions cover both rejection of an integer `add` and successful type
       recovery from a real `alloca`; the affected LLVM suite, workspace check,
       strict Clippy, Rustdoc, formatting, and diff checks pass.
+- [x] Batch 575 closes LLVM attribute context-lifetime ownership. `Attribute`
+      now carries the lifetime of the `Context` arena that allocated its raw
+      handle, and context creation plus function attachment preserve that
+      lifetime through their signatures. A compile-fail owner regression proves
+      an attribute cannot escape a dropped context; the LLVM owner and codegen
+      consumer suites, workspace check, strict Clippy/Rustdoc, formatting, and
+      diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
