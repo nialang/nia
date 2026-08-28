@@ -7,7 +7,7 @@ use nia_sema_ir::{PointerArrayToSliceCoercion, TraitObjectCoercion, TraitObjectU
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
-use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, TraitId, TyKind};
 
 #[derive(Clone)]
 struct TraitObjectImplMethodMatch {
@@ -890,7 +890,12 @@ impl<'a> BodyChecker<'a> {
             | Some(TyKind::SlicePointee { elem }) => {
                 self.check_object_safe_type(span, elem);
             }
-            Some(TyKind::Array { elem, .. }) => self.check_object_safe_type(span, elem),
+            Some(TyKind::Array { elem, len }) => {
+                self.check_object_safe_type(span, elem);
+                if let ArrayLenTy::Builtin { ty, .. } = len {
+                    self.check_object_safe_type(span, ty);
+                }
+            }
             Some(TyKind::Tuple(elems)) => {
                 for elem in elems {
                     self.check_object_safe_type(span, elem);
@@ -925,7 +930,17 @@ impl<'a> BodyChecker<'a> {
                 self.check_object_safe_type(span, error);
                 self.check_object_safe_type(span, value);
             }
-            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => {
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                for arg in args {
+                    self.check_object_safe_type(span, arg);
+                }
+                for arg in const_args {
+                    self.check_object_safe_type(span, arg.ty);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
                     self.check_object_safe_type(span, arg);
                 }
@@ -954,9 +969,15 @@ impl<'a> BodyChecker<'a> {
                 for arg in trait_args {
                     self.check_object_safe_type(span, arg);
                 }
+                for arg in trait_const_args {
+                    self.check_object_safe_type(span, arg.ty);
+                }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.check_object_safe_type(span, arg);
+                    }
+                    for arg in binding.trait_const_args {
+                        self.check_object_safe_type(span, arg.ty);
                     }
                     self.check_object_safe_type(span, binding.ty);
                 }
@@ -964,11 +985,15 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.check_object_safe_type(span, self_ty);
                 for arg in trait_args {
                     self.check_object_safe_type(span, arg);
+                }
+                for arg in trait_const_args {
+                    self.check_object_safe_type(span, arg.ty);
                 }
             }
             Some(
@@ -1236,6 +1261,13 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
+                let len = match len {
+                    ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+                        builtin,
+                        ty: self.object_safe_ty(check, ty),
+                    },
+                    other => other,
+                };
                 self.interner.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
@@ -1482,7 +1514,10 @@ impl<'a> BodyChecker<'a> {
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem }) => self.type_mentions_self(elem, self_ty),
-            Some(TyKind::Array { elem, .. }) => self.type_mentions_self(elem, self_ty),
+            Some(TyKind::Array { elem, len }) => {
+                self.type_mentions_self(elem, self_ty)
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if self.type_mentions_self(ty, self_ty))
+            }
             Some(TyKind::Tuple(elems)) => elems
                 .into_iter()
                 .any(|elem| self.type_mentions_self(elem, self_ty)),
@@ -1512,35 +1547,61 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::ErrorUnion { error, value }) => {
                 self.type_mentions_self(error, self_ty) || self.type_mentions_self(value, self_ty)
             }
-            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.into_iter()
+                    .any(|arg| self.type_mentions_self(arg, self_ty))
+                    || const_args
+                        .into_iter()
+                        .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
                 .into_iter()
                 .any(|arg| self.type_mentions_self(arg, self_ty)),
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 trait_args
                     .into_iter()
                     .any(|arg| self.type_mentions_self(arg, self_ty))
-                    || associated_type_bindings
+                    || trait_const_args
                         .into_iter()
-                        .any(|binding| self.type_mentions_self(binding.ty, self_ty))
+                        .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+                    || associated_type_bindings.into_iter().any(|binding| {
+                        binding
+                            .trait_args
+                            .into_iter()
+                            .any(|arg| self.type_mentions_self(arg, self_ty))
+                            || binding
+                                .trait_const_args
+                                .into_iter()
+                                .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+                            || self.type_mentions_self(binding.ty, self_ty)
+                    })
             }
             Some(TyKind::Projection {
                 self_ty: projection_self,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.type_mentions_self(projection_self, self_ty)
                     || trait_args
                         .into_iter()
                         .any(|arg| self.type_mentions_self(arg, self_ty))
+                    || trait_const_args
+                        .into_iter()
+                        .any(|arg| self.type_mentions_self(arg.ty, self_ty))
             }
             Some(TyKind::SelfParam) => true,
             Some(

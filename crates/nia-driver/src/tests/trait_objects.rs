@@ -1188,6 +1188,53 @@ fn read(bad: & Bad) bool {
 }
 
 #[test]
+fn trait_object_rejects_self_in_layout_builtin_array_length() {
+    let root = temp_dir("trait_object_rejects_self_in_layout_builtin_array_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Bad {
+    fn consume(& self, bytes: [u8; std::builtin::size[Self]()]);
+}
+
+fn read(bad: & Bad) {
+    _ = bad;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("mentions `Self`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn trait_object_accepts_concrete_layout_builtin_array_length() {
+    let root = temp_dir("trait_object_accepts_concrete_layout_builtin_array_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Good {
+    fn consume(& self, bytes: [u8; std::builtin::size[u32]()]);
+}
+
+fn read(good: & Good) {
+    _ = good;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn readonly_trait_object_rejects_mutable_receiver_method() {
     let root = temp_dir("readonly_trait_object_rejects_mutable_receiver_method");
     write(
