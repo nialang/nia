@@ -73,6 +73,11 @@ impl Context {
         name: &str,
         bitcode: &[u8],
     ) -> LlvmResult<Module<'ctx>> {
+        if !is_bitcode_header(bitcode) {
+            return Err(LlvmError::error(
+                "LLVM bitcode input has an invalid or truncated header",
+            ));
+        }
         let name = to_c_string(name)?;
         let buffer = unsafe {
             LLVMCreateMemoryBufferWithMemoryRangeCopy(
@@ -287,6 +292,17 @@ impl Context {
     }
 }
 
+/// Returns whether `bitcode` starts with one of LLVM's two documented bitcode
+/// signatures: raw bitcode (`BC C0 DE`) or the legacy wrapper (`DE C0 17 0B`).
+/// This cheap check keeps obviously malformed input away from LLVM's parser,
+/// which may report a fatal diagnostic for buffers too short to contain its
+/// header instead of returning through the C API.
+fn is_bitcode_header(bitcode: &[u8]) -> bool {
+    bitcode.get(..4).is_some_and(|header| {
+        header == [b'B', b'C', 0xc0, 0xde] || header == [0xde, 0xc0, 0x17, 0x0b]
+    })
+}
+
 impl Drop for Context {
     fn drop(&mut self) {
         unsafe { LLVMContextDispose(self.raw) };
@@ -366,5 +382,44 @@ mod tests {
             error,
             LlvmError::Error("LLVM custom integer type requires a non-zero bit width".to_string())
         );
+    }
+
+    #[test]
+    fn rejects_empty_or_malformed_bitcode_before_llvm_parser() {
+        let context = Context::create().unwrap();
+
+        for input in [&[][..], &[b'B', b'C', 0xc0][..], &[0u8, 1, 2, 3][..]] {
+            let error = context
+                .parse_bitcode_module("malformed", input)
+                .expect_err("malformed bitcode");
+
+            assert_eq!(
+                error,
+                LlvmError::Error(
+                    "LLVM bitcode input has an invalid or truncated header".to_string()
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn recognizes_raw_and_wrapped_bitcode_headers() {
+        assert!(is_bitcode_header(&[b'B', b'C', 0xc0, 0xde, 0]));
+        assert!(is_bitcode_header(&[0xde, 0xc0, 0x17, 0x0b, 0]));
+        assert!(!is_bitcode_header(&[b'B', b'C', 0xc0]));
+        assert!(!is_bitcode_header(&[0, 1, 2, 3]));
+    }
+
+    #[test]
+    fn parses_bitcode_emitted_by_module_round_trip() {
+        let context = Context::create().unwrap();
+        let source = context.create_module("round-trip").unwrap();
+        let bitcode = source.bitcode().unwrap();
+
+        let parsed = context
+            .parse_bitcode_module("round-trip-copy", &bitcode)
+            .expect("LLVM should parse its own bitcode");
+        parsed.verify().expect("round-tripped module should verify");
+        assert!(!parsed.ir_string().unwrap().is_empty());
     }
 }
