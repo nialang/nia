@@ -806,6 +806,11 @@ signals, not architecture goals.
   amplify into `count * size_of(T)` host memory.
 - Tests and documentation describe the current contract. Historical behavior
   belongs in Git, not compatibility fixtures or stale debug switches.
+- Projection-aware trait type equivalence must recurse through every semantic
+  type constructor, including tuples and closure states. A projection nested
+  inside a container must use the same cycle-aware relation as a top-level
+  projection; adding a new `TyKind` variant requires updating this relation and
+  its owner regression matrix.
 
 ## 8. Build And Standard Library Work
 

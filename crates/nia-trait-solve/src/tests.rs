@@ -1409,3 +1409,67 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
     });
     assert!(!solver.types_equivalent(left, align));
 }
+
+#[test]
+fn projection_equivalence_recurses_through_tuple_elements() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let trait_id = TraitId::Source(GlobalDefId {
+        module_id,
+        def_id: DefId(65),
+    });
+    let target_def = GlobalDefId {
+        module_id,
+        def_id: DefId(66),
+    };
+    let make_target = |value| {
+        append.intern(TyKind::Nominal {
+            def_id: target_def,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: usize_ty,
+                value: ConstGenericValue::Int(value),
+            }],
+        })
+    };
+    let left_projection = append.intern(TyKind::Projection {
+        self_ty: make_target(nia_ty::IntConst::signed(9)),
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        name: SymbolId::from_stable_hash(67),
+    });
+    let right_projection = append.intern(TyKind::Projection {
+        self_ty: make_target(nia_ty::IntConst::unsigned(9)),
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        name: SymbolId::from_stable_hash(67),
+    });
+    let left = append.intern(TyKind::Tuple(vec![left_projection]));
+    let right = append.intern(TyKind::Tuple(vec![right_projection]));
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+
+    assert!(solver.types_equivalent(left, right));
+}

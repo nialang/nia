@@ -94,7 +94,14 @@ impl TraitSolver<'_> {
         ) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
             (Some(TyKind::ConstOnly), Some(TyKind::ConstOnly)) => true,
+            (Some(TyKind::Opaque), Some(TyKind::Opaque)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+            (Some(TyKind::Tuple(left)), Some(TyKind::Tuple(right))) => {
+                left.len() == right.len()
+                    && left.iter().zip(&right).all(|(left, right)| {
+                        self.types_equivalent_resolving_projections(*left, *right, active)
+                    })
+            }
             (
                 Some(TyKind::Vector {
                     elem: left,
@@ -106,6 +113,8 @@ impl TraitSolver<'_> {
                 }),
             ) => left == right && left_lanes == right_lanes,
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
+            (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
+            (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
             (
                 Some(TyKind::Pointer {
                     is_readonly: left_readonly,
@@ -232,6 +241,38 @@ impl TraitSolver<'_> {
                 }),
             ) => {
                 left_params.len() == right_params.len()
+                    && left_params.iter().zip(&right_params).all(|(left, right)| {
+                        self.types_equivalent_resolving_projections(*left, *right, active)
+                    })
+                    && self.types_equivalent_resolving_projections(
+                        left_return,
+                        right_return,
+                        active,
+                    )
+            }
+            (
+                Some(TyKind::ClosureState {
+                    closure_id: left_id,
+                    captures: left_captures,
+                    params: left_params,
+                    return_type: left_return,
+                }),
+                Some(TyKind::ClosureState {
+                    closure_id: right_id,
+                    captures: right_captures,
+                    params: right_params,
+                    return_type: right_return,
+                }),
+            ) => {
+                left_id == right_id
+                    && left_captures.len() == right_captures.len()
+                    && left_params.len() == right_params.len()
+                    && left_captures
+                        .iter()
+                        .zip(&right_captures)
+                        .all(|(left, right)| {
+                            self.types_equivalent_resolving_projections(*left, *right, active)
+                        })
                     && left_params.iter().zip(&right_params).all(|(left, right)| {
                         self.types_equivalent_resolving_projections(*left, *right, active)
                     })
