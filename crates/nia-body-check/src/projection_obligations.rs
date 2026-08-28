@@ -2118,6 +2118,55 @@ impl<'a> BodyChecker<'a> {
                         .types_equivalent_without_projection_resolution(left_return, right_return)
             }
             (
+                Some(TyKind::TraitObject {
+                    is_readonly: left_readonly,
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    trait_const_args: left_const_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_readonly: right_readonly,
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    trait_const_args: right_const_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && left_trait == right_trait
+                    && left_args.len() == right_args.len()
+                    && self.const_generic_arg_slices_match(&left_const_args, &right_const_args)
+                    && left_bindings.len() == right_bindings.len()
+                    && left_args.iter().zip(right_args).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, right)
+                    })
+                    && self.associated_type_bindings_equivalent(&left_bindings, &right_bindings)
+            }
+            (
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    trait_const_args: left_const_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    trait_const_args: right_const_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => {
+                left_trait == right_trait
+                    && left_args.len() == right_args.len()
+                    && self.const_generic_arg_slices_match(&left_const_args, &right_const_args)
+                    && left_bindings.len() == right_bindings.len()
+                    && left_args.iter().zip(right_args).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, right)
+                    })
+                    && self.associated_type_bindings_equivalent(&left_bindings, &right_bindings)
+            }
+            (
                 Some(TyKind::Nominal {
                     def_id: left_def,
                     args: left_args,
@@ -2180,6 +2229,46 @@ impl<'a> BodyChecker<'a> {
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
             _ => false,
         }
+    }
+
+    fn associated_type_bindings_equivalent(
+        &mut self,
+        left: &[nia_ty::AssociatedTypeBindingTy],
+        right: &[nia_ty::AssociatedTypeBindingTy],
+    ) -> bool {
+        if left.len() != right.len() {
+            return false;
+        }
+        let mut used = vec![false; right.len()];
+        left.iter().all(|left_binding| {
+            let Some(index) = right.iter().enumerate().find_map(|(index, right_binding)| {
+                (!used[index]
+                    && left_binding.name == right_binding.name
+                    && left_binding.trait_id == right_binding.trait_id
+                    && left_binding.trait_args.len() == right_binding.trait_args.len()
+                    && left_binding.trait_const_args.len() == right_binding.trait_const_args.len()
+                    && left_binding
+                        .trait_args
+                        .iter()
+                        .zip(&right_binding.trait_args)
+                        .all(|(left, right)| {
+                            self.types_equivalent_without_projection_resolution(*left, *right)
+                        })
+                    && self.const_generic_arg_slices_match(
+                        &left_binding.trait_const_args,
+                        &right_binding.trait_const_args,
+                    )
+                    && self.types_equivalent_without_projection_resolution(
+                        left_binding.ty,
+                        right_binding.ty,
+                    ))
+                .then_some(index)
+            }) else {
+                return false;
+            };
+            used[index] = true;
+            true
+        })
     }
 }
 

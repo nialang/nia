@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-28):
 
-- Implementation batches: 600 completed entries in this ledger.
+- Implementation batches: 601 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3641,6 +3641,13 @@ acceptance item only when its phase-wide evidence is complete.
       nominal operands with equal const bits but distinct representations. A
       focused owner regression covers equality and builtin discrimination;
       `nia-trait-solve` (18 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
+- [x] Batch 601 closes body-check projection equivalence for trait-object
+      views. Projection-obligation structural comparison now handles both
+      readonly `TraitObject` values and `TraitObjectPointee` values, recursively
+      comparing trait arguments, const metadata, and unordered associated-type
+      bindings instead of treating these rebuilt identities as mismatches;
+      `nia-body-check` (273 tests), workspace check, strict Clippy, formatting,
       and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
