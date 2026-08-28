@@ -96,6 +96,78 @@ fn vtable_owner_payloads_match_semantic_integer_consts() {
     ));
 }
 
+#[test]
+fn vtable_owner_payloads_match_structural_array_layout_operands() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let u8_ty = append.primitive(nia_ty::PrimitiveTy::U8);
+    let i32_ty = append.primitive(nia_ty::PrimitiveTy::I32);
+    let usize_ty = append.primitive(nia_ty::PrimitiveTy::Usize);
+    let nominal_def = GlobalDefId {
+        module_id,
+        def_id: DefId(2),
+    };
+    let signed_arg = nia_ty::ConstGenericArg {
+        ty: usize_ty,
+        value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed_bits(7)),
+    };
+    let unsigned_arg = nia_ty::ConstGenericArg {
+        ty: usize_ty,
+        value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(7)),
+    };
+    let left_operand = append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: vec![i32_ty],
+        const_args: vec![signed_arg],
+    });
+    let right_operand = append.intern(nia_ty::TyKind::Nominal {
+        def_id: nominal_def,
+        args: vec![i32_ty],
+        const_args: vec![unsigned_arg],
+    });
+    let left_array = append.intern(nia_ty::TyKind::Array {
+        len: nia_ty::ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: left_operand,
+        },
+        elem: u8_ty,
+    });
+    let right_array = append.intern(nia_ty::TyKind::Array {
+        len: nia_ty::ArrayLenTy::Builtin {
+            builtin: nia_ty::LayoutBuiltin::Size,
+            ty: right_operand,
+        },
+        elem: u8_ty,
+    });
+    let trait_id = nia_ids::TraitId::Source(nominal_def);
+    let left = BackendTraitObjectVtable {
+        key: BackendTraitObjectVtableKey {
+            self_ty: left_array,
+            object_ty: left_array,
+        },
+        trait_id,
+        trait_args: vec![left_array],
+        trait_const_args: vec![],
+        entries: vec![],
+        span: nia_span::Span::default(),
+    };
+    let right = BackendTraitObjectVtable {
+        key: BackendTraitObjectVtableKey {
+            self_ty: right_array,
+            object_ty: right_array,
+        },
+        trait_id,
+        trait_args: vec![right_array],
+        trait_const_args: vec![],
+        entries: vec![],
+        span: nia_span::Span::default(),
+    };
+
+    assert!(backend_vtable_payloads_match(&type_store, &left, &right));
+}
+
 mod cfg_and_scalar_passes;
 mod diagnostics;
 mod finalization_contracts;

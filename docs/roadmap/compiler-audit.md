@@ -3582,6 +3582,12 @@ acceptance item only when its phase-wide evidence is complete.
       `T` from a typed `size[i32]` argument before the final substituted-type
       validation. An owner regression covers operand-only evidence;
       `nia-const-check` (41 tests), workspace check, and strict Clippy pass.
+- [x] Batch 593 closes backend vtable equivalence for array layout operands.
+      Vtable payload comparison now structurally compares operand types for
+      equivalent `ArrayLenTy::Builtin` values, so distinct but semantically
+      equal nominal const representations do not produce false conflicts. The
+      backend owner regression covers signed/unsigned const metadata;
+      `nia-backend-lower` (119 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
