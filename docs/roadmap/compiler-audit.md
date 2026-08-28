@@ -3440,6 +3440,14 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-static-check` (14 tests), `nia-static-ir` (4), `nia-body-check` (266),
       `nia-backend-lower` (116), and `nia-codegen-llvm` (311) pass with strict
       Clippy and workspace check.
+- [x] Batch 572 closes the LLVM DIBuilder empty-list boundary. The typed
+      `create_subroutine_type` wrapper now passes a zero parameter count with a
+      null parameter pointer, producing LLVM's canonical empty metadata list;
+      the previous one-element null array encoded a malformed `!{null}`
+      operand. An owner-level debug-info regression attaches the subroutine
+      type to a function and checks the emitted metadata for `!{}` without a
+      null operand. The `nia-llvm` owner suite, workspace check, strict Clippy,
+      formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
