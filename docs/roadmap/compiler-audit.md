@@ -3532,6 +3532,12 @@ acceptance item only when its phase-wide evidence is complete.
       lowered array metadata uses the concrete substitution;
       `nia-program-signatures` (5 tests), workspace check, and strict Clippy
       pass.
+- [x] Batch 585 closes body-check inference through array layout operands.
+      Generic shape matching and array type inference now recurse through
+      equivalent `ArrayLenTy::Builtin` operands, allowing `size[T]`/`align[T]`
+      to provide the sole type evidence while preserving real mismatch
+      diagnostics. A focused generic-inference regression covers this path;
+      `nia-body-check` (270 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

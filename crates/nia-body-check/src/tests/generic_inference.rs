@@ -134,6 +134,35 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_generic_type_from_array_layout_builtin_operand() {
+    let checked = pipeline(
+        r#"
+fn inspect[T](value: [u8; std::builtin::size[T]()]) usize {
+    _ = value;
+    0usize
+}
+
+fn caller(value: [u8; std::builtin::size[i32]()]) usize {
+    inspect(value)
+}
+
+fn main(value: [u8; std::builtin::size[i32]()]) usize {
+    caller(value)
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
+                .summary
+                .contains("cannot infer generic parameter `T`")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_array_layout_builtin_length_mismatch_after_type_inference() {
     let checked = pipeline(
         r#"
