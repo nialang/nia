@@ -857,7 +857,19 @@ impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
         left: &nia_ty::ArrayLenTy,
         right: &nia_ty::ArrayLenTy,
     ) -> bool {
-        left == right
+        match (left, right) {
+            (
+                nia_ty::ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                nia_ty::ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            _ => left == right,
+        }
     }
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {

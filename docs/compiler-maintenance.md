@@ -299,6 +299,10 @@ it does not make a reset implicit.
   identity boundary while recursively matching layout builtin operands. The
   operand is type evidence for generic recovery, but it must be compared using
   the `TypedTyRef` stores rather than raw interned handles.
+- Backend vtable payload equivalence must compare `ArrayLenTy::Builtin` operand
+  types structurally through the active `TypeEquivalence` owner. Equivalent
+  nominal const representations can use distinct handles while describing the
+  same vtable ABI payload.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
