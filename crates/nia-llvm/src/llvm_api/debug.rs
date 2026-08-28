@@ -474,9 +474,20 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         unsafe { LLVMMetadataReplaceAllUsesWith(from.raw, to.raw) };
     }
 
-    pub fn create_subroutine_type(&self, file: DIFile<'ctx>) -> LlvmResult<DISubroutineType<'ctx>> {
+    /// Creates a subroutine signature whose first metadata slot is the return
+    /// type (`null` for `void`), followed by the parameter types.
+    pub fn create_subroutine_type(
+        &self,
+        file: DIFile<'ctx>,
+        return_type: Option<DIType<'ctx>>,
+        parameter_types: &[DIType<'ctx>],
+    ) -> LlvmResult<DISubroutineType<'ctx>> {
+        let type_count = checked_subroutine_type_count(parameter_types.len())?;
+        let mut types = Vec::with_capacity(parameter_types.len() + 1);
+        types.push(return_type.map_or(std::ptr::null_mut(), |ty| ty.raw));
+        types.extend(parameter_types.iter().map(|ty| ty.raw));
         let raw = unsafe {
-            LLVMDIBuilderCreateSubroutineType(self.raw, file.raw, std::ptr::null_mut(), 0, 0)
+            LLVMDIBuilderCreateSubroutineType(self.raw, file.raw, types.as_mut_ptr(), type_count, 0)
         };
         DISubroutineType::new(raw)
     }
@@ -614,6 +625,13 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
     }
 }
 
+fn checked_subroutine_type_count(parameter_count: usize) -> LlvmResult<u32> {
+    let count = parameter_count
+        .checked_add(1)
+        .ok_or_else(|| LlvmError::error("LLVM debug subroutine type count exceeds usize"))?;
+    checked_u32_count(count, "LLVM debug subroutine type has too many parameters")
+}
+
 impl<'ctx> Drop for DebugInfoBuilder<'ctx> {
     fn drop(&mut self) {
         unsafe { LLVMDisposeDIBuilder(self.raw) };
@@ -664,6 +682,24 @@ impl<'ctx> Module<'ctx> {
 mod tests {
     use super::*;
 
+    fn referenced_subroutine_type_list(ir: &str) -> &str {
+        let signature = ir
+            .lines()
+            .find(|line| line.contains("!DISubroutineType(types: !"))
+            .expect("subroutine type metadata");
+        let list_id = signature
+            .split_once("types: ")
+            .expect("subroutine type list")
+            .1
+            .split([',', ')'])
+            .next()
+            .expect("subroutine type list id");
+        ir.lines()
+            .find(|line| line.starts_with(&format!("{list_id} = !{{")))
+            .and_then(|line| line.split_once(" = ").map(|(_, list)| list))
+            .expect("referenced subroutine type list")
+    }
+
     #[test]
     fn rejects_null_debug_info_builder() {
         let error = DebugInfoBuilder::new(std::ptr::null_mut()).expect_err("null DIBuilder");
@@ -709,7 +745,7 @@ mod tests {
     }
 
     #[test]
-    fn creates_empty_subroutine_type_without_null_parameter_operand() {
+    fn encodes_void_return_in_subroutine_type_slot_zero() {
         let context = Context::create().unwrap();
         let module = context.create_module("debug-subroutine").unwrap();
         let builder = module.create_debug_info_builder().unwrap();
@@ -717,7 +753,7 @@ mod tests {
         let unit = builder
             .create_compile_unit(file, "nia-test", false)
             .unwrap();
-        let subroutine = builder.create_subroutine_type(file).unwrap();
+        let subroutine = builder.create_subroutine_type(file, None, &[]).unwrap();
         let function_type = context.void_type().fn_type(&[], false).unwrap();
         let function = module.add_function("main", function_type, None).unwrap();
         builder
@@ -737,8 +773,72 @@ mod tests {
         builder.finalize();
 
         let ir = module.ir_string().unwrap();
-        assert!(ir.contains("!DISubroutineType(types: !"), "{ir}");
-        assert!(ir.contains("= !{}"), "{ir}");
-        assert!(!ir.contains("= !{null}"), "{ir}");
+        assert_eq!(referenced_subroutine_type_list(&ir), "!{null}", "{ir}");
+    }
+
+    #[test]
+    fn encodes_return_and_parameter_subroutine_types_in_order() {
+        let context = Context::create().unwrap();
+        let module = context.create_module("debug-typed-subroutine").unwrap();
+        let builder = module.create_debug_info_builder().unwrap();
+        let file = builder.create_file("main.nia", ".").unwrap();
+        let unit = builder
+            .create_compile_unit(file, "nia-test", false)
+            .unwrap();
+        let i32_debug = builder.create_basic_type("i32", 32, 0x05).unwrap();
+        let subroutine = builder
+            .create_subroutine_type(file, Some(i32_debug), &[i32_debug])
+            .unwrap();
+        let function_type = context
+            .i32_type()
+            .fn_type(&[context.i32_type().into()], false)
+            .unwrap();
+        let function = module
+            .add_function("identity", function_type, None)
+            .unwrap();
+        builder
+            .create_function(DIFunctionInput {
+                scope: unit,
+                file,
+                name: "identity",
+                linkage_name: "identity",
+                line: 1,
+                scope_line: 1,
+                subroutine_type: subroutine,
+                is_local_to_unit: false,
+                is_optimized: false,
+            })
+            .map(|subprogram| function.set_subprogram(subprogram))
+            .unwrap();
+        builder.finalize();
+
+        let ir = module.ir_string().unwrap();
+        let list = referenced_subroutine_type_list(&ir);
+        let entries = list
+            .trim_start_matches("!{")
+            .trim_end_matches('}')
+            .split(", ")
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 2, "{ir}");
+        assert!(entries.iter().all(|entry| entry.starts_with('!')), "{ir}");
+        assert_eq!(entries[0], entries[1], "{ir}");
+    }
+
+    #[test]
+    fn rejects_subroutine_parameter_count_overflow() {
+        assert_eq!(
+            checked_subroutine_type_count(u32::MAX as usize),
+            Err(LlvmError::Error(
+                "LLVM debug subroutine type has too many parameters".to_string()
+            ))
+        );
+        if usize::BITS > u32::BITS {
+            assert_eq!(
+                checked_subroutine_type_count(usize::MAX),
+                Err(LlvmError::Error(
+                    "LLVM debug subroutine type count exceeds usize".to_string()
+                ))
+            );
+        }
     }
 }

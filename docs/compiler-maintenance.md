@@ -286,10 +286,10 @@ it does not make a reset implicit.
   const-argument type ownership. A `ConstGenericValue::ConstExpr` embedded in a
   nominal, trait-object, associated binding, or projection contributes its
   expression module to the pending dependency closure before codegen starts.
-- LLVM DIBuilder metadata arrays must use a zero element count with a null
-  pointer for empty lists. Never encode an empty metadata list as one null
-  operand: LLVM treats that as a malformed metadata graph rather than an empty
-  parameter/element list.
+- LLVM DIBuilder subroutine metadata has a distinct return slot at index zero:
+  it must be `null` for `void`, followed by the parameter type metadata. Keep
+  return and parameter types separate in the typed API, and check the combined
+  count before converting it to LLVM's `u32` field.
 - Backend IR validation recursively validates const-argument types in every
   type constructor, so malformed or session-mismatched metadata cannot bypass
   the validator merely by appearing in a const generic argument.
