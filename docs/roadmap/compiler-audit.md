@@ -3914,6 +3914,10 @@ acceptance item only when its phase-wide evidence is complete.
       Unicode scalar validity, and target pointer width before LLVM constant
       construction; an out-of-range `bool` value has a focused backend
       regression.
+- [x] Batch 648 closes the backend builtin-`usize` width boundary. Function
+      builtin `usize` values now fit the configured target pointer width
+      before LLVM constant construction; a 32-bit target rejects a `u64`-wide
+      builtin value with focused owner coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
