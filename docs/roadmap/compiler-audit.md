@@ -3734,6 +3734,13 @@ acceptance item only when its phase-wide evidence is complete.
       regression covers both global and function instances; `nia-codegen-llvm`
       (314 tests), workspace check, strict Clippy, formatting, and diff checks
       pass.
+- [x] Batch 614 completes LLVM ProgramIndex semantic lookup for aggregate
+      products. Struct/union instances and their layout records now retain
+      definition-grouped fallbacks alongside exact keys, so rebuilt handles
+      resolve consistently through declaration, validation, and ABI paths. The
+      cross-module regression covers struct and union entities plus layouts;
+      `nia-codegen-llvm` (314 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

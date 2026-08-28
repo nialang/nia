@@ -741,7 +741,20 @@ impl ProgramIndex {
             .struct_instance_layouts
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
-            .copied()?;
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .struct_instance_layouts_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let (key, _) = &self.module_at(position.module).layouts.struct_instances
+                            [position.layout];
+                        self.instance_args_match(args, const_args, &key.args, &key.const_args)
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).layouts.struct_instances[position.layout].1)
     }
 
@@ -756,7 +769,20 @@ impl ProgramIndex {
             .union_instance_layouts
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
-            .copied()?;
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .union_instance_layouts_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let (key, _) = &self.module_at(position.module).layouts.union_instances
+                            [position.layout];
+                        self.instance_args_match(args, const_args, &key.args, &key.const_args)
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).layouts.union_instances[position.layout].1)
     }
 
@@ -771,7 +797,19 @@ impl ProgramIndex {
             .struct_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .copied()?;
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .struct_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item = &self.module_at(position.module).struct_instances[position.item];
+                        self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).struct_instances[position.item])
     }
 
@@ -786,7 +824,19 @@ impl ProgramIndex {
             .union_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .copied()?;
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .union_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item = &self.module_at(position.module).union_instances[position.item];
+                        self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).union_instances[position.item])
     }
 
@@ -1533,6 +1583,8 @@ mod tests {
         let argument_usize = argument_append.primitive(PrimitiveTy::Usize);
         let def_id = global(owner_module, 77);
         let function_def = global(owner_module, 78);
+        let struct_def = global(owner_module, 79);
+        let union_def = global(owner_module, 80);
         let stored_const = ConstGenericArg {
             ty: owner_usize,
             value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(13)),
@@ -1552,13 +1604,51 @@ mod tests {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
-                struct_instances: Vec::new(),
-                union_instances: Vec::new(),
+                struct_instances: vec![(
+                    BackendStructInstanceKey {
+                        def_id: struct_def,
+                        args: vec![owner_i32],
+                        const_args: vec![stored_const.clone()],
+                    },
+                    nia_layout::StructLayout {
+                        layout: nia_layout::TypeLayout { size: 4, align: 4 },
+                        fields: Vec::new(),
+                    },
+                )],
+                union_instances: vec![(
+                    BackendStructInstanceKey {
+                        def_id: union_def,
+                        args: vec![owner_i32],
+                        const_args: vec![stored_const.clone()],
+                    },
+                    nia_layout::StructLayout {
+                        layout: nia_layout::TypeLayout { size: 4, align: 4 },
+                        fields: Vec::new(),
+                    },
+                )],
             },
             structs: Vec::new(),
             unions: Vec::new(),
-            struct_instances: Vec::new(),
-            union_instances: Vec::new(),
+            struct_instances: vec![BackendStructInstance {
+                def_id: struct_def,
+                name: sym("Box"),
+                args: vec![owner_i32],
+                const_args: vec![stored_const.clone()],
+                symbol: "Box_i32_13".to_string(),
+                fields: Vec::new(),
+                is_extern: false,
+                span: Span::default(),
+            }],
+            union_instances: vec![nia_backend_ir::BackendUnionInstance {
+                def_id: union_def,
+                name: sym("Union"),
+                args: vec![owner_i32],
+                const_args: vec![stored_const.clone()],
+                symbol: "Union_i32_13".to_string(),
+                fields: Vec::new(),
+                is_extern: false,
+                span: Span::default(),
+            }],
             enums: Vec::new(),
             globals: Vec::new(),
             global_instances: vec![BackendGlobalInstance {
@@ -1617,6 +1707,42 @@ mod tests {
                 std::slice::from_ref(&query_const),
             ),
             Some(owner_module)
+        );
+        assert!(
+            index
+                .struct_instance(
+                    struct_def,
+                    &[argument_i32],
+                    std::slice::from_ref(&query_const)
+                )
+                .is_some()
+        );
+        assert!(
+            index
+                .union_instance(
+                    union_def,
+                    &[argument_i32],
+                    std::slice::from_ref(&query_const)
+                )
+                .is_some()
+        );
+        assert!(
+            index
+                .struct_instance_layout(
+                    struct_def,
+                    &[argument_i32],
+                    std::slice::from_ref(&query_const)
+                )
+                .is_some()
+        );
+        assert!(
+            index
+                .union_instance_layout(
+                    union_def,
+                    &[argument_i32],
+                    std::slice::from_ref(&query_const)
+                )
+                .is_some()
         );
         let function_item = index
             .function_instance(
