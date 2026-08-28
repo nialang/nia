@@ -50,6 +50,19 @@ pub(super) fn const_args_equivalent_in_store(
     .same_const_generic_args_for_equiv(left, right)
 }
 
+pub(super) fn const_args_equivalent(
+    type_store: &TypeStore,
+    lowering: &TypeLowering,
+    left: &[nia_ty::ConstGenericArg],
+    right: &[nia_ty::ConstGenericArg],
+) -> bool {
+    SignatureTypeEquivalence {
+        type_store,
+        const_exprs: &lowering.const_expr_summaries,
+    }
+    .same_const_generic_args_for_equiv(left, right)
+}
+
 pub(super) fn projection_context_matches(
     type_store: &TypeStore,
     self_ty: InternedTyId,

@@ -951,6 +951,10 @@ signals, not architecture goals.
   treat distinct const-expression handles as equal only when both resolve to
   the same literal array length; without a summary, preserve identity-only
   behavior.
+- Program-signature supertrait assumption guards must use the active lowering
+  summaries when comparing const arguments. Recursive supertraits can rebuild
+  equivalent expression handles across modules; raw handle equality can then
+  bypass the path-local cycle guard and repeatedly expand the same goal.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

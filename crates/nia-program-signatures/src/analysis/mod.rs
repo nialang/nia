@@ -708,8 +708,9 @@ fn validate_supertrait_associated_binding_conflicts(
                         .all(|(left, right)| {
                             types_equivalent(module.type_store, module.lowering, *left, *right)
                         })
-                    && const_args_equivalent_in_store(
+                    && const_args_equivalent(
                         module.type_store,
+                        module.lowering,
                         &existing.goal.trait_const_args,
                         &binding.goal.trait_const_args,
                     )
@@ -1824,19 +1825,22 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
     visited: &mut Vec<TraitGoal>,
 ) {
-    if visited
-        .iter()
-        .any(|existing| trait_goals_equivalent(context.type_store, existing, &goal))
-    {
+    if visited.iter().any(|existing| {
+        trait_goals_equivalent(context.type_store, context.module.lowering, existing, &goal)
+    }) {
         return;
     }
     // This guard is path-local: sibling supertraits must still be expanded after one
     // recursive or unavailable branch returns.
     visited.push(goal.clone());
-    if !assumptions
-        .iter()
-        .any(|assumption| trait_goals_equivalent(context.type_store, assumption, &goal))
-    {
+    if !assumptions.iter().any(|assumption| {
+        trait_goals_equivalent(
+            context.type_store,
+            context.module.lowering,
+            assumption,
+            &goal,
+        )
+    }) {
         assumptions.push(goal.clone());
     }
     match goal.trait_id {
@@ -1930,29 +1934,32 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     visited.pop();
 }
 
-fn trait_goals_equivalent(type_store: &TypeStore, left: &TraitGoal, right: &TraitGoal) -> bool {
+fn trait_goals_equivalent(
+    type_store: &TypeStore,
+    lowering: &TypeLowering,
+    left: &TraitGoal,
+    right: &TraitGoal,
+) -> bool {
     left.trait_id == right.trait_id
-        && types_equivalent_in_store(type_store, left.self_ty, right.self_ty)
+        && types_equivalent(type_store, lowering, left.self_ty, right.self_ty)
         && left.trait_args.len() == right.trait_args.len()
         && left
             .trait_args
             .iter()
             .zip(&right.trait_args)
-            .all(|(left, right)| types_equivalent_in_store(type_store, *left, *right))
+            .all(|(left, right)| types_equivalent(type_store, lowering, *left, *right))
         && left.trait_const_args.len() == right.trait_const_args.len()
         && left
             .trait_const_args
             .iter()
             .zip(&right.trait_const_args)
             .all(|(left, right)| {
-                types_equivalent_in_store(type_store, left.ty, right.ty)
-                    && match (&left.value, &right.value) {
-                        (
-                            nia_ty::ConstGenericValue::Int(left),
-                            nia_ty::ConstGenericValue::Int(right),
-                        ) => left.bits() == right.bits(),
-                        (left, right) => left == right,
-                    }
+                const_args_equivalent(
+                    type_store,
+                    lowering,
+                    std::slice::from_ref(left),
+                    std::slice::from_ref(right),
+                )
             })
 }
 

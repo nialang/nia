@@ -3870,6 +3870,12 @@ acceptance item only when its phase-wide evidence is complete.
       handles to match only when they resolve to the same value; unresolved
       expressions remain identity-only. `nia-type-lower` (19 tests), owner
       check, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 638 closes program-signature supertrait guard equivalence for
+      evaluated const expressions. Recursive assumption expansion now compares
+      trait goals through active lowering summaries, so rebuilt cross-module
+      expression handles cannot bypass the path-local cycle guard; the owner
+      regression covers equal evaluated values while unresolved handles remain
+      conservative.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
