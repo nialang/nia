@@ -622,7 +622,13 @@ pub trait TypeEquivalence {
     ) -> bool {
         left.len() == right.len()
             && left.iter().zip(right).all(|(left, right)| {
-                self.same_type_for_equiv(left.ty, right.ty) && left.value == right.value
+                self.same_type_for_equiv(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                            left.bits() == right.bits()
+                        }
+                        (left, right) => left == right,
+                    }
             })
     }
 
@@ -1241,6 +1247,43 @@ mod tests {
         for (left, right) in left_types.into_iter().zip(right_types) {
             assert!(equivalence.same_type_for_equiv(left, right));
         }
+    }
+
+    #[test]
+    fn default_equivalence_matches_integer_const_bits_across_stores() {
+        let left = TypeStore::new();
+        let right = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_usize = left_append.primitive(PrimitiveTy::Usize);
+        let right_usize = right_append.primitive(PrimitiveTy::Usize);
+        let def_id = nia_ids::GlobalDefId {
+            module_id,
+            def_id: nia_ids::DefId(9),
+        };
+        let left_ty = left_append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: left_usize,
+                value: ConstGenericValue::Int(IntConst::signed(11)),
+            }],
+        });
+        let right_ty = right_append.intern(TyKind::Nominal {
+            def_id,
+            args: Vec::new(),
+            const_args: vec![ConstGenericArg {
+                ty: right_usize,
+                value: ConstGenericValue::Int(IntConst::unsigned(11)),
+            }],
+        });
+        let equivalence = DualStoreEquivalence {
+            left: &left,
+            right: &right,
+        };
+
+        assert!(equivalence.same_type_for_equiv(left_ty, right_ty));
     }
 
     #[test]
