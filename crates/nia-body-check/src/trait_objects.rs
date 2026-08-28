@@ -42,6 +42,7 @@ struct ObjectSafetyCheck<'a> {
     self_ty: InternedTyId,
     object_trait_id: nia_ty::TraitId,
     object_trait_args: Vec<InternedTyId>,
+    object_trait_const_args: Vec<nia_ty::ConstGenericArg>,
     associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     visiting: &'a mut Vec<TraitObjectInstanceKey>,
     expanded: &'a mut Vec<TraitObjectInstanceKey>,
@@ -868,6 +869,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 object_trait_id: trait_id,
                 object_trait_args: trait_args.to_vec(),
+                object_trait_const_args: trait_const_args.to_vec(),
                 associated_type_bindings,
                 visiting: &mut visiting,
                 expanded: &mut expanded,
@@ -1217,6 +1219,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args,
+                trait_const_args,
                 name,
                 ..
             }) if self_ty == check.self_ty => check
@@ -1229,9 +1232,18 @@ impl<'a> BodyChecker<'a> {
                     } else {
                         &check.object_trait_args
                     };
+                    let binding_trait_const_args = if binding.trait_id.is_some() {
+                        &binding.trait_const_args
+                    } else {
+                        &check.object_trait_const_args
+                    };
                     (binding.name == name
                         && binding_trait_id == trait_id
-                        && self.trait_args_match(binding_trait_args, &trait_args))
+                        && self.trait_args_match(binding_trait_args, &trait_args)
+                        && self.const_generic_arg_slices_match(
+                            binding_trait_const_args,
+                            &trait_const_args,
+                        ))
                     .then_some(binding.ty)
                 })
                 .unwrap_or(ty),

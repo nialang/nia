@@ -3483,6 +3483,15 @@ acceptance item only when its phase-wide evidence is complete.
       regressions cover both rejection and the valid control case;
       `nia-body-check` (266 tests), the trait-object driver suite (29), and
       `nia-compiler-query` (255) pass with workspace check and strict Clippy.
+- [x] Batch 578 makes object-safety projection binding lookup compare complete
+      const-generic trait instances. The object context now retains its root
+      trait const arguments, and projection normalization compares const
+      arguments alongside trait identity and type arguments for root and
+      inherited bindings. A pair of `Slot[1]`/`Slot[2]` regressions proves that
+      `Item = Self` on only the second instance is rejected while distinct
+      concrete bindings remain object safe. `nia-body-check` (266 tests), the
+      trait-object driver suite (31), and `nia-compiler-query` (255) pass with
+      workspace check and strict Clippy.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
