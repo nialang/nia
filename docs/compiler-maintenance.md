@@ -931,6 +931,11 @@ signals, not architecture goals.
   payloads. Keep the generic helper identity-only without an evaluator, while
   `ModuleCodegen` supplies the owning program/source facts for expression and
   integer spellings.
+- LLVM backend validation of aggregate, function, global, and vtable instance
+  references must apply the validator's published array-length facts to
+  nominal const arguments. Expression values may match integer spellings or
+  foreign expressions only when both sides resolve; unresolved expressions
+  remain identity-only during validation.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

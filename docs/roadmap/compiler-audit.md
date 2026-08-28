@@ -3850,6 +3850,11 @@ acceptance item only when its phase-wide evidence is complete.
       comparisons now consume module/program array-length facts, allowing
       rebuilt expression handles to match equivalent values while unresolved
       expressions remain distinct.
+- [x] Batch 634 closes LLVM backend-validator nominal const-expression
+      matching. Aggregate, function, global, and vtable reference validation
+      now reuses published array-length facts, so evaluated expression handles
+      match equivalent integer/foreign spellings while unresolved handles stay
+      distinct.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
