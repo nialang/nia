@@ -3705,6 +3705,13 @@ acceptance item only when its phase-wide evidence is complete.
       regression covers structurally rebuilt type arguments and field types;
       `nia-backend-lower` (123 tests), workspace check, strict Clippy,
       formatting, and diff checks pass.
+- [x] Batch 610 closes const-check associated-binding inference reuse. Const
+      execution now matches pattern and actual associated-type bindings as a
+      backtracking bijection, preserving per-candidate substitutions and
+      preventing one actual binding from satisfying multiple obligations. A
+      regression rejects an otherwise accepted trait object whose second
+      binding is incompatible; `nia-const-check` (42 tests), workspace check,
+      strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -73,73 +73,114 @@ impl Analyzer<'_> {
         actual: &[nia_ty::AssociatedTypeBindingTy],
         substitutions: &mut SymbolMap<InternedTyId>,
     ) -> Result<(), ConstError> {
-        // Associated bindings are a set keyed by their defining trait and
-        // member name. Source order is not semantic, so a positional zip would
-        // make inference change when equivalent bounds are reordered.
-        for pattern_binding in pattern {
-            let mut first_error = None;
-            let mut matched = false;
-            for actual_binding in actual {
-                if actual_binding.trait_id != pattern_binding.trait_id
-                    || actual_binding.name != pattern_binding.name
-                    || actual_binding.trait_args.len() != pattern_binding.trait_args.len()
-                    || !self.const_generic_args_allow_inference(
-                        &pattern_binding.trait_const_args,
-                        &actual_binding.trait_const_args,
-                    )
+        // Associated bindings are an unordered set keyed by defining trait,
+        // member name, and trait arguments. Match them as a bijection: a
+        // successful inference on one binding must not consume the same actual
+        // binding twice, and an early compatible choice may need backtracking.
+        if pattern.len() != actual.len() {
+            return Ok(());
+        }
+        let mut used = vec![false; actual.len()];
+        let mut first_error = None;
+        let matched = self.infer_type_generics_from_associated_bindings_inner(
+            span,
+            target_module_id,
+            pattern,
+            actual,
+            0,
+            &mut used,
+            substitutions,
+            &mut first_error,
+        );
+        if !matched && let Some(error) = first_error {
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn infer_type_generics_from_associated_bindings_inner(
+        &mut self,
+        span: Span,
+        target_module_id: ModuleId,
+        pattern: &[nia_ty::AssociatedTypeBindingTy],
+        actual: &[nia_ty::AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+        substitutions: &mut SymbolMap<InternedTyId>,
+        first_error: &mut Option<ConstError>,
+    ) -> bool {
+        let Some(pattern_binding) = pattern.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual_binding) in actual.iter().enumerate() {
+            if used[actual_index]
+                || actual_binding.trait_id != pattern_binding.trait_id
+                || actual_binding.name != pattern_binding.name
+                || actual_binding.trait_args.len() != pattern_binding.trait_args.len()
+                || !self.const_generic_args_allow_inference(
+                    &pattern_binding.trait_const_args,
+                    &actual_binding.trait_const_args,
+                )
+            {
+                continue;
+            }
+            let mut candidate = substitutions.clone();
+            let result = (|| {
+                for (pattern_arg, actual_arg) in pattern_binding
+                    .trait_args
+                    .iter()
+                    .zip(&actual_binding.trait_args)
                 {
-                    continue;
-                }
-                let mut candidate = substitutions.clone();
-                let result = (|| {
-                    for (pattern_arg, actual_arg) in pattern_binding
-                        .trait_args
-                        .iter()
-                        .zip(&actual_binding.trait_args)
-                    {
-                        self.infer_generics_from_tys(
-                            span,
-                            target_module_id,
-                            *pattern_arg,
-                            *actual_arg,
-                            &mut candidate,
-                        )?;
-                    }
                     self.infer_generics_from_tys(
                         span,
                         target_module_id,
-                        pattern_binding.ty,
-                        actual_binding.ty,
+                        *pattern_arg,
+                        *actual_arg,
                         &mut candidate,
                     )?;
-                    Ok::<_, ConstError>(())
-                })();
-                match result {
-                    Ok(())
-                        if self.associated_binding_types_match_after_inference(
-                            pattern_binding,
-                            actual_binding,
-                            &candidate,
-                        ) =>
-                    {
+                }
+                self.infer_generics_from_tys(
+                    span,
+                    target_module_id,
+                    pattern_binding.ty,
+                    actual_binding.ty,
+                    &mut candidate,
+                )?;
+                Ok::<_, ConstError>(())
+            })();
+            match result {
+                Ok(())
+                    if self.associated_binding_types_match_after_inference(
+                        pattern_binding,
+                        actual_binding,
+                        &candidate,
+                    ) =>
+                {
+                    used[actual_index] = true;
+                    if self.infer_type_generics_from_associated_bindings_inner(
+                        span,
+                        target_module_id,
+                        pattern,
+                        actual,
+                        pattern_index + 1,
+                        used,
+                        &mut candidate,
+                        first_error,
+                    ) {
                         *substitutions = candidate;
-                        matched = true;
-                        break;
+                        used[actual_index] = false;
+                        return true;
                     }
-                    Ok(()) => {}
-                    Err(error) => {
-                        first_error.get_or_insert(error);
-                    }
+                    used[actual_index] = false;
                 }
-            }
-            if !matched {
-                if let Some(error) = first_error {
-                    return Err(error);
+                Ok(()) => {}
+                Err(error) => {
+                    first_error.get_or_insert(error);
                 }
-                continue;
             }
         }
-        Ok(())
+        false
     }
 
     pub(super) fn infer_generic_substitutions_from_tys(
