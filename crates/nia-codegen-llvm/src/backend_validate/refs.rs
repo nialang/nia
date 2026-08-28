@@ -42,6 +42,9 @@ impl BackendValidator<'_> {
         for arg in args {
             self.validate_type(*arg, span);
         }
+        for arg in const_args {
+            self.validate_type(arg.ty, span);
+        }
         let key = FunctionInstanceKey {
             def_id,
             arg_module_id,

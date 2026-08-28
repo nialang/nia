@@ -964,6 +964,10 @@ signals, not architecture goals.
   hide a malformed ordinary-data-pointer result from the source-level type
   contract; the function pointer signature must also match the referenced
   function value exactly.
+- Function-instance references must validate the type handle carried by every
+  const generic argument, in addition to ordinary type arguments. A foreign
+  session handle must not reach instance lookup or LLVM lowering through
+  unvalidated const metadata.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is

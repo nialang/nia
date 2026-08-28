@@ -5872,6 +5872,10 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     let type_store = nia_ty::TypeStore::new();
     let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let foreign_store = nia_ty::TypeStore::new();
+    let foreign_ty = foreign_store
+        .append_for_module(module_id)
+        .primitive(PrimitiveTy::I32);
     let span = Span::default();
     let callee_id = GlobalDefId {
         module_id,
@@ -5936,7 +5940,10 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                         arg_module_id: module_id,
                                         self_arg: None,
                                         args: vec![i32_ty],
-                                        const_args: Vec::new(),
+                                        const_args: vec![ConstGenericArg {
+                                            ty: foreign_ty,
+                                            value: ConstGenericValue::Int(IntConst::unsigned(1)),
+                                        }],
                                     },
                                     args: Vec::new(),
                                 },
@@ -5970,6 +5977,11 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
         "{:?}",
         output.diagnostics
     );
+    assert!(has_internal_diagnostic(
+        &output.diagnostics,
+        codes::INVALID_BACKEND_IR,
+        "type belongs to a different compilation session"
+    ));
 }
 
 #[test]
