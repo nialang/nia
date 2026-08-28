@@ -3492,6 +3492,13 @@ acceptance item only when its phase-wide evidence is complete.
       concrete bindings remain object safe. `nia-body-check` (266 tests), the
       trait-object driver suite (31), and `nia-compiler-query` (255) pass with
       workspace check and strict Clippy.
+- [x] Batch 579 closes backend recursive-filter coverage for array layout
+      metadata. Backend instance depth, generic-parameter, unresolved-
+      projection, and error walkers now recurse into the type operand of
+      `ArrayLenTy::Builtin` in addition to the array element. Owner coverage
+      proves all three filter classes detect generic, projection, and error
+      operands; `nia-backend-lower` (117 tests), workspace check, and strict
+      Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
