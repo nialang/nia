@@ -2738,8 +2738,14 @@ impl BackendValidator<'_> {
         use nia_function_ir::FunctionBuiltinValue;
 
         match value {
-            FunctionBuiltinValue::Usize(_) => {
+            FunctionBuiltinValue::Usize(value) => {
                 self.validate_builtin_usize_result(result_ty, span);
+                if !self.builtin_usize_fits(*value) {
+                    self.invalid_builtin_value(
+                        span,
+                        "usize constant value is outside its target pointer width",
+                    );
+                }
             }
             FunctionBuiltinValue::Layout { ty, .. } => {
                 self.current_subject = Some("layout builtin operand");
@@ -2779,6 +2785,18 @@ impl BackendValidator<'_> {
         ) {
             self.invalid_builtin_value(span, "result type is not usize");
         }
+    }
+
+    fn builtin_usize_fits(&self, value: u64) -> bool {
+        let Some(bits) = self
+            .target
+            .pointer_size
+            .checked_mul(8)
+            .and_then(|bits| u32::try_from(bits).ok())
+        else {
+            return false;
+        };
+        bits >= u64::BITS || value < (1_u64 << bits)
     }
 
     fn builtin_integer_fits(&self, ty: nia_ids::InternedTyId, value: nia_ty::IntConst) -> bool {
