@@ -698,6 +698,43 @@ fn main() usize {
 }
 
 #[test]
+fn materializes_struct_instance_referenced_only_by_array_layout_metadata() {
+    let source = r#"
+struct Inner[T] {
+    value: T,
+}
+
+struct Wrapper {
+    data: [u8; std::builtin::size[Inner[i32]]()],
+}
+
+fn main(value: Wrapper) usize {
+    value.data[0] as usize
+}
+"#;
+    let lowering = lower_source(source);
+    assert!(
+        lowering.diagnostics.is_empty(),
+        "{:?}",
+        lowering.diagnostics
+    );
+    let module = &lowering.program.modules[0];
+    assert!(
+        module
+            .struct_instances
+            .iter()
+            .any(|instance| instance.name == sym("Inner")
+                && instance.args.len() == 1
+                && matches!(
+                    lowering.type_store.get(instance.args[0]),
+                    Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+                )),
+        "array layout metadata type must retain the nested struct instance: {:?}",
+        module.struct_instances
+    );
+}
+
+#[test]
 fn instantiates_generic_local_static_storage_per_function_instance() {
     let source = r#"
 fn slot[T]() &mut T {

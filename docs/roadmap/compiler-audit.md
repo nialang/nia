@@ -3519,6 +3519,12 @@ acceptance item only when its phase-wide evidence is complete.
       cover successful inference, a real length mismatch, and the unresolved
       generic diagnostic without the misleading layout error; `nia-body-check`
       (269 tests), workspace check, and strict Clippy pass.
+- [x] Batch 583 closes backend aggregate-instance recursion for array layout
+      metadata. Struct/union instance collectors and module type registration
+      now visit `ArrayLenTy::Builtin.ty`, retaining nominal layout products
+      referenced only through `size[...]`/`align[...]`. A lowering regression
+      covers a nested struct used solely by array layout metadata;
+      `nia-backend-lower` (118 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

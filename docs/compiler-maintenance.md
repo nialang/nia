@@ -261,6 +261,10 @@ it does not make a reset implicit.
   makes the expected array incomplete; checking an array literal against that
   expected type would otherwise emit a misleading layout-computation error
   before reporting the actual unresolved generic.
+- Backend aggregate-instance collection and module type registration must walk
+  `ArrayLenTy::Builtin.ty` alongside the array element. A nominal struct or
+  union used only as the operand of `size[...]`/`align[...]` still owns layout
+  and concrete instance products required by lowering.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;

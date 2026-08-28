@@ -676,8 +676,13 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
-            | Some(TyKind::SlicePointee { elem })
-            | Some(TyKind::Array { elem, .. }) => {
+            | Some(TyKind::SlicePointee { elem }) => {
+                self.collect_struct_instance_ty(elem, seen, out);
+            }
+            Some(TyKind::Array { len, elem }) => {
+                if let nia_ty::ArrayLenTy::Builtin { ty, .. } = len {
+                    self.collect_struct_instance_ty(ty, seen, out);
+                }
                 self.collect_struct_instance_ty(elem, seen, out);
             }
             Some(TyKind::Range { bound, .. }) => {
@@ -1368,8 +1373,13 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
-            | Some(TyKind::SlicePointee { elem })
-            | Some(TyKind::Array { elem, .. }) => {
+            | Some(TyKind::SlicePointee { elem }) => {
+                self.collect_union_instance_ty(elem, seen, out);
+            }
+            Some(TyKind::Array { len, elem }) => {
+                if let nia_ty::ArrayLenTy::Builtin { ty, .. } = len {
+                    self.collect_union_instance_ty(ty, seen, out);
+                }
                 self.collect_union_instance_ty(elem, seen, out);
             }
             Some(TyKind::Range { bound, .. }) => {

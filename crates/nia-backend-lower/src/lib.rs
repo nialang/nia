@@ -62,7 +62,7 @@ use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
 use nia_symbol::{SymbolId, SymbolText, known, stable_hash, symbol_text_or_unresolved};
-use nia_ty::{ConstGenericArg, ConstGenericValue, TyKind, TypeEquivalence};
+use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TyKind, TypeEquivalence};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -1495,8 +1495,13 @@ impl ReachableAggregateRoots {
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
-            | Some(TyKind::Optional { elem })
-            | Some(TyKind::Array { elem, .. }) => self.add_ty(lowerer, elem),
+            | Some(TyKind::Optional { elem }) => self.add_ty(lowerer, elem),
+            Some(TyKind::Array { len, elem }) => {
+                if let ArrayLenTy::Builtin { ty, .. } = len {
+                    self.add_ty(lowerer, ty);
+                }
+                self.add_ty(lowerer, elem);
+            }
             Some(TyKind::Range { bound, .. }) => {
                 if let Some(bound) = bound {
                     self.add_ty(lowerer, bound);
