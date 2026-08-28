@@ -3955,7 +3955,7 @@ impl BackendValidator<'_> {
             self.validate_type(*arg, span);
         }
         for arg in trait_const_args {
-            self.validate_type(arg.ty, span);
+            self.validate_const_arg(arg, span);
         }
         if !self.same_type(result_ty, return_type) {
             self.invalid_dynamic_trait_call(

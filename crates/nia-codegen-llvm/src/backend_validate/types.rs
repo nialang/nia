@@ -142,7 +142,7 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
                 for arg in const_args {
-                    self.validate_type(arg.ty, span);
+                    self.validate_const_arg(&arg, span);
                 }
             }
             TyKind::TraitObject {
@@ -161,14 +161,14 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
                 for arg in trait_const_args {
-                    self.validate_type(arg.ty, span);
+                    self.validate_const_arg(&arg, span);
                 }
                 for binding in associated_type_bindings {
                     for arg in &binding.trait_args {
                         self.validate_type(*arg, span);
                     }
                     for arg in &binding.trait_const_args {
-                        self.validate_type(arg.ty, span);
+                        self.validate_const_arg(arg, span);
                     }
                     self.validate_type(binding.ty, span);
                 }
@@ -184,7 +184,7 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
                 for arg in trait_const_args {
-                    self.validate_type(arg.ty, span);
+                    self.validate_const_arg(&arg, span);
                 }
             }
             TyKind::BuiltinTrait { args, .. } => {
@@ -244,6 +244,36 @@ impl BackendValidator<'_> {
                 ));
             }
             TyKind::Primitive(_) | TyKind::GenericParam(_) => {}
+        }
+    }
+
+    pub(super) fn validate_const_arg(&mut self, arg: &nia_ty::ConstGenericArg, span: Span) {
+        self.validate_type(arg.ty, span);
+        let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value else {
+            return;
+        };
+        if !self.index.is_registered_module(id.module_id) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR const argument expression {id:?} belongs to missing module {:?}",
+                    id.module_id
+                ),
+            ));
+            return;
+        }
+        let Some(module) = self.index.written_module(id.module_id) else {
+            return;
+        };
+        if !module.const_eval.array_lengths.contains_key(&id) {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR const argument expression {id:?} was not evaluated before LLVM codegen"
+                ),
+            ));
         }
     }
 

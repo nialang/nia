@@ -2074,7 +2074,7 @@ impl BackendValidator<'_> {
                 self.validate_type(*arg, vtable.span);
             }
             for arg in &entry.trait_const_args {
-                self.validate_type(arg.ty, vtable.span);
+                self.validate_const_arg(arg, vtable.span);
             }
         }
         if entries {

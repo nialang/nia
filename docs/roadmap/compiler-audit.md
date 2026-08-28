@@ -3929,6 +3929,12 @@ acceptance item only when its phase-wide evidence is complete.
       Function-instance references now validate every const generic argument's
       type handle before lookup and LLVM lowering; a foreign-session handle
       has focused owner regression coverage.
+- [x] Batch 652 closes the Function IR const-expression owner boundary.
+      Const generic arguments now validate `GlobalConstExprId` ownership before
+      instance lookup and LLVM lowering: missing modules are rejected, registered
+      but unwritten owners remain readiness-deferred, and written owners must
+      publish an evaluated array-length fact; a foreign owner has focused
+      Function IR regression coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

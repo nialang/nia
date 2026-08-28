@@ -968,6 +968,12 @@ signals, not architecture goals.
   const generic argument, in addition to ordinary type arguments. A foreign
   session handle must not reach instance lookup or LLVM lowering through
   unvalidated const metadata.
+- Const generic arguments carrying `GlobalConstExprId` must validate their
+  expression owner before instance lookup or LLVM lowering. Reject missing
+  modules immediately; defer registered but unwritten owners to readiness; and
+  require written owners to publish an evaluated `const_eval.array_lengths`
+  fact. Const-expression ownership is part of backend IR identity, not merely
+  an optional lookup detail.
 - Static integer initializers must be range-checked against their destination
   primitive before LLVM constant construction. This includes signedness,
   `bool`/`char` validity, and target pointer width; bit-pattern truncation is
