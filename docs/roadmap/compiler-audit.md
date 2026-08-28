@@ -3562,6 +3562,13 @@ acceptance item only when its phase-wide evidence is complete.
       substitution transaction. A solver regression proves type-generic impl
       selection through `size[T]`; `nia-trait-solve` (17 tests), workspace
       check, and strict Clippy pass.
+- [x] Batch 590 closes executable-reachability recovery through array layout
+      operands. Reachable extension matching now recursively compares the type
+      operands of equivalent `ArrayLenTy::Builtin` values using each side's
+      `TypeStore`, recovering hidden type substitutions without cross-store
+      handle assumptions. An owner regression covers generic recovery;
+      `nia-executable-reachability` (15 tests), workspace check, and strict
+      Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
