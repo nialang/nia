@@ -3712,6 +3712,13 @@ acceptance item only when its phase-wide evidence is complete.
       regression rejects an otherwise accepted trait object whose second
       binding is incompatible; `nia-const-check` (42 tests), workspace check,
       strict Clippy, formatting, and diff checks pass.
+- [x] Batch 611 hardens the shared `nia-ty` equivalence contract. The default
+      const-generic comparison now treats integer values by semantic bits,
+      matching specialized owner adapters and preventing newly added
+      equivalence implementations from silently reverting to representation
+      equality. A dual-store nominal regression covers signed/unsigned values;
+      `nia-ty` tests, workspace check, strict Clippy, formatting, and diff
+      checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

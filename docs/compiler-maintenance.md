@@ -161,6 +161,11 @@ it does not make a reset implicit.
   products are compared by type/const arguments and recursively checked field
   payloads before deterministic owner selection; raw instance-key hashing is
   not a semantic identity boundary.
+- `TypeEquivalence::same_const_generic_args_for_equiv` is the shared fallback
+  for const metadata and compares integer values by bits, independent of their
+  signed/unsigned representation. Specialized adapters may add evaluator
+  context, but must preserve this semantic rule when delegating to the common
+  structural walker.
 - Trait obligations remain complete across phase and consumer boundaries. The
   self type, trait identity, type and const arguments, and associated-type
   bindings are one semantic product; candidate filters and final validators
