@@ -816,6 +816,10 @@ signals, not architecture goals.
   different interner. The layout equivalence walker must recurse through those
   constructors and compare const-argument types semantically before deciding a
   product is absent.
+- Body-check projection-obligation equivalence follows the same recursive
+  contract as matching and layout lookup. Keep tuples, closure states, and
+  identity-only variants in the relation so associated-type checks do not
+  reject a valid composite merely because normalization rebuilt its handles.
 
 ## 8. Build And Standard Library Work
 

@@ -992,6 +992,65 @@ fn main(source: Box[i32]) i32 {
 }
 
 #[test]
+fn accepts_where_bound_associated_tuple_type() {
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+}
+
+struct Pair {}
+
+extend Pair : Source {
+    type Item = (i32, bool);
+}
+
+fn require[T](value: T) ()
+where T: Source[Item = (i32, bool)]
+{
+    _ = value;
+}
+
+fn main(pair: Pair) () {
+    require(pair);
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn accepts_where_bound_associated_tuple_with_semantic_const_types() {
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+}
+
+struct Box[N: usize] {}
+struct Pair {}
+
+extend Pair : Source {
+    type Item = (Box[3], bool);
+}
+
+fn require[T](value: T) ()
+where T: Source[Item = (Box[3usize], bool)]
+{
+    _ = value;
+}
+
+fn main(pair: Pair) () {
+    require(pair);
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn associated_type_binding_candidate_does_not_leak_partial_inference() {
     let checked = pipeline(
         r#"
