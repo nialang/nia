@@ -1142,6 +1142,29 @@ const RESULT: usize = inspect(Packet[i32, 4] { value: 1 });
 }
 
 #[test]
+fn const_generic_inference_through_layout_builtin_and_marker() {
+    let fixture = check_source(
+        r#"
+const fn inspect[T](value: [u8; std::builtin::size[T]()], marker: T) usize {
+    _ = (value, marker);
+    7
+}
+
+const RESULT: usize = inspect([1u8, 2u8, 3u8, 4u8], 1i32);
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.iter().all(|diagnostic| {
+            !diagnostic
+                .summary
+                .contains("cannot infer const generic type argument `T`")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn evaluates_nominal_scalar_union_return_literal() {
     let fixture = check_source(
         r#"

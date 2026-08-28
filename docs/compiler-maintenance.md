@@ -251,6 +251,11 @@ it does not make a reset implicit.
   `ArrayLenTy::Builtin` as well as an array's element. A deeply nested type can
   be carried only by `size[T]` or `align[T]`; skipping that operand allows an
   otherwise unbounded concrete instance to evade the same convergence guard.
+- Const-function generic inference must treat the type operand of
+  `ArrayLenTy::Builtin` as part of the expected type. When another argument
+  provides the same type parameter, `size[T]`/`align[T]` metadata must not cause
+  the expected array to be classified as permanently concrete and emit a
+  premature inference failure.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
