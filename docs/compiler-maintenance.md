@@ -846,6 +846,12 @@ signals, not architecture goals.
   values can appear after generic substitution; compare their payloads
   recursively instead of letting a rebuilt composite fall through to a false
   leaf result.
+- ProgramIndex instance maps may use interned argument handles as an exact
+  fast path, but lookups for structs, unions, and globals must retain a
+  definition-grouped semantic fallback. Compare rebuilt type payloads and
+  integer const arguments through `TypeEquivalence`, and keep a global's
+  argument-module identity in the match; otherwise cross-module codegen can
+  silently miss an already materialized owner.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

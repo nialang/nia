@@ -11,7 +11,9 @@ use nia_backend_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
-use nia_ty::{ConstGenericArg, TraitId, TyKind, TypeStore};
+use nia_ty::{
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, TraitId, TyKind, TypeEquivalence, TypeStore,
+};
 
 type InstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateInstanceIndex = HashMap<GlobalDefId, HashMap<InstanceArgs, ItemPosition>>;
@@ -102,6 +104,53 @@ pub(super) struct ProgramIndexPublisher {
 pub(super) struct BackendLayoutInstance<'a> {
     pub(super) key: &'a BackendStructInstanceKey,
     pub(super) layout: &'a StructLayout,
+}
+
+struct ProgramTypeEquivalence<'a> {
+    type_store: &'a TypeStore,
+}
+
+impl TypeEquivalence for ProgramTypeEquivalence<'_> {
+    fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.type_store.get(ty)
+    }
+
+    fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        match (left, right) {
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) => left_builtin == right_builtin && self.same_type_for_equiv(*left_ty, *right_ty),
+            _ => left == right,
+        }
+    }
+
+    fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        left == right || self.compute_same_type_for_equiv(left, right)
+    }
+
+    fn same_const_generic_args_for_equiv(
+        &self,
+        left: &[ConstGenericArg],
+        right: &[ConstGenericArg],
+    ) -> bool {
+        left.len() == right.len()
+            && left.iter().zip(right).all(|(left, right)| {
+                self.same_type_for_equiv(left.ty, right.ty)
+                    && match (&left.value, &right.value) {
+                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                            left.bits() == right.bits()
+                        }
+                        (left, right) => left == right,
+                    }
+            })
+    }
 }
 
 pub(super) struct EnumVariantInfo<'a> {
@@ -485,6 +534,18 @@ impl ProgramIndex {
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
+            .or_else(|| {
+                self.tables()
+                    .struct_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item = &self.module_at(position.module).struct_instances[position.item];
+                        self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                    })
+                    .copied()
+            })
             .map(Self::item_owner)
     }
 
@@ -499,6 +560,18 @@ impl ProgramIndex {
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
+            .or_else(|| {
+                self.tables()
+                    .union_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item = &self.module_at(position.module).union_instances[position.item];
+                        self.instance_args_match(args, const_args, &item.args, &item.const_args)
+                    })
+                    .copied()
+            })
             .map(Self::item_owner)
     }
 
@@ -519,6 +592,24 @@ impl ProgramIndex {
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
             .copied()
+            .or_else(|| {
+                self.tables()
+                    .global_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item = &self.module_at(position.module).global_instances[position.item];
+                        item.arg_module_id == arg_module_id
+                            && self.instance_args_match(
+                                args,
+                                const_args,
+                                &item.args,
+                                &item.const_args,
+                            )
+                    })
+                    .copied()
+            })
             .map(Self::item_owner)
     }
 
@@ -556,6 +647,20 @@ impl ProgramIndex {
 
     pub(super) fn type_store(&self) -> &TypeStore {
         &self.type_store
+    }
+
+    fn instance_args_match(
+        &self,
+        left_args: &[InternedTyId],
+        left_const_args: &[ConstGenericArg],
+        right_args: &[InternedTyId],
+        right_const_args: &[ConstGenericArg],
+    ) -> bool {
+        let equivalence = ProgramTypeEquivalence {
+            type_store: &self.type_store,
+        };
+        equivalence.same_type_args_for_equiv(left_args, right_args)
+            && equivalence.same_const_generic_args_for_equiv(left_const_args, right_const_args)
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
@@ -778,7 +883,25 @@ impl ProgramIndex {
             .global_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .copied()?;
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .global_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find(|position| {
+                        let item = &self.module_at(position.module).global_instances[position.item];
+                        item.arg_module_id == arg_module_id
+                            && self.instance_args_match(
+                                args,
+                                const_args,
+                                &item.args,
+                                &item.const_args,
+                            )
+                    })
+                    .copied()
+            })?;
         Some(&self.module_at(position.module).global_instances[position.item])
     }
 
@@ -913,9 +1036,9 @@ impl ProgramIndex {
 mod tests {
     use super::*;
     use nia_backend_ir::{
-        BackendConstFacts, BackendFunctionInstance, BackendGenericInstantiation, BackendLayouts,
-        BackendModule, BackendParam, BackendProgram, BackendStructInstance,
-        BackendTraitObjectVtable, BackendTraitObjectVtableKey,
+        BackendConstFacts, BackendFunctionInstance, BackendGenericInstantiation,
+        BackendGlobalInstance, BackendLayouts, BackendModule, BackendParam, BackendProgram,
+        BackendStructInstance, BackendTraitObjectVtable, BackendTraitObjectVtableKey,
     };
     use nia_ids::{DefId, ModuleId, ModuleIdAllocator};
     use nia_layout::{StructLayout, TypeLayout};
@@ -1332,6 +1455,85 @@ mod tests {
         assert_eq!(
             index.trait_object_vtable_owner(&program.modules[0].trait_object_vtables[0].key),
             Some(module_id)
+        );
+    }
+
+    #[test]
+    fn global_instance_lookup_matches_semantically_equal_rebuilt_arguments() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner_module = module_ids.allocate();
+        let argument_module = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let owner_append = type_store.append_for_module(owner_module);
+        let argument_append = type_store.append_for_module(argument_module);
+        let owner_i32 = owner_append.primitive(PrimitiveTy::I32);
+        let argument_i32 = argument_append.primitive(PrimitiveTy::I32);
+        let owner_usize = owner_append.primitive(PrimitiveTy::Usize);
+        let argument_usize = argument_append.primitive(PrimitiveTy::Usize);
+        let def_id = global(owner_module, 77);
+        let stored_const = ConstGenericArg {
+            ty: owner_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::signed(13)),
+        };
+        let query_const = ConstGenericArg {
+            ty: argument_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(13)),
+        };
+        let module = BackendModule {
+            id: owner_module,
+            source_identity: nia_source::SourceIdentity::new("owner"),
+            name: "owner".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: Vec::new(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: vec![BackendGlobalInstance {
+                def_id,
+                name: sym("VALUE"),
+                arg_module_id: argument_module,
+                args: vec![owner_i32],
+                const_args: vec![stored_const],
+                symbol: "VALUE_i32_13".to_string(),
+                ty: owner_i32,
+                is_let: true,
+                init: None,
+                span: Span::default(),
+            }],
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        };
+        let program = BackendProgram::new(vec![module]);
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(type_store));
+        publisher.publish(owner_module);
+
+        let item = index
+            .global_instance(
+                def_id,
+                argument_module,
+                &[argument_i32],
+                std::slice::from_ref(&query_const),
+            )
+            .expect("semantic fallback should find the rebuilt global instance");
+        assert_eq!(item.def_id, def_id);
+        assert_eq!(
+            index.global_instance_owner(def_id, argument_module, &[argument_i32], &[query_const],),
+            Some(owner_module)
         );
     }
 
