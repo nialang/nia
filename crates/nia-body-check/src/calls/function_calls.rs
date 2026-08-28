@@ -1263,7 +1263,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn const_generic_array_len_pattern_accepts(
-        &self,
+        &mut self,
         pattern: &ArrayLenTy,
         actual: &ArrayLenTy,
     ) -> bool {
@@ -1273,6 +1273,23 @@ impl<'a> BodyChecker<'a> {
                 .is_some();
         }
         if pattern == actual {
+            return true;
+        }
+        if let (
+            ArrayLenTy::Builtin {
+                builtin: pattern_builtin,
+                ty: pattern_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: actual_builtin,
+                ty: actual_ty,
+            },
+        ) = (pattern, actual)
+            && pattern_builtin == actual_builtin
+            && (self.type_contains_generic_param(*pattern_ty)
+                || self.type_contains_const_generic_param(*pattern_ty)
+                || self.types_match(*pattern_ty, *actual_ty))
+        {
             return true;
         }
         let pattern = self.array_len_value(Span::default(), pattern).ok();
@@ -1971,12 +1988,29 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::Array {
-                elem: pattern_elem, ..
+                len: pattern_len,
+                elem: pattern_elem,
             }) => {
                 if let Some(TyKind::Array {
-                    elem: actual_elem, ..
+                    len: actual_len,
+                    elem: actual_elem,
+                    ..
                 }) = self.interner.get(actual).cloned()
                 {
+                    if let (
+                        ArrayLenTy::Builtin {
+                            builtin: pattern_builtin,
+                            ty: pattern_ty,
+                        },
+                        ArrayLenTy::Builtin {
+                            builtin: actual_builtin,
+                            ty: actual_ty,
+                        },
+                    ) = (&pattern_len, &actual_len)
+                        && pattern_builtin == actual_builtin
+                    {
+                        self.infer_generics_from_type(*pattern_ty, *actual_ty, substitutions, span);
+                    }
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
                 }
             }

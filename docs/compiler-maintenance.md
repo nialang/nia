@@ -269,6 +269,10 @@ it does not make a reset implicit.
   `ArrayLenTy::Builtin.ty`. Array-length metadata is a full type-bearing
   component; leaving its generic operand untouched produces stale generic
   identities in lowered trait and extension signatures.
+- Body-check generic inference must use the same structural probe for array
+  length builtin operands as for array elements. When `size[T]` is the only
+  evidence for `T`, matching equivalent layout builtins must recurse into their
+  operand before deciding that the call has an unresolved generic.
 - Layout-root collection must enqueue the type of every const argument, not only
   ordinary type arguments. This applies to nominal values, trait objects,
   associated bindings, projections, and standalone generic instantiation facts;
