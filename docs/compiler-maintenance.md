@@ -921,6 +921,11 @@ signals, not architecture goals.
   array-length facts. Expression-valued const arguments may match an integer
   spelling or a foreign expression only when the corresponding facts resolve;
   unrelated const expressions remain identity-only.
+- LLVM module-codegen declaration, instance, and vtable-entry matching must
+  apply published array-length facts to const arguments as well as type
+  payloads. Keep the generic helper identity-only without an evaluator, while
+  `ModuleCodegen` supplies the owning program/source facts for expression and
+  integer spellings.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

@@ -3840,6 +3840,11 @@ acceptance item only when its phase-wide evidence is complete.
       array-length const arguments, allowing evaluated expression handles to
       match integer and foreign-expression spellings while store-only and
       unresolved comparisons remain conservative.
+- [x] Batch 632 closes LLVM module-codegen const-expression matching.
+      Declaration, generic-instance, and vtable-entry lookups now reuse
+      published array-length facts for expression-valued const arguments;
+      the evaluator-aware helper matches integer/foreign spellings while its
+      no-facts wrapper remains identity-only.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
