@@ -39,29 +39,30 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
         slot: usize,
-    ) -> usize {
+    ) -> Result<usize, &'static str> {
         let Some(TyKind::TraitObject {
             trait_id: object_trait,
             ..
         }) = self.ty_kind(object_ty)
         else {
-            return slot;
+            return Err("dynamic trait call object type is not a trait object");
         };
         if *object_trait == trait_id {
-            return slot;
+            return Ok(slot);
         }
         self.trait_object_vtable_metadata(object_ty)
             .and_then(|vtable| {
                 self.vtable_slot(vtable, trait_id, method_id, trait_args, trait_const_args)
             })
-            .unwrap_or(slot)
+            .ok_or("dynamic trait call has no matching vtable method slot")
     }
 
     pub(crate) fn trait_object_upcast_slot_offset(
         &self,
         source_ty: InternedTyId,
         target_ty: InternedTyId,
-    ) -> usize {
+        span: nia_span::Span,
+    ) -> Result<usize, nia_diagnostic::Diagnostic> {
         let Some(TyKind::TraitObject {
             trait_id: target_trait,
             trait_args,
@@ -69,7 +70,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             ..
         }) = self.ty_kind(target_ty)
         else {
-            return 0;
+            return Err(self.error(span, "trait-object upcast target is not a trait object"));
         };
         self.trait_object_vtable_metadata(source_ty)
             .and_then(|vtable| {
@@ -80,7 +81,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     trait_const_args,
                 )
             })
-            .unwrap_or(0)
+            .ok_or_else(|| self.error(span, "trait-object upcast metadata is missing"))
     }
 
     fn trait_object_vtable_metadata(

@@ -610,14 +610,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_extract_value(receiver_value, 1, "traitobj.vtable")
             .map_err(|_| self.error(call.expr.span, "failed to extract trait object vtable"))?
             .into_pointer_value()?;
-        let slot = self.module.trait_object_method_slot(
-            call.object_ty,
-            call.trait_id,
-            call.method_id,
-            call.trait_args,
-            call.trait_const_args,
-            call.slot,
-        );
+        let slot = self
+            .module
+            .trait_object_method_slot(
+                call.object_ty,
+                call.trait_id,
+                call.method_id,
+                call.trait_args,
+                call.trait_const_args,
+                call.slot,
+            )
+            .map_err(|message| self.error(call.expr.span, message))?;
         let array_len = checked_vtable_slot_array_len(slot).ok_or_else(|| {
             self.error(
                 call.expr.span,
