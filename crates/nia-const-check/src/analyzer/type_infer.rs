@@ -1487,8 +1487,12 @@ impl Analyzer<'_> {
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::SlicePointee { elem })
-            | Some(TyKind::Array { elem, .. })
             | Some(TyKind::Optional { elem }) => self.type_contains_generic_inner(elem, seen),
+            Some(TyKind::Array { len, elem }) => {
+                self.type_contains_generic_inner(elem, seen)
+                    || matches!(len, ArrayLenTy::Builtin { ty, .. }
+                        if self.type_contains_generic_inner(ty, seen))
+            }
             Some(TyKind::Range { bound, .. }) => {
                 bound.is_some_and(|bound| self.type_contains_generic_inner(bound, seen))
             }
@@ -1515,35 +1519,61 @@ impl Analyzer<'_> {
                 self.type_contains_generic_inner(error, seen)
                     || self.type_contains_generic_inner(value, seen)
             }
-            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.into_iter()
+                    .any(|arg| self.type_contains_generic_inner(arg, seen))
+                    || const_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => args
                 .into_iter()
                 .any(|arg| self.type_contains_generic_inner(arg, seen)),
             Some(TyKind::TraitObject {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             })
             | Some(TyKind::TraitObjectPointee {
                 trait_args,
+                trait_const_args,
                 associated_type_bindings,
                 ..
             }) => {
                 trait_args
                     .into_iter()
                     .any(|arg| self.type_contains_generic_inner(arg, seen))
-                    || associated_type_bindings
+                    || trait_const_args
                         .into_iter()
-                        .any(|binding| self.type_contains_generic_inner(binding.ty, seen))
+                        .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+                    || associated_type_bindings.into_iter().any(|binding| {
+                        binding
+                            .trait_args
+                            .into_iter()
+                            .any(|arg| self.type_contains_generic_inner(arg, seen))
+                            || binding
+                                .trait_const_args
+                                .into_iter()
+                                .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+                            || self.type_contains_generic_inner(binding.ty, seen)
+                    })
             }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
+                trait_const_args,
                 ..
             }) => {
                 self.type_contains_generic_inner(self_ty, seen)
                     || trait_args
                         .into_iter()
                         .any(|arg| self.type_contains_generic_inner(arg, seen))
+                    || trait_const_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
             }
             Some(
                 TyKind::Error

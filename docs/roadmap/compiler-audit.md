@@ -3503,8 +3503,15 @@ acceptance item only when its phase-wide evidence is complete.
       layout metadata. `ty_exceeds_instance_depth` now visits the type operand
       of `ArrayLenTy::Builtin`, so deeply nested types hidden behind `size[T]`
       or `align[T]` cannot bypass the convergence diagnostic. A direct owner
-      regression covers the previously accepted path; `nia-monomorphize` (14
+      regression covers the previously accepted path; `nia-monomorphize` (13
       tests), workspace check, and strict Clippy pass.
+- [x] Batch 581 closes const-check generic-presence recursion for array layout
+      metadata. `type_contains_generic_inner` now visits builtin array-length
+      operand types plus nominal, trait-object, projection, and associated
+      binding const-argument types, so an expected `size[T]` array remains
+      eligible for inference from later arguments. A focused const-check
+      regression proves the premature `cannot infer ... T` diagnostic is gone;
+      `nia-const-check` (40 tests), workspace check, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
