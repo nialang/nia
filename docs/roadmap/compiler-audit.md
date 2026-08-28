@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Implementation batches: 623 completed entries in this ledger.
+- Implementation batches: 624 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3800,6 +3800,11 @@ acceptance item only when its phase-wide evidence is complete.
       lowered modules' const-array facts, so distinct `ConstExpr` handles with
       equal values select one deterministic owner; a cross-module vtable
       regression covers the rebuilt-handle case.
+- [x] Batch 624 closes monomorphization projection-cycle equivalence for
+      evaluated array lengths. The recursive projection guard now consults
+      const-array facts from all participating modules, so rebuilt
+      `ConstExpr` handles with equal values converge to one guard key; the
+      owner regression covers the cross-module array case.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
