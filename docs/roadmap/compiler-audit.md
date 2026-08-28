@@ -3962,6 +3962,12 @@ acceptance item only when its phase-wide evidence is complete.
       length from its owner module's evaluated facts instead of mapping every
       expression to `0`; a focused regression proves distinct array lengths
       produce distinct linker symbols.
+- [x] Batch 658 closes LLVM trait-object slot lookup fallbacks. Dynamic method
+      dispatch and trait-object upcast metadata lookup now propagate an LLVM
+      codegen diagnostic when the required vtable metadata or method slot is
+      absent, instead of silently substituting the caller slot or offset `0`.
+      Existing dynamic-call and upcast matrices continue to cover valid direct,
+      inherited, and const-generic supertrait paths.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

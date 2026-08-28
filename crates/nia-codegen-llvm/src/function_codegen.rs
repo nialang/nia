@@ -956,7 +956,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to extract trait object metadata"))?;
         let offset = self
             .module
-            .trait_object_upcast_slot_offset(source_ty, target_ty);
+            .trait_object_upcast_slot_offset(source_ty, target_ty, span)?;
         if offset > 0 {
             let array_len = checked_vtable_slot_array_len(offset).ok_or_else(|| {
                 self.error(span, "trait-object metadata offset is too large for LLVM")
