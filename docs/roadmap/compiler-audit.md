@@ -3719,6 +3719,14 @@ acceptance item only when its phase-wide evidence is complete.
       equality. A dual-store nominal regression covers signed/unsigned values;
       `nia-ty` tests, workspace check, strict Clippy, formatting, and diff
       checks pass.
+- [x] Batch 612 closes LLVM ProgramIndex instance lookup across rebuilt handles.
+      Struct, union, and global instance owner queries now retain exact-key fast
+      paths plus definition-grouped semantic fallbacks, recursively comparing
+      type and integer const arguments while preserving a global's argument
+      module identity. A cross-module global regression covers rebuilt `i32` and
+      `usize` handles with signed/unsigned const spellings; `nia-codegen-llvm`
+      (314 tests), workspace check, strict Clippy, formatting, and diff checks
+      pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
