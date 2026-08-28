@@ -905,6 +905,10 @@ signals, not architecture goals.
   rebuilt or foreign module can be equivalent to a `ConstValue`, or to another
   expression with the same evaluated length; raw expression-id equality is only
   an exact fast path when no evaluation facts are available.
+- ProgramIndex nominal const-argument equivalence must apply the same backend
+  array-length facts. Expression-valued const arguments may match an integer
+  spelling or a foreign expression only when the corresponding facts resolve;
+  unrelated const expressions remain identity-only.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is
