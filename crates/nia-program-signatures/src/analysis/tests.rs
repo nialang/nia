@@ -83,6 +83,95 @@ fn using_type_entry(def_id: GlobalDefId) -> UsingEntry {
 }
 
 #[test]
+fn type_equivalence_resolves_nominal_const_expression_summaries() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let left = type_store.append_for_module(left_module);
+    let right = type_store.append_for_module(right_module);
+    let left_usize = left.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let right_usize = right.intern(TyKind::Primitive(PrimitiveTy::Usize));
+    let def_id = GlobalDefId {
+        module_id: left_module,
+        def_id: nia_defs::DefId(800),
+    };
+    let left_expr = nia_ids::GlobalConstExprId {
+        module_id: left_module,
+        const_expr_id: nia_ids::ConstExprId(1),
+    };
+    let right_expr = nia_ids::GlobalConstExprId {
+        module_id: right_module,
+        const_expr_id: nia_ids::ConstExprId(2),
+    };
+    let left_ty = left.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: left_usize,
+            value: nia_ty::ConstGenericValue::ConstExpr(left_expr),
+        }],
+    });
+    let right_ty = right.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::ConstExpr(right_expr),
+        }],
+    });
+    let mut const_expr_summaries = HashMap::new();
+    const_expr_summaries.insert(
+        left_expr,
+        nia_ty::ConstExprSummary {
+            span: Span::default(),
+            literal_array_len: Some(4),
+        },
+    );
+    const_expr_summaries.insert(
+        right_expr,
+        nia_ty::ConstExprSummary {
+            span: Span::default(),
+            literal_array_len: Some(4),
+        },
+    );
+    let lowering = nia_type_lower::TypeLowering {
+        type_uses: HashMap::new(),
+        const_exprs: HashMap::new(),
+        const_expr_summaries,
+        diagnostics: Vec::new(),
+    };
+    assert!(types_equivalent(&type_store, &lowering, left_ty, right_ty));
+    let right_int = right.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(4)),
+        }],
+    });
+    assert!(types_equivalent(&type_store, &lowering, left_ty, right_int));
+    let unresolved_expr = nia_ids::GlobalConstExprId {
+        module_id: right_module,
+        const_expr_id: nia_ids::ConstExprId(3),
+    };
+    let unresolved = right.intern(TyKind::Nominal {
+        def_id,
+        args: Vec::new(),
+        const_args: vec![nia_ty::ConstGenericArg {
+            ty: right_usize,
+            value: nia_ty::ConstGenericValue::ConstExpr(unresolved_expr),
+        }],
+    });
+    assert!(!types_equivalent(
+        &type_store,
+        &lowering,
+        left_ty,
+        unresolved
+    ));
+}
+
+#[test]
 fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave() {
     let mut graph =
         ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()));

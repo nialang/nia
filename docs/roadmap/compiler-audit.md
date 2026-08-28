@@ -3835,6 +3835,11 @@ acceptance item only when its phase-wide evidence is complete.
       evaluated array-length facts for nested const arguments, including
       integer spellings and foreign expressions; unresolved handles remain
       distinct in the owner regression.
+- [x] Batch 631 closes program-signature nominal const-expression equivalence.
+      Signature comparison now consumes active lowering summaries for literal
+      array-length const arguments, allowing evaluated expression handles to
+      match integer and foreign-expression spellings while store-only and
+      unresolved comparisons remain conservative.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
