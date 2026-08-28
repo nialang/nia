@@ -3952,6 +3952,11 @@ acceptance item only when its phase-wide evidence is complete.
       owner to the dependency closure before lookup; an instance metadata
       regression proves LLVM preparation remains pending until that owner is
       published.
+- [x] Batch 656 closes declaration-membership stable type-key collisions.
+      Vtable ordering keys now resolve evaluated array-length expressions from
+      their owning module's const facts instead of collapsing every expression
+      to zero; a focused regression proves distinct evaluated lengths retain
+      distinct deterministic keys.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

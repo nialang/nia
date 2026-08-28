@@ -695,7 +695,11 @@ fn stable_type_key(index: &ProgramIndex, ty: InternedTyId) -> String {
                     })
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
             },
-            |_| Some(0),
+            |const_expr: nia_ids::GlobalConstExprId| {
+                index
+                    .module(const_expr.module_id)
+                    .and_then(|module| module.const_eval.array_lengths.get(&const_expr).copied())
+            },
         ),
     )
 }
@@ -1063,6 +1067,53 @@ mod tests {
             }
         };
         assert_eq!(pending.modules(), &[const_owner]);
+    }
+
+    #[test]
+    fn stable_type_key_preserves_evaluated_array_lengths() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let left = append.intern(TyKind::Array {
+            len: nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
+                module_id,
+                const_expr_id: ConstExprId(0),
+            }),
+            elem: i32_ty,
+        });
+        let right = append.intern(TyKind::Array {
+            len: nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
+                module_id,
+                const_expr_id: ConstExprId(1),
+            }),
+            elem: i32_ty,
+        });
+        let mut module = empty_module(module_id, "arrays.nia");
+        module.const_eval.array_lengths.insert(
+            GlobalConstExprId {
+                module_id,
+                const_expr_id: ConstExprId(0),
+            },
+            4,
+        );
+        module.const_eval.array_lengths.insert(
+            GlobalConstExprId {
+                module_id,
+                const_expr_id: ConstExprId(1),
+            },
+            8,
+        );
+        let program = BackendProgram::new(vec![module]);
+        let store = program.module_store();
+        let (index, mut publisher) = ProgramIndex::new(store, Arc::new(types));
+        publisher.publish(module_id);
+
+        assert_ne!(
+            stable_type_key(&index, left),
+            stable_type_key(&index, right)
+        );
     }
 
     #[test]
