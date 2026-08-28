@@ -125,9 +125,9 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
-                // Registration, not publication: this rejects a stale or
-                // foreign owner. Requiring publication would reject valid
-                // nominal types while their module is still being lowered.
+                // Nominal ownership is an identity check. The owner can be
+                // registered before its payload is written or published while
+                // readiness validation is already inspecting another module.
                 if !self.index.is_registered_module(def_id.module_id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -677,5 +677,215 @@ impl TypeEquivalence for BackendValidator<'_> {
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         self.same_type(left, right)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use nia_backend_ir::{BackendConstFacts, BackendLayouts, BackendModule, BackendModuleStore};
+    use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
+    use nia_layout::{TargetDataLayout, TypeLayout};
+    use nia_span::Span;
+    use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+
+    use crate::program_index::ProgramIndex;
+
+    use super::BackendValidator;
+
+    fn test_module(module_id: nia_ids::ModuleId, ty: nia_ids::InternedTyId) -> BackendModule {
+        BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new("test"),
+            name: "test".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: TargetDataLayout::LP64,
+                types: vec![(ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn validate_type_accepts_registered_owner_before_index_publication() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(owner);
+        let ty = interner.primitive(PrimitiveTy::I32);
+        let nominal = interner.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: owner,
+                def_id: nia_ids::DefId(1),
+            },
+            args: vec![],
+            const_args: vec![],
+        });
+        drop(interner);
+
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        store.publish(test_module(owner, ty));
+        let (index, _publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_type(nominal, Span::default());
+        assert!(
+            validator.diagnostics.is_empty(),
+            "validate_type should accept registered owner before publication: {:?}",
+            validator.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_type_accepts_registered_owner_before_payload_write() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(owner);
+        let nominal = interner.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: owner,
+                def_id: nia_ids::DefId(1),
+            },
+            args: vec![],
+            const_args: vec![],
+        });
+        drop(interner);
+
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_type(nominal, Span::default());
+        assert!(
+            validator.diagnostics.is_empty(),
+            "validate_type should defer payload-dependent checks for a registered owner: {:?}",
+            validator.diagnostics
+        );
+    }
+
+    #[test]
+    fn validate_type_rejects_foreign_nominal_owner() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let foreign = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(owner);
+        let ty = interner.primitive(PrimitiveTy::I32);
+        drop(interner);
+        let interner = type_store.append_for_module(foreign);
+        let nominal = interner.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: foreign,
+                def_id: nia_ids::DefId(1),
+            },
+            args: vec![],
+            const_args: vec![],
+        });
+        drop(interner);
+
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        store.publish(test_module(owner, ty));
+        let (index, _publisher) = ProgramIndex::new(Arc::clone(&store), Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_type(nominal, Span::default());
+        assert_eq!(
+            validator.diagnostics.len(),
+            1,
+            "validate_type should reject unregistered owner"
+        );
+        assert!(
+            validator.diagnostics[0]
+                .summary
+                .contains("belongs to missing module")
+        );
+    }
+
+    #[test]
+    fn validate_array_len_defers_for_registered_unwritten_owner() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_array_len(
+            &nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
+                module_id: owner,
+                const_expr_id: ConstExprId(0),
+            }),
+            Span::default(),
+        );
+        assert!(validator.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn validate_array_len_reads_written_owner_before_index_publication() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let len_id = GlobalConstExprId {
+            module_id: owner,
+            const_expr_id: ConstExprId(0),
+        };
+        let mut module = test_module(owner, {
+            let interner = type_store.append_for_module(owner);
+            let ty = interner.primitive(PrimitiveTy::I32);
+            drop(interner);
+            ty
+        });
+        module.const_eval.array_lengths.insert(len_id, 4);
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        store.publish(module);
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_array_len(&nia_ty::ArrayLenTy::ConstExpr(len_id), Span::default());
+        assert!(validator.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn validate_array_len_rejects_foreign_owner() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let owner = module_ids.allocate();
+        let foreign = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let store = Arc::new(BackendModuleStore::new([owner]));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        validator.validate_array_len(
+            &nia_ty::ArrayLenTy::ConstExpr(GlobalConstExprId {
+                module_id: foreign,
+                const_expr_id: ConstExprId(0),
+            }),
+            Span::default(),
+        );
+        assert_eq!(validator.diagnostics.len(), 1);
+        assert!(
+            validator.diagnostics[0]
+                .summary
+                .contains("belongs to missing module")
+        );
     }
 }
