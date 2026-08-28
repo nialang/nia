@@ -3918,6 +3918,10 @@ acceptance item only when its phase-wide evidence is complete.
       builtin `usize` values now fit the configured target pointer width
       before LLVM constant construction; a 32-bit target rejects a `u64`-wide
       builtin value with focused owner coverage.
+- [x] Batch 649 closes the backend enum-discriminant range boundary. Enum
+      variant values now fit their declared backing primitive before LLVM tag
+      construction; malformed explicit discriminants have focused enum
+      expression coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
