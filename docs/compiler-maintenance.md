@@ -853,6 +853,10 @@ signals, not architecture goals.
   optional receiver and argument-module identity, and keep a global's
   argument-module identity in the match; otherwise cross-module codegen can
   silently miss an already materialized owner.
+- ProgramIndex vtable ownership queries must likewise retain a semantic fallback
+  for rebuilt receiver and object-type handles. Compare the complete vtable key
+  structurally; matching only one erased type or trusting raw key equality can
+  select the wrong owner or report a missing dispatch table.
 - Executable reachability's paired `TypedTyRef` relation is explicitly
   cross-store. Every composite constructor used in a reachable impl target
   must recurse through the left and right stores; a raw handle shortcut is

@@ -3747,6 +3747,13 @@ acceptance item only when its phase-wide evidence is complete.
       comes from another interner. The owner regression covers a rebuilt
       primitive handle; `nia-codegen-llvm` (314 tests), workspace check, strict
       Clippy, formatting, and diff checks pass.
+- [x] Batch 616 closes LLVM ProgramIndex trait-object vtable owner lookup
+      across rebuilt handles. Vtable ownership now keeps exact key lookup plus a
+      complete structural comparison of receiver and object types, preventing
+      dispatch misses when type interning is rebuilt. The owner regression uses
+      equivalent trait-object handles from separate appenders;
+      `nia-codegen-llvm` (314 tests), workspace check, strict Clippy, formatting,
+      and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
