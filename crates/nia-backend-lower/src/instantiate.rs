@@ -59,6 +59,40 @@ fn same_array_len_with(
     }
 }
 
+#[cfg(test)]
+fn same_array_len_with_values(
+    left: &nia_ty::ArrayLenTy,
+    right: &nia_ty::ArrayLenTy,
+    same_type: &mut impl FnMut(InternedTyId, InternedTyId) -> bool,
+    array_value: &mut impl FnMut(nia_ids::GlobalConstExprId) -> Option<u64>,
+) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left, right) {
+        (
+            nia_ty::ArrayLenTy::Builtin {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            nia_ty::ArrayLenTy::Builtin {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) => left_builtin == right_builtin && same_type(*left_ty, *right_ty),
+        (nia_ty::ArrayLenTy::ConstValue(left), nia_ty::ArrayLenTy::ConstExpr(right))
+        | (nia_ty::ArrayLenTy::ConstExpr(right), nia_ty::ArrayLenTy::ConstValue(left)) => {
+            array_value(*right).is_some_and(|right| *left == right)
+        }
+        (nia_ty::ArrayLenTy::ConstExpr(left), nia_ty::ArrayLenTy::ConstExpr(right)) => {
+            array_value(*left)
+                .zip(array_value(*right))
+                .is_some_and(|(left, right)| left == right)
+        }
+        _ => false,
+    }
+}
+
 struct TraitObjectPointeeMatch<'a> {
     trait_id: TraitId,
     args: &'a [InternedTyId],
@@ -2355,9 +2389,40 @@ impl<'a> ModuleLowerer<'a> {
                     elem: right_elem,
                 }),
             ) => {
-                same_array_len_with(&left_len, &right_len, &mut |left, right| {
-                    self.types_match(left, right)
-                }) && self.types_match(left_elem, right_elem)
+                let lengths_match = match (&left_len, &right_len) {
+                    (
+                        nia_ty::ArrayLenTy::ConstValue(left),
+                        nia_ty::ArrayLenTy::ConstExpr(right),
+                    )
+                    | (
+                        nia_ty::ArrayLenTy::ConstExpr(right),
+                        nia_ty::ArrayLenTy::ConstValue(left),
+                    ) => self
+                        .input
+                        .program
+                        .const_array_lengths(right.module_id)
+                        .and_then(|lengths| lengths.get(right).copied())
+                        .is_some_and(|right| *left == right),
+                    (nia_ty::ArrayLenTy::ConstExpr(left), nia_ty::ArrayLenTy::ConstExpr(right)) => {
+                        left == right
+                            || self
+                                .input
+                                .program
+                                .const_array_lengths(left.module_id)
+                                .and_then(|lengths| lengths.get(left).copied())
+                                .zip(
+                                    self.input
+                                        .program
+                                        .const_array_lengths(right.module_id)
+                                        .and_then(|lengths| lengths.get(right).copied()),
+                                )
+                                .is_some_and(|(left, right)| left == right)
+                    }
+                    _ => same_array_len_with(&left_len, &right_len, &mut |left, right| {
+                        self.types_match(left, right)
+                    }),
+                };
+                lengths_match && self.types_match(left_elem, right_elem)
             }
             (
                 Some(TyKind::FunctionPointer {
@@ -2722,8 +2787,8 @@ impl<'a> ModuleLowerer<'a> {
 #[cfg(test)]
 mod tests {
     use super::{
-        TraitObjectPointeeMatch, same_array_len_with, same_associated_type_bindings_with,
-        same_trait_object_pointee_with,
+        TraitObjectPointeeMatch, same_array_len_with, same_array_len_with_values,
+        same_associated_type_bindings_with, same_trait_object_pointee_with,
     };
     use nia_ty::{
         ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, TypeStore,
@@ -2763,6 +2828,37 @@ mod tests {
             &ArrayLenTy::ConstValue(4),
             &ArrayLenTy::ConstValue(4),
             &mut |_, _| panic!("non-builtin lengths must use exact equality")
+        ));
+    }
+
+    #[test]
+    fn array_length_matching_uses_evaluated_expression_values() {
+        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let left = nia_ids::GlobalConstExprId {
+            module_id: modules.allocate(),
+            const_expr_id: nia_ids::ConstExprId(1),
+        };
+        let right = nia_ids::GlobalConstExprId {
+            module_id: modules.allocate(),
+            const_expr_id: nia_ids::ConstExprId(2),
+        };
+        assert!(same_array_len_with_values(
+            &ArrayLenTy::ConstExpr(left),
+            &ArrayLenTy::ConstExpr(right),
+            &mut |_, _| false,
+            &mut |id| (id == left || id == right).then_some(4),
+        ));
+        assert!(same_array_len_with_values(
+            &ArrayLenTy::ConstValue(4),
+            &ArrayLenTy::ConstExpr(left),
+            &mut |_, _| false,
+            &mut |id| (id == left).then_some(4),
+        ));
+        assert!(!same_array_len_with_values(
+            &ArrayLenTy::ConstExpr(left),
+            &ArrayLenTy::ConstExpr(right),
+            &mut |_, _| false,
+            &mut |id| (id == left).then_some(4),
         ));
     }
 

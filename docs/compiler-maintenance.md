@@ -381,6 +381,11 @@ it does not make a reset implicit.
   projection and trait-goal matching consistent with const-argument
   equivalence while preserving identity-only behavior when evaluation is not
   available.
+- Backend-lower semantic type matching must also resolve `ConstExpr` array
+  lengths through `BackendProgramFacts::const_array_lengths`. Direct array
+  types can carry expression handles independently of nominal const arguments;
+  evaluated handles may match integer or foreign spellings, while unresolved
+  expressions remain identity-only.
 - Trait-solver layout-backed type lookup must apply the configured
   `const_expr_value` evaluator to array lengths and nominal const arguments
   when comparing against a `Layouts` product. Rebuilt expression handles from
