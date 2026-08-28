@@ -3820,6 +3820,11 @@ acceptance item only when its phase-wide evidence is complete.
       comparison now use the configured evaluator, aligning projection and
       trait-goal guards with array-length semantics; owner tests cover
       cross-module evaluated and unresolved cases.
+- [x] Batch 628 closes LLVM ProgramIndex nominal const-expression lookup.
+      Definition and instance fallback comparisons now reuse published module
+      array-length facts for expression-valued const arguments, including
+      integer spellings and foreign expressions; unresolved expressions retain
+      identity-only behavior in the owner regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

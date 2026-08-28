@@ -167,6 +167,27 @@ impl TypeEquivalence for ProgramTypeEquivalence<'_> {
                         (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
                             left.bits() == right.bits()
                         }
+                        (ConstGenericValue::Int(left), ConstGenericValue::ConstExpr(right))
+                        | (ConstGenericValue::ConstExpr(right), ConstGenericValue::Int(left)) => {
+                            self.modules
+                                .get(right.module_id)
+                                .and_then(|module| module.const_eval.array_lengths.get(right))
+                                .is_some_and(|right| left.bits() == u128::from(*right))
+                        }
+                        (
+                            ConstGenericValue::ConstExpr(left),
+                            ConstGenericValue::ConstExpr(right),
+                        ) => {
+                            left == right
+                                || self
+                                    .modules
+                                    .get(left.module_id)
+                                    .and_then(|module| module.const_eval.array_lengths.get(left))
+                                    .zip(self.modules.get(right.module_id).and_then(|module| {
+                                        module.const_eval.array_lengths.get(right)
+                                    }))
+                                    .is_some_and(|(left, right)| left == right)
+                        }
                         (left, right) => left == right,
                     }
             })
@@ -2008,6 +2029,42 @@ mod tests {
         assert!(!equivalence.same_array_len_for_equiv(
             &ArrayLenTy::ConstValue(5),
             &ArrayLenTy::ConstExpr(left_expr),
+        ));
+
+        let left_usize = type_store
+            .append_for_module(left_module)
+            .primitive(PrimitiveTy::Usize);
+        let right_usize = type_store
+            .append_for_module(right_module)
+            .primitive(PrimitiveTy::Usize);
+        let left_const_args = [ConstGenericArg {
+            ty: left_usize,
+            value: ConstGenericValue::ConstExpr(left_expr),
+        }];
+        let right_const_args = [ConstGenericArg {
+            ty: right_usize,
+            value: ConstGenericValue::ConstExpr(right_expr),
+        }];
+        assert!(
+            equivalence.same_const_generic_args_for_equiv(&left_const_args, &right_const_args,)
+        );
+        assert!(equivalence.same_const_generic_args_for_equiv(
+            &left_const_args,
+            &[ConstGenericArg {
+                ty: right_usize,
+                value: ConstGenericValue::Int(nia_ty::IntConst::signed(4)),
+            }],
+        ));
+        let unresolved_expr = nia_ids::GlobalConstExprId {
+            module_id: right_module,
+            const_expr_id: nia_ids::ConstExprId(3),
+        };
+        assert!(!equivalence.same_const_generic_args_for_equiv(
+            &left_const_args,
+            &[ConstGenericArg {
+                ty: right_usize,
+                value: ConstGenericValue::ConstExpr(unresolved_expr),
+            }],
         ));
     }
 
