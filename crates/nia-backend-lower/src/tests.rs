@@ -87,11 +87,17 @@ fn vtable_owner_payloads_match_semantic_integer_consts() {
         span: nia_span::Span::default(),
     };
 
-    assert!(backend_vtable_payloads_match(&type_store, &left, &right));
+    assert!(backend_vtable_payloads_match(
+        &type_store,
+        &HashMap::new(),
+        &left,
+        &right
+    ));
     let mut conflicting = right;
     conflicting.trait_id = nia_ids::TraitId::Builtin(nia_ids::BuiltinTrait::Sized);
     assert!(!backend_vtable_payloads_match(
         &type_store,
+        &HashMap::new(),
         &left,
         &conflicting
     ));
@@ -166,7 +172,54 @@ fn vtable_owner_payloads_match_structural_array_layout_operands() {
         span: nia_span::Span::default(),
     };
 
-    assert!(backend_vtable_payloads_match(&type_store, &left, &right));
+    assert!(backend_vtable_payloads_match(
+        &type_store,
+        &HashMap::new(),
+        &left,
+        &right
+    ));
+}
+
+#[test]
+fn vtable_owner_matches_evaluated_const_expression_array_lengths() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let left_module = module_ids.allocate();
+    let right_module = module_ids.allocate();
+    let type_store = nia_ty::TypeStore::new();
+    let left_append = type_store.append_for_module(left_module);
+    let right_append = type_store.append_for_module(right_module);
+    let left_u8 = left_append.primitive(nia_ty::PrimitiveTy::U8);
+    let right_u8 = right_append.primitive(nia_ty::PrimitiveTy::U8);
+    let left_expr = nia_ids::GlobalConstExprId {
+        module_id: left_module,
+        const_expr_id: nia_ids::ConstExprId(1),
+    };
+    let right_expr = nia_ids::GlobalConstExprId {
+        module_id: right_module,
+        const_expr_id: nia_ids::ConstExprId(2),
+    };
+    let left_array = left_append.intern(nia_ty::TyKind::Array {
+        len: nia_ty::ArrayLenTy::ConstExpr(left_expr),
+        elem: left_u8,
+    });
+    let right_array = right_append.intern(nia_ty::TyKind::Array {
+        len: nia_ty::ArrayLenTy::ConstExpr(right_expr),
+        elem: right_u8,
+    });
+    let key = |ty| BackendTraitObjectVtableKey {
+        self_ty: ty,
+        object_ty: ty,
+    };
+    let left = key(left_array);
+    let right = key(right_array);
+    let lengths = HashMap::from([(left_expr, 4), (right_expr, 4)]);
+
+    assert!(backend_vtable_keys_match(
+        &type_store,
+        &lengths,
+        &left,
+        &right
+    ));
 }
 
 #[test]

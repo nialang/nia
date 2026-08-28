@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Implementation batches: 622 completed entries in this ledger.
+- Implementation batches: 623 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -3795,6 +3795,11 @@ acceptance item only when its phase-wide evidence is complete.
       equivalent `ConstValue` and foreign expressions through backend module
       const facts, while unresolved expressions retain identity-only behavior;
       the owner regression covers both positive and negative cases.
+- [x] Batch 623 closes backend-lower owner deduplication for evaluated array
+      lengths. Aggregate-instance and trait-object-vtable equivalence now share
+      lowered modules' const-array facts, so distinct `ConstExpr` handles with
+      equal values select one deterministic owner; a cross-module vtable
+      regression covers the rebuilt-handle case.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
