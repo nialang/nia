@@ -3776,6 +3776,13 @@ acceptance item only when its phase-wide evidence is complete.
       A tuple late-mismatch regression verifies the maps remain unchanged;
       `nia-executable-reachability` (17 tests), workspace check, strict Clippy,
       formatting, and diff checks pass.
+- [x] Batch 620 closes generic trait-reachability recursion-key poisoning.
+      The path-local same-definition guard now runs before the complete
+      instantiation enters `visited`, so a deferred recursive instance can be
+      expanded from a later sibling branch instead of being lost permanently.
+      The owner regression verifies active definitions leave visited keys
+      untouched; `nia-executable-reachability` (18 tests), recursive driver
+      tests, workspace check, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
