@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 800 completed entries in this ledger.
+- Latest implementation batch: 801 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4931,6 +4931,12 @@ acceptance item only when its phase-wide evidence is complete.
       --target i686-unknown-linux-gnu` passes, and the real i686
       `emit_exe_intrinsics` matrix passes 8/8. The experimental target remains
       subject to the broader runtime and CI acceptance matrix.
+- [x] Batch 801 removes a remaining i686 test-width assumption in the memory
+      layout owner. The array-allocation overflow regression now uses the
+      target-width `usize::MAX` boundary instead of a 64-bit literal, so the
+      same semantic check compiles on both LP64 and ILP32. Host and i686
+      `std_mem_allocator_core` pass 4/4, and the remaining i686 allocator,
+      ArrayList, and intrinsic suites pass 24/24.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
