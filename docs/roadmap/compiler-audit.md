@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 756 completed entries in this ledger.
+- Latest implementation batch: 757 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4629,6 +4629,14 @@ acceptance item only when its phase-wide evidence is complete.
       and `nia-codegen-llvm` (333) suites pass with strict Rustdoc, Clippy,
       formatting, maintenance, and diff checks. Broader backend ABI/codegen
       acceptance and cross-cutting test-gap review remain open.
+- [x] Batch 757 adds direct type-resolution coverage for const-generic names
+      used in array type arguments. The owner now has an explicit interleaved
+      type/const function-generic regression proving the const parameter is
+      recorded in the versioned node map without diagnostics; `nia-type-resolve`
+      (8), `nia-type-lower` (19), and `nia-program-signatures` (7) pass with
+      strict Rustdoc, Clippy, formatting, maintenance, and diff checks.
+      Broader Phase A generic-resolution and cross-cutting acceptance remain
+      open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
