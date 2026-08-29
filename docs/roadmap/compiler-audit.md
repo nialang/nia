@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 723 completed entries in this ledger.
+- Latest implementation batch: 724 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4313,6 +4313,16 @@ acceptance item only when its phase-wide evidence is complete.
       forged ownership inputs, replacement after failure, release retries,
       empty and zero-sized values, and cross-module intrinsic receivers;
       non-host runtime and constrained-resource evidence remain open.
+- [x] Batch 724 records cross-cutting documentation and owner evidence for
+      five focused semantic crates. Strict `cargo rustdoc -- -D missing-docs`
+      is clean for `nia-sema`, `nia-pattern-analysis`, `nia-flow-check`,
+      `nia-closure-check`, and `nia-mangle`; their complete owner suites pass
+      54 tests total with strict all-target Clippy. The tests cover field and
+      array semantic validation, recursive and scalar pattern exhaustiveness,
+      closure capture/escape and defer ordering, flow termination and loop
+      context, and stable type/function/closure mangling identities. Larger
+      owners with historical Rustdoc backlogs and final cross-target evidence
+      remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
