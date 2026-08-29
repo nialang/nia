@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 697 completed entries in this ledger.
+- Latest implementation batch: 698 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4153,6 +4153,11 @@ acceptance item only when its phase-wide evidence is complete.
       general pattern handles through the same `TyKind::Error` sentinel and
       conservatively rejects the candidate instead of panicking; the owner
       suite remains green alongside the shared foreign-handle regression.
+- [x] Batch 698 closes parser unversioned-tree identity panic recovery. Public
+      syntax trees constructed without a source version now use the parser's
+      reserved synthetic identity when publishing AST origins, while mixed
+      source versions remain rejected; a focused unversioned-tree regression
+      verifies source-versioned origin lookup.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
