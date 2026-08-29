@@ -4058,6 +4058,11 @@ acceptance item only when its phase-wide evidence is complete.
       elements while preserving other dependencies, and LLVM declaration
       membership converts that marker into `INVALID_BACKEND_IR`; focused IR
       and membership regressions cover the diagnostic boundary.
+- [x] Batch 678 closes LLVM fingerprint stale-handle panics. Fingerprint
+      encoding now uses deterministic recovery encodings for missing modules
+      and type handles, preserving the existing valid-input byte stream while
+      allowing malformed incremental inputs to complete without an ICE;
+      focused encoder coverage verifies stable recovery output.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

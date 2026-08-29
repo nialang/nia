@@ -182,11 +182,13 @@ impl<'a> Encoder<'a> {
     }
 
     fn module_id(&mut self, module_id: ModuleId) {
-        let module = self.index.module(module_id).unwrap_or_else(|| {
-            panic!("Nia ICE: codegen fingerprint references missing module {module_id:?}")
-        });
-        self.builder
-            .write_str(module.source_identity.normalized_path());
+        if let Some(module) = self.index.module(module_id) {
+            self.builder
+                .write_str(module.source_identity.normalized_path());
+        } else {
+            self.builder
+                .write_str(&format!("<missing-module-{}>", module_id.local_index()));
+        }
     }
 
     fn global_def(&mut self, def_id: GlobalDefId) {
@@ -1321,11 +1323,16 @@ impl<'a> Encoder<'a> {
     }
 
     fn ty(&mut self, ty: InternedTyId) {
-        let kind = self.index.ty_kind(ty).unwrap_or_else(|| {
-            panic!("Nia ICE: codegen fingerprint references missing type {ty:?}")
-        });
-        self.ty_kind(kind);
-        self.optional_type_layout(self.index.type_layout(ty));
+        if let Some(kind) = self.index.ty_kind(ty) {
+            self.ty_kind(kind);
+            self.optional_type_layout(self.index.type_layout(ty));
+        } else {
+            // Reserve a tag outside the valid TyKind range so stale handles
+            // remain distinguishable without aborting fingerprint generation.
+            self.tag(u8::MAX);
+            self.u32(ty.index.index());
+            self.optional_type_layout(None);
+        }
     }
 
     fn ty_kind(&mut self, kind: &TyKind) {
@@ -1936,7 +1943,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::declaration_membership::CodegenDeclarationMembershipBuild;
-    use nia_ids::{ClosureId, DefId, GlobalDefId, LocalId, ModuleIdAllocator};
+    use nia_ids::{ClosureId, DefId, GlobalDefId, LocalId, ModuleIdAllocator, TypeStoreIndex};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_source::SourceIdentity;
     use nia_span::Span;
@@ -2102,6 +2109,27 @@ mod tests {
             ArtifactTarget::LlvmIr,
         )
         .expect("valid fingerprint fixture")
+    }
+
+    #[test]
+    fn encoder_recovers_missing_module_and_type_handles() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let missing_module = module_ids.allocate();
+        let store = TypeStore::new();
+        let missing_type = InternedTyId::new(store.id(), TypeStoreIndex::from_store_index(77));
+        let modules = Arc::new(nia_backend_ir::BackendModuleStore::new([]));
+        let (index, _publisher) = ProgramIndex::new(modules, Arc::new(store));
+
+        let mut first = Encoder::new(TEST_EXPRESSION_DOMAIN, &index);
+        first.module_id(missing_module);
+        first.ty(missing_type);
+        let first = first.finish();
+        let mut second = Encoder::new(TEST_EXPRESSION_DOMAIN, &index);
+        second.module_id(missing_module);
+        second.ty(missing_type);
+        let second = second.finish();
+
+        assert_eq!(first, second);
     }
 
     #[test]
