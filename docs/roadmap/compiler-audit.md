@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 695 completed entries in this ledger.
+- Latest implementation batch: 696 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4143,6 +4143,11 @@ acceptance item only when its phase-wide evidence is complete.
       Expr origin entries instead of retaining node keys whose origins were
       discarded; a focused type-alias regression verifies both source-versioned
       locators remain available.
+- [x] Batch 696 closes body-check foreign type-handle panic recovery. Body
+      checking now treats missing or cross-store interned type handles as the
+      existing `TyKind::Error` sentinel, allowing established conservative
+      diagnostics to continue without dereferencing an invalid store entry; a
+      focused owner regression covers both local and foreign handles.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
