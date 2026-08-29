@@ -998,4 +998,60 @@ mod tests {
             .collect::<String>();
         assert_eq!(reconstructed, source);
     }
+
+    #[test]
+    fn lossless_tokens_reconstruct_crlf_comments_without_merging_boundaries() {
+        let source = "alpha // comment\r\nbeta\n";
+        let tokens = tokenize_lossless(source);
+
+        assert!(matches!(
+            tokens[0].kind,
+            LosslessTokenKind::Token(TokenKind::Ident)
+        ));
+        assert!(matches!(tokens[1].kind, LosslessTokenKind::Whitespace));
+        assert!(matches!(tokens[2].kind, LosslessTokenKind::LineComment));
+        assert!(matches!(tokens[3].kind, LosslessTokenKind::Whitespace));
+        assert!(matches!(
+            tokens[4].kind,
+            LosslessTokenKind::Token(TokenKind::Ident)
+        ));
+        assert!(matches!(
+            tokens.last().map(|token| &token.kind),
+            Some(LosslessTokenKind::Token(TokenKind::Eof))
+        ));
+
+        let reconstructed = tokens
+            .iter()
+            .filter(|token| !matches!(token.kind, LosslessTokenKind::Token(TokenKind::Eof)))
+            .map(|token| &source[token.span.start..token.span.end])
+            .collect::<String>();
+        assert_eq!(reconstructed, source);
+        assert_eq!(
+            &source[tokens[2].span.start..tokens[2].span.end],
+            "// comment\r"
+        );
+        assert_eq!(&source[tokens[3].span.start..tokens[3].span.end], "\n");
+    }
+
+    #[test]
+    fn multiline_strings_accept_crlf_indented_continuations_and_stop_at_plain_lines() {
+        let source = "\\\\first\r\n  \\\\second\r\nnext";
+        let tokens = tokenize_lossless(source);
+
+        assert!(matches!(
+            tokens[0].kind,
+            LosslessTokenKind::Token(TokenKind::String)
+        ));
+        assert_eq!(
+            &source[tokens[0].span.start..tokens[0].span.end],
+            "\\\\first\r\n  \\\\second"
+        );
+        assert!(matches!(tokens[1].kind, LosslessTokenKind::Whitespace));
+        assert_eq!(&source[tokens[1].span.start..tokens[1].span.end], "\r\n");
+        assert!(matches!(
+            tokens[2].kind,
+            LosslessTokenKind::Token(TokenKind::Ident)
+        ));
+        assert_eq!(&source[tokens[2].span.start..tokens[2].span.end], "next");
+    }
 }
