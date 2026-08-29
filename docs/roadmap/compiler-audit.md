@@ -4206,6 +4206,14 @@ acceptance item only when its phase-wide evidence is complete.
       cross source revisions, preserving normal child-path identities while
       keeping malformed reconstruction input diagnostic and non-panicking.
       The parser owner suite (123 tests) and syntax suite (12 tests) pass.
+- [x] Batch 706 records Phase A owner evidence after the frontend recovery
+      fix. `nia-body-check` (279), `nia-trait-solve` (24),
+      `nia-program-signatures` (7), `nia-type-lower` (19), and
+      `nia-local-resolve` (17) tests pass with strict `-D warnings` Clippy.
+      Production `expect`/`unreachable` sites in these owners remain guarded
+      internal contracts or exhaustive enum branches; no user-input recovery
+      gap was identified, so Phase A remains open pending its full acceptance
+      matrix and cross-module evidence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
