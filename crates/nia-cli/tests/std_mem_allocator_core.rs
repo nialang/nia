@@ -78,7 +78,7 @@ fn check_layout_rejects_invalid_alignment() process::ExitCode!() {
 }
 
 fn check_layout_rejects_array_size_overflow() process::ExitCode!() {
-    match mem::Layout::array[i32](4611686018427387904) {
+    match mem::Layout::array[i32](usize::MAX) {
         !ok => { _ = ok;
                 return process::exit(1)!; },
         err! => { if err as i32 != mem::Error::OutOfMemory as i32 {
