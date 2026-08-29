@@ -803,4 +803,70 @@ fn main() i32 {
         assert_eq!(active_body.stmts.len(), 1);
         assert!(matches!(active_body.stmts[0].kind, StmtKind::Expr(_)));
     }
+
+    #[test]
+    fn target_identity_selects_items_for_simulated_ilp32_big_endian_target() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+@[if arch == "mips" and endian == "big" and pointer_width == 32]
+fn selected() i32 { 1 }
+
+@[if arch == "x86_64" or pointer_width == 64]
+fn rejected() i32 { 2 }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let config = TargetConfig {
+            arch: "mips".to_string(),
+            vendor: "unknown".to_string(),
+            os: "freestanding".to_string(),
+            env: String::new(),
+            abi: String::new(),
+            endian: "big".to_string(),
+            pointer_width: 32,
+        };
+        let pruned = prune_module_for_target(module, &config);
+        assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
+
+        let active_module = pruned.active_item_tree.to_module();
+        assert_eq!(active_module.items.len(), 1);
+        assert!(matches!(active_module.items[0].kind, ItemKind::Function(_)));
+    }
+
+    #[test]
+    fn condition_evaluation_short_circuits_unknown_names() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+@[if false and missing_target_name]
+fn hidden() i32 { 1 }
+
+@[if true or missing_target_name]
+fn visible() i32 { 2 }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
+        let active_module = pruned.active_item_tree.to_module();
+        assert_eq!(active_module.items.len(), 1);
+        assert!(matches!(active_module.items[0].kind, ItemKind::Function(_)));
+    }
+
+    #[test]
+    fn condition_type_mismatch_is_reported_as_target_diagnostic() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+@[if pointer_width]
+fn invalid() i32 { 1 }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let pruned = prune_module_for_target(module, &TargetConfig::host());
+        assert_eq!(pruned.active_item_tree.to_module().items.len(), 0);
+        assert_eq!(pruned.diagnostics.len(), 1);
+        assert!(pruned.diagnostics[0].summary.contains("condition"));
+    }
 }

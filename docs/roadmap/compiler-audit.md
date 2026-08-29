@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 719 completed entries in this ledger.
+- Latest implementation batch: 720 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4283,6 +4283,13 @@ acceptance item only when its phase-wide evidence is complete.
       `cargo clippy -p nia-cli --tests --all-features -- -D warnings` also
       passes. Target-specific runtime execution and the remaining build/error
       protocol coverage remain open for Phase F.
+- [x] Batch 720 adds target-configuration owner regressions for simulated
+      non-host identities. `nia-target-config` now tests item pruning for an
+      ILP32 big-endian freestanding target, boolean short-circuiting around
+      unknown names, and diagnostics when an integer target value is used as a
+      condition. All 5 owner tests and strict all-target Clippy pass. These
+      tests exercise target selection and recovery without claiming non-host
+      runtime execution; real external-target evidence remains open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
