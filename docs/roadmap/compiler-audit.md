@@ -4220,6 +4220,14 @@ acceptance item only when its phase-wide evidence is complete.
       also pass. This is current-host evidence only; supported non-host targets,
       constrained-resource reruns, and the remaining phase acceptance matrices
       are still required before roadmap retirement.
+- [x] Batch 713 records the Phase B pointer-width owner matrix. `nia-layout`
+      (28 tests), `nia-abi-check` (7), and `nia-backend-ir` (23) pass, while
+      focused `nia-codegen-llvm` regressions verify 32-bit `usize` lowers to
+      `i32` and pointer-sized layout builtins produce 32-bit results; the full
+      suite covers the LP64 path. Overflow, malformed alignment, cross-module
+      ownership, and target-layout disagreement remain diagnostic or validated
+      internal-contract paths. No new backend defect was identified; Phase B
+      remains open for its complete entry-point and clean/incremental matrix.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
