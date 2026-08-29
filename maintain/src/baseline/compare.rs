@@ -7,70 +7,113 @@ use serde::{Deserialize, Serialize};
 use crate::MaintainResult;
 
 #[derive(Debug, Clone)]
+/// Inputs and thresholds for comparing two performance baselines.
 pub struct Options {
+    /// Baseline JSON path.
     pub baseline: PathBuf,
+    /// Candidate JSON path.
     pub candidate: PathBuf,
+    /// Maximum allowed wall-time regression percentage.
     pub max_wall_regression: f64,
+    /// Maximum allowed peak RSS regression percentage.
     pub max_rss_regression: f64,
+    /// Maximum allowed query-count regression percentage.
     pub max_query_regression: f64,
+    /// Maximum allowed allocation regression percentage.
     pub max_allocation_regression: f64,
+    /// Whether to continue despite machine-identity mismatches.
     pub allow_machine_mismatch: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Machine identity and effective resource limits for a baseline run.
 pub struct MachineIdentity {
     #[serde(default)]
+    /// Optional controlled-runner classification.
     pub runner_class: Option<String>,
+    /// Operating-system family.
     pub system: String,
+    /// Host architecture.
     pub architecture: String,
     #[serde(default)]
+    /// CPU model, when available.
     pub cpu_model: Option<String>,
     #[serde(default)]
+    /// Effective CPU quota.
     pub effective_cpu_limit: Option<f64>,
     #[serde(default)]
+    /// Effective memory limit in bytes.
     pub effective_memory_limit_bytes: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Process-level metrics captured for one workload sample.
 pub struct ProcessMetrics {
+    /// Wall-clock execution time in seconds.
     pub wall_seconds: f64,
+    /// Peak resident set size in bytes.
     pub max_rss_bytes: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Named compiler workload with process metrics and counters.
 pub struct PerformanceResult {
+    /// Stable workload name.
     pub name: String,
+    /// Process measurements for the workload.
     pub process: ProcessMetrics,
+    /// Named compiler counters.
     pub counters: BTreeMap<String, f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Schema-v1 performance baseline and its machine identity.
 pub struct PerformanceBaseline {
+    /// Baseline schema version.
     pub schema_version: u32,
+    /// Machine identity captured with the samples.
     pub machine: MachineIdentity,
+    /// Workload samples, including repeated entries.
     pub results: Vec<PerformanceResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+/// One metric comparison and its regression decision.
 pub struct MetricComparison {
+    /// Workload owning the metric.
     pub workload: String,
+    /// Metric name.
     pub metric: String,
+    /// Baseline median value.
     pub baseline: f64,
+    /// Candidate median value.
     pub candidate: f64,
+    /// Relative change percentage, when defined.
     pub change_percent: Option<f64>,
+    /// Allowed regression threshold percentage.
     pub threshold_percent: f64,
+    /// Whether the metric is within its threshold.
     pub passed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
+/// Complete machine, threshold, and metric comparison report.
 pub struct ComparisonReport {
+    /// Comparison report schema version.
     pub schema_version: u32,
+    /// Whether machine identity matched within tolerance.
     pub machine_compatible: bool,
+    /// Human-readable machine mismatches.
     pub machine_mismatches: Vec<String>,
+    /// Whether mismatches were explicitly allowed.
     pub allow_machine_mismatch: bool,
+    /// Thresholds applied by metric family.
     pub thresholds_percent: BTreeMap<String, f64>,
+    /// Per-workload metric decisions.
     pub comparisons: Vec<MetricComparison>,
+    /// Structural errors preventing comparison.
     pub errors: Vec<String>,
+    /// Whether all structural and metric checks passed.
     pub passed: bool,
 }
 
@@ -155,6 +198,7 @@ fn validate_baseline(
     Ok(baseline)
 }
 
+/// Loads and validates one schema-v1 performance baseline JSON file.
 pub fn load_baseline(path: &Path) -> MaintainResult<PerformanceBaseline> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read baseline {}: {error}", path.display()))?;
@@ -167,6 +211,7 @@ fn relative_difference(left: f64, right: f64) -> f64 {
     (left - right).abs() / left.abs().max(right.abs()).max(1.0)
 }
 
+/// Returns machine identity differences that exceed comparison tolerances.
 pub fn machine_mismatches(
     baseline: &PerformanceBaseline,
     candidate: &PerformanceBaseline,
@@ -270,6 +315,7 @@ fn change_percent(baseline: f64, candidate: f64) -> Option<f64> {
     }
 }
 
+/// Compares workload medians and applies metric-family regression thresholds.
 pub fn compare_baselines(
     baseline: &PerformanceBaseline,
     candidate: &PerformanceBaseline,
@@ -347,6 +393,7 @@ pub fn compare_baselines(
     })
 }
 
+/// Loads two baselines, prints a comparison report, and returns pass status.
 pub fn run(options: &Options) -> MaintainResult<bool> {
     let thresholds = BTreeMap::from([
         ("wall".to_owned(), options.max_wall_regression),
