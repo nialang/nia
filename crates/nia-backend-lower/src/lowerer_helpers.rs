@@ -93,6 +93,7 @@ impl ModuleLowerer<'_> {
         let source_identities = &self.shared.source_identities;
         let self_arg = self_arg.map(|ty| self.normalize_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
+        let mut missing_source_identities = HashSet::new();
         let diagnostics = &mut self.diagnostics;
         let def_names = &mut self.def_names;
         let mut args = args.to_vec();
@@ -107,10 +108,11 @@ impl ModuleLowerer<'_> {
             self.type_store,
             MangleResolvers::new(
                 |module_id| {
-                    let source_identity = source_identities.get(&module_id).unwrap_or_else(|| {
-                        panic!("Nia ICE: missing source identity for mangled module {module_id:?}")
-                    });
-                    MangleModuleId::from_normalized_source_path(source_identity.normalized_path())
+                    mangle_module_id_or_diagnose(
+                        source_identities,
+                        module_id,
+                        &mut missing_source_identities,
+                    )
                 },
                 |def_id| {
                     if let Some(name) = def_names.get(&def_id) {
@@ -142,6 +144,13 @@ impl ModuleLowerer<'_> {
                 },
             ),
         );
+        for module_id in missing_source_identities {
+            record_missing_source_identity(
+                module_id,
+                &mut self.diagnostics,
+                &mut self.missing_source_identity_diagnostics,
+            );
+        }
         if self_arg.is_some() {
             symbol = symbol.replacen("__inst__t_", "__inst__t_self_", 1);
         }
@@ -157,17 +166,21 @@ impl ModuleLowerer<'_> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
-        let source_identity = self
-            .shared
-            .source_identities
-            .get(&arg_module_id)
-            .unwrap_or_else(|| {
-                panic!("Nia ICE: missing source identity for instance context {arg_module_id:?}")
-            });
+        let source_identity = self.shared.source_identities.get(&arg_module_id);
+        if source_identity.is_none() {
+            record_missing_source_identity(
+                arg_module_id,
+                &mut self.diagnostics,
+                &mut self.missing_source_identity_diagnostics,
+            );
+        }
+        let source_path = source_identity
+            .map(|identity| identity.normalized_path().to_string())
+            .unwrap_or_else(|| format!("<missing-module-{}>", arg_module_id.local_index()));
         format!(
             "{}__ctx_s{:016x}",
             self.mangle_instance_symbol(def_id, name, self_arg, args, const_args),
-            stable_hash(source_identity.normalized_path())
+            stable_hash(&source_path)
         )
     }
 
@@ -227,5 +240,63 @@ impl ModuleLowerer<'_> {
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.type_context.ty_kind(ty)
+    }
+}
+
+fn mangle_module_id_or_diagnose(
+    source_identities: &HashMap<ModuleId, nia_source::SourceIdentity>,
+    module_id: ModuleId,
+    missing_source_identities: &mut HashSet<ModuleId>,
+) -> MangleModuleId {
+    if let Some(source_identity) = source_identities.get(&module_id) {
+        return MangleModuleId::from_normalized_source_path(source_identity.normalized_path());
+    }
+    missing_source_identities.insert(module_id);
+    MangleModuleId::from_normalized_source_path(&format!(
+        "<missing-module-{}>",
+        module_id.local_index()
+    ))
+}
+
+fn record_missing_source_identity(
+    module_id: ModuleId,
+    diagnostics: &mut Vec<Diagnostic>,
+    reported: &mut HashSet<ModuleId>,
+) {
+    if reported.insert(module_id) {
+        diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            format!("missing source identity for mangled module {module_id:?}"),
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::ModuleIdAllocator;
+
+    #[test]
+    fn missing_mangle_module_identity_is_deterministic_and_tracked() {
+        let mut modules = ModuleIdAllocator::new();
+        let missing = modules.allocate();
+        let mut diagnostics = Vec::new();
+        let mut mangle_reported = HashSet::new();
+        let identities = HashMap::new();
+
+        let first = mangle_module_id_or_diagnose(&identities, missing, &mut mangle_reported);
+        let second = mangle_module_id_or_diagnose(&identities, missing, &mut mangle_reported);
+
+        assert_eq!(first, second);
+        assert!(mangle_reported.contains(&missing));
+        assert_eq!(mangle_reported.len(), 1);
+
+        let mut reported = HashSet::new();
+        record_missing_source_identity(missing, &mut diagnostics, &mut reported);
+        record_missing_source_identity(missing, &mut diagnostics, &mut reported);
+        assert!(reported.contains(&missing));
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].summary.contains("missing source identity"));
     }
 }
