@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 752 completed entries in this ledger.
+- Latest implementation batch: 753 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4590,6 +4590,16 @@ acceptance item only when its phase-wide evidence is complete.
       internal contracts or exhaustive enum branches; no user-input recovery
       gap was identified, so Phase A remains open pending its full acceptance
       matrix and cross-module evidence.
+- [x] Batch 753 preserves module identities at import-owner fallback and alias
+      boundaries. Unknown symbols now retain distinct stable identity text in
+      diagnostics and declared-child paths, while package aliases that reuse a
+      normalized source identity remain registered as resolvable roots. Direct
+      `nia-imports` tests cover module maps, path classification, root
+      selection, visibility ancestry, processing-state idempotence, duplicate
+      declarations, and both regressions; 11 owner tests and 107 affected
+      loader/public-surface/definition tests pass with strict Rustdoc, Clippy,
+      workspace formatting, maintenance, and diff checks. Phase D remains
+      complete; the broader cross-cutting test-gap review remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
