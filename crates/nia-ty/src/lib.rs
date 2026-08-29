@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+//! Canonical type-store identities and structural type equivalence.
 use nia_hash::FastHashMap;
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
@@ -64,6 +65,7 @@ impl TypeKindArena {
 }
 
 #[derive(Debug)]
+/// Session-owned arena for canonical semantic types.
 pub struct TypeStore {
     id: TypeStoreId,
     core: Arc<TypeStoreCore>,
@@ -118,11 +120,13 @@ impl PartialEq for TypeStore {
 impl Eq for TypeStore {}
 
 #[derive(Clone)]
+/// Module-scoped capability for appending types to a shared store.
 pub struct TypeStoreAppend {
     core: Arc<TypeStoreCore>,
 }
 
 impl TypeStoreAppend {
+    /// Interns a type, canonicalizing callable pointers into callable views.
     pub fn intern(&self, kind: TyKind) -> InternedTyId {
         if let TyKind::Pointer { is_readonly, elem } = &kind
             && let Some(TyKind::CallablePointee {
@@ -139,14 +143,17 @@ impl TypeStoreAppend {
         self.core.intern(&kind)
     }
 
+    /// Returns the canonical error type.
     pub fn error(&self) -> InternedTyId {
         self.intern(TyKind::Error)
     }
 
+    /// Interns a primitive type.
     pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
         self.intern(TyKind::Primitive(primitive))
     }
 
+    /// Interns a builtin nominal type.
     pub fn builtin_type(&self, builtin: BuiltinType) -> InternedTyId {
         self.intern(TyKind::BuiltinType(builtin))
     }
@@ -159,6 +166,7 @@ impl Default for TypeStore {
 }
 
 impl TypeStore {
+    /// Creates an empty type store with a fresh session identity.
     pub fn new() -> Self {
         let id = TypeStoreId::fresh();
         Self {
@@ -171,10 +179,12 @@ impl TypeStore {
         }
     }
 
+    /// Returns this store's session identity.
     pub fn id(&self) -> TypeStoreId {
         self.id
     }
 
+    /// Looks up a type handle, rejecting handles from another store.
     pub fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.core.get(ty)
     }
@@ -188,105 +198,181 @@ impl TypeStore {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Structural representation of every semantic type form.
 pub enum TyKind {
+    /// Error recovery type.
     Error,
+    /// Compile-time-only value type.
     ConstOnly,
+    /// Opaque type whose representation is intentionally unavailable.
     Opaque,
+    /// Primitive scalar type.
     Primitive(PrimitiveTy),
+    /// Ordered tuple elements.
     Tuple(Vec<InternedTyId>),
+    /// Read-only or mutable pointer to an element type.
     Pointer {
+        /// Whether writes through the pointer are forbidden.
         is_readonly: bool,
+        /// Pointed-to type.
         elem: InternedTyId,
     },
+    /// Pointer with volatile access semantics.
     VolatilePointer {
+        /// Whether writes through the pointer are forbidden.
         is_readonly: bool,
+        /// Pointed-to type.
         elem: InternedTyId,
     },
+    /// Fat slice value carrying pointer and length.
     Slice {
+        /// Whether the slice is read-only.
         is_readonly: bool,
+        /// Element type.
         elem: InternedTyId,
     },
+    /// Unsized slice pointee used behind a pointer.
     SlicePointee {
+        /// Element type.
         elem: InternedTyId,
     },
+    /// Fixed-length array.
     Array {
+        /// Array length expression.
         len: ArrayLenTy,
+        /// Element type.
         elem: InternedTyId,
     },
+    /// Fixed-width SIMD vector.
     Vector {
+        /// Scalar lane type.
         elem: PrimitiveTy,
+        /// Number of lanes.
         lanes: u32,
     },
+    /// Range value with an optional bound type.
     Range {
+        /// Inclusive/exclusive bound shape.
         kind: RangeTyKind,
+        /// Element bound type, when present.
         bound: Option<InternedTyId>,
     },
+    /// Thin C-compatible function pointer.
     FunctionPointer {
+        /// Parameter types.
         params: Vec<InternedTyId>,
+        /// Return type.
         return_type: InternedTyId,
+        /// Whether the function accepts variadic arguments.
         is_variadic: bool,
     },
+    /// Callable closure view.
     Callable {
+        /// Whether the callable is read-only.
         is_readonly: bool,
+        /// Parameter types.
         params: Vec<InternedTyId>,
+        /// Return type.
         return_type: InternedTyId,
     },
+    /// Unsized callable state pointee.
     CallablePointee {
+        /// Parameter types.
         params: Vec<InternedTyId>,
+        /// Return type.
         return_type: InternedTyId,
     },
+    /// Concrete closure state and its captured types.
     ClosureState {
+        /// Stable closure identity.
         closure_id: ClosureId,
+        /// Captured value types.
         captures: Vec<InternedTyId>,
+        /// Parameter types.
         params: Vec<InternedTyId>,
+        /// Return type.
         return_type: InternedTyId,
     },
+    /// Optional value wrapper.
     Optional {
+        /// Wrapped type.
         elem: InternedTyId,
     },
+    /// Error/value union wrapper.
     ErrorUnion {
+        /// Error payload type.
         error: InternedTyId,
+        /// Success payload type.
         value: InternedTyId,
     },
+    /// Nominal definition with type and const arguments.
     Nominal {
+        /// Defining item identity.
         def_id: GlobalDefId,
+        /// Type arguments in declaration order.
         args: Vec<InternedTyId>,
+        /// Const arguments in declaration order.
         const_args: Vec<ConstGenericArg>,
     },
+    /// Builtin nominal type supplied by the language runtime.
     BuiltinType(BuiltinType),
+    /// Builtin trait application.
     BuiltinTrait {
+        /// Builtin trait identity.
         trait_id: BuiltinTrait,
+        /// Trait type arguments.
         args: Vec<InternedTyId>,
     },
+    /// Sized trait-object value.
     TraitObject {
+        /// Whether the object is read-only.
         is_readonly: bool,
+        /// Source trait identity.
         trait_id: TraitId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
+        /// Trait const arguments.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Associated type bindings carried by the object.
         associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     },
+    /// Unsized trait-object pointee.
     TraitObjectPointee {
+        /// Source trait identity.
         trait_id: TraitId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
+        /// Trait const arguments.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Associated type bindings carried by the object.
         associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     },
+    /// Associated type projection before normalization.
     Projection {
+        /// Projection receiver type.
         self_ty: InternedTyId,
+        /// Source trait identity.
         trait_id: TraitId,
+        /// Trait type arguments.
         trait_args: Vec<InternedTyId>,
+        /// Trait const arguments.
         trait_const_args: Vec<ConstGenericArg>,
+        /// Associated type name.
         name: SymbolId,
     },
+    /// Unresolved type generic parameter.
     GenericParam(SymbolId),
+    /// Unresolved `Self` parameter.
     SelfParam,
 }
 
 impl TyKind {
+    /// Returns whether this is the zero-element tuple/unit type.
     pub fn is_unit(&self) -> bool {
         matches!(self, Self::Tuple(elems) if elems.is_empty())
     }
 
+    /// Visits every type handle nested in this structural type.
     pub fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
         fn visit_const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(InternedTyId)) {
             for arg in args {
@@ -419,29 +505,44 @@ impl TyKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Associated type binding carried by a trait object or projection.
 pub struct AssociatedTypeBindingTy {
+    /// Optional source trait identity for the binding key.
     pub trait_id: Option<TraitId>,
+    /// Type arguments of the source trait.
     pub trait_args: Vec<InternedTyId>,
+    /// Const arguments of the source trait.
     pub trait_const_args: Vec<ConstGenericArg>,
+    /// Associated member name.
     pub name: SymbolId,
+    /// Resolved associated type.
     pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Shape of bounds represented by a range type.
 pub enum RangeTyKind {
+    /// Both bounds present and end-exclusive.
     Exclusive,
+    /// Both bounds present and end-inclusive.
     Inclusive,
+    /// Only a start bound is present.
     From,
+    /// Only an end bound is present and exclusive.
     To,
+    /// Only an end bound is present and inclusive.
     ToInclusive,
+    /// No bounds are present.
     Full,
 }
 
 impl RangeTyKind {
+    /// Returns whether this range carries a start bound.
     pub const fn has_start_bound(self) -> bool {
         matches!(self, Self::Exclusive | Self::Inclusive | Self::From)
     }
 
+    /// Returns whether this range carries an end bound.
     pub const fn has_end_bound(self) -> bool {
         matches!(
             self,
@@ -451,45 +552,68 @@ impl RangeTyKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Primitive scalar types understood by the language.
 pub enum PrimitiveTy {
+    /// Signed 8-bit integer.
     I8,
+    /// Signed 16-bit integer.
     I16,
+    /// Signed 32-bit integer.
     I32,
+    /// Signed 64-bit integer.
     I64,
+    /// Signed 128-bit integer.
     I128,
+    /// Signed pointer-width integer.
     Isize,
+    /// Unsigned 8-bit integer.
     U8,
+    /// Unsigned 16-bit integer.
     U16,
+    /// Unsigned 32-bit integer.
     U32,
+    /// Unsigned 64-bit integer.
     U64,
+    /// Unsigned 128-bit integer.
     U128,
+    /// Unsigned pointer-width integer.
     Usize,
+    /// 32-bit floating-point value.
     F32,
+    /// 64-bit floating-point value.
     F64,
+    /// Boolean value.
     Bool,
+    /// Unicode scalar value.
     Char,
+    /// Non-returning type.
     Never,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Integer bits plus signedness, independent of a concrete primitive width.
 pub struct IntConst {
     bits: u128,
     signed: bool,
 }
 
 impl IntConst {
+    /// Constructs a signed value from an `i128`.
     pub fn from_i128(value: i128) -> Self {
         Self::signed_bits(value as u128)
     }
 
+    /// Constructs a signed value from its raw two's-complement bits.
     pub fn signed_bits(bits: u128) -> Self {
         Self { bits, signed: true }
     }
 
+    /// Constructs a signed integer constant.
     pub fn signed(value: i128) -> Self {
         Self::from_i128(value)
     }
 
+    /// Constructs an unsigned integer constant.
     pub fn unsigned(bits: u128) -> Self {
         Self {
             bits,
@@ -497,14 +621,17 @@ impl IntConst {
         }
     }
 
+    /// Returns the raw integer bits.
     pub fn bits(self) -> u128 {
         self.bits
     }
 
+    /// Returns whether the value is signed.
     pub fn is_signed(self) -> bool {
         self.signed
     }
 
+    /// Converts to `i128` when the unsigned value fits.
     pub fn as_i128(self) -> Option<i128> {
         if self.signed {
             Some(self.bits as i128)
@@ -536,6 +663,7 @@ impl IntConst {
         value.is_some_and(|value| bits == u128::BITS || value < (1_u128 << bits))
     }
 
+    /// Casts the value to a primitive integer width, preserving low bits.
     pub fn cast_to_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<Self> {
         let bits = primitive.integer_bits(pointer_width)?;
         let mask = integer_mask(bits);
@@ -555,44 +683,73 @@ impl From<i128> for IntConst {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Typed argument supplied to a const-generic parameter.
 pub struct ConstGenericArg {
+    /// Declared type of the argument.
     pub ty: InternedTyId,
+    /// Semantic argument value or unresolved identity.
     pub value: ConstGenericValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Value identity of a const-generic argument.
 pub enum ConstGenericValue {
+    /// Unsubstituted const parameter.
     GenericParam(SymbolId),
+    /// Unevaluated global const expression.
     ConstExpr(GlobalConstExprId),
+    /// Integer value with explicit signedness.
     Int(IntConst),
+    /// Boolean value.
     Bool(bool),
+    /// Unicode scalar value.
     Char(char),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Parsed primitive spelling, including fixed-width SIMD forms.
 pub enum PrimitiveTypeSpelling {
+    /// Scalar primitive spelling.
     Scalar(PrimitiveTy),
-    Vector { elem: PrimitiveTy, lanes: u32 },
+    /// Vector primitive spelling.
+    Vector {
+        /// Scalar lane type.
+        elem: PrimitiveTy,
+        /// Number of vector lanes.
+        lanes: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Semantic form of a fixed array length.
 pub enum ArrayLenTy {
+    /// Length awaiting contextual inference.
     Infer,
+    /// Unsubstituted const parameter.
     GenericParam(SymbolId),
+    /// Evaluated non-negative length.
     ConstValue(u64),
+    /// Unevaluated global const expression.
     ConstExpr(GlobalConstExprId),
+    /// Target-dependent layout query used as a length.
     Builtin {
+        /// Layout operation.
         builtin: LayoutBuiltin,
+        /// Operand type.
         ty: InternedTyId,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Stable facts retained for an unevaluated const expression.
 pub struct ConstExprSummary {
+    /// Source location used for diagnostics.
     pub span: Span,
+    /// Literal array length when it can be recovered without evaluation.
     pub literal_array_len: Option<u64>,
 }
 
+/// Context-dependent structural equivalence for interned types.
 pub trait TypeEquivalence {
     /// Provides the type-store view used by [`Self::compute_same_type_for_equiv`].
     /// Implementors may compare handles from different stores, so structural
@@ -607,6 +764,7 @@ pub trait TypeEquivalence {
     /// source/type context.
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool;
 
+    /// Compares two ordered type argument lists structurally.
     fn same_type_args_for_equiv(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
         left.len() == right.len()
             && left
@@ -615,6 +773,7 @@ pub trait TypeEquivalence {
                 .all(|(left, right)| self.same_type_for_equiv(*left, *right))
     }
 
+    /// Compares typed const arguments using semantic integer bits.
     fn same_const_generic_args_for_equiv(
         &self,
         left: &[ConstGenericArg],
@@ -632,6 +791,7 @@ pub trait TypeEquivalence {
             })
     }
 
+    /// Computes structural equivalence after context-specific fast paths.
     fn compute_same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         match (self.ty_kind_for_equiv(left), self.ty_kind_for_equiv(right)) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
@@ -891,6 +1051,7 @@ pub trait TypeEquivalence {
         }
     }
 
+    /// Compares associated bindings as an order-independent multiset.
     fn same_associated_type_bindings_for_equiv(
         &self,
         left: &[AssociatedTypeBindingTy],
@@ -914,6 +1075,7 @@ pub trait TypeEquivalence {
         })
     }
 
+    /// Compares the trait-instance key of two associated bindings.
     fn same_associated_type_binding_key_for_equiv(
         &self,
         left: &AssociatedTypeBindingTy,
@@ -928,6 +1090,7 @@ pub trait TypeEquivalence {
 }
 
 impl PrimitiveTy {
+    /// All primitive scalar types in canonical registry order.
     pub const ALL: [Self; 17] = [
         Self::I8,
         Self::I16,
@@ -948,6 +1111,7 @@ impl PrimitiveTy {
         Self::Never,
     ];
 
+    /// Parses a source-level primitive type name.
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "i8" => Self::I8,
@@ -971,6 +1135,7 @@ impl PrimitiveTy {
         })
     }
 
+    /// Resolves a well-known symbol to a primitive type.
     pub fn from_known_symbol(name: SymbolId) -> Option<Self> {
         Some(match name {
             nia_symbol::known::I8 => Self::I8,
@@ -994,6 +1159,7 @@ impl PrimitiveTy {
         })
     }
 
+    /// Returns the canonical well-known symbol.
     pub fn symbol_id(self) -> SymbolId {
         match self {
             Self::I8 => nia_symbol::known::I8,
@@ -1016,6 +1182,7 @@ impl PrimitiveTy {
         }
     }
 
+    /// Returns the source-level spelling.
     pub fn name(self) -> &'static str {
         match self {
             Self::I8 => "i8",
@@ -1038,6 +1205,7 @@ impl PrimitiveTy {
         }
     }
 
+    /// Parses a primitive that can be used as a vector lane.
     pub fn vector_element_from_name(name: &str) -> Option<Self> {
         match Self::from_name(name)? {
             primitive if primitive.is_vector_element() => Some(primitive),
@@ -1045,10 +1213,12 @@ impl PrimitiveTy {
         }
     }
 
+    /// Returns whether this primitive is valid as a vector lane.
     pub fn is_vector_element(self) -> bool {
         !matches!(self, Self::Char | Self::Never)
     }
 
+    /// Returns whether this is an integer type.
     pub fn is_integer(self) -> bool {
         matches!(
             self,
@@ -1067,6 +1237,7 @@ impl PrimitiveTy {
         )
     }
 
+    /// Returns whether this is a signed integer type.
     pub fn is_signed_integer(self) -> bool {
         matches!(
             self,
@@ -1074,6 +1245,7 @@ impl PrimitiveTy {
         )
     }
 
+    /// Returns the integer width, using the artifact width for pointer integers.
     pub fn integer_bits(self, pointer_width: u32) -> Option<u32> {
         match self {
             Self::I8 | Self::U8 => Some(8),
@@ -1086,6 +1258,7 @@ impl PrimitiveTy {
         }
     }
 
+    /// Returns whether this is a floating-point type.
     pub fn is_float(self) -> bool {
         matches!(self, Self::F32 | Self::F64)
     }
@@ -1100,6 +1273,7 @@ fn integer_mask(bits: u32) -> u128 {
 }
 
 impl PrimitiveTypeSpelling {
+    /// Parses a scalar or fixed-vector primitive spelling.
     pub fn from_name(name: &str) -> Option<Self> {
         if let Some(primitive) = PrimitiveTy::from_name(name) {
             return Some(Self::Scalar(primitive));
