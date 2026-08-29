@@ -1026,6 +1026,10 @@ impl LinkOptions {
             args.push("-e".to_string());
             args.push(entry.clone());
         }
+        if let Some(emulation) = gnu_emulation_for_target(&self.target) {
+            args.push("-m".to_string());
+            args.push(emulation.to_string());
+        }
         args.extend(
             inputs
                 .as_slice()
@@ -1129,6 +1133,11 @@ impl LinkOptions {
         }
         native_linux_library_paths()
     }
+}
+
+fn gnu_emulation_for_target(target: &LinkTarget) -> Option<&'static str> {
+    (target.os == "linux" && matches!(target.arch.as_str(), "x86" | "i386" | "i586" | "i686"))
+        .then_some("elf_i386")
 }
 
 fn resolved_linker_path(program: &str) -> Option<PathBuf> {

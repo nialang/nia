@@ -17,6 +17,24 @@ fn default_static_gnu_invocation_keeps_freestanding_shape() {
 }
 
 #[test]
+fn i686_linux_gnu_invocation_selects_elf_i386_emulation() {
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program("ld"),
+        target: target("i686", "linux", "gnu"),
+        ..LinkOptions::default()
+    };
+    let invocation = options
+        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .expect("link invocation");
+    assert!(
+        invocation
+            .args
+            .windows(2)
+            .any(|args| args == ["-m", "elf_i386"])
+    );
+}
+
+#[test]
 fn invocation_preserves_typed_link_input_order() {
     let inputs = IncrementalLinkInputs::new(vec![
         IncrementalLinkInput {
