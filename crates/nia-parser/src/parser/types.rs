@@ -515,7 +515,25 @@ impl Parser {
                 (Some(ty), Some(expr))
                     if ty.span == expr.span && type_arg_can_be_const_path(&ty, &expr) =>
                 {
-                    self.skip_to_type_arg_boundary();
+                    // Both interpretations were parsed speculatively and then
+                    // rolled back above. Reparse them in the accepted branch so
+                    // their Type/Expr origins are published with the final AST;
+                    // only the token cursor is rewound between interpretations.
+                    self.rewind(type_checkpoint);
+                    self.errors.truncate(type_errors_len);
+                    let Some(ty) = self.parse_type() else {
+                        self.error_here("expected type argument");
+                        self.skip_to_type_arg_boundary();
+                        continue;
+                    };
+                    self.rewind_tokens(expr_checkpoint.token);
+                    let Some(expr) =
+                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
+                    else {
+                        self.error_here("expected const generic argument");
+                        self.skip_to_type_arg_boundary();
+                        continue;
+                    };
                     args.push(TypeArg::TypeOrConst { ty, expr });
                 }
                 (Some(_), _) => {
@@ -566,6 +584,10 @@ impl Parser {
         while !self.at_type_arg_boundary() {
             self.bump();
         }
+    }
+
+    fn rewind_tokens(&mut self, checkpoint: usize) {
+        self.tokens.rewind(checkpoint);
     }
 
     pub(super) fn type_can_start(&self) -> bool {

@@ -33,8 +33,55 @@ fn main() i32 {
 }
 "#,
     );
-    assert!(!errors.is_empty(), "malformed generic argument must be diagnosed");
+    assert!(
+        !errors.is_empty(),
+        "malformed generic argument must be diagnosed"
+    );
     let _ = module;
+}
+
+#[test]
+fn generic_type_or_const_arguments_retain_both_origins() {
+    let source = "type Alias = Box[i32];\n";
+    let version = SourceVersion {
+        id: SourceId(13),
+        revision: SourceRevision(1),
+    };
+    let syntax = nia_syntax::parse_source(source, Some(version));
+    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::TypeAlias(alias) = &module.items[0].kind else {
+        panic!("expected type alias");
+    };
+    let Some(TypeRef {
+        kind: TypeKind::Path { segments },
+        ..
+    }) = alias.ty.as_ref()
+    else {
+        panic!("expected path type");
+    };
+    let [segment] = segments.as_slice() else {
+        panic!("expected one path segment");
+    };
+    let [TypeArg::TypeOrConst { ty, expr }] = segment.args.as_slice() else {
+        panic!("expected ambiguous type or const argument");
+    };
+
+    assert_eq!(
+        origins
+            .locator(SyntaxKind::Type, ty.span)
+            .unwrap()
+            .source_version(),
+        version
+    );
+    assert_eq!(
+        origins
+            .locator(SyntaxKind::Expr, expr.span)
+            .unwrap()
+            .source_version(),
+        version
+    );
 }
 
 #[test]
