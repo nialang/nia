@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 698 completed entries in this ledger.
+- Latest implementation batch: 699 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4158,6 +4158,13 @@ acceptance item only when its phase-wide evidence is complete.
       reserved synthetic identity when publishing AST origins, while mixed
       source versions remain rejected; a focused unversioned-tree regression
       verifies source-versioned origin lookup.
+- [x] Batch 699 audits backend module publication/readiness, deterministic
+      program indexing, and incremental link-input construction. Duplicate
+      owners, unregistered or repeated publication, single-consumer readiness,
+      stale partition identities, and unsorted link inputs are all internal
+      producer/state-machine contracts with explicit validation before the
+      public consumers reach them; no malformed external product currently
+      bypasses those checks, so no API broadening or recovery shim is justified.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
