@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 786 completed entries in this ledger.
+- Latest implementation batch: 787 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4842,6 +4842,13 @@ acceptance item only when its phase-wide evidence is complete.
       Linux `-1..-4095` range as errno so valid high-bit i686 addresses are not
       rejected. The complete `emit_exe_io` suite passes 17/17 on both i686 and
       x86_64 hosts.
+- [x] Batch 787 records complete i686 process/runtime integration evidence.
+      With the Linux x86 target and 32-bit LLVM/C wrapper configuration,
+      `emit_exe_process` passes all 47 compile/link/run tests, covering command
+      argument and environment encoding, pipes, cwd, spawn/wait/kill lifecycle,
+      descriptor ownership, retry paths, and wide-integer division builtins.
+      This confirms the experimental i686 syscall facade beyond the focused
+      intrinsic and IO matrices; general target support remains experimental.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
