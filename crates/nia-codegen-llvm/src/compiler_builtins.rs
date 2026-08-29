@@ -83,9 +83,11 @@ struct CompilerBuiltinCollector {
 impl CompilerBuiltinCollector {
     fn collect_program(&mut self, index: &ProgramIndex) {
         for module_id in index.module_ids() {
-            let module = index
-                .module(*module_id)
-                .expect("compiler builtin scan requires a published backend module");
+            let Some(module) = index.module(*module_id) else {
+                // The module store lists registered owners before every payload is
+                // published. Builtin discovery must only inspect visible modules.
+                continue;
+            };
             for function in &module.functions {
                 if let Some(body) = &function.function_body {
                     self.collect_body(index, body);
@@ -1401,4 +1403,25 @@ fn load_i128<'ctx>(
 
 fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {
     error.diagnostic()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use nia_backend_ir::BackendModuleStore;
+    use nia_ids::ModuleIdAllocator;
+    use nia_ty::TypeStore;
+
+    use super::*;
+
+    #[test]
+    fn builtin_scan_skips_registered_but_unpublished_modules() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let store = Arc::new(BackendModuleStore::new([module_id]));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));
+
+        assert_eq!(required_symbols(&index), CompilerBuiltinSymbols::default());
+    }
 }
