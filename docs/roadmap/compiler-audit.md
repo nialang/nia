@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 792 completed entries in this ledger.
+- Latest implementation batch: 793 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4876,6 +4876,13 @@ acceptance item only when its phase-wide evidence is complete.
       clone/reserve, borrowed closures, u128 ranges, direct slice iteration,
       Unicode text, and file/process composition; no 32-bit consumer parity
       gap remains in this matrix.
+- [x] Batch 793 hardens non-Unix resource/process fallbacks. Linux-only
+      procfs/cgroup imports and parsing helpers are now cfg-scoped, and the
+      non-Unix command preparation path has an explicit no-op implementation.
+      `cargo check` and strict Clippy for `nia-query`/`nia-test-support` pass on
+      `wasm32-unknown-unknown`, with host suites passing 83 and 20 tests. The
+      broader `nia-build` wasm check remains blocked by the local `llvm-sys`
+      C wrapper lacking wasm system headers; no runtime support claim is made.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

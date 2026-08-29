@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     cell::RefCell,
-    fs,
-    io::Read as _,
     marker::PhantomData,
     rc::Rc,
     sync::{
@@ -10,6 +8,9 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+
+#[cfg(target_os = "linux")]
+use std::{fs, io::Read as _};
 
 #[cfg(target_os = "linux")]
 use std::path::{Component, Path};
@@ -380,6 +381,7 @@ fn cgroup_available_memory_bytes() -> Option<usize> {
     None
 }
 
+#[cfg(target_os = "linux")]
 fn parse_memory_limit(value: &str) -> Option<usize> {
     let value = value.trim();
     (value != "max").then(|| value.parse().ok()).flatten()
@@ -446,6 +448,7 @@ mod tests {
         assert_eq!(lock_unpoisoned(&budget.state).active, 0);
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn parses_cgroup_memory_limits() {
         assert_eq!(parse_memory_limit("1073741824\n"), Some(1024 * 1024 * 1024));
@@ -515,6 +518,7 @@ mod tests {
         assert_eq!(cgroup_v2_available_memory(&root, &leaf), Some(1536));
     }
 
+    #[cfg(target_os = "linux")]
     fn test_root(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!("nia-query-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
