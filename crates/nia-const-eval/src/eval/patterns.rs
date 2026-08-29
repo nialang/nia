@@ -448,9 +448,15 @@ pub(super) fn bind_resolved_pattern_value(
     binding: &ConstMatchBinding,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<(), ConstError> {
-    let local_id = binding
-        .local_id
-        .expect("resolved const match pattern must have a local id");
+    let Some(local_id) = binding.local_id else {
+        return Err(ConstError {
+            span: binding.span,
+            message: format!(
+                "failed to resolve const pattern local `{}`",
+                env.symbol_name(binding.name)
+            ),
+        });
+    };
     env.bind_resolved_pattern_local(binding.span, &binding.name, local_id, binding.value.clone())
 }
 
@@ -459,9 +465,15 @@ pub(super) fn bind_resolved_function_pattern_value(
     pattern_binding: &ResolvedConstPatternBinding,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<(), ConstError> {
-    let local_id = binding
-        .local_id
-        .expect("resolved const pattern binding must have a local id");
+    let Some(local_id) = binding.local_id else {
+        return Err(ConstError {
+            span: binding.span,
+            message: format!(
+                "failed to resolve const pattern local `{}`",
+                env.symbol_name(binding.name)
+            ),
+        });
+    };
     env.bind_resolved_function_pattern_local(
         binding.span,
         pattern_binding,
@@ -469,4 +481,92 @@ pub(super) fn bind_resolved_function_pattern_value(
         local_id,
         binding.value.clone(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ConstCommonEnv, ResolvedConstEnv};
+    use nia_const_ir::{ResolvedConstExpr, ResolvedConstPattern, ResolvedConstPatternBinding};
+    use nia_ids::LayoutBuiltin;
+    use nia_symbol::{SymbolId, stable_hash};
+
+    struct TestResolvedEnv;
+
+    impl ConstCommonEnv for TestResolvedEnv {}
+
+    impl ResolvedConstEnv for TestResolvedEnv {
+        fn resolve_resolved_name(
+            &mut self,
+            span: Span,
+            _resolution: nia_const_ir::ConstNameResolution,
+        ) -> Result<ConstValue, ConstError> {
+            Err(ConstError {
+                span,
+                message: "unexpected resolved name lookup".to_string(),
+            })
+        }
+
+        fn resolve_resolved_layout_builtin(
+            &mut self,
+            span: Span,
+            _builtin: LayoutBuiltin,
+            _type_arg: &nia_const_ir::ResolvedConstTypeArg,
+        ) -> Result<ConstValue, ConstError> {
+            Err(ConstError {
+                span,
+                message: "unexpected layout builtin lookup".to_string(),
+            })
+        }
+    }
+
+    fn payload_name() -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash("payload"))
+    }
+
+    #[test]
+    fn resolved_pattern_binding_without_local_id_is_an_error() {
+        let binding = ConstMatchBinding {
+            span: Span::new(4, 11),
+            name: payload_name(),
+            local_id: None,
+            value: ConstValue::Int(nia_ty::IntConst::signed(1)),
+        };
+        let mut env = TestResolvedEnv;
+        let expected_name = env.symbol_name(binding.name);
+        let error = bind_resolved_pattern_value(&binding, &mut env)
+            .expect_err("missing resolved pattern locals must be diagnosed");
+        assert_eq!(
+            error.message,
+            format!("failed to resolve const pattern local `{expected_name}`")
+        );
+    }
+
+    #[test]
+    fn resolved_function_pattern_binding_without_local_id_is_an_error() {
+        let binding = ConstMatchBinding {
+            span: Span::new(4, 11),
+            name: payload_name(),
+            local_id: None,
+            value: ConstValue::Int(nia_ty::IntConst::signed(1)),
+        };
+        let pattern_binding = ResolvedConstPatternBinding::new(
+            binding.span,
+            ResolvedConstPattern::wildcard(binding.span),
+            None,
+            false,
+            ResolvedConstExpr::from_parts(
+                binding.span,
+                nia_const_ir::ResolvedConstExprKind::Integer("1".to_string()),
+            ),
+        );
+        let mut env = TestResolvedEnv;
+        let expected_name = env.symbol_name(binding.name);
+        let error = bind_resolved_function_pattern_value(&binding, &pattern_binding, &mut env)
+            .expect_err("missing resolved function pattern locals must be diagnosed");
+        assert_eq!(
+            error.message,
+            format!("failed to resolve const pattern local `{expected_name}`")
+        );
+    }
 }
