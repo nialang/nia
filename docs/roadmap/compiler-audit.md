@@ -4189,6 +4189,14 @@ acceptance item only when its phase-wide evidence is complete.
       diagnostics or validated internal contracts. No new externally reachable
       backend safety gap was identified, so Phases B and C remain open pending
       their complete acceptance matrices and cross-module evidence.
+- [x] Batch 709 records real executable standard-library process evidence.
+      The `nia-cli` `emit_exe_process` suite (47 tests) passes, covering startup
+      argv/env exposure, exact and inherited environments, cwd and exec-stage
+      failures, spawn/reap retry ownership, repeated wait/try-wait, stdin
+      lifetime, all stdio pipe modes, and descriptor-alias cleanup when parent
+      standard descriptors are closed. No additional externally reachable
+      process or startup-runtime defect was identified; Phase F remains open
+      pending its allocator/filesystem and target-matrix acceptance evidence.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
