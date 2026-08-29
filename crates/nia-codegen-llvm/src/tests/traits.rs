@@ -197,7 +197,7 @@ fn main() usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("vtable"));
-    assert!(ir.contains("call i64"));
+    assert!(ir.contains(&format!("call {}", native_llvm_int())));
 }
 
 #[test]

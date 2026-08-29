@@ -451,7 +451,16 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_eq!(ir.matches("extractvalue { i64, i64 }").count(), 2, "{ir}");
+    assert_eq!(
+        ir.matches(&format!(
+            "extractvalue {{ {}, {} }}",
+            native_llvm_int(),
+            native_llvm_int()
+        ))
+        .count(),
+        2,
+        "{ir}"
+    );
 }
 
 #[test]

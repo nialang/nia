@@ -38,6 +38,14 @@ pub(super) fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }
 
+pub(super) fn native_llvm_int() -> &'static str {
+    if cfg!(target_pointer_width = "64") {
+        "i64"
+    } else {
+        "i32"
+    }
+}
+
 pub(super) fn local_name(text: &str) -> LocalName {
     LocalName::named(sym(text))
 }

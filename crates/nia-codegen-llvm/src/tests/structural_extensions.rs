@@ -112,7 +112,10 @@ fn main(ptr: &i32, xs: & [i32], triple: [i32; 3]) i32 {
     let apply = mangled_symbol(ir, '@', "apply");
     assert!(ir.contains(&format!("call i1 {is_zero}")), "{ir}");
     assert!(ir.contains(&format!("call i1 {is_null}")), "{ir}");
-    assert!(ir.contains(&format!("call i64 {size}")), "{ir}");
+    assert!(
+        ir.contains(&format!("call {} {size}", native_llvm_int())),
+        "{ir}"
+    );
     assert!(ir.contains(&format!("call i32 {first}")), "{ir}");
     assert!(ir.contains(&format!("call i32 {apply}")), "{ir}");
 }
@@ -527,7 +530,10 @@ fn main(ptr: &u8, triple: [i32; 3]) i32 {
     );
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
-    assert!(ir.contains("call i64 %"), "{ir}");
+    assert!(
+        ir.contains(&format!("call {} %", native_llvm_int())),
+        "{ir}"
+    );
 }
 
 #[test]
@@ -590,5 +596,12 @@ fn main() usize {
     let ir = &output.modules[0].ir;
     let plus_one = mangled_symbol(ir, '@', "plus_one");
     assert!(ir.contains(&plus_one), "{ir}");
-    assert!(ir.contains(&format!("call i64 {plus_one}(i64 10")), "{ir}");
+    assert!(
+        ir.contains(&format!(
+            "call {} {plus_one}({} 10",
+            native_llvm_int(),
+            native_llvm_int()
+        )),
+        "{ir}"
+    );
 }
