@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 725 completed entries in this ledger.
+- Latest implementation batch: 726 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4332,6 +4332,16 @@ acceptance item only when its phase-wide evidence is complete.
       active-item-tree value resolution, and qualified builtin paths. Larger
       owners with historical Rustdoc backlogs and final cross-target evidence
       remain open.
+- [x] Batch 726 records Phase A type and trait owner documentation evidence.
+      Strict `cargo rustdoc -- -D missing-docs` is clean for
+      `nia-type-lower`, `nia-type-resolve`, `nia-type-normalize`,
+      `nia-trait-solve`, and `nia-program-signatures`; their complete suites
+      pass 66 tests total with strict all-target Clippy. Coverage includes
+      interleaved type/const lowering and normalization, semantic trait and
+      projection identity, const-generic inference and cycle guards, active
+      item-tree ownership, and qualified type diagnostics. Body-check and
+      larger compiler owners, phase-wide acceptance, and final cross-target
+      evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
