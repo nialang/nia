@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 742 completed entries in this ledger.
+- Latest implementation batch: 743 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4477,6 +4477,14 @@ acceptance item only when its phase-wide evidence is complete.
       and 3 workflow tests pass with strict Clippy and workspace formatting;
       workspace strict Rustdoc warnings fall from 232 to 177. Baseline and
       report schema documentation plus final acceptance evidence remain open.
+- [x] Batch 743 documents the representative-build baseline schema and
+      collection pipeline. Action outcomes, process/stage measurements,
+      artifact equivalence, acceptance checks, distributions, state summaries,
+      repetition samples, and schema-v5 report fields now describe their
+      evidence ownership; workload parsing, corruption, and summarization
+      entry points are documented as well. The `nia-maintain` suite (43 library,
+      2 binary, and 3 workflow tests), strict Clippy, workspace formatting, and
+      diff checks pass; workspace strict Rustdoc warnings fall to 105.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only

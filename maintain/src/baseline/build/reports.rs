@@ -38,6 +38,7 @@ fn json_lines(stderr: &str) -> Vec<Map<String, Value>> {
         .collect()
 }
 
+/// Extracts one outer build measurement and action report from mixed stderr.
 pub fn parse_build_reports(stderr: &str, succeeded: bool) -> MaintainResult<BuildReports> {
     // stderr deliberately mixes diagnostics with JSON timing lines. The outer
     // build invocation is identified structurally by its runner counter rather
