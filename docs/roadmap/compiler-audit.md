@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 749 completed entries in this ledger.
+- Latest implementation batch: 750 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4525,6 +4525,15 @@ acceptance item only when its phase-wide evidence is complete.
       Clippy, workspace formatting, and diff checks; `nia-source` is test-only
       so production dependency direction is unchanged. Broader AST schema and
       cross-cutting test-gap review remain open.
+- [x] Batch 750 makes AST type identities collision-resistant for literal text.
+      Free-form raw/literal text and adjacent string parts now use byte-length
+      prefixes before entering structural identity strings, so embedded commas,
+      parentheses, and identity tags cannot impersonate sibling expression
+      nodes. Four owner regressions cover raw/string collision pairs, generic
+      parameter kind/order/type identities, and const/static binding flags;
+      affected definition and signature consumers pass with strict Rustdoc,
+      Clippy, workspace formatting, and diff checks. The broader cross-cutting
+      test-gap review remains open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only

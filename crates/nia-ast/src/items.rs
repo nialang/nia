@@ -584,3 +584,94 @@ impl BindingItem {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_node_id::{SyntaxKind, VersionedNodeKey};
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
+
+    fn type_ref(kind: crate::TypeKind, span: Span) -> TypeRef {
+        TypeRef {
+            span,
+            node_key: VersionedNodeKey::span(
+                SourceVersion {
+                    id: SourceId(1),
+                    revision: SourceRevision::INITIAL,
+                },
+                SyntaxKind::Type,
+                span,
+            ),
+            text: String::new(),
+            kind,
+        }
+    }
+
+    fn binding(kind: ItemBindingKind) -> BindingItem {
+        BindingItem {
+            name: SymbolId::from_stable_hash(3),
+            ty: None,
+            value: None,
+            kind,
+            node_key: VersionedNodeKey::span(
+                SourceVersion {
+                    id: SourceId(1),
+                    revision: SourceRevision::INITIAL,
+                },
+                SyntaxKind::Item,
+                Span::new(0, 1),
+            ),
+        }
+    }
+
+    #[test]
+    fn generic_parameter_helpers_preserve_kind_order_and_const_type() {
+        let type_name = SymbolId::from_stable_hash(1);
+        let const_name = SymbolId::from_stable_hash(2);
+        let generics = vec![
+            GenericParam::type_param(type_name, Span::new(0, 1)),
+            GenericParam::const_param(
+                const_name,
+                Span::new(2, 3),
+                type_ref(crate::TypeKind::SelfType, Span::new(5, 9)),
+            ),
+        ];
+
+        assert!(generics[0].is_type());
+        assert!(!generics[0].is_const());
+        assert!(generics[1].is_const());
+        assert!(!generics[1].is_type());
+        assert_eq!(generic_param_names(&generics), vec![type_name, const_name]);
+        assert_eq!(
+            generic_param_identities(&generics),
+            vec![
+                symbol_identity_key(type_name),
+                format!("{}:self", symbol_identity_key(const_name)),
+            ]
+        );
+    }
+
+    #[test]
+    fn item_binding_helpers_distinguish_const_and_static_flags() {
+        let constant = binding(ItemBindingKind::Const);
+        assert!(constant.is_const());
+        assert!(!constant.is_mutable());
+        assert!(!constant.is_extern());
+
+        let immutable_static = binding(ItemBindingKind::Static {
+            is_mutable: false,
+            is_extern: false,
+        });
+        assert!(!immutable_static.is_const());
+        assert!(!immutable_static.is_mutable());
+        assert!(!immutable_static.is_extern());
+
+        let external_mutable_static = binding(ItemBindingKind::Static {
+            is_mutable: true,
+            is_extern: true,
+        });
+        assert!(!external_mutable_static.is_const());
+        assert!(external_mutable_static.is_mutable());
+        assert!(external_mutable_static.is_extern());
+    }
+}

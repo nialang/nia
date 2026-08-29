@@ -787,7 +787,7 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
 fn write_tagged_text(out: &mut String, tag: &str, text: &str) {
     out.push_str(tag);
     out.push('(');
-    out.push_str(text);
+    write_length_prefixed_text(out, text);
     out.push(')');
 }
 
@@ -814,8 +814,16 @@ fn write_path_segment_identity(out: &mut String, segment: PathSegmentKind) {
 fn write_string_literal_identity(out: &mut String, tag: &str, literal: &StringLiteral) {
     out.push_str(tag);
     out.push('(');
-    write_joined(out, &literal.parts, |out, part| out.push_str(part));
+    write_joined(out, &literal.parts, |out, part| {
+        write_length_prefixed_text(out, part);
+    });
     out.push(')');
+}
+
+fn write_length_prefixed_text(out: &mut String, text: &str) {
+    out.push_str(&text.len().to_string());
+    out.push(':');
+    out.push_str(text);
 }
 
 fn write_bracket_arg_identity(out: &mut String, arg: &BracketArg) {
@@ -985,6 +993,31 @@ mod tests {
         }
     }
 
+    fn expr(kind: ExprKind, span: Span) -> Expr {
+        Expr {
+            span,
+            node_key: VersionedNodeKey::span(
+                SourceVersion {
+                    id: SourceId(1),
+                    revision: SourceRevision::INITIAL,
+                },
+                SyntaxKind::Expr,
+                span,
+            ),
+            kind,
+        }
+    }
+
+    fn array_with_len(len: Expr) -> TypeRef {
+        type_ref(
+            TypeKind::Array {
+                len: ArrayLen::Expr(Box::new(len)),
+                elem: Box::new(type_ref(TypeKind::Error, Span::new(20, 21))),
+            },
+            Span::new(0, 21),
+        )
+    }
+
     #[test]
     fn declaration_equality_ignores_source_locations() {
         let left = type_ref(TypeKind::Error, Span::new(0, 1));
@@ -1009,5 +1042,65 @@ mod tests {
         assert_eq!(where_clause_identity(&clause).len(), 1);
         assert_eq!(where_clause_identity(&clause)[0].0, "error");
         assert_eq!(where_clause_identity(&clause)[0].1, vec!["self".to_owned()]);
+    }
+
+    #[test]
+    fn raw_literal_identity_cannot_impersonate_adjacent_tuple_elements() {
+        let adjacent = array_with_len(expr(
+            ExprKind::Tuple(vec![
+                expr(ExprKind::Raw("left".to_owned()), Span::new(1, 5)),
+                expr(ExprKind::Raw("right".to_owned()), Span::new(7, 12)),
+            ]),
+            Span::new(0, 13),
+        ));
+        let embedded_separator = array_with_len(expr(
+            ExprKind::Tuple(vec![expr(
+                ExprKind::Raw("left),raw(right".to_owned()),
+                Span::new(1, 16),
+            )]),
+            Span::new(0, 17),
+        ));
+
+        assert_ne!(
+            type_ref_identity(&adjacent),
+            type_ref_identity(&embedded_separator)
+        );
+        assert!(!type_ref_decl_eq(&adjacent, &embedded_separator));
+    }
+
+    #[test]
+    fn string_literal_identity_cannot_impersonate_adjacent_tuple_elements() {
+        let adjacent = array_with_len(expr(
+            ExprKind::Tuple(vec![
+                expr(
+                    ExprKind::String(StringLiteral {
+                        parts: vec!["left".to_owned()],
+                    }),
+                    Span::new(1, 7),
+                ),
+                expr(
+                    ExprKind::String(StringLiteral {
+                        parts: vec!["right".to_owned()],
+                    }),
+                    Span::new(9, 16),
+                ),
+            ]),
+            Span::new(0, 17),
+        ));
+        let embedded_separator = array_with_len(expr(
+            ExprKind::Tuple(vec![expr(
+                ExprKind::String(StringLiteral {
+                    parts: vec!["left),string(right".to_owned()],
+                }),
+                Span::new(1, 21),
+            )]),
+            Span::new(0, 22),
+        ));
+
+        assert_ne!(
+            type_ref_identity(&adjacent),
+            type_ref_identity(&embedded_separator)
+        );
+        assert!(!type_ref_decl_eq(&adjacent, &embedded_separator));
     }
 }
