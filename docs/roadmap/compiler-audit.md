@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 802 completed entries in this ledger.
+- Latest implementation batch: 803 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4944,6 +4944,13 @@ acceptance item only when its phase-wide evidence is complete.
       pass, for 150/150 tests in the current target run. The workspace check
       and strict all-target Clippy remain green with the explicit LLVM 22
       prefix and `-m32` wrapper flags.
+- [x] Batch 803 closes two i686 semantic-owner width assumptions. Pointer
+      relocation assertions now derive their expected width from the host test
+      target, and an imported associated-const fixture selects target-aware
+      `usize` values through the builtin pointer-width constant. The complete
+      i686 `nia-driver` owner suite passes 655/655 (with the corresponding
+      focused host tests green), covering const evaluation, imports, traits,
+      incremental state, and backend lowering on ILP32.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
