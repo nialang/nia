@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 778 completed entries in this ledger.
+- Latest implementation batch: 779 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4788,6 +4788,13 @@ acceptance item only when its phase-wide evidence is complete.
       of 8 tests successfully; the remaining 7 expose 32-bit range-check and
       startup/exit ABI issues and remain intentionally open rather than being
       treated as target acceptance.
+- [x] Batch 779 makes the i686 compile gate reproducible in CI. The
+      `build-std` workflow now installs `gcc-multilib` and `libc6-dev-i386`,
+      adds `i686-unknown-linux-gnu`, and runs the full workspace
+      `cargo check --workspace --all-targets --all-features --target
+      i686-unknown-linux-gnu` with explicit 32-bit C-wrapper flags. This
+      preserves the owner and linker evidence from Batch 778 without claiming
+      that i686 executable runtime tests or startup ABI behavior are complete.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

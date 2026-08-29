@@ -62,7 +62,7 @@ jobs:
       - name: Install LLVM 22.1 toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --yes curl gnupg
+          sudo apt-get install --yes curl gnupg gcc-multilib libc6-dev-i386
           curl --fail --silent --show-error --location \
             https://apt.llvm.org/llvm-snapshot.gpg.key \
             --output "${RUNNER_TEMP}/llvm-snapshot.gpg.key"
@@ -105,6 +105,17 @@ jobs:
             -p nia-target-config \
             --all-targets \
             --target wasm32-unknown-unknown
+
+      - name: Check i686 workspace compilation
+        run: |
+          rustup target add i686-unknown-linux-gnu
+          CC_i686_unknown_linux_gnu=gcc \
+          CFLAGS_i686_unknown_linux_gnu=-m32 \
+          cargo check \
+            --workspace \
+            --all-targets \
+            --all-features \
+            --target i686-unknown-linux-gnu
 
       - name: Run build/std integration suites
         run: |
