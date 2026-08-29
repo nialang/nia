@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 717 completed entries in this ledger.
+- Latest implementation batch: 718 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4262,6 +4262,17 @@ acceptance item only when its phase-wide evidence is complete.
       permit leakage. This provides current-host resource evidence; a distinct
       low-memory host/container rerun remains required by the final acceptance
       checklist.
+- [x] Batch 718 records the representative build baseline from
+      `cargo maintain baseline build --nia target/release/nia --resource-root
+      lib --repetitions 1`. The schema-v5 report passes all acceptance checks
+      across 9 states: clean and warm cache behavior, source and module-map
+      invalidation, clean-equivalent artifact and multi-module artifact
+      checks, corrupted-cache replacement, recovered warm reuse, and a
+      deliberately failed action with no executed build steps. The clean run
+      observed 48.08 seconds wall time and 1.27 GiB peak RSS; the failed-action
+      state recorded one expected action failure and returned without cache
+      lookups. This is current-host Linux x86_64 evidence; a constrained
+      low-memory rerun and non-host target evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
