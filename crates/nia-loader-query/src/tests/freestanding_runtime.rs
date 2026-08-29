@@ -1,5 +1,13 @@
 use super::*;
 
+fn host_freestanding_start_module() -> &'static str {
+    if cfg!(target_arch = "x86") {
+        "lib/std/start/freestanding/linux/x86.nia"
+    } else {
+        "lib/std/start/freestanding/linux/x86_64.nia"
+    }
+}
+
 #[test]
 fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
     let root = temp_dir("query_loader_injects_freestanding_entry_runtime_through_std_start_facade");
@@ -33,7 +41,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
         program.modules.iter().any(|module| module
             .path
             .as_str()
-            .ends_with("lib/std/start/freestanding/linux/x86_64.nia")),
+            .ends_with(host_freestanding_start_module())),
         "{:?}",
         program
             .modules
@@ -96,7 +104,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     assert!(process_types.process_used_paths);
     assert_module_loaded(&program, "lib/std/process/types.nia");
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
-    assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
+    assert_module_loaded(&program, host_freestanding_start_module());
     assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/atomic.nia");
     assert_module_not_loaded(&program, "lib/std/debug.nia");
