@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 796 completed entries in this ledger.
+- Latest implementation batch: 797 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4903,6 +4903,13 @@ acceptance item only when its phase-wide evidence is complete.
       children peak at roughly 336 MiB RSS, with no timeout or permit leak.
       This strengthens constrained-host evidence without claiming final
       external-target acceptance.
+- [x] Batch 797 extends the 3 GiB/no-swap constrained rerun to build protocol
+      integration. The `nia-cli` `commands` and `build_cases` suites pass 14/14
+      each (28/28 total), covering CLI diagnostics, timing modes, configured
+      plans, dependency-cycle rejection, target validation, and executable
+      build fixtures. Resource pools derive compiler 2, memory 6, and runtime
+      6; managed build children peak at roughly 1.43 GiB RSS with no timeout
+      or permit failure.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
