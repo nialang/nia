@@ -4063,6 +4063,10 @@ acceptance item only when its phase-wide evidence is complete.
       and type handles, preserving the existing valid-input byte stream while
       allowing malformed incremental inputs to complete without an ICE;
       focused encoder coverage verifies stable recovery output.
+- [x] Batch 679 closes declaration-membership stable-key panics. Definition and
+      nominal type sorting now uses deterministic missing-module recovery keys
+      instead of aborting when stale ownership metadata reaches ordering;
+      focused membership coverage verifies the recovered definition key.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

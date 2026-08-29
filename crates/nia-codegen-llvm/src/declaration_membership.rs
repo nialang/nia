@@ -686,11 +686,12 @@ impl<'a> MembershipBuilder<'a> {
     }
 }
 
-fn stable_def_key(index: &ProgramIndex, def_id: GlobalDefId) -> (&str, u64) {
-    let module = index.module(def_id.module_id).unwrap_or_else(|| {
-        panic!("Nia ICE: declaration membership references missing module {def_id:?}")
-    });
-    (module.source_identity.normalized_path(), def_id.def_id.0)
+fn stable_def_key(index: &ProgramIndex, def_id: GlobalDefId) -> (String, u64) {
+    let source_path = index
+        .module(def_id.module_id)
+        .map(|module| module.source_identity.normalized_path().to_string())
+        .unwrap_or_else(|| format!("<missing-module-{}>", def_id.module_id.local_index()));
+    (source_path, def_id.def_id.0)
 }
 
 fn stable_type_key(index: &ProgramIndex, ty: InternedTyId) -> String {
@@ -699,12 +700,11 @@ fn stable_type_key(index: &ProgramIndex, ty: InternedTyId) -> String {
         ty,
         MangleResolvers::new(
             |module_id| {
-                let module = index.module(module_id).unwrap_or_else(|| {
-                    panic!("Nia ICE: stable type key references missing module {module_id:?}")
-                });
-                MangleModuleId::from_normalized_source_path(
-                    module.source_identity.normalized_path(),
-                )
+                let source_path = index
+                    .module(module_id)
+                    .map(|module| module.source_identity.normalized_path().to_string())
+                    .unwrap_or_else(|| format!("<missing-module-{}>", module_id.local_index()));
+                MangleModuleId::from_normalized_source_path(&source_path)
             },
             |def_id| {
                 index
@@ -1157,6 +1157,30 @@ mod tests {
         assert_ne!(
             stable_type_key(&index, left),
             stable_type_key(&index, right)
+        );
+    }
+
+    #[test]
+    fn stable_definition_key_recovers_missing_module() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let missing_module = module_ids.allocate();
+        let program = BackendProgram::new(Vec::new());
+        let (index, _publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
+        let key = stable_def_key(
+            &index,
+            GlobalDefId {
+                module_id: missing_module,
+                def_id: DefId(9),
+            },
+        );
+
+        assert_eq!(
+            key,
+            (
+                format!("<missing-module-{}>", missing_module.local_index()),
+                9
+            )
         );
     }
 
