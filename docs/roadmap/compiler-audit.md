@@ -4122,6 +4122,11 @@ acceptance item only when its phase-wide evidence is complete.
       `TARGET_CONFIG` diagnostic and an empty recovery product instead of
       calling a layout `expect`; owner coverage preserves valid 64-bit layout
       construction and exercises malformed zero/129-bit targets.
+- [x] Batch 692 closes parser using-path symbol recovery. Namespace segments
+      now propagate symbol-interning failures through the parser's existing
+      diagnostic path instead of unwrapping an impossible conversion after
+      token classification; existing nested and deep using-path regressions
+      preserve valid parsing.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

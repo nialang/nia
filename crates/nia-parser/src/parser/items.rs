@@ -192,9 +192,7 @@ impl Parser {
             let next_kind = self.tokens.nth_kind(1).cloned();
             if matches!(next_kind, Some(TokenKind::ColonColon)) {
                 let segment_token = self.bump();
-                let kind = self
-                    .path_segment_kind_from_token(&segment_token)
-                    .expect("namespace segment token should convert");
+                let kind = self.path_segment_kind_from_token(&segment_token)?;
                 host.push(UsingHostSegment {
                     kind,
                     span: segment_token.span,
@@ -235,9 +233,7 @@ impl Parser {
             && matches!(self.tokens.nth_kind(1), Some(TokenKind::ColonColon))
         {
             let segment_token = self.bump();
-            let kind = self
-                .path_segment_kind_from_token(&segment_token)
-                .expect("namespace segment token should convert");
+            let kind = self.path_segment_kind_from_token(&segment_token)?;
             host.push(UsingHostSegment {
                 kind,
                 span: segment_token.span,
