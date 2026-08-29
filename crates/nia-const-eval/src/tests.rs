@@ -339,6 +339,23 @@ fn const_eval_budget_limits_steps_and_resets_between_outer_sessions() {
 }
 
 #[test]
+fn const_eval_budget_shares_steps_across_nested_sessions() {
+    let span = Span::new(2, 5);
+    let mut budget = ConstEvalBudget::new(2, 4);
+
+    budget.begin_session();
+    assert!(budget.consume_step(span).is_ok());
+    budget.begin_session();
+    assert!(budget.consume_step(span).is_ok());
+    let error = budget
+        .consume_step(span)
+        .expect_err("nested session must not replenish outer steps");
+    assert!(error.message.contains("2 step limit"), "{}", error.message);
+    budget.end_session();
+    budget.end_session();
+}
+
+#[test]
 fn const_eval_budget_limits_nested_calls_and_releases_depth() {
     let span = Span::new(9, 12);
     let mut budget = ConstEvalBudget::new(8, 2);
