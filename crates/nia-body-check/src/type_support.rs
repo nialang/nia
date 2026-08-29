@@ -19,6 +19,12 @@ use nia_ty::{
 };
 use std::collections::{HashMap, HashSet};
 
+static ERROR_TY_KIND: TyKind = TyKind::Error;
+
+fn type_kind_or_error<'a>(interner: &'a BodyTypeCx<'_>, ty: InternedTyId) -> &'a TyKind {
+    interner.get(ty).unwrap_or(&ERROR_TY_KIND)
+}
+
 #[derive(Debug, Clone)]
 struct ProjectionNormalizationKey {
     self_ty: InternedTyId,
@@ -108,13 +114,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn expect_ty_kind(&self, ty: InternedTyId) -> &TyKind {
-        self.interner.get(ty).unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: body-check type {:?} is missing from type store {:?}",
-                ty,
-                self.type_store.id()
-            )
-        })
+        type_kind_or_error(&self.interner, ty)
     }
 
     pub(crate) fn is_error_ty(&self, ty: InternedTyId) -> bool {
@@ -2382,5 +2382,33 @@ fn numeric_literal_suffix_for_expr(expr: &Expr) -> Option<&str> {
             expr,
         } => numeric_literal_suffix_for_expr(expr),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::ModuleIdAllocator;
+    use nia_ty::TypeStore;
+
+    #[test]
+    fn missing_or_foreign_type_handles_use_error_sentinel() {
+        let local_store = TypeStore::new();
+        let foreign_store = TypeStore::new();
+        let module_id = ModuleIdAllocator::new().allocate();
+        let interner = BodyTypeCx::new(&local_store, module_id);
+        let local = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
+        let foreign = foreign_store
+            .append_for_module(module_id)
+            .intern(TyKind::Primitive(PrimitiveTy::U8));
+
+        assert!(matches!(
+            type_kind_or_error(&interner, local),
+            TyKind::Primitive(PrimitiveTy::I32)
+        ));
+        assert!(matches!(
+            type_kind_or_error(&interner, foreign),
+            TyKind::Error
+        ));
     }
 }
