@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 701 completed entries in this ledger.
+- Latest implementation batch: 702 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4181,6 +4181,12 @@ acceptance item only when its phase-wide evidence is complete.
       foreign or forged blocks are rejected. No new runtime recovery defect was
       identified in this pass; Phase F still requires real target/runtime
       integration evidence before acceptance.
+- [x] Batch 702 records consumer evidence for the preceding contract audits:
+      `nia-driver` (655 tests), `nia-linker` (31 tests), and the backend
+      IR/lowering/LLVM suites (484 tests) pass, including cache corruption and
+      replacement, cross-module const generics, malformed LLVM-boundary IR,
+      zero-sized values, vtables, static archives, and std IO/process paths.
+      No consumer bypass of the reviewed validation boundaries was observed.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
