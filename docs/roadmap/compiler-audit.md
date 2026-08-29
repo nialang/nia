@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 801 completed entries in this ledger.
+- Latest implementation batch: 802 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4937,6 +4937,13 @@ acceptance item only when its phase-wide evidence is complete.
       same semantic check compiles on both LP64 and ILP32. Host and i686
       `std_mem_allocator_core` pass 4/4, and the remaining i686 allocator,
       ArrayList, and intrinsic suites pass 24/24.
+- [x] Batch 802 completes the post-fix i686 standard-library consumer sweep.
+      Real i686 executable matrices for filesystem (25), intrinsics (8), IO
+      (17), process (47), startup (4), trait objects (1), hash map (7),
+      iterators/ranges (8), memory owners (28), slice (2), and string (3) all
+      pass, for 150/150 tests in the current target run. The workspace check
+      and strict all-target Clippy remain green with the explicit LLVM 22
+      prefix and `-m32` wrapper flags.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
