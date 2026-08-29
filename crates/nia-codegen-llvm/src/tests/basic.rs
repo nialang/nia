@@ -284,7 +284,9 @@ fn changed(v: u8x16, i: usize, x: u8) u8x16 {
         "expected vector lane insert:\n{ir}"
     );
     assert!(
-        ir.matches("icmp ult i64").count() >= 2
+        ir.matches(&format!("icmp ult {}", native_llvm_int()))
+            .count()
+            >= 2
             && ir.contains("extract.trap")
             && ir.contains("insert.trap")
             && ir.contains("llvm.trap"),
@@ -453,19 +455,24 @@ fn scan(mask: usize) usize {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(
-        ir.contains("@llvm.cttz.i64"),
+        ir.contains(&format!("@llvm.cttz.{}", native_llvm_int())),
         "expected ctz intrinsic:\n{ir}"
     );
     assert!(
-        ir.contains("@llvm.ctlz.i64"),
+        ir.contains(&format!("@llvm.ctlz.{}", native_llvm_int())),
         "expected clz intrinsic:\n{ir}"
     );
     assert!(
-        ir.contains("@llvm.ctpop.i64"),
+        ir.contains(&format!("@llvm.ctpop.{}", native_llvm_int())),
         "expected popcount intrinsic:\n{ir}"
     );
     assert!(
-        ir.contains("call i64 @llvm.cttz.i64(i64 %") && ir.contains("i1 false"),
+        ir.contains(&format!(
+            "call {} @llvm.cttz.{}({} %",
+            native_llvm_int(),
+            native_llvm_int(),
+            native_llvm_int()
+        )) && ir.contains("i1 false"),
         "expected zero-defined ctz call:\n{ir}"
     );
 }

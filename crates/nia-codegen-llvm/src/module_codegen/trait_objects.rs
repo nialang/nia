@@ -190,7 +190,8 @@ mod tests {
     #[test]
     fn vtable_index_conversions_reject_llvm_width_overflow() {
         assert_eq!(checked_vtable_array_len(u32::MAX as usize), Some(u32::MAX));
-        assert_eq!(checked_vtable_array_len(u32::MAX as usize + 1), None);
+        let above_u32_max = (u32::MAX as usize).checked_add(1);
+        assert_eq!(above_u32_max.and_then(checked_vtable_array_len), None);
         assert_eq!(
             checked_vtable_slot_array_len(u32::MAX as usize - 1),
             Some(u32::MAX)

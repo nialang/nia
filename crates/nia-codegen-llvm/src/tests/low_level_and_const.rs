@@ -83,7 +83,10 @@ fn main() bool {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
-    assert!(ir.contains("linkonce_odr constant i64 34"), "{ir}");
+    assert!(
+        ir.contains(&format!("linkonce_odr constant {} 34", native_llvm_int())),
+        "{ir}"
+    );
     assert!(ir.contains("store ptr @nia__promoted__"), "{ir}");
 }
 
@@ -118,7 +121,8 @@ fn main() bool {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
     assert_eq!(
-        ir.matches("linkonce_odr constant i64 34").count(),
+        ir.matches(&format!("linkonce_odr constant {} 34", native_llvm_int()))
+            .count(),
         2,
         "{ir}"
     );
@@ -159,7 +163,10 @@ fn main() usize {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = source_module_ir(&output, "main.nia");
-    assert!(ir.contains("linkonce_odr constant i64 55"), "{ir}");
+    assert!(
+        ir.contains(&format!("linkonce_odr constant {} 55", native_llvm_int())),
+        "{ir}"
+    );
     assert!(ir.contains("store ptr @nia__promoted__"), "{ir}");
 }
 
