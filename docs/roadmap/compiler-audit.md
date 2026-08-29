@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Implementation batches: 640 completed entries in this ledger.
+- Latest implementation batch: 691 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4117,6 +4117,11 @@ acceptance item only when its phase-wide evidence is complete.
       the published program index before deterministic sorting; missing records
       now produce `INVALID_BACKEND_IR` diagnostics instead of reaching sorting
       `unwrap` calls, with a focused stale function-instance regression.
+- [x] Batch 691 closes body-check target-layout panic recovery. Body-check
+      orchestration now rejects unsupported target pointer widths with a stable
+      `TARGET_CONFIG` diagnostic and an empty recovery product instead of
+      calling a layout `expect`; owner coverage preserves valid 64-bit layout
+      construction and exercises malformed zero/129-bit targets.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
