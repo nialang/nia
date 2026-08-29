@@ -1033,9 +1033,7 @@ impl<'a> ModuleLowerer<'a> {
                     self_arg: None,
                     args: method_args,
                     const_args: Vec::new(),
-                    receiver_kind: self
-                        .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ids::ReceiverKind::Value),
+                    receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, receiver.span),
                     receiver: Box::new(receiver.clone()),
                 },
                 args: Vec::new(),
@@ -1077,9 +1075,7 @@ impl<'a> ModuleLowerer<'a> {
                     self_arg: None,
                     args: method_args,
                     const_args: Vec::new(),
-                    receiver_kind: self
-                        .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ids::ReceiverKind::Value),
+                    receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, lhs.span),
                     receiver: Box::new(lhs.clone()),
                 },
                 args: vec![rhs.clone()],
@@ -1110,9 +1106,7 @@ impl<'a> ModuleLowerer<'a> {
                     self_arg: None,
                     args: method_args,
                     const_args: Vec::new(),
-                    receiver_kind: self
-                        .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ids::ReceiverKind::Value),
+                    receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, receiver.span),
                     receiver: Box::new(receiver),
                 },
                 args,
@@ -1161,9 +1155,7 @@ impl<'a> ModuleLowerer<'a> {
                     self_arg: None,
                     args: method_args,
                     const_args: Vec::new(),
-                    receiver_kind: self
-                        .receiver_kind_for_method(def_id)
-                        .unwrap_or(nia_ids::ReceiverKind::Value),
+                    receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, receiver.span),
                     receiver: Box::new(receiver),
                 },
                 args,
