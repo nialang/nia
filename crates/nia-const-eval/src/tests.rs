@@ -393,6 +393,14 @@ fn const_eval_budget_rejects_unbalanced_session_exit() {
 }
 
 #[test]
+#[should_panic(expected = "began with active function calls")]
+fn const_eval_budget_rejects_new_session_with_leaked_call_depth() {
+    let mut budget = ConstEvalBudget::new(1, 1);
+    budget.enter_call(Span::default()).expect("call entry");
+    budget.begin_session();
+}
+
+#[test]
 fn struct_union_write_clears_previously_initialized_padding() {
     let all = sym("all");
     let prefix = sym("prefix");
