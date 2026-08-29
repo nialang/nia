@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 726 completed entries in this ledger.
+- Latest implementation batch: 727 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4342,6 +4342,15 @@ acceptance item only when its phase-wide evidence is complete.
       item-tree ownership, and qualified type diagnostics. Body-check and
       larger compiler owners, phase-wide acceptance, and final cross-target
       evidence remain open.
+- [x] Batch 727 records Phase B layout, ABI, and backend-IR owner evidence.
+      Strict Rustdoc is clean for `nia-layout`, `nia-abi-check`, and
+      `nia-backend-ir`; their complete suites pass 58 tests total with strict
+      all-target Clippy. Coverage includes checked alignment and aggregate
+      overflow, target pointer-width arithmetic, extern C ABI field rules,
+      stable backend publication/readiness, deterministic codegen partitions,
+      closure owner keys, and incremental link-input ordering. LLVM consumer
+      and phase-wide clean/incremental acceptance, resource, and external
+      target evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
