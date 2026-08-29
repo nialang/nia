@@ -26,17 +26,26 @@ const DEFAULT_TIMEOUT_SECONDS: u64 = 420;
 const DEFAULT_REPETITIONS: usize = 3;
 
 #[derive(Debug, Clone)]
+/// Inputs controlling representative build-baseline collection.
 pub struct Options {
+    /// Nia compiler executable used by every workload state.
     pub nia: PathBuf,
+    /// Compiler resource root containing the standard library and toolchain metadata.
     pub resource_root: PathBuf,
+    /// Representative build fixture copied for each workload.
     pub fixture: PathBuf,
+    /// Destination JSON report path.
     pub output: PathBuf,
+    /// Per-state child-process timeout.
     pub timeout_seconds: u64,
+    /// Number of independent workload repetitions.
     pub repetitions: usize,
+    /// Whether to retain generated workload directories.
     pub keep_workspace: bool,
 }
 
 impl Options {
+    /// Creates options using repository-standard executable, fixture, and output paths.
     pub fn for_repository(root: &Path) -> Self {
         Self {
             nia: root.join("target/release/nia"),
@@ -50,6 +59,7 @@ impl Options {
     }
 }
 
+/// Runs the representative build matrix and writes its schema-v5 report.
 pub fn run(options: &Options) -> MaintainResult<()> {
     let nia = options.nia.canonicalize().map_err(|error| {
         format!(

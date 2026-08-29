@@ -66,6 +66,7 @@ pub(super) fn validate_workload(results: &[BuildResult]) -> MaintainResult<()> {
     Ok(())
 }
 
+/// Validates all nine ordered workload states and returns counter-level evidence.
 pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<AcceptanceReport> {
     if results.len() != 9 {
         return Err("acceptance requires all nine build workload states".to_owned());

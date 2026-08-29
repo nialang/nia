@@ -43,6 +43,7 @@ fn distribution(mut values: Vec<Number>) -> MaintainResult<Distribution> {
     })
 }
 
+/// Summarizes aligned workload states across independent repetitions.
 pub fn summarize_runs(runs: &[Vec<BuildResult>]) -> MaintainResult<Vec<StateSummary>> {
     let first_run = runs
         .first()

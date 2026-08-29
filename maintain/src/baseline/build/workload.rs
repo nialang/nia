@@ -8,6 +8,7 @@ use super::reports::parse_build_reports;
 use super::{ArtifactComparison, ArtifactEquivalence, BuildResult};
 use crate::{MaintainResult, TemporaryDirectory};
 
+/// Constructs the measured `nia build` command for one fixture state.
 pub fn build_command(
     nia: &Path,
     resource_root: &Path,
@@ -214,6 +215,7 @@ fn collect_action_entries(root: &Path, entries: &mut Vec<PathBuf>) -> MaintainRe
     Ok(())
 }
 
+/// Corrupts every persisted action entry in a workload workspace.
 pub fn corrupt_action_cache(workspace: &Path) -> MaintainResult<usize> {
     let mut entries = Vec::new();
     collect_action_entries(&workspace.join(".nia-cache/actions"), &mut entries)?;
