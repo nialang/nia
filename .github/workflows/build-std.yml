@@ -95,6 +95,17 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --all-targets --all-features
 
+      - name: Check portable 32-bit semantic owners
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check \
+            -p nia-layout \
+            -p nia-abi-check \
+            -p nia-backend-ir \
+            -p nia-target-config \
+            --all-targets \
+            --target wasm32-unknown-unknown
+
       - name: Run build/std integration suites
         run: |
           cargo test -p nia-cli --test build_cases --no-default-features -- --nocapture
