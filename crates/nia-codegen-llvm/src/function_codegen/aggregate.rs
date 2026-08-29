@@ -853,7 +853,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     && variant.def_id == def_id.def_id
             })
             .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?;
-        let payload_offset = layout.payload_offset.unwrap_or(0);
+        let payload_offset = layout
+            .payload_offset
+            .expect("payload offset checked before emitting enum variant");
         for (index, field) in fields.iter().enumerate() {
             let Some(field_layout) = variant_layout.fields.get(index) else {
                 return Err(self.error(field.span, "missing enum payload field layout"));
