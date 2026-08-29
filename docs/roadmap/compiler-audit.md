@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 775 completed entries in this ledger.
+- Latest implementation batch: 776 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4760,6 +4760,13 @@ acceptance item only when its phase-wide evidence is complete.
       method resolution, pattern flow, and source-fact paths. This confirms the
       guard is limited to malformed evaluator cleanup; phase-wide incremental
       and resource acceptance remains open.
+- [x] Batch 776 refreshes the representative build baseline after the latest
+      semantic changes. `cargo maintain baseline build --nia target/release/nia
+      --resource-root lib --repetitions 1` passes schema-v5 acceptance across
+      all 9 clean, warm, edit, corruption, recovery, and failed-action states;
+      clean wall time is about 47.1 seconds with roughly 1.29 GiB peak RSS.
+      This is current-host evidence; constrained low-memory and external-target
+      reruns remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
