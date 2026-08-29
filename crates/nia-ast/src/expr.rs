@@ -93,6 +93,80 @@ impl BindingStmt {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_node_id::{SyntaxKind, VersionedNodeKey};
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use nia_symbol::SymbolId;
+
+    #[test]
+    fn binding_kind_reports_const_and_mutability() {
+        let immutable = BindingStmt {
+            pattern: Pattern {
+                span: Span::new(0, 1),
+                kind: PatternKind::Wildcard,
+            },
+            ty: None,
+            value: None,
+            kind: LocalBindingKind::Let { is_mutable: false },
+        };
+        assert!(!immutable.is_const());
+        assert!(!immutable.is_mutable());
+
+        let mutable = BindingStmt {
+            kind: LocalBindingKind::Let { is_mutable: true },
+            ..immutable.clone()
+        };
+        assert!(mutable.is_mutable());
+
+        let constant = BindingStmt {
+            kind: LocalBindingKind::Const,
+            ..immutable
+        };
+        assert!(constant.is_const());
+        assert!(!constant.is_mutable());
+    }
+
+    #[test]
+    fn nested_pattern_binding_is_detected_recursively() {
+        let wildcard = Pattern {
+            span: Span::new(0, 1),
+            kind: PatternKind::Wildcard,
+        };
+        assert!(!wildcard.contains_binding());
+        let nested = Pattern {
+            span: Span::new(0, 3),
+            kind: PatternKind::OptionalSome(Box::new(Pattern {
+                span: Span::new(1, 2),
+                kind: PatternKind::Tuple(vec![wildcard]),
+            })),
+        };
+        assert!(!nested.contains_binding());
+
+        let binding = Pattern {
+            span: Span::new(1, 2),
+            kind: PatternKind::Bind {
+                name: SymbolId::from_stable_hash(1),
+                node_key: VersionedNodeKey::span(
+                    SourceVersion {
+                        id: SourceId(1),
+                        revision: SourceRevision::INITIAL,
+                    },
+                    SyntaxKind::Pattern,
+                    Span::new(1, 2),
+                ),
+                is_mutable: false,
+            },
+        };
+        let nested_binding = Pattern {
+            span: Span::new(0, 3),
+            kind: PatternKind::Pointer(Box::new(binding)),
+        };
+        assert!(nested_binding.contains_binding());
+    }
+}
+
 /// For-in loop with a binding pattern, iterator expression, and body.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForInStmt {

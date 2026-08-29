@@ -962,3 +962,52 @@ fn write_joined<T>(out: &mut String, values: &[T], mut write: impl FnMut(&mut St
         write(out, value);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_node_id::{SyntaxKind, VersionedNodeKey};
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
+
+    fn type_ref(kind: TypeKind, span: Span) -> TypeRef {
+        TypeRef {
+            span,
+            node_key: VersionedNodeKey::span(
+                SourceVersion {
+                    id: SourceId(1),
+                    revision: SourceRevision::INITIAL,
+                },
+                SyntaxKind::Type,
+                span,
+            ),
+            text: String::new(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn declaration_equality_ignores_source_locations() {
+        let left = type_ref(TypeKind::Error, Span::new(0, 1));
+        let right = type_ref(TypeKind::Error, Span::new(9, 12));
+        assert!(type_ref_decl_eq(&left, &right));
+
+        let different = type_ref(TypeKind::SelfType, Span::new(0, 1));
+        assert!(!type_ref_decl_eq(&left, &different));
+    }
+
+    #[test]
+    fn where_clause_identity_preserves_order_and_bounds() {
+        let first = type_ref(TypeKind::Error, Span::new(0, 1));
+        let second = type_ref(TypeKind::SelfType, Span::new(2, 6));
+        let clause = WhereClause {
+            predicates: vec![WherePredicate {
+                ty: first,
+                bounds: vec![second],
+                span: Span::new(0, 6),
+            }],
+        };
+        assert_eq!(where_clause_identity(&clause).len(), 1);
+        assert_eq!(where_clause_identity(&clause)[0].0, "error");
+        assert_eq!(where_clause_identity(&clause)[0].1, vec!["self".to_owned()]);
+    }
+}

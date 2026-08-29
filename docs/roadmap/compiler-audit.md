@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 748 completed entries in this ledger.
+- Latest implementation batch: 749 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4518,6 +4518,13 @@ acceptance item only when its phase-wide evidence is complete.
       and local-name category/storage-name identity. All 6 new tests, strict
       all-target Clippy, workspace formatting, and diff checks pass. `nia-ast`
       schema coverage and the broader cross-cutting test-gap review remain open.
+- [x] Batch 749 adds direct `nia-ast` schema-owner tests for declaration
+      equality that ignores source locations, stable where-clause identities,
+      local binding const/mutability classification, and recursive pattern
+      binding detection. Four tests pass with strict Rustdoc, strict all-target
+      Clippy, workspace formatting, and diff checks; `nia-source` is test-only
+      so production dependency direction is unchanged. Broader AST schema and
+      cross-cutting test-gap review remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
