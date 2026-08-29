@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 771 completed entries in this ledger.
+- Latest implementation batch: 772 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4735,6 +4735,11 @@ acceptance item only when its phase-wide evidence is complete.
       their pure Rust dependencies. This confirms 32-bit target compilation
       without claiming executable runtime support; LLVM-backed and runtime
       target evidence remain open.
+- [x] Batch 772 makes the portable 32-bit semantic-owner check reproducible in
+      CI. The `build-std` workflow now installs `wasm32-unknown-unknown` and
+      checks layout, ABI, backend-IR, and target-config owners before runtime
+      integration suites. Local execution of the exact command passes; full
+      LLVM-backed and runtime cross-target evidence remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
