@@ -4112,6 +4112,11 @@ acceptance item only when its phase-wide evidence is complete.
       when a target module context is unavailable or a type handle belongs to a
       foreign store, replacing the previous `expect`/`assert` boundary; focused
       validation coverage locks both malformed-input diagnostics.
+- [x] Batch 690 closes LLVM declaration-membership instance sorting panics.
+      Struct, union, function, and global instance keys are validated against
+      the published program index before deterministic sorting; missing records
+      now produce `INVALID_BACKEND_IR` diagnostics instead of reaching sorting
+      `unwrap` calls, with a focused stale function-instance regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
