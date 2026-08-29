@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 721 completed entries in this ledger.
+- Latest implementation batch: 722 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4297,6 +4297,13 @@ acceptance item only when its phase-wide evidence is complete.
       tests total). Strict test Clippy passes for the affected CLI/compiler
       stack. These are current-host workflow results; non-host runtime and
       constrained-resource reruns remain open.
+- [x] Batch 722 adds a complete `TargetSpec` validation matrix at the build-plan
+      owner. `nia-build` now tests both host and artifact roles for empty
+      architecture/OS, NUL-containing fields, invalid endianness, and
+      unsupported pointer widths; the full 216-test owner suite passes (one
+      intentionally ignored cross-process stress worker), and strict
+      all-target Clippy remains clean. This strengthens simulated target-plan
+      rejection evidence without claiming cross-target runtime execution.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
