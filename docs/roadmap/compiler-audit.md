@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 776 completed entries in this ledger.
+- Latest implementation batch: 777 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4767,6 +4767,16 @@ acceptance item only when its phase-wide evidence is complete.
       clean wall time is about 47.1 seconds with roughly 1.29 GiB peak RSS.
       This is current-host evidence; constrained low-memory and external-target
       reruns remain open.
+- [x] Batch 777 refreshes constrained runtime/build evidence under an explicit
+      `RLIMIT_AS=3 GiB` process address-space ceiling. The `nia-cli`
+      `emit_exe_intrinsics` matrix passes all 8 compile/link/run tests, and
+      `cargo maintain baseline build --nia target/release/nia --resource-root
+      lib --repetitions 1` passes schema-v5 acceptance across all 9 states and
+      every recorded check (clean wall time 47.32 seconds, peak RSS
+      1,229,942,784 bytes). This is genuine bounded-process evidence but is
+      not a substitute for the stronger cgroup/no-swap acceptance gate; the
+      existing cgroup run and external-target evidence remain tracked
+      separately.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
