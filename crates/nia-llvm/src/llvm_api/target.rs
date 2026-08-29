@@ -280,6 +280,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_interior_nul_in_every_target_machine_string() {
+        for (triple, cpu, features) in [
+            ("x86_64-unknown-linux-gnu\0invalid", "generic", ""),
+            ("x86_64-unknown-linux-gnu", "generic\0invalid", ""),
+            ("x86_64-unknown-linux-gnu", "generic", "+sse2\0invalid"),
+        ] {
+            let error = TargetMachine::for_triple(triple, cpu, features, OptimizationLevel::None)
+                .expect_err("interior NUL must be rejected before calling LLVM");
+            assert!(
+                matches!(error, LlvmError::Ice(ref ice) if ice.message.contains("interior NUL")),
+                "unexpected target-machine error: {error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn configures_module_and_emits_native_object() {
         let context = super::super::Context::create().expect("create LLVM context");
         let module = context

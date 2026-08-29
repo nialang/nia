@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 772 completed entries in this ledger.
+- Latest implementation batch: 773 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4740,6 +4740,13 @@ acceptance item only when its phase-wide evidence is complete.
       checks layout, ABI, backend-IR, and target-config owners before runtime
       integration suites. Local execution of the exact command passes; full
       LLVM-backed and runtime cross-target evidence remains open.
+- [x] Batch 773 closes the LLVM target-string boundary matrix. Target-machine
+      construction now has direct coverage proving interior NUL bytes in the
+      triple, CPU, or feature strings are rejected before entering the C API;
+      `nia-llvm` (95 tests plus 2 compile-fail doctests) and
+      `nia-codegen-llvm` (333 tests) pass with strict Rustdoc, Clippy,
+      formatting, and diff checks. Broader LLVM target and external-target
+      acceptance remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
