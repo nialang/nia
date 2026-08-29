@@ -348,10 +348,21 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
         empty_module(left_module, "a", vec![vtable(left_i32, left_object)]),
     ];
 
-    assign_unique_vtable_owners(&mut modules, &type_store);
+    assert!(assign_unique_vtable_owners(&mut modules, &type_store).is_empty());
 
     assert!(modules[0].trait_object_vtables.is_empty());
     assert_eq!(modules[1].trait_object_vtables.len(), 1);
+
+    let mut conflicting = modules[1].trait_object_vtables[0].clone();
+    conflicting.trait_id = nia_ids::TraitId::Builtin(nia_ids::BuiltinTrait::Sized);
+    modules[0].trait_object_vtables.push(conflicting);
+    let diagnostics = assign_unique_vtable_owners(&mut modules, &type_store);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]
+            .summary
+            .contains("conflicting backend trait-object")
+    );
 }
 
 #[test]
@@ -451,10 +462,21 @@ fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
         ),
     ];
 
-    assign_unique_aggregate_instance_owners(&mut modules, &type_store);
+    assert!(assign_unique_aggregate_instance_owners(&mut modules, &type_store).is_empty());
 
     assert!(modules[0].struct_instances.is_empty());
     assert_eq!(modules[1].struct_instances.len(), 1);
+
+    let mut conflicting = modules[1].struct_instances[0].clone();
+    conflicting.symbol = "conflicting-instance".to_string();
+    modules[0].struct_instances.push(conflicting);
+    let diagnostics = assign_unique_aggregate_instance_owners(&mut modules, &type_store);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]
+            .summary
+            .contains("conflicting backend struct instance")
+    );
 }
 
 mod cfg_and_scalar_passes;
