@@ -3995,6 +3995,12 @@ acceptance item only when its phase-wide evidence is complete.
       trait-object vtables now return codegen diagnostics from declaration and
       definition setup instead of relying on panic recovery at the outer LLVM
       boundary.
+- [x] Batch 665 closes declaration-membership closure and type lookup panics.
+      Missing declaration owners and type handles now produce
+      `INVALID_BACKEND_IR` diagnostics that propagate through LLVM partition
+      readiness, rather than aborting membership construction; focused
+      readiness and closure regressions preserve pending behavior for valid
+      unpublished dependencies.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
