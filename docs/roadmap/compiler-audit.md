@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 797 completed entries in this ledger.
+- Latest implementation batch: 798 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4910,6 +4910,13 @@ acceptance item only when its phase-wide evidence is complete.
       build fixtures. Resource pools derive compiler 2, memory 6, and runtime
       6; managed build children peak at roughly 1.43 GiB RSS with no timeout
       or permit failure.
+- [x] Batch 798 completes the 3 GiB/no-swap runtime-owner rerun. The
+      `nia-cli` `emit_exe_fs` (25/25) and `emit_exe_process` (47/47) suites
+      pass under the constrained scope, covering capability-relative paths,
+      symlink and descriptor ownership, command pipes, environment/cwd setup,
+      spawn/reap retries, wait/try-wait, and kill lifecycle. Compiler children
+      peak at roughly 436 MiB and 516 MiB RSS respectively; no timeout, child
+      leak, or resource-permit failure was observed.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
