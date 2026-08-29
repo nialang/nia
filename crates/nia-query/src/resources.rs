@@ -407,9 +407,22 @@ mod tests {
 
     #[test]
     fn memory_task_capacity_reserves_half_of_visible_memory() {
-        assert_eq!(memory_task_capacity(32, Some(8 * 1024 * 1024 * 1024)), 2);
+        let large_limit =
+            usize::try_from(8u64 * 1024 * 1024 * 1024).unwrap_or(3usize * 1024 * 1024 * 1024);
+        let expected_large_capacity = if cfg!(target_pointer_width = "64") {
+            2
+        } else {
+            1
+        };
+        assert_eq!(
+            memory_task_capacity(32, Some(large_limit)),
+            expected_large_capacity
+        );
         assert_eq!(memory_task_capacity(32, Some(3 * 1024 * 1024 * 1024)), 1);
-        assert_eq!(memory_task_capacity(2, Some(8 * 1024 * 1024 * 1024)), 2);
+        assert_eq!(
+            memory_task_capacity(2, Some(large_limit)),
+            expected_large_capacity.min(2)
+        );
         assert_eq!(memory_task_capacity(32, None), 1);
     }
 
