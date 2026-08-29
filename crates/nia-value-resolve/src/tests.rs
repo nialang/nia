@@ -1,10 +1,14 @@
 use super::*;
-use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
+use nia_defs::{
+    PublicItem, PublicNamespace, PublicSource, collect_module_defs,
+    collect_module_defs_from_active_item_tree,
+};
 use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
 use nia_item_tree::ModuleItemTree;
 use nia_parser::parse_module;
 use nia_sema_ir::BuiltinAssociatedValue;
 use nia_symbol::{SymbolId, stable_hash};
+use std::sync::Arc;
 
 fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
@@ -239,7 +243,14 @@ fn main() i32 {
         resolved
             .node_qualified_values
             .values()
-            .any(|value| *value == associated_id)
+            .any(|value| *value == associated_id),
+        "values={:?} prefixes={:?} diagnostics={:?}",
+        resolved.node_qualified_values.values().collect::<Vec<_>>(),
+        resolved
+            .node_qualified_type_prefixes
+            .values()
+            .collect::<Vec<_>>(),
+        resolved.diagnostics
     );
 }
 
@@ -355,6 +366,124 @@ fn main() i32 {
     assert!(resolved.node_names.values().any(|resolution| {
         matches!(resolution, ValueNameResolution::Def(def_id) if *def_id == defs.module_scope.values.get(&sym("VALUE")).expect("missing VALUE"))
     }));
+}
+
+#[test]
+fn records_type_prefixes_for_module_qualified_associated_values() {
+    let (consumer, errors) = parse_module(
+        r#"
+fn main() i32 {
+    dep::Box::VALUE
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let (provider, errors) = parse_module("pub struct Box {}");
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let mut module_ids = ModuleIdAllocator::new();
+    let consumer_id = module_ids.allocate();
+    let provider_id = module_ids.allocate();
+    let consumer_defs = collect_module_defs(consumer_id, &consumer);
+    let provider_defs = collect_module_defs(provider_id, &provider);
+    assert!(
+        consumer_defs.diagnostics.is_empty(),
+        "{:?}",
+        consumer_defs.diagnostics
+    );
+    assert!(
+        provider_defs.diagnostics.is_empty(),
+        "{:?}",
+        provider_defs.diagnostics
+    );
+    let box_def_id = provider_defs
+        .module_scope
+        .types
+        .get(&sym("Box"))
+        .expect("missing Box definition");
+    let box_id = GlobalDefId {
+        module_id: provider_id,
+        def_id: box_def_id,
+    };
+    let mut surfaces = nia_defs::PublicSurfaces::default();
+    let mut provider_surface = nia_defs::ModulePublicSurface::new(provider_id);
+    provider_surface.types.insert(
+        sym("Box"),
+        PublicItem {
+            target_module: provider_id,
+            target_def_id: box_def_id,
+            namespace: PublicNamespace::Type,
+            name_span: nia_span::Span::default(),
+            source: PublicSource::Direct,
+            parent_enum: None,
+        },
+    );
+    surfaces.insert(provider_surface);
+    let mut using_scope = nia_defs::ModuleUsingScope::default();
+    using_scope.modules.insert(sym("dep"), provider_id);
+    let associated_id = GlobalDefId {
+        module_id: provider_id,
+        def_id: DefId(0xbeef),
+    };
+    let provider_fn = |target: AssociatedValueTarget, name: &SymbolId| {
+        (target == AssociatedValueTarget::Nominal(box_id) && *name == sym("VALUE"))
+            .then_some(associated_id)
+    };
+    let provider_defs = Arc::new(provider_defs);
+    let defs_provider = |id| (id == provider_id).then_some(provider_defs.clone());
+    let program_defs = ProgramDefsContext {
+        defs: Some(&defs_provider),
+        graph: None,
+    };
+    let resolved = resolve_module_values_with_context(
+        &consumer,
+        &consumer_defs,
+        &nia_imports::ModuleGraph::new(nia_imports::SourcePath::new("consumer.nia")),
+        program_defs,
+        &surfaces,
+        &using_scope,
+    );
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    assert!(
+        resolved
+            .node_qualified_type_prefixes
+            .values()
+            .any(|value| *value == box_id)
+    );
+
+    let tree = ModuleItemTree::from_module(&consumer);
+    let active = tree
+        .active_items(&mut BoolResolver(true))
+        .expect("active item tree");
+    let resolved = resolve_module_values_from_active_item_tree_with_associated_values(
+        &active,
+        &consumer_defs,
+        program_defs,
+        &surfaces,
+        &using_scope,
+        Some(&provider_fn),
+    );
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    assert!(
+        resolved
+            .node_qualified_values
+            .values()
+            .any(|value| *value == associated_id)
+    );
+    assert!(
+        resolved
+            .node_qualified_type_prefixes
+            .values()
+            .any(|value| *value == box_id)
+    );
 }
 
 struct BoolResolver(bool);
