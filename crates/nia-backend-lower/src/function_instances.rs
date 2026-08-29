@@ -153,7 +153,7 @@ impl<'a> ModuleLowerer<'a> {
                 &args,
                 &const_args,
             );
-            if !self.lower_planned_function_instance(
+            let Some(instance_index) = self.lower_planned_function_instance(
                 &mut functions_by_def,
                 &mut seen,
                 &mut instances,
@@ -166,19 +166,13 @@ impl<'a> ModuleLowerer<'a> {
                     const_args,
                     symbol,
                 },
-            ) {
+            ) else {
                 continue;
-            }
-            let body = &instances
-                .last()
-                .expect("successful function instance lowering must append an instance")
-                .function_body;
+            };
+            let instance = &instances[instance_index];
+            let body = &instance.function_body;
             let mut discovery = self.discover_backend_items_from_optional_body(body);
-            let owner = backend_function_instance_key(
-                instances
-                    .last()
-                    .expect("successful function instance lowering must append an instance"),
-            );
+            let owner = backend_function_instance_key(instance);
             for entry in closure_entries.iter().rev().take_while(|entry| {
                 entry.key.owner == BackendClosureEntryOwner::FunctionInstance(owner.clone())
             }) {
@@ -430,7 +424,7 @@ impl<'a> ModuleLowerer<'a> {
         instances: &mut Vec<BackendFunctionInstance>,
         closure_entries: &mut Vec<BackendClosureEntry>,
         plan: PlannedFunctionInstance,
-    ) -> bool {
+    ) -> Option<usize> {
         let PlannedFunctionInstance {
             def_id,
             arg_module_id,
@@ -446,16 +440,14 @@ impl<'a> ModuleLowerer<'a> {
             args: args.clone(),
             const_args: const_args.clone(),
         }) {
-            return false;
+            return None;
         }
         if !functions_by_def.contains_key(&def_id)
             && let Some(function) = self.backend_function_template_for_program_def(def_id)
         {
             functions_by_def.insert(def_id, function);
         }
-        let Some(mut base) = functions_by_def.get(&def_id).cloned() else {
-            return false;
-        };
+        let mut base = functions_by_def.get(&def_id).cloned()?;
         let imported_args = args
             .iter()
             .map(|arg| self.normalize_instance_arg_type(*arg))
@@ -533,7 +525,8 @@ impl<'a> ModuleLowerer<'a> {
             function_body,
             span: base.span,
         });
-        has_body
+        let instance_index = instances.len() - 1;
+        has_body.then_some(instance_index)
     }
 
     pub(crate) fn backend_function_template_for_program_def(
