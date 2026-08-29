@@ -131,6 +131,38 @@ fn rejects_error_expr_before_function_ir_is_built() {
 }
 
 #[test]
+fn rejects_try_operand_without_propagation_type_before_function_ir_is_built() {
+    let i32_ty = primitive_ty(PrimitiveTy::I32);
+    let body = TypedBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty: i32_ty,
+            kind: TypedExprKind::Try {
+                expr: Box::new(TypedExpr {
+                    span: Span::default(),
+                    ty: i32_ty,
+                    kind: TypedExprKind::Integer("1".to_string()),
+                }),
+                error_conversion: None,
+            },
+        })),
+        ty: i32_ty,
+    };
+
+    let error = lower_test_function_body(&body).expect_err("invalid try operand must not lower");
+
+    assert!(
+        error
+            .message
+            .contains("try operand must have Optional or ErrorUnion type"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn rejects_error_expr_nested_in_for_pattern_before_function_ir_is_built() {
     let ty = test_ty();
     let body = TypedBody {
