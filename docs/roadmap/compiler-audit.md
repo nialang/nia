@@ -4212,6 +4212,14 @@ acceptance item only when its phase-wide evidence is complete.
       the accumulated audit changes compose at the full Rust workspace boundary;
       cross-target builds, full workspace tests, formatting, and final resource
       validation remain separate acceptance requirements.
+- [x] Batch 712 records the complete workspace validation gate. `cargo test
+      --workspace --all-features` passes, including owner, incremental/cache,
+      cross-module, executable, filesystem, process, allocator, build, linker,
+      relocation, and documentation tests. `cargo fmt --all -- --check` and
+      `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+      also pass. This is current-host evidence only; supported non-host targets,
+      constrained-resource reruns, and the remaining phase acceptance matrices
+      are still required before roadmap retirement.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
