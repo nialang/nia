@@ -47,6 +47,32 @@ fn test_ty() -> nia_ids::InternedTyId {
         .error()
 }
 
+#[test]
+fn optimizer_reports_invalid_input_without_rewriting_the_body() {
+    let body = FunctionBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        scopes: Vec::new(),
+        blocks: Vec::new(),
+        entry: FunctionBlockId(0),
+        ty: test_ty(),
+    };
+    let original = body.clone();
+
+    let output = optimize_function_body(FunctionOptInput {
+        body,
+        policy: &NiaOptimizationLevel::O2.policy(),
+        is_zero_sized: |_| false,
+    });
+
+    assert_eq!(output.body, original);
+    assert!(output.changed_passes.is_empty());
+    let error = output
+        .validation_error
+        .expect("invalid optimizer input should produce a validation error");
+    assert!(error.message.contains("entry block"));
+}
+
 fn test_other_ty() -> nia_ids::InternedTyId {
     test_type_store()
         .append_for_module(test_module_id())
