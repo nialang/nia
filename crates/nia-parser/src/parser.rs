@@ -190,14 +190,18 @@ impl Parser {
         let (Some(start), Some(end)) = (start, end) else {
             panic!("parser produced {kind:?} AST node without syntax tokens at {span:?}");
         };
-        let Some(version) = start.source_version() else {
-            panic!("parser produced {kind:?} AST node from unversioned syntax at {span:?}");
-        };
-        assert_eq!(
-            end.source_version(),
-            Some(version),
-            "parser produced {kind:?} AST node spanning multiple source versions at {span:?}"
-        );
+        // Syntax tooling may construct trees without a session source version.
+        // Keep those standalone parses usable with the same reserved identity
+        // as `parse_module`, while still rejecting genuinely mixed revisions.
+        let version = start
+            .source_version()
+            .unwrap_or_else(synthetic_source_version);
+        if let Some(end_version) = end.source_version() {
+            assert_eq!(
+                end_version, version,
+                "parser produced {kind:?} AST node spanning multiple source versions at {span:?}"
+            );
+        }
         let key = VersionedNodeKey::child_path_range(
             version,
             kind,

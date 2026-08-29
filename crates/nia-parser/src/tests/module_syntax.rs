@@ -121,6 +121,28 @@ fn main(a: i32) i32 {
 }
 
 #[test]
+fn unversioned_syntax_uses_reserved_synthetic_origin_identity() {
+    let syntax = nia_syntax::parse_source("fn main() i32 { 0 }", None);
+    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let return_type = function.return_type.as_ref().expect("return type");
+    let key = origins
+        .locator(SyntaxKind::Type, return_type.span)
+        .expect("return type origin");
+    assert_eq!(
+        key.source_version(),
+        SourceVersion {
+            id: SourceId(u32::MAX),
+            revision: SourceRevision::INITIAL,
+        }
+    );
+}
+
+#[test]
 fn speculative_expression_parsing_does_not_publish_discarded_origins() {
     let source = "fn main() i32 { value[index]; 0 }";
     let version = SourceVersion {
