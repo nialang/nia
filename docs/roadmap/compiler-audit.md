@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 774 completed entries in this ledger.
+- Latest implementation batch: 775 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4754,6 +4754,12 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-compiler-query` (256) pass with strict Rustdoc, all-target Clippy,
       formatting, and diff checks. Broader Phase C resource and incremental
       acceptance remains open.
+- [x] Batch 775 records direct body-check consumer evidence for the const budget
+      invariant. The complete `nia-body-check` owner suite (279 tests) passes
+      after the leaked-call-depth guard, including const/static initialization,
+      method resolution, pattern flow, and source-fact paths. This confirms the
+      guard is limited to malformed evaluator cleanup; phase-wide incremental
+      and resource acceptance remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
