@@ -4038,6 +4038,11 @@ acceptance item only when its phase-wide evidence is complete.
       generic closure materialization now reports `INVALID_BACKEND_IR` and
       skips malformed entries when a state or parameter local is absent,
       preventing invalid ABI metadata from entering later phases.
+- [x] Batch 674 closes compiler-builtin scan publication assumptions. Builtin
+      discovery now skips registered modules whose backend payload is not yet
+      published, preserving already visible modules and avoiding an ICE during
+      readiness windows; focused coverage exercises the unpublished-module
+      state.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
