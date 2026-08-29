@@ -4072,6 +4072,11 @@ acceptance item only when its phase-wide evidence is complete.
       body as its recovery product, and backend lowering records the failure as
       `INVALID_BACKEND_IR`; focused coverage verifies malformed input does not
       panic or get rewritten.
+- [x] Batch 681 closes the LLVM module-mangling stale-identity panic. Module
+      codegen now uses the same deterministic `<missing-module-N>` recovery
+      path as backend and fingerprint manglers when a malformed type or symbol
+      references an absent module; valid source identities retain their exact
+      mangling, with focused stability and distinctness coverage.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
