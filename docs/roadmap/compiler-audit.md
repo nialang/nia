@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 718 completed entries in this ledger.
+- Latest implementation batch: 719 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4273,6 +4273,16 @@ acceptance item only when its phase-wide evidence is complete.
       state recorded one expected action failure and returned without cache
       lookups. This is current-host Linux x86_64 evidence; a constrained
       low-memory rerun and non-host target evidence remain open.
+- [x] Batch 719 records standard-library consumer coverage beyond the recent
+      runtime intrinsic matrix. Real `nia-cli` executable/static tests pass for
+      `std::io` (17), `std::hash_map` (7), `std::iter` (8), `std::slice` (2),
+      and `std::string` (3), for 37 tests total. The matrix covers buffered and
+      partial IO, formatting and parsing, hash-map churn/reserve/clone, owned
+      and borrowed iterator adapters, range endpoint and bound behavior,
+      direct slice iteration, and text/file/process composition. Strict
+      `cargo clippy -p nia-cli --tests --all-features -- -D warnings` also
+      passes. Target-specific runtime execution and the remaining build/error
+      protocol coverage remain open for Phase F.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
