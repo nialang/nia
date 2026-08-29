@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 798 completed entries in this ledger.
+- Latest implementation batch: 799 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4917,6 +4917,13 @@ acceptance item only when its phase-wide evidence is complete.
       spawn/reap retries, wait/try-wait, and kill lifecycle. Compiler children
       peak at roughly 436 MiB and 516 MiB RSS respectively; no timeout, child
       leak, or resource-permit failure was observed.
+- [x] Batch 799 extends constrained runtime evidence to IO and memory owners.
+      In the same 3 GiB/no-swap scope, `emit_exe_io` passes 17/17 and the
+      allocator, ArrayList, and memory-intrinsic suites pass 28/28. Coverage
+      includes buffered/partial transfers, formatting and parsing, allocator
+      resize/remap/realloc failure recovery, zero-sized collections, and
+      cross-module intrinsic ownership. Compiler children remain below roughly
+      443 MiB RSS, with no timeout or resource-permit failure.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
