@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 799 completed entries in this ledger.
+- Latest implementation batch: 800 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4924,6 +4924,13 @@ acceptance item only when its phase-wide evidence is complete.
       resize/remap/realloc failure recovery, zero-sized collections, and
       cross-module intrinsic ownership. Compiler children remain below roughly
       443 MiB RSS, with no timeout or resource-permit failure.
+- [x] Batch 800 restores the reproducible i686 external-target compile gate on
+      this host by selecting the installed `/usr/lib/llvm22` prefix (which
+      contains the i386 LLVM configuration header). With explicit `-m32`
+      wrapper flags, `cargo check --workspace --all-targets --all-features
+      --target i686-unknown-linux-gnu` passes, and the real i686
+      `emit_exe_intrinsics` matrix passes 8/8. The experimental target remains
+      subject to the broader runtime and CI acceptance matrix.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
