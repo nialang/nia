@@ -4206,6 +4206,12 @@ acceptance item only when its phase-wide evidence is complete.
       rejection, and container integration. No additional externally reachable
       filesystem or allocator defect was identified; Phase F remains open only
       for its remaining target-matrix and final acceptance evidence.
+- [x] Batch 711 records a workspace compilation gate. `cargo check
+      --workspace --all-targets` passes across every compiler, backend, query,
+      runtime-support, driver, and CLI crate in the workspace. This confirms
+      the accumulated audit changes compose at the full Rust workspace boundary;
+      cross-target builds, full workspace tests, formatting, and final resource
+      validation remain separate acceptance requirements.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
