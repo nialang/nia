@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 770 completed entries in this ledger.
+- Latest implementation batch: 771 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4728,6 +4728,13 @@ acceptance item only when its phase-wide evidence is complete.
       ABI, backend-IR, and target-config `cargo check` succeeds for i686.
       Runtime/test linking on this target remains an explicit environment
       blocker rather than claimed evidence.
+- [x] Batch 771 adds a libc-independent non-host compile matrix. With
+      `wasm32-unknown-unknown` installed, `cargo check -p nia-layout
+      -p nia-abi-check -p nia-backend-ir -p nia-target-config --all-targets
+      --target wasm32-unknown-unknown` passes across the selected owners and
+      their pure Rust dependencies. This confirms 32-bit target compilation
+      without claiming executable runtime support; LLVM-backed and runtime
+      target evidence remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
