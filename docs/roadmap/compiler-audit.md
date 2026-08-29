@@ -4127,6 +4127,11 @@ acceptance item only when its phase-wide evidence is complete.
       diagnostic path instead of unwrapping an impossible conversion after
       token classification; existing nested and deep using-path regressions
       preserve valid parsing.
+- [x] Batch 693 closes backend instance-owner conflict panic recovery. Program
+      lowering now records `INVALID_BACKEND_IR` diagnostics when semantically
+      equal aggregate-instance or vtable keys carry conflicting payloads,
+      preserving deterministic ownership and allowing centralized validation
+      to report malformed products instead of aborting in `assert!`.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

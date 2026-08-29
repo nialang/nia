@@ -44,7 +44,7 @@ use nia_backend_ir::{
     BackendUnionInstance,
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, codes};
 use nia_function_ir::{
     FunctionBody, FunctionBodyRefs, FunctionInstanceKey, FunctionInstanceRef, GlobalInstanceKey,
     GlobalInstanceRef,
@@ -749,8 +749,14 @@ pub fn plan_backend_program_with_timings(
             ));
         }
     });
-    assign_unique_aggregate_instance_owners(&mut lowered_modules, type_store);
-    assign_unique_vtable_owners(&mut lowered_modules, type_store);
+    diagnostics.extend(assign_unique_aggregate_instance_owners(
+        &mut lowered_modules,
+        type_store,
+    ));
+    diagnostics.extend(assign_unique_vtable_owners(
+        &mut lowered_modules,
+        type_store,
+    ));
 
     BackendItemPlan {
         modules: lowered_modules
@@ -766,11 +772,12 @@ pub fn plan_backend_program_with_timings(
 fn assign_unique_aggregate_instance_owners(
     modules: &mut [BackendModule],
     type_store: &nia_ty::TypeStore,
-) {
+) -> Vec<Diagnostic> {
     // Generic instances may be discovered from several modules. Equal definitions are assigned
     // to the lexicographically earliest normalized source path, giving stable ownership without
     // depending on traversal or worker completion order.
     let array_lengths = backend_array_lengths(modules);
+    let mut diagnostics = Vec::new();
     let mut struct_owners = Vec::<(BackendStructInstanceKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (item_index, item) in module.struct_instances.iter().enumerate() {
@@ -788,12 +795,16 @@ fn assign_unique_aggregate_instance_owners(
             let (_, (owner_module_index, owner_item_index)) = struct_owners[owner_position];
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.struct_instances[owner_item_index];
-            assert!(
-                backend_struct_instance_payloads_match(type_store, &array_lengths, owner, item),
-                "Nia ICE: backend struct instance has conflicting definitions in modules {:?} and {:?}",
-                owner_module.id,
-                module.id
-            );
+            if !backend_struct_instance_payloads_match(type_store, &array_lengths, owner, item) {
+                diagnostics.push(Diagnostic::internal_error_at(
+                    codes::INVALID_BACKEND_IR,
+                    item.span,
+                    format!(
+                        "conflicting backend struct instance definitions in modules {:?} and {:?}",
+                        owner_module.id, module.id
+                    ),
+                ));
+            }
             if module.source_identity.normalized_path()
                 < owner_module.source_identity.normalized_path()
             {
@@ -846,12 +857,16 @@ fn assign_unique_aggregate_instance_owners(
             let (_, (owner_module_index, owner_item_index)) = union_owners[owner_position];
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.union_instances[owner_item_index];
-            assert!(
-                backend_union_instance_payloads_match(type_store, &array_lengths, owner, item),
-                "Nia ICE: backend union instance has conflicting definitions in modules {:?} and {:?}",
-                owner_module.id,
-                module.id
-            );
+            if !backend_union_instance_payloads_match(type_store, &array_lengths, owner, item) {
+                diagnostics.push(Diagnostic::internal_error_at(
+                    codes::INVALID_BACKEND_IR,
+                    item.span,
+                    format!(
+                        "conflicting backend union instance definitions in modules {:?} and {:?}",
+                        owner_module.id, module.id
+                    ),
+                ));
+            }
             if module.source_identity.normalized_path()
                 < owner_module.source_identity.normalized_path()
             {
@@ -886,6 +901,7 @@ fn assign_unique_aggregate_instance_owners(
             })
             .collect();
     }
+    diagnostics
 }
 
 fn backend_array_lengths(modules: &[BackendModule]) -> HashMap<GlobalConstExprId, u64> {
@@ -1070,11 +1086,15 @@ impl TypeEquivalence for BackendVtableTypeEquivalence<'_> {
     }
 }
 
-fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_ty::TypeStore) {
+fn assign_unique_vtable_owners(
+    modules: &mut [BackendModule],
+    type_store: &nia_ty::TypeStore,
+) -> Vec<Diagnostic> {
     // Vtable keys carry complete type payloads. Match them through the same
     // structural equivalence used for payload validation so semantically equal
     // rebuilt const representations share one owner.
     let array_lengths = backend_array_lengths(modules);
+    let mut diagnostics = Vec::new();
     let mut owners = Vec::<(BackendTraitObjectVtableKey, (usize, usize))>::new();
     for (module_index, module) in modules.iter().enumerate() {
         for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
@@ -1087,13 +1107,16 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
             let (_, (owner_module_index, owner_vtable_index)) = owners[owner_position];
             let owner_module = &modules[owner_module_index];
             let owner = &owner_module.trait_object_vtables[owner_vtable_index];
-            assert!(
-                backend_vtable_payloads_match(type_store, &array_lengths, owner, vtable),
-                "Nia ICE: trait-object vtable {:?} has conflicting definitions in modules {:?} and {:?}: owner={owner:?}, duplicate={vtable:?}",
-                vtable.key,
-                owner_module.id,
-                module.id
-            );
+            if !backend_vtable_payloads_match(type_store, &array_lengths, owner, vtable) {
+                diagnostics.push(Diagnostic::internal_error_at(
+                    codes::INVALID_BACKEND_IR,
+                    vtable.span,
+                    format!(
+                        "conflicting backend trait-object vtable definitions in modules {:?} and {:?}",
+                        owner_module.id, module.id
+                    ),
+                ));
+            }
             if module.source_identity.normalized_path()
                 < owner_module.source_identity.normalized_path()
             {
@@ -1123,6 +1146,7 @@ fn assign_unique_vtable_owners(modules: &mut [BackendModule], type_store: &nia_t
             })
             .collect();
     }
+    diagnostics
 }
 
 fn backend_vtable_keys_match(
