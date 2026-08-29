@@ -128,110 +128,185 @@ pub struct ExternalCommandError {
 
 /// Process and output failure detail retained by an external command error.
 #[derive(Debug)]
-#[allow(missing_docs)]
 pub enum ExternalCommandFailure {
+    /// The operating system rejected process creation.
     Spawn {
+        /// Underlying spawn error.
         error: io::Error,
     },
+    /// A configured standard stream was unavailable after spawning.
     MissingPipe {
+        /// Missing stream name.
         stream: &'static str,
     },
+    /// Waiting for the child process failed.
     Wait {
+        /// Underlying wait error.
         error: io::Error,
     },
+    /// A stream-capture worker panicked before returning its result.
     CaptureThread {
+        /// Stream owned by the failed worker.
         stream: &'static str,
     },
+    /// A stream-capture worker could not be spawned.
     CaptureWorkerSpawn {
+        /// Stream assigned to the worker.
         stream: &'static str,
+        /// Underlying thread-spawn error.
         error: io::Error,
     },
+    /// Reading a captured stream failed.
     StreamIo {
+        /// Stream that could not be read.
         stream: &'static str,
+        /// Underlying I/O error.
         error: io::Error,
     },
+    /// The command exceeded its configured execution timeout.
     TimedOut {
+        /// Timeout applied to the command.
         timeout: Duration,
+        /// Bounded captured standard-output tail.
         stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
         stderr: Vec<u8>,
     },
+    /// The command was terminated after build cancellation.
     Cancelled {
+        /// Bounded captured standard-output tail.
         stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
         stderr: Vec<u8>,
     },
+    /// The command exited unsuccessfully.
     Exit {
+        /// Child exit status.
         status: ExitStatus,
+        /// Bounded captured standard-output tail.
         stdout: Vec<u8>,
+        /// Bounded captured standard-error tail.
         stderr: Vec<u8>,
     },
 }
 
 /// Typed failure while validating, scheduling, executing, or publishing a plan.
 #[derive(Debug)]
-#[allow(missing_docs)]
 pub enum CoordinatorError {
+    /// An action was cancelled after another action failed.
     Cancelled {
+        /// Cancelled action.
         action: ActionKey,
     },
+    /// Frozen-plan and invocation targets differ.
     TargetMismatch(Box<TargetMismatch>),
+    /// A frozen plan contains an unresolved internal reference.
     InconsistentPlan {
+        /// Declaration owning the reference.
         owner: String,
+        /// Description of the missing declaration.
         missing: String,
     },
+    /// An action references a package without a physical root mapping.
     UnmappedPackage {
+        /// Action containing the reference.
         action: ActionKey,
+        /// Package without a mapping.
         package: PackageKey,
     },
+    /// A module import cannot be resolved in the executable plan closure.
     InvalidModuleImport(Box<InvalidModuleImport>),
+    /// A resolved physical path cannot be represented as UTF-8.
     NonUtf8Path {
+        /// Action using the path.
         action: ActionKey,
+        /// Rejected physical path.
         path: PathBuf,
     },
+    /// Generated-file staging or publication failed.
     GeneratedFileIo {
+        /// Action materializing the file.
         action: ActionKey,
+        /// Physical path involved in the failure.
         path: PathBuf,
+        /// Operation attempted on the path.
         operation: &'static str,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Artifact installation staging or publication failed.
     InstallArtifactIo {
+        /// Action installing the artifact.
         action: ActionKey,
+        /// Physical path involved in the failure.
         path: PathBuf,
+        /// Operation attempted on the path.
         operation: &'static str,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Reading or staging a static archive link input failed.
     StaticArchiveLinkInputIo {
+        /// Compiler action consuming the archive.
         action: ActionKey,
+        /// Physical archive path.
         path: PathBuf,
+        /// Operation attempted on the path.
         operation: &'static str,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Preparing an external command input, output, or environment failed.
     ExternalCommandIo {
+        /// External-command action.
         action: ActionKey,
+        /// Physical path involved in the failure.
         path: PathBuf,
+        /// Operation attempted on the path.
         operation: &'static str,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// A spawned external command failed.
     ExternalCommand(Box<ExternalCommandError>),
+    /// Staging or retiring an output failed.
     StagedOutput {
+        /// Action owning the staged output.
         action: ActionKey,
+        /// Physical staging path.
         path: PathBuf,
+        /// Operation attempted on the path.
         operation: &'static str,
+        /// Underlying filesystem error.
         error: io::Error,
+        /// Original action failure retained during cleanup, when present.
         cause: Option<Box<CoordinatorError>>,
     },
+    /// Acquiring exclusive ownership of an output failed.
     AcquireOutputLock {
+        /// Action requesting ownership.
         action: ActionKey,
+        /// Physical output path.
         output: PathBuf,
+        /// Lock path coordinating the output.
         lock: PathBuf,
+        /// Underlying lock error.
         error: io::Error,
     },
+    /// Recovery of an interrupted output transaction failed.
     OutputRecovery(Box<OutputRecoveryError>),
+    /// The coordinator has no executor for an action kind.
     UnsupportedAction {
+        /// Unsupported action.
         action: ActionKey,
+        /// Stable action-kind name.
         kind: &'static str,
     },
+    /// Compiler-driver execution failed for an action.
     Driver {
+        /// Compiler action that failed.
         action: ActionKey,
+        /// Underlying compiler-driver error.
         error: Box<DriverError>,
     },
 }
