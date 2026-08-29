@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 744 completed entries in this ledger.
+- Latest implementation batch: 745 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4491,6 +4491,12 @@ acceptance item only when its phase-wide evidence is complete.
       options and schema fields are documented. All 8 audit owner tests, strict
       Clippy, workspace formatting, and diff checks pass; workspace strict
       Rustdoc warnings fall to 87.
+- [x] Batch 745 documents compiler performance baseline options, deterministic
+      large-codegen source generation, workload command construction, and report
+      collection ownership. Its 6 compiler-baseline owner tests, strict Clippy,
+      workspace formatting, and diff checks pass; workspace strict Rustdoc
+      warnings fall to 75. Baseline comparison and crate-boundary report APIs
+      remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
