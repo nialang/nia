@@ -62,7 +62,7 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         let general = self.normalization.normalize(general);
         let specific = self.normalization.normalize(specific);
-        match self.interner.get(general).cloned() {
+        match Some(crate::type_support::type_kind_or_error(&self.interner, general).clone()) {
             Some(TyKind::GenericParam(name)) => {
                 if let Some(existing) = substitutions.types.get(&name).copied() {
                     self.patterns_equivalent(existing, specific)
@@ -430,11 +430,7 @@ impl<'a> BodyChecker<'a> {
                 _ => false,
             },
             Some(TyKind::ConstOnly | TyKind::Error | TyKind::ClosureState { .. }) => false,
-            None => panic!(
-                "Nia ICE: method pattern type {:?} is missing from type store {:?}",
-                general,
-                self.interner.store_id()
-            ),
+            None => false,
         }
     }
 
