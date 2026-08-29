@@ -4082,6 +4082,10 @@ acceptance item only when its phase-wide evidence is complete.
       `INVALID_BACKEND_IR` diagnostic instead of dereferencing an absent
       `ProgramIndex` module; the normal published-module path and diagnostic
       code are covered by a focused regression.
+- [x] Batch 683 removes backend function-instance fixed-point `Vec::last`
+      assumptions. Successful instance materialization now returns its exact
+      appended index to discovery, so closure/body scanning cannot panic if the
+      append contract changes; existing 128 backend-lowering tests remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
