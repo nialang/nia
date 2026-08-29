@@ -317,13 +317,14 @@ fn join_reader(
         .unwrap_or_else(|error| panic!("{context}: failed to read {stream}: {error}"))
 }
 
+#[cfg(unix)]
 fn prepare_command(command: &mut Command) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        command.process_group(0);
-    }
+    use std::os::unix::process::CommandExt as _;
+    command.process_group(0);
 }
+
+#[cfg(not(unix))]
+fn prepare_command(_command: &mut Command) {}
 
 fn wait_child_timeout(
     child: &mut std::process::Child,
