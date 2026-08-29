@@ -676,4 +676,59 @@ mod tests {
             assert!(seen.insert(*symbol), "duplicate known symbol for `{text}`");
         }
     }
+
+    #[test]
+    fn symbol_text_helpers_distinguish_known_unknown_and_optional_values() {
+        let resolver = KnownSymbolText;
+        let unknown = SymbolId::from_stable_hash(0xfeed_beef);
+
+        assert_eq!(symbol_text_or_unresolved(&resolver, known::std()), "std");
+        assert_eq!(
+            symbol_text_or_unresolved(&resolver, unknown),
+            "<unresolved symbol 0x00000000feedbeef>"
+        );
+        assert_eq!(
+            symbol_text_from_optional_resolver(None, unknown),
+            "<unresolved symbol 0x00000000feedbeef>"
+        );
+        assert_eq!(optional_symbol_text_or_unresolved(&resolver, None), None);
+        assert_eq!(
+            optional_symbol_text_or_unresolved(&resolver, Some(known::entry())),
+            Some("entry".to_owned())
+        );
+    }
+
+    #[test]
+    fn known_symbol_lookup_and_identity_fallback_are_stable() {
+        let unknown = SymbolId::from_stable_hash(0x1234);
+
+        assert_eq!(symbol_for_known_text("std"), Some(known::std()));
+        assert_eq!(symbol_for_known_text("not_registered"), None);
+        assert_eq!(known_symbol_text_or_identity(known::entry()), "entry");
+        assert_eq!(
+            known_symbol_text_or_identity(unknown),
+            "sym:0000000000001234"
+        );
+        assert_eq!(symbol_identity_key(unknown), "sym:0000000000001234");
+    }
+
+    #[test]
+    fn builtin_descriptors_map_to_their_canonical_symbols() {
+        assert_eq!(nia_ids::BuiltinFunction::Trap.symbol_id(), known::TRAP);
+        assert_eq!(
+            nia_ids::BuiltinTraitMethod::IteratorNext.symbol_id(),
+            known::NEXT
+        );
+        assert_eq!(nia_ids::BuiltinTrait::Sized.symbol_id(), known::SIZED_TRAIT);
+        assert_eq!(
+            nia_ids::BuiltinAssociatedType::Output.symbol_id(),
+            known::OUTPUT
+        );
+        assert_eq!(
+            nia_ids::BuiltinAssociatedConst::Lanes.symbol_id(),
+            known::LANES
+        );
+        assert_eq!(nia_ids::BuiltinTypeAnchor::Usize.symbol_id(), known::USIZE);
+        assert_eq!(nia_ids::LayoutBuiltin::Align.symbol_id(), known::ALIGN);
+    }
 }

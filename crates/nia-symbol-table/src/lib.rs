@@ -206,4 +206,28 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn cloned_tables_share_registration_and_resolver_display() {
+        let table = SymbolTable::new();
+        let clone = table.clone();
+        let symbol = table.intern("session_name").expect("intern symbol");
+        let resolver = clone.resolver();
+
+        assert_eq!(table, clone);
+        assert_eq!(resolver.resolve(symbol).as_deref(), Some("session_name"));
+        assert_eq!(resolver.display(symbol).to_string(), "session_name");
+    }
+
+    #[test]
+    fn resolver_display_uses_deterministic_unknown_marker() {
+        let resolver = SymbolTable::new().resolver();
+        let unknown = SymbolId::from_stable_hash(0xabcd);
+
+        assert_eq!(resolver.resolve(unknown), None);
+        assert_eq!(
+            resolver.display(unknown).to_string(),
+            "<unresolved symbol 0x000000000000abcd>"
+        );
+    }
 }
