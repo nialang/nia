@@ -639,10 +639,10 @@ where
         Some(TyKind::SelfParam) => "self_param".to_string(),
         Some(TyKind::ConstOnly) => "const_only".to_string(),
         Some(TyKind::Error) => "ty_error".to_string(),
-        None => panic!(
-            "Nia ICE: cannot mangle type {:?} with type_store {:?}",
-            ty,
-            type_store.id()
+        None => format!(
+            "ty_missing__store_{:?}__slot_{}",
+            ty.store_id,
+            ty.index.index()
         ),
     }
 }
@@ -1002,12 +1002,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Nia ICE: cannot mangle type")]
-    fn rejects_missing_type_id_instead_of_mangling_fallback_symbol() {
+    fn missing_type_id_uses_a_stable_recovery_symbol() {
         let type_store = TypeStore::new();
         let missing = InternedTyId::new(type_store.id(), TypeStoreIndex::from_store_index(999));
 
-        let _ = mangle_type_with(
+        let first = mangle_type_with(
             &type_store,
             missing,
             MangleResolvers::new(
@@ -1016,5 +1015,17 @@ mod tests {
                 |_| None,
             ),
         );
+        let second = mangle_type_with(
+            &type_store,
+            missing,
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                |_| "item".into(),
+                |_| None,
+            ),
+        );
+        assert_eq!(first, second);
+        assert!(first.starts_with("ty_missing__store_"));
+        assert!(first.ends_with("__slot_999"));
     }
 }

@@ -89,9 +89,11 @@ fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
     assert_eq!(mono.instances.len(), 1);
     assert!(mono.instances[0].symbol.contains("__inst__"));
     assert_eq!(mono.diagnostics.len(), 1);
-    assert!(mono.diagnostics[0]
-        .summary
-        .contains("missing source identity"));
+    assert!(
+        mono.diagnostics[0]
+            .summary
+            .contains("missing source identity")
+    );
 }
 
 #[test]
