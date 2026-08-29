@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 727 completed entries in this ledger.
+- Latest implementation batch: 728 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4351,6 +4351,15 @@ acceptance item only when its phase-wide evidence is complete.
       closure owner keys, and incremental link-input ordering. LLVM consumer
       and phase-wide clean/incremental acceptance, resource, and external
       target evidence remain open.
+- [x] Batch 728 records Phase C IR owner documentation evidence. Strict
+      Rustdoc is clean for `nia-function-ir`, `nia-static-ir`, and
+      `nia-body-ir`; their complete suites pass 25 tests total with strict
+      all-target Clippy. Coverage includes nested typed-reference traversal,
+      closure/defer boundaries, structural terminator and scope validation,
+      union-storage relocation checks, static-reference deduplication, and
+      function-instance const identity preservation. Broader const-evaluator,
+      body-check consumer, phase-wide clean/incremental, resource, and
+      external-target evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
