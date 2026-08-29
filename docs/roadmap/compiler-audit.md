@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 804 completed entries in this ledger.
+- Latest implementation batch: 805 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4956,6 +4956,13 @@ acceptance item only when its phase-wide evidence is complete.
       addition and returns `DecodeError::Length` instead of panicking on 32-bit
       targets. Host and i686 focused regressions pass, and the complete i686
       `nia-build` suite passes 216/216 with one intentional ignored worker.
+- [x] Batch 805 completes the LLVM backend's ILP32 test matrix. Target-width
+      assertions now derive native LLVM integer types for pointer-sized
+      intrinsics, vector indexes, range values, promoted constants, trait and
+      structural-extension calls, and signed comparisons; vtable overflow
+      construction uses checked arithmetic. Host and i686 `nia-codegen-llvm`
+      suites both pass 333/333, including all backend validation and lowering
+      regressions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
