@@ -17,6 +17,23 @@ mod values_and_assignments;
 mod void_and_empty;
 
 #[test]
+fn missing_declaration_module_is_reported_as_backend_diagnostic() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let missing = module_ids.allocate();
+    let modules = std::sync::Arc::new(nia_backend_ir::BackendModuleStore::new([]));
+    let (index, _publisher) = crate::program_index::ProgramIndex::new(
+        modules,
+        std::sync::Arc::new(nia_ty::TypeStore::new()),
+    );
+
+    let diagnostics = super::validate_declaration_module(missing, &index)
+        .expect_err("missing declaration module must be diagnosed");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code.as_str(), "I0300");
+    assert!(diagnostics[0].summary.contains("missing module"));
+}
+
+#[test]
 fn readiness_coordinator_retries_units_only_after_exact_owner_publication() {
     let root = common::temp_dir("readiness_coordinator_retries_exact_owner");
     let main = root.join("main.nia");

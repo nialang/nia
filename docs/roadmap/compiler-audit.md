@@ -4077,6 +4077,11 @@ acceptance item only when its phase-wide evidence is complete.
       path as backend and fingerprint manglers when a malformed type or symbol
       references an absent module; valid source identities retain their exact
       mangling, with focused stability and distinctness coverage.
+- [x] Batch 682 closes the LLVM declaration-task missing-module panic. A stale
+      or inconsistent declaration validation task now returns one
+      `INVALID_BACKEND_IR` diagnostic instead of dereferencing an absent
+      `ProgramIndex` module; the normal published-module path and diagnostic
+      code are covered by a focused regression.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -578,9 +578,13 @@ fn validate_declaration_module(
     module_id: ModuleId,
     index: &ProgramIndex,
 ) -> Result<(), Vec<nia_diagnostic::Diagnostic>> {
-    let module = index
-        .module(module_id)
-        .expect("declaration validation task references published module");
+    let Some(module) = index.module(module_id) else {
+        return Err(vec![nia_diagnostic::Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            format!("backend declaration validation references missing module {module_id:?}"),
+        )]);
+    };
     let diagnostics = validate_backend_declaration_module(module, index);
     if diagnostics.is_empty() {
         Ok(())
