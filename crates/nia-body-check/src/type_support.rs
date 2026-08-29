@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 
 static ERROR_TY_KIND: TyKind = TyKind::Error;
 
-fn type_kind_or_error<'a>(interner: &'a BodyTypeCx<'_>, ty: InternedTyId) -> &'a TyKind {
+pub(crate) fn type_kind_or_error<'a>(interner: &'a BodyTypeCx<'_>, ty: InternedTyId) -> &'a TyKind {
     interner.get(ty).unwrap_or(&ERROR_TY_KIND)
 }
 

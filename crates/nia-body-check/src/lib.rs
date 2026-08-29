@@ -138,10 +138,6 @@ impl<'a> BodyTypeCx<'a> {
     fn error(&self) -> InternedTyId {
         self.intern(TyKind::Error)
     }
-
-    fn store_id(&self) -> nia_ids::TypeStoreId {
-        self.store.id()
-    }
 }
 
 struct BodyChecker<'a> {
