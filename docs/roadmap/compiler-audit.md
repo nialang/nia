@@ -3986,6 +3986,10 @@ acceptance item only when its phase-wide evidence is complete.
       report `INVALID_BACKEND_IR` when a resolved method lacks receiver mode
       metadata, instead of silently treating it as a value receiver. Recovery
       retains a value mode only after recording the fatal lowering diagnostic.
+- [x] Batch 663 closes the LLVM method receiver ABI classification fallback.
+      Method calls now report a codegen diagnostic if receiver classification
+      unexpectedly produces no ABI entry, instead of interpreting the empty
+      result as an omitted receiver and continuing with a mismatched call.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
