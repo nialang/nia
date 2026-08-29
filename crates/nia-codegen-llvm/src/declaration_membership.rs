@@ -584,6 +584,7 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn finish(mut self, unit: CodegenUnitId) -> CodegenDeclarationMembershipBuild {
+        self.validate_instance_records();
         if !self.diagnostics.is_empty() {
             return CodegenDeclarationMembershipBuild::Invalid {
                 diagnostics: self.diagnostics,
@@ -675,6 +676,67 @@ impl<'a> MembershipBuilder<'a> {
             global_instances,
             vtables,
         }))
+    }
+
+    fn validate_instance_records(&mut self) {
+        let mut missing = Vec::new();
+        for key in &self.struct_instances {
+            if self
+                .index
+                .struct_instance(key.def_id, &key.args, &key.const_args)
+                .is_none()
+            {
+                missing.push(format!(
+                    "declaration membership references missing struct instance {:?}",
+                    key.def_id
+                ));
+            }
+        }
+        for key in &self.union_instances {
+            if self
+                .index
+                .union_instance(key.def_id, &key.args, &key.const_args)
+                .is_none()
+            {
+                missing.push(format!(
+                    "declaration membership references missing union instance {:?}",
+                    key.def_id
+                ));
+            }
+        }
+        for key in &self.function_instances {
+            if self
+                .index
+                .function_instance(
+                    key.def_id,
+                    key.arg_module_id,
+                    key.self_arg,
+                    &key.args,
+                    &key.const_args,
+                )
+                .is_none()
+            {
+                missing.push(format!(
+                    "declaration membership references missing function instance {:?}",
+                    key.def_id
+                ));
+            }
+        }
+        for key in &self.global_instances {
+            if self
+                .index
+                .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
+                .is_none()
+            {
+                missing.push(format!(
+                    "declaration membership references missing global instance {:?}",
+                    key.def_id
+                ));
+            }
+        }
+        for message in missing {
+            self.invalid(message);
+        }
     }
 
     fn invalid(&mut self, message: String) {
@@ -1345,5 +1407,37 @@ mod tests {
         };
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].summary.contains("invalid function IR"));
+    }
+
+    #[test]
+    fn missing_instance_records_are_a_structural_error_before_sorting() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let module = empty_module(module_id, "main.nia");
+        let owners = BackendModuleOwnerDirectory::from_modules([&module]);
+        let program = BackendProgram::new(vec![module]);
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
+        publisher.publish(module_id);
+        let mut builder = MembershipBuilder::new(&index, &owners);
+        builder.function_instances.insert(FunctionInstanceKey {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(99),
+            },
+            arg_module_id: module_id,
+            self_arg: None,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+
+        let result = builder.finish(CodegenUnitId::SourceModule {
+            module_id,
+            ordinal: 0,
+        });
+        let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
+            panic!("expected invalid membership result")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].summary.contains("missing function instance"));
     }
 }
