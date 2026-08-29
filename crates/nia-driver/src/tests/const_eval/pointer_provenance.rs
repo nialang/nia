@@ -495,7 +495,7 @@ fn main() Slot {
         .expect("const union return relocation");
 
     assert_eq!(relocation.offset, 0);
-    assert_eq!(relocation.width, 8);
+    assert_eq!(relocation.width, std::mem::size_of::<usize>());
     assert_eq!(relocation.allocation.module_id(), main_module.id);
     assert!(!relocation.allocation.span().is_empty());
     assert!(matches!(

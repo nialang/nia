@@ -878,13 +878,15 @@ fn main() usize {
     write(
         &root.join("math.nia"),
         r#"
+using std::builtin::target;
+
 pub struct Marker {}
 
 extend Marker {
-    pub const LIMIT: usize = if 64usize == 64 {
-        18446744073709551615usize
+    pub const LIMIT: usize = if target::pointer_width == 64usize {
+        usize::MAX
     } else {
-        4294967295usize
+        u32::MAX as usize
     };
 }
 "#,
