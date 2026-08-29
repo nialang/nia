@@ -3374,6 +3374,7 @@ using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
+    let max = usize::MAX;
     if 0usize.is_power_of_two() {
         return process::exit(1)!;
     }
@@ -3386,7 +3387,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 } },
         null => { return process::exit(4)!; },
     }
-    match 18446744073709551615usize.checked_add(1usize) {
+    match max.checked_add(1usize) {
         ?value => { _ = value;
                 return process::exit(5)!; },
         null => { },
@@ -3397,7 +3398,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
                 } },
         null => { return process::exit(7)!; },
     }
-    match 4611686018427387904usize.checked_mul(4usize) {
+    match (max / 2usize + 1usize).checked_mul(4usize) {
         ?value => { _ = value;
                 return process::exit(8)!; },
         null => { },
