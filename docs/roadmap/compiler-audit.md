@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 806 completed entries in this ledger.
+- Latest implementation batch: 807 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4970,6 +4970,13 @@ acceptance item only when its phase-wide evidence is complete.
       memory-capacity fixtures use checked 64-bit-to-`usize` conversion. Host
       and i686 suites pass for `nia-linker` (32), `nia-loader-query` (97), and
       `nia-query` (83), with no production behavior change required.
+- [x] Batch 807 records the i686 semantic-owner matrix after the portability
+      fixes. The const/type/trait/layout/flow/static owner suites pass on
+      `i686-unknown-linux-gnu` with the explicit LLVM 22 prefix, including
+      `nia-abi-check` (7), `nia-const-check` (45), `nia-body-check` (279),
+      `nia-compiler-query` (256), and the complete const-evaluation,
+      normalization, lowering, resolution, trait, flow, static, and layout
+      owners. No additional ILP32 behavior gap was identified.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
