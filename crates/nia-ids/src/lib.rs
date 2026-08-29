@@ -898,7 +898,7 @@ pub struct BuiltinTraitMethodDescriptor {
     pub name: &'static str,
     /// Owning builtin trait.
     pub trait_id: BuiltinTrait,
-    /// Number of explicit parameters after the receiver.
+    /// Total declared parameter count, including the receiver.
     pub param_count: usize,
     /// Ordinary receiver passing mode.
     pub receiver_kind: ReceiverKind,
@@ -1120,7 +1120,7 @@ impl BuiltinTraitMethod {
         self.descriptor().name
     }
 
-    /// Returns the number of explicit parameters.
+    /// Returns the total declared parameter count, including the receiver.
     pub fn param_count(self) -> usize {
         self.descriptor().param_count
     }
