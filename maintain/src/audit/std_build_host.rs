@@ -20,12 +20,16 @@ static MODULE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Clone)]
+/// Options controlling standard-library build-host closure auditing.
 pub struct Options {
+    /// Print the computed snapshot instead of comparing it.
     pub print: bool,
+    /// Expected closure snapshot path.
     pub snapshot: PathBuf,
 }
 
 impl Options {
+    /// Creates options using the repository-maintained closure snapshot.
     pub fn for_repository(root: &Path) -> Self {
         Self {
             print: false,
@@ -35,10 +39,15 @@ impl Options {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Serializable standard-library build-host closure evidence.
 pub struct Snapshot {
+    /// Snapshot schema version.
     pub schema_version: u32,
+    /// Stable snapshot kind discriminator.
     pub kind: String,
+    /// Root modules from which closure traversal starts.
     pub roots: Vec<String>,
+    /// Sorted module paths included by the closure.
     pub modules: Vec<String>,
 }
 
@@ -84,6 +93,7 @@ fn source_dependencies(path: &Path, std_root: &Path) -> MaintainResult<BTreeSet<
     Ok(dependencies)
 }
 
+/// Traverses package imports and child modules from the build-host roots.
 pub fn build_host_closure(std_root: &Path) -> MaintainResult<Vec<String>> {
     let mut queue = ROOT_MODULES
         .iter()
@@ -122,6 +132,7 @@ pub fn build_host_closure(std_root: &Path) -> MaintainResult<Vec<String>> {
     Ok(modules)
 }
 
+/// Builds the repository's current standard-library closure snapshot.
 pub fn snapshot(root: &Path) -> MaintainResult<Snapshot> {
     Ok(Snapshot {
         schema_version: 1,
@@ -134,6 +145,7 @@ pub fn snapshot(root: &Path) -> MaintainResult<Snapshot> {
     })
 }
 
+/// Prints or verifies the standard-library build-host closure snapshot.
 pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let current = snapshot(root)?;
     if options.print {
