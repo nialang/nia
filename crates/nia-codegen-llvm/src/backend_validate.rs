@@ -572,16 +572,20 @@ pub(super) fn validate_backend_partition_declarations(
         validator.validate_function(&owner.name, item, false);
     }
     for key in &declarations.function_instances {
-        let item = index
-            .function_instance(
-                key.def_id,
-                key.arg_module_id,
-                key.self_arg,
-                &key.args,
-                &key.const_args,
-            )
-            .expect("declaration membership contains indexed function instance");
-        let owner = index
+        let Some(item) = index.function_instance(
+            key.def_id,
+            key.arg_module_id,
+            key.self_arg,
+            &key.args,
+            &key.const_args,
+        ) else {
+            validator.diagnostics.push(missing_membership_diagnostic(
+                "function instance",
+                format!("{key:?}"),
+            ));
+            continue;
+        };
+        let Some(owner) = index
             .function_instance_owner(
                 key.def_id,
                 key.arg_module_id,
@@ -590,7 +594,13 @@ pub(super) fn validate_backend_partition_declarations(
                 &key.const_args,
             )
             .and_then(|owner| index.module(owner))
-            .expect("indexed function instance owner");
+        else {
+            validator.diagnostics.push(missing_membership_diagnostic(
+                "function instance owner",
+                format!("{key:?}"),
+            ));
+            continue;
+        };
         validator.validate_function_instance(&owner.name, item, false);
     }
     for &def_id in &declarations.globals {
@@ -610,12 +620,16 @@ pub(super) fn validate_backend_partition_declarations(
         validator.validate_global(global, false);
     }
     for key in &declarations.global_instances {
-        validator.validate_global_instance(
-            index
-                .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
-                .expect("declaration membership contains indexed global instance"),
-            false,
-        );
+        let Some(instance) =
+            index.global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
+        else {
+            validator.diagnostics.push(missing_membership_diagnostic(
+                "global instance",
+                format!("{key:?}"),
+            ));
+            continue;
+        };
+        validator.validate_global_instance(instance, false);
     }
     for &def_id in &declarations.structs {
         let Some(item) = index.struct_item(def_id) else {
@@ -634,11 +648,14 @@ pub(super) fn validate_backend_partition_declarations(
         validator.validate_struct(item);
     }
     for key in &declarations.struct_instances {
-        validator.validate_struct_instance(
-            index
-                .struct_instance(key.def_id, &key.args, &key.const_args)
-                .expect("declaration membership contains indexed struct instance"),
-        );
+        let Some(instance) = index.struct_instance(key.def_id, &key.args, &key.const_args) else {
+            validator.diagnostics.push(missing_membership_diagnostic(
+                "struct instance",
+                format!("{key:?}"),
+            ));
+            continue;
+        };
+        validator.validate_struct_instance(instance);
     }
     for &def_id in &declarations.unions {
         let Some(item) = index.union_item(def_id) else {
@@ -657,30 +674,40 @@ pub(super) fn validate_backend_partition_declarations(
         validator.validate_union(item);
     }
     for key in &declarations.union_instances {
-        validator.validate_union_instance(
-            index
-                .union_instance(key.def_id, &key.args, &key.const_args)
-                .expect("declaration membership contains indexed union instance"),
-        );
+        let Some(instance) = index.union_instance(key.def_id, &key.args, &key.const_args) else {
+            validator.diagnostics.push(missing_membership_diagnostic(
+                "union instance",
+                format!("{key:?}"),
+            ));
+            continue;
+        };
+        validator.validate_union_instance(instance);
     }
     for key in &declarations.vtables {
-        validator.validate_vtable(
-            index
-                .trait_object_vtable(key)
-                .expect("declaration membership contains indexed vtable"),
-            false,
-        );
+        let Some(vtable) = index.trait_object_vtable(key) else {
+            validator.diagnostics.push(missing_membership_diagnostic(
+                "trait-object vtable",
+                format!("{key:?}"),
+            ));
+            continue;
+        };
+        validator.validate_vtable(vtable, false);
     }
     validator.diagnostics
 }
 
 fn missing_declaration_diagnostic(kind: &str, def_id: GlobalDefId) -> Diagnostic {
+    missing_membership_diagnostic(
+        kind,
+        format!("{def_id:?} without a matching published owner"),
+    )
+}
+
+fn missing_membership_diagnostic(kind: &str, detail: String) -> Diagnostic {
     Diagnostic::internal_error_at(
         nia_diagnostic::codes::INVALID_BACKEND_IR,
         nia_span::Span::default(),
-        format!(
-            "backend declaration membership references {kind} {def_id:?} without a matching published owner"
-        ),
+        format!("backend declaration membership references {kind} {detail}"),
     )
 }
 
@@ -2232,10 +2259,15 @@ mod owner_tests {
 
     use super::{
         definition_owner_matches, expected_trait_object_vtable_symbol, member_owner_matches,
-        missing_declaration_diagnostic,
+        missing_declaration_diagnostic, validate_backend_partition_declarations,
     };
+    use crate::declaration_membership::CodegenDeclarationMembership;
     use crate::program_index::ProgramIndex;
-    use nia_backend_ir::{BackendConstFacts, BackendLayouts, BackendModule, BackendModuleStore};
+    use nia_backend_ir::{
+        BackendConstFacts, BackendLayouts, BackendModule, BackendModuleStore,
+        CodegenUnitDependencies, CodegenUnitId,
+    };
+    use nia_function_ir::FunctionInstanceKey;
     use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_source::SourceIdentity;
@@ -2305,6 +2337,73 @@ mod owner_tests {
                 .summary
                 .contains("without a matching published owner")
         );
+    }
+
+    #[test]
+    fn missing_instance_in_declaration_membership_is_a_diagnostic() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let module = BackendModule {
+            id: module_id,
+            source_identity: SourceIdentity::new("stale-membership.nia"),
+            name: "stale-membership".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: TargetDataLayout::LP64,
+                types: Vec::new(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        };
+        let store = Arc::new(BackendModuleStore::new([module_id]));
+        store.publish(module);
+        let (index, mut publisher) = ProgramIndex::new(store, Arc::new(TypeStore::new()));
+        publisher.publish(module_id);
+        let unit = CodegenUnitId::SourceModule {
+            module_id,
+            ordinal: 0,
+        };
+        let missing = FunctionInstanceKey {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(9),
+            },
+            arg_module_id: module_id,
+            self_arg: None,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        };
+        let declarations = CodegenDeclarationMembership {
+            dependencies: CodegenUnitDependencies::new(unit, [module_id]),
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: vec![missing],
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            vtables: Vec::new(),
+        };
+
+        let diagnostics =
+            validate_backend_partition_declarations(&declarations, &index, TargetDataLayout::LP64);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].summary.contains("function instance"));
     }
 
     #[test]
