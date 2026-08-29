@@ -731,10 +731,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn mangle_module_id(&self, module_id: ModuleId) -> MangleModuleId {
-        let module = self.program.module(module_id).unwrap_or_else(|| {
-            panic!("Nia ICE: cannot mangle symbol for missing module {module_id:?}")
-        });
-        MangleModuleId::from_normalized_source_path(module.source_identity.normalized_path())
+        let path = self
+            .program
+            .module(module_id)
+            .map(|module| module.source_identity.normalized_path());
+        mangle_module_id_path(module_id, path)
     }
 
     fn struct_symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
@@ -832,5 +833,38 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {
         error.diagnostic()
+    }
+}
+
+fn mangle_module_id_path(module_id: ModuleId, normalized_path: Option<&str>) -> MangleModuleId {
+    let path = normalized_path
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("<missing-module-{}>", module_id.local_index()));
+    MangleModuleId::from_normalized_source_path(&path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mangle_module_id_path;
+    use nia_ids::ModuleIdAllocator;
+
+    #[test]
+    fn missing_module_mangle_path_is_stable_and_distinct() {
+        let mut modules = ModuleIdAllocator::new();
+        let first = modules.allocate();
+        let second = modules.allocate();
+
+        assert_eq!(
+            mangle_module_id_path(first, None).raw(),
+            mangle_module_id_path(first, None).raw()
+        );
+        assert_ne!(
+            mangle_module_id_path(first, None).raw(),
+            mangle_module_id_path(second, None).raw()
+        );
+        assert_eq!(
+            mangle_module_id_path(first, Some("src/main.nia")).raw(),
+            nia_mangle::MangleModuleId::from_normalized_source_path("src/main.nia").raw()
+        );
     }
 }
