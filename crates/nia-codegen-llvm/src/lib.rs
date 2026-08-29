@@ -686,7 +686,7 @@ fn emit_llvm_ir_partition(
         &index,
         options,
         fingerprint::ArtifactTarget::LlvmIr,
-    );
+    )?;
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let context =
@@ -735,7 +735,7 @@ fn emit_native_object_partition(
         &index,
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
-    );
+    )?;
     let lookup = load_object_work_product(cache, &partition.key, fingerprints);
     if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((

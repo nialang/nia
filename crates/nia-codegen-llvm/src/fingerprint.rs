@@ -18,6 +18,7 @@ use nia_ty::{
 
 use crate::{
     CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, LlvmCodegenOptions,
+    backend_validate::validate_backend_partition_declarations,
     compiler_builtins::CompilerBuiltinSymbols,
     declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex,
 };
@@ -53,8 +54,16 @@ pub(super) fn source_unit_fingerprint(
     index: &ProgramIndex,
     options: LlvmCodegenOptions,
     target: ArtifactTarget<'_>,
-) -> CodegenUnitFingerprintSet {
+) -> Result<CodegenUnitFingerprintSet, Vec<nia_diagnostic::Diagnostic>> {
     declarations.validate_dependencies(partition, index);
+    let diagnostics = validate_backend_partition_declarations(
+        declarations,
+        index,
+        index.module_for_partition(partition).layouts.target,
+    );
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
     let mut policy = Encoder::new(SOURCE_POLICY_DOMAIN, index);
     policy.compiler_contract(options.toolchain_identity);
     policy.codegen_unit_key(&partition.key);
@@ -70,12 +79,14 @@ pub(super) fn source_unit_fingerprint(
 
     let mut target_component = Encoder::new(SOURCE_TARGET_DOMAIN, index);
     target_component.artifact_target(target);
-    CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
-        policy: policy.finish(),
-        definition: definition.finish(),
-        declarations: declaration.finish(),
-        target: target_component.finish(),
-    })
+    Ok(CodegenUnitFingerprintSet::new(
+        CodegenUnitFingerprintComponents {
+            policy: policy.finish(),
+            definition: definition.finish(),
+            declarations: declaration.finish(),
+            target: target_component.finish(),
+        },
+    ))
 }
 
 pub(super) fn compiler_builtins_fingerprint(
@@ -2090,6 +2101,40 @@ mod tests {
             options,
             ArtifactTarget::LlvmIr,
         )
+        .expect("valid fingerprint fixture")
+    }
+
+    #[test]
+    fn fingerprint_rejects_stale_declaration_membership() {
+        let mut modules = ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let store = TypeStore::new();
+        let ty = store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let fixture = fixture(
+            BackendProgram {
+                modules: vec![module_with_global(module_id, "stale.nia", ty, 0)].into(),
+            },
+            store,
+            "stale.nia",
+        );
+        let mut declarations = declarations(&fixture);
+        declarations.functions.push(GlobalDefId {
+            module_id,
+            def_id: DefId(99),
+        });
+
+        let diagnostics = source_unit_fingerprint(
+            &fixture.partition,
+            &declarations,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::LlvmIr,
+        )
+        .expect_err("stale declarations must be diagnosed");
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].summary.contains("references function"));
     }
 
     fn ir_fingerprint(fixture: &Fixture, options: LlvmCodegenOptions) -> CodegenUnitFingerprint {
@@ -2753,14 +2798,16 @@ mod tests {
             &fixture.index,
             LlvmCodegenOptions::default(),
             ArtifactTarget::NativeObject(&target),
-        );
+        )
+        .expect("valid fingerprint fixture");
         let changed = source_unit_fingerprint(
             &fixture.partition,
             &declarations,
             &fixture.index,
             LlvmCodegenOptions::default(),
             ArtifactTarget::NativeObject(&changed_target),
-        );
+        )
+        .expect("valid fingerprint fixture");
         assert_ne!(baseline.fingerprint, changed.fingerprint);
         assert_ne!(baseline.components.target, changed.components.target);
         assert_eq!(baseline.components.policy, changed.components.policy);
@@ -2784,7 +2831,8 @@ mod tests {
                 ..LlvmCodegenOptions::default()
             },
             ArtifactTarget::NativeObject(&target),
-        );
+        )
+        .expect("valid fingerprint fixture");
         assert_ne!(baseline.fingerprint, changed_toolchain.fingerprint);
         assert_ne!(
             baseline.components.policy,
