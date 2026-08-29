@@ -4029,6 +4029,11 @@ acceptance item only when its phase-wide evidence is complete.
       malformed initialized segment containing an absent byte now returns an
       LLVM codegen diagnostic instead of calling `expect`; focused unit tests
       cover both rejection and byte-preserving success behavior.
+- [x] Batch 672 closes backend instance type-handle panics. Type normalization
+      and const-argument canonicalization now report deduplicated
+      `INVALID_BACKEND_IR` diagnostics and recover with the existing error type
+      when a session handle is missing; focused tests cover the diagnostic
+      contract while normal generic and trait matrices remain green.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

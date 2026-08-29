@@ -227,13 +227,14 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn normalized_type_from_module(
-        &self,
+        &mut self,
         module_id: ModuleId,
         ty: InternedTyId,
     ) -> InternedTyId {
-        let kind = self.ty_kind(ty).unwrap_or_else(|| {
-            panic!("Nia ICE: backend type {ty:?} is missing from the session store")
-        });
+        let Some(kind) = self.ty_kind(ty) else {
+            self.report_missing_type(ty);
+            return self.error_ty();
+        };
         if matches!(kind, TyKind::Error) {
             return ty;
         }
@@ -451,10 +452,11 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    pub(crate) fn normalize_instance_arg_type(&self, ty: InternedTyId) -> InternedTyId {
-        let kind = self.ty_kind(ty).unwrap_or_else(|| {
-            panic!("Nia ICE: backend type {ty:?} is missing from the session store")
-        });
+    pub(crate) fn normalize_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
+        let Some(kind) = self.ty_kind(ty) else {
+            self.report_missing_type(ty);
+            return self.error_ty();
+        };
         if matches!(kind, TyKind::Error) {
             return ty;
         }
@@ -462,7 +464,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn normalize_const_generic_arg(
-        &self,
+        &mut self,
         arg: &nia_ty::ConstGenericArg,
     ) -> nia_ty::ConstGenericArg {
         nia_ty::ConstGenericArg {
@@ -471,8 +473,14 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn report_missing_type(&mut self, ty: InternedTyId) {
+        if self.missing_type_diagnostics.insert(ty) {
+            self.diagnostics.push(missing_type_diagnostic(ty));
+        }
+    }
+
     pub(crate) fn canonicalize_instance_const_arg(
-        &self,
+        &mut self,
         arg: &nia_ty::ConstGenericArg,
     ) -> nia_ty::ConstGenericArg {
         let mut arg = self.normalize_const_generic_arg(arg);
@@ -720,7 +728,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn normalize_where_predicates(
-        &self,
+        &mut self,
         predicates: &[nia_item_signatures::WherePredicateSignature],
         module_id: ModuleId,
     ) -> Vec<nia_item_signatures::WherePredicateSignature> {
@@ -2811,6 +2819,15 @@ impl<'a> ModuleLowerer<'a> {
     }
 }
 
+fn missing_type_diagnostic(ty: InternedTyId) -> nia_diagnostic::Diagnostic {
+    nia_diagnostic::Diagnostic::internal_error(
+        nia_diagnostic::codes::INVALID_BACKEND_IR,
+        "backend lowering referenced a type handle missing from the session store",
+    )
+    .debug("type", ty)
+    .finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2818,9 +2835,34 @@ mod tests {
         same_array_len_with_values, same_associated_type_bindings_with,
         same_trait_object_pointee_with,
     };
+    use nia_ids::InternedTyId;
     use nia_ty::{
         ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, TypeStore,
     };
+
+    #[test]
+    fn missing_type_diagnostic_identifies_invalid_backend_ir() {
+        let mut modules = nia_ids::ModuleIdAllocator::new();
+        let module_id = modules.allocate();
+        let type_store = TypeStore::new();
+        let valid = type_store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let missing = InternedTyId::new(
+            valid.store_id,
+            nia_ids::TypeStoreIndex::from_store_index(valid.index.index() + 1),
+        );
+        let diagnostic = super::missing_type_diagnostic(missing);
+        assert!(
+            diagnostic
+                .summary
+                .contains("missing from the session store")
+        );
+        assert_eq!(
+            diagnostic.code,
+            nia_diagnostic::codes::INVALID_BACKEND_IR.into()
+        );
+    }
 
     #[test]
     fn array_length_matching_recurses_through_builtin_operands() {
