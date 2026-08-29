@@ -307,16 +307,17 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
-    if std::builtin::ctz[usize](0usize) != 64usize {
+    let bits = std::builtin::size[usize]() * 8usize;
+    if std::builtin::ctz[usize](0usize) != bits {
         return process::exit(1)!;
     }
-    if std::builtin::clz[usize](0usize) != 64usize {
+    if std::builtin::clz[usize](0usize) != bits {
         return process::exit(2)!;
     }
     if std::builtin::ctz[usize](0x8010usize) != 4usize {
         return process::exit(3)!;
     }
-    if std::builtin::clz[usize](0x8010usize) != 48usize {
+    if std::builtin::clz[usize](0x8010usize) != bits - 16usize {
         return process::exit(4)!;
     }
     if std::builtin::popcount[usize](0x8010usize) != 2usize {

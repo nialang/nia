@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 780 completed entries in this ledger.
+- Latest implementation batch: 782 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4803,6 +4803,22 @@ acceptance item only when its phase-wide evidence is complete.
       cases (up from link-time failure); the lane-range trap case passes, while
       7 cases still terminate by signal in the 32-bit startup/runtime ABI and
       remain open for follow-up.
+- [x] Batch 781 adds an experimental i686 freestanding runtime. Standard
+      library target facades now select architecture-specific startup modules;
+      Linux x86 startup derives the initial stack using 32-bit words, and its
+      syscall owner uses the i386 `int 0x80` register ABI with the historical
+      syscall-number table. Real i686 intrinsic execution advances to 4/8
+      passing cases (including startup, Unicode, const evaluation, and bounds
+      trapping); the remaining SIMD/bit-width cases are retained as explicit
+      runtime gaps. ABI, language-specification, architecture, and roadmap
+      documentation now describe the experimental status accurately.
+- [x] Batch 782 completes the i686 executable intrinsic follow-up. The Linux
+      x86 startup now aligns the stack to the i386 16-byte call boundary before
+      entering Nia code, avoiding alignment faults in vector lowering. The
+      cross-target bit-intrinsic executable check derives zero-value and leading
+      zero counts from the emitted `usize` width instead of assuming 64 bits.
+      The real i686 `emit_exe_intrinsics` matrix reaches 8/8 passing cases;
+      host execution remains covered by the same target-independent assertions.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

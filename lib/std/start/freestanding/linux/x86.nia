@@ -1,0 +1,71 @@
+using entry;
+using pkg::math;
+using pkg::os;
+using pkg::process;
+
+fn call_user_main(init: process::Init) process::ExitCode {
+    match entry::main(init) {
+        !ok => {
+            _ = ok;
+            process::ExitCode::Success
+        },
+        error! => error,
+    }
+}
+
+extern fn nia_start_stack(stack: &usize) () {
+    let argc = stack.*;
+    let wordSize = std::builtin::size[usize]();
+    let argvAddress = match startupAddress(stack, wordSize) {
+        ?address => address,
+        null => {
+            os::exit(127);
+            0
+        },
+    };
+    let envWordCount = match argc.checked_add(2) {
+        ?count => count,
+        null => {
+            os::exit(127);
+            0
+        },
+    };
+    let envOffset = match wordSize.checked_mul(envWordCount) {
+        ?offset => offset,
+        null => {
+            os::exit(127);
+            0
+        },
+    };
+    let envAddress = match startupAddress(stack, envOffset) {
+        ?address => address,
+        null => {
+            os::exit(127);
+            0
+        },
+    };
+    let init = process::Init::init(argc, argvAddress as &&u8, envAddress as &&u8);
+    os::exit(call_user_main(init) as i32);
+    loop {}
+}
+
+fn startupAddress(stack: &usize, offset: usize) ?usize {
+    (stack as usize).checked_add(offset)
+}
+
+@[naked]
+pub extern fn _start() () {
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\mov eax, esp
+            \\and esp, -16
+            \\sub esp, 12
+            \\push eax
+            \\call nia_start_stack
+            \\ud2
+        ,
+        clobbers: [b"eax", b"ecx", b"edx", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}
