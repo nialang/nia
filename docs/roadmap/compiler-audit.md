@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 803 completed entries in this ledger.
+- Latest implementation batch: 804 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4951,6 +4951,11 @@ acceptance item only when its phase-wide evidence is complete.
       i686 `nia-driver` owner suite passes 655/655 (with the corresponding
       focused host tests green), covering const evaluation, imports, traits,
       incremental state, and backend lowering on ILP32.
+- [x] Batch 804 hardens runner-configuration decoding against ILP32 length
+      overflow. A hostile `u32::MAX` payload length now uses checked header
+      addition and returns `DecodeError::Length` instead of panicking on 32-bit
+      targets. Host and i686 focused regressions pass, and the complete i686
+      `nia-build` suite passes 216/216 with one intentional ignored worker.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
