@@ -1030,6 +1030,8 @@ mod tests {
     use super::test_support::*;
     use super::*;
 
+    type TargetMutation = (&'static str, fn(&mut TargetSpec), &'static str);
+
     #[test]
     fn freeze_is_independent_of_allocation_order() {
         assert_eq!(
@@ -1150,6 +1152,44 @@ mod tests {
                     if details.action.name() == action_name
                         && details.target.arch == "third-architecture"
             ));
+        }
+    }
+
+    #[test]
+    fn freeze_rejects_malformed_host_and_artifact_targets() {
+        let cases: &[TargetMutation] = &[
+            ("empty architecture", |target: &mut TargetSpec| target.arch.clear(),
+                "architecture and operating system must be named"),
+            ("empty operating system", |target: &mut TargetSpec| target.os.clear(),
+                "architecture and operating system must be named"),
+            ("NUL architecture", |target: &mut TargetSpec| target.arch = "x\0_64".into(),
+                "target field contains NUL"),
+            ("NUL vendor", |target: &mut TargetSpec| target.vendor = "bad\0vendor".into(),
+                "target field contains NUL"),
+            ("invalid endianness", |target: &mut TargetSpec| target.endian = "middle".into(),
+                "endianness must be `little` or `big`"),
+            ("unsupported pointer width", |target: &mut TargetSpec| target.pointer_width = 24,
+                "unsupported pointer width"),
+        ];
+
+        for (label, mutate, reason) in cases {
+            for role in ["host", "artifact"] {
+                let mut value = draft(false);
+                let target = if role == "host" {
+                    &mut value.host_target
+                } else {
+                    &mut value.artifact_target
+                };
+                mutate(target);
+                assert!(
+                    matches!(
+                        BuildPlan::freeze(value),
+                        Err(PlanError::InvalidTarget { role: found_role, reason: found_reason })
+                            if found_role == role && found_reason == *reason
+                    ),
+                    "{label} should reject the {role} target"
+                );
+            }
         }
     }
 
