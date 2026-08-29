@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 764 completed entries in this ledger.
+- Latest implementation batch: 765 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4690,6 +4690,13 @@ acceptance item only when its phase-wide evidence is complete.
       linker, runtime, and doc-test suites pass; the existing ignored test
       remains non-blocking and unchanged. Formatting, diff, maintenance,
       Rustdoc, and Clippy gates remain required for the next focused batch.
+- [x] Batch 765 closes two direct lexer boundary gaps: lossless token streams
+      now regress CRLF comment/whitespace spans and byte-for-byte source
+      reconstruction, while multiline strings cover CRLF plus indented
+      continuations and termination at a plain line. `nia-lexer` (12 tests),
+      strict Rustdoc, all-target Clippy, formatting, and diff checks pass.
+      Broader Phase E malformed-input and source-mapping acceptance remains
+      open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
