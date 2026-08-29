@@ -9,6 +9,7 @@ fn id[T](value: T) T { value }
 fn main() i32 {
     id[i32](1)
 }
+
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -21,6 +22,19 @@ fn main() i32 {
         panic!("expected call");
     };
     assert!(matches!(callee.kind, ExprKind::BracketSuffix { .. }));
+}
+
+#[test]
+fn recovers_when_generic_argument_replay_cannot_produce_a_type() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() i32 {
+    missing[&]
+}
+"#,
+    );
+    assert!(!errors.is_empty(), "malformed generic argument must be diagnosed");
+    let _ = module;
 }
 
 #[test]

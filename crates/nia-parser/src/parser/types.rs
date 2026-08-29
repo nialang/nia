@@ -521,16 +521,24 @@ impl Parser {
                 (Some(_), _) => {
                     self.rewind(type_checkpoint);
                     self.errors.truncate(type_errors_len);
-                    let ty = self.parse_type().expect("type candidate should reparse");
-                    args.push(TypeArg::Type(ty));
+                    if let Some(ty) = self.parse_type() {
+                        args.push(TypeArg::Type(ty));
+                    } else {
+                        self.error_here("expected type argument");
+                        self.skip_to_type_arg_boundary();
+                    }
                 }
                 (None, Some(_)) => {
                     self.rewind(expr_checkpoint);
                     self.errors.truncate(expr_errors_len);
-                    let expr = self
-                        .parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
-                        .expect("const candidate should reparse");
-                    args.push(TypeArg::Const(expr));
+                    if let Some(expr) =
+                        self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RBracket])
+                    {
+                        args.push(TypeArg::Const(expr));
+                    } else {
+                        self.error_here("expected const generic argument");
+                        self.skip_to_type_arg_boundary();
+                    }
                 }
                 (None, None) => {
                     self.rewind(checkpoint);
