@@ -135,6 +135,18 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_llvm_prefix_and_non_string_payloads() {
+        let llvm = catch_ice(|| panic!("Nia ICE (LLVM): null handle")).unwrap_err();
+        assert_eq!(llvm.message, "null handle");
+
+        let non_string = catch_ice(|| std::panic::panic_any(42_u32)).unwrap_err();
+        assert_eq!(
+            non_string.message,
+            "compiler panicked with non-string payload"
+        );
+    }
+
+    #[test]
     fn renders_actionable_message() {
         let message = Ice::new("failed invariant").render_message();
         assert!(message.contains("internal compiler error"));

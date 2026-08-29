@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 767 completed entries in this ledger.
+- Latest implementation batch: 768 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4709,6 +4709,11 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-ast-walk` (3 tests) passes with strict Rustdoc, all-target Clippy,
       formatting, and diff checks. Broader Phase E structural coverage remains
       open.
+- [x] Batch 768 hardens ICE payload coverage: LLVM-specific panic prefixes are
+      normalized to the stable message form and non-string payloads retain a
+      deterministic fallback description. `nia-ice` (5 tests) passes with
+      strict Rustdoc, all-target Clippy, formatting, and diff checks. Broader
+      Phase E panic-boundary and diagnostic acceptance remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
