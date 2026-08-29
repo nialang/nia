@@ -141,7 +141,8 @@ impl Analyzer<'_> {
             for (generic, arg) in signature.generic_params.iter().zip(generic_args) {
                 match (&generic.kind, arg) {
                     (GenericParamSignatureKind::Type, ResolvedConstGenericArg::Type(arg)) => {
-                        let canonical = self.type_for_module(arg.ty(), signature_module_id)?;
+                        let canonical =
+                            self.type_for_module(span, arg.ty(), signature_module_id)?;
                         substitutions.insert(generic.name, canonical);
                     }
                     (
@@ -185,7 +186,7 @@ impl Analyzer<'_> {
         expected_ty: InternedTyId,
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
-        let expected_ty = self.type_for_module(expected_ty, module_id)?;
+        let expected_ty = self.type_for_module(expr.span(), expected_ty, module_id)?;
         let expected = self
             .type_contexts
             .get(&module_id)

@@ -4107,6 +4107,11 @@ acceptance item only when its phase-wide evidence is complete.
       is evaluated under an unsupported target pointer width, preserving the
       source span and avoiding an internal range `expect`; a malformed 256-bit
       target regression covers the recovery path.
+- [x] Batch 689 closes const-check cross-module type-handle panic recovery.
+      Generic type inference now reports span-preserving `ConstError` values
+      when a target module context is unavailable or a type handle belongs to a
+      foreign store, replacing the previous `expect`/`assert` boundary; focused
+      validation coverage locks both malformed-input diagnostics.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
