@@ -16,8 +16,10 @@ pub fn check_module_bodies(
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let layouts =
-        nia_layout::compute_layouts(type_store, defs, signatures, target_data_layout(&target));
+    let Some(target_layout) = target_data_layout(&target) else {
+        return body_check_target_layout_error(&target);
+    };
+    let layouts = nia_layout::compute_layouts(type_store, defs, signatures, target_layout);
     let empty_const_module = ResolvedConstModule::default();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
@@ -91,6 +93,9 @@ pub fn check_module_bodies_with_program_signatures(
 ) -> BodyCheck {
     let root_types = input.signatures.type_roots();
     let array_lengths = |id| input.const_eval.array_lengths.get(&id).copied();
+    let Some(target_layout) = target_data_layout(input.target) else {
+        return body_check_target_layout_error(input.target);
+    };
     let layouts =
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: input.type_store,
@@ -99,7 +104,7 @@ pub fn check_module_bodies_with_program_signatures(
             root_types: &root_types,
             normalized: &input.normalization.normalized,
             array_lengths: &array_lengths,
-            target: target_data_layout(input.target),
+            target: target_layout,
             program: nia_layout::ProgramLayoutContext::default(),
         });
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -137,9 +142,32 @@ pub fn check_module_bodies_with_program_signatures(
     checked
 }
 
-fn target_data_layout(target: &TargetConfig) -> nia_layout::TargetDataLayout {
+fn target_data_layout(target: &TargetConfig) -> Option<nia_layout::TargetDataLayout> {
     nia_layout::TargetDataLayout::from_pointer_width(target.pointer_width)
-        .expect("body-check target pointer width must have a supported data layout")
+}
+
+fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
+    let diagnostic = Diagnostic::user_error_at(
+        codes::TARGET_CONFIG,
+        Span::new(0, 0),
+        format!(
+            "body checking requires a supported target pointer width, got {}",
+            target.pointer_width
+        ),
+    );
+    BodyCheck {
+        ir: Arc::new(BodyIr {
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+        }),
+        facts: Arc::new(SemanticFacts::default()),
+        static_init_refs: HashMap::new(),
+        checked_functions: HashSet::new(),
+        provider_demands: Arc::new(HashSet::new()),
+        provider_demands_by_function: HashMap::new(),
+        diagnostic_owners: vec![None],
+        diagnostics: Arc::new(vec![diagnostic]),
+    }
 }
 
 fn semantic_use_table_for_body_input(
@@ -452,4 +480,38 @@ pub(super) fn time_body_stage_if_slow<T>(
         std::time::Duration::from_secs_f64(threshold_seconds),
         f,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{body_check_target_layout_error, target_data_layout};
+    use nia_target_config::TargetConfig;
+
+    #[test]
+    fn unsupported_target_pointer_widths_are_recoverable() {
+        for pointer_width in [0, 129] {
+            let target = TargetConfig {
+                pointer_width,
+                ..TargetConfig::host()
+            };
+            assert!(target_data_layout(&target).is_none());
+            let check = body_check_target_layout_error(&target);
+            assert!(check.ir.function_bodies.is_empty());
+            assert!(check.ir.global_inits.is_empty());
+            assert_eq!(check.diagnostics.len(), 1);
+            assert_eq!(check.diagnostic_owners, vec![None]);
+            assert!(check.diagnostics[0].summary.contains("pointer width"));
+            assert!(
+                check.diagnostics[0]
+                    .summary
+                    .contains(&pointer_width.to_string())
+            );
+        }
+
+        let target = TargetConfig {
+            pointer_width: 64,
+            ..TargetConfig::host()
+        };
+        assert!(target_data_layout(&target).is_some());
+    }
 }
