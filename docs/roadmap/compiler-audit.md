@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 735 completed entries in this ledger.
+- Latest implementation batch: 736 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4427,6 +4427,13 @@ acceptance item only when its phase-wide evidence is complete.
       pass. The workspace formatting gate still reports pre-existing drift in
       `nia-build/src/plan.rs`. Phase-wide soundness and final
       clean/incremental, resource, and external-target acceptance remain open.
+- [x] Batch 736 removes seven `missing_docs` suppressions from
+      `nia-compiler-query`. Loader-provider methods now document their fact and
+      session contracts, and loaded, checked, and codegen product fields now
+      identify ownership and downstream use. Strict Rustdoc, all 256 owner
+      tests, strict all-target Clippy, crate-local formatting, and diff checks
+      pass. Phase-wide query/semantic acceptance and final clean/incremental,
+      resource, and external-target evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
