@@ -684,7 +684,9 @@ pub fn plan_backend_program_with_timings(
     );
     time_backend_stage(timing, "backend_lower.foreign_items", || {
         while !pending_foreign_items.is_empty() {
-            let plan = pending_foreign_items.drain_plan(&module_indices, lowerers.len());
+            let (plan, owner_diagnostics) =
+                pending_foreign_items.drain_plan(&module_indices, lowerers.len());
+            diagnostics.extend(owner_diagnostics);
             for (owner_index, refs) in plan.functions_by_owner.into_iter().enumerate() {
                 if refs.is_empty() {
                     continue;
@@ -1485,18 +1487,25 @@ impl PendingForeignBackendItems {
         &mut self,
         module_indices: &HashMap<ModuleId, usize>,
         module_count: usize,
-    ) -> ForeignBackendItemPlan {
+    ) -> (ForeignBackendItemPlan, Vec<Diagnostic>) {
         let mut plan = ForeignBackendItemPlan {
             functions_by_owner: (0..module_count).map(|_| Vec::new()).collect(),
             function_instances_by_owner: (0..module_count).map(|_| Vec::new()).collect(),
             global_instances_by_owner: (0..module_count).map(|_| Vec::new()).collect(),
         };
+        let mut diagnostics = Vec::new();
         while let Some(function) = self.functions.pop_front() {
             if !self.queued_functions.insert(function) {
                 continue;
             }
-            let owner_index =
-                foreign_item_owner_index(module_indices, function.module_id, "source function");
+            let Some(owner_index) = foreign_item_owner_index(
+                module_indices,
+                function.module_id,
+                "source function",
+                &mut diagnostics,
+            ) else {
+                continue;
+            };
             plan.functions_by_owner[owner_index].push(function);
         }
         for functions in &mut plan.functions_by_owner {
@@ -1507,31 +1516,31 @@ impl PendingForeignBackendItems {
             if !self.queued_function_instances.insert(key.clone()) {
                 continue;
             }
-            let owner_index = module_indices
-                .get(&instance.def_id.module_id)
-                .copied()
-                .unwrap_or_else(|| {
-                    let mut planned_owners = module_indices.keys().copied().collect::<Vec<_>>();
-                    planned_owners.sort_unstable();
-                    panic!(
-                        "Nia ICE: foreign backend function instance {key:?} owner {:?} is not in module plan {planned_owners:?}",
-                        instance.def_id.module_id,
-                    )
-                });
+            let Some(owner_index) = foreign_item_owner_index(
+                module_indices,
+                instance.def_id.module_id,
+                "function instance",
+                &mut diagnostics,
+            ) else {
+                continue;
+            };
             plan.function_instances_by_owner[owner_index].push(instance);
         }
         while let Some(instance) = self.global_instances.pop_front() {
             if !self.queued_global_instances.insert(instance.key()) {
                 continue;
             }
-            let owner_index = foreign_item_owner_index(
+            let Some(owner_index) = foreign_item_owner_index(
                 module_indices,
                 instance.def_id.module_id,
                 "global instance",
-            );
+                &mut diagnostics,
+            ) else {
+                continue;
+            };
             plan.global_instances_by_owner[owner_index].push(instance);
         }
-        plan
+        (plan, diagnostics)
     }
 }
 
@@ -1539,10 +1548,17 @@ fn foreign_item_owner_index(
     module_indices: &HashMap<ModuleId, usize>,
     owner: ModuleId,
     item_kind: &'static str,
-) -> usize {
-    module_indices.get(&owner).copied().unwrap_or_else(|| {
-        panic!("Nia ICE: foreign backend {item_kind} owner {owner:?} is not in the module plan")
-    })
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<usize> {
+    let Some(index) = module_indices.get(&owner).copied() else {
+        diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            nia_span::Span::default(),
+            format!("foreign backend {item_kind} owner {owner:?} is not in the module plan"),
+        ));
+        return None;
+    };
+    Some(index)
 }
 
 #[derive(Default)]

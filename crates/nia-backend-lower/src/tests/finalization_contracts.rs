@@ -166,16 +166,16 @@ fn foreign_backend_item_plan_groups_and_orders_source_functions_by_owner() {
         .extend([entry_high, child_function, entry_low, entry_high]);
     let module_indices = HashMap::from([(child, 0), (entry, 1)]);
 
-    let plan = pending.drain_plan(&module_indices, 2);
+    let (plan, diagnostics) = pending.drain_plan(&module_indices, 2);
 
+    assert!(diagnostics.is_empty());
     assert_eq!(plan.functions_by_owner[0], vec![child_function]);
     assert_eq!(plan.functions_by_owner[1], vec![entry_low, entry_high]);
     assert!(pending.is_empty());
 }
 
 #[test]
-#[should_panic(expected = "foreign backend source function owner")]
-fn foreign_backend_item_plan_rejects_missing_owner_module() {
+fn foreign_backend_item_plan_reports_missing_owner_module() {
     let mut module_ids = ModuleIdAllocator::new();
     let missing = module_ids.allocate();
     let mut pending = PendingForeignBackendItems::default();
@@ -184,5 +184,9 @@ fn foreign_backend_item_plan_rejects_missing_owner_module() {
         def_id: DefId(1),
     });
 
-    let _ = pending.drain_plan(&HashMap::new(), 0);
+    let (plan, diagnostics) = pending.drain_plan(&HashMap::new(), 0);
+
+    assert!(plan.functions_by_owner.is_empty());
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].summary.contains("source function"));
 }
