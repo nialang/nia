@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 747 completed entries in this ledger.
+- Latest implementation batch: 748 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4512,6 +4512,12 @@ acceptance item only when its phase-wide evidence is complete.
       2 binary, and 3 workflow tests), strict Clippy, `cargo maintain check`,
       workspace formatting, and diff checks pass. The fixed cross-cutting item
       remains open for its separate test-gap review and final acceptance matrix.
+- [x] Batch 748 adds direct owner tests for the previously testless pure-value
+      crates `nia-hash`, `nia-span`, and `nia-ir-names`: deterministic hash
+      bytes/scalars and map/set behavior, half-open and reversed span bounds,
+      and local-name category/storage-name identity. All 6 new tests, strict
+      all-target Clippy, workspace formatting, and diff checks pass. `nia-ast`
+      schema coverage and the broader cross-cutting test-gap review remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
