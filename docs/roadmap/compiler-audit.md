@@ -4098,6 +4098,10 @@ acceptance item only when its phase-wide evidence is complete.
       Malformed or stale function-body spans now use a deterministic recovery
       fingerprint instead of asserting or indexing invalid UTF-8/source
       ranges; valid body-elision fingerprints remain unchanged.
+- [x] Batch 687 removes trait-selection candidate-count panic recovery.
+      Unique user-implementation selection now handles an unexpectedly empty
+      iterator explicitly, preserving `Unsatisfied` as the conservative result
+      while retaining normal ambiguity and unique-selection behavior.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -64,12 +64,11 @@ impl TraitSolver<'_> {
         let user_impls = self.matching_user_impls(goal);
         let selection = match user_impls.len() {
             0 => TraitSelection::Unsatisfied,
-            1 => TraitSelection::User(
-                user_impls
-                    .into_iter()
-                    .next()
-                    .expect("one candidate was counted"),
-            ),
+            1 => user_impls
+                .into_iter()
+                .next()
+                .map(TraitSelection::User)
+                .unwrap_or(TraitSelection::Unsatisfied),
             _ => TraitSelection::Ambiguous,
         };
         if let Some(index) = (0..self.active_goals.len()).rev().find(|index| {
