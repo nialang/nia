@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 757 completed entries in this ledger.
+- Latest implementation batch: 758 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4637,6 +4637,14 @@ acceptance item only when its phase-wide evidence is complete.
       strict Rustdoc, Clippy, formatting, maintenance, and diff checks.
       Broader Phase A generic-resolution and cross-cutting acceptance remain
       open.
+- [x] Batch 758 completes the focused `nia-value-resolve` owner matrix for
+      primitive integer associated limits, injected nominal associated values,
+      enum variant/type-prefix paths, and standalone expression resolution in
+      a caller-owned node store. The owner suite (8 tests), direct consumers
+      `nia-body-check` (279), `nia-const-check` (45), and `nia-compiler-query`
+      (256) pass with strict Rustdoc, all-target Clippy, formatting,
+      maintenance, and diff checks. Broader Phase A value-resolution and
+      cross-cutting acceptance remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
