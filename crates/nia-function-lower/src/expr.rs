@@ -493,7 +493,9 @@ impl FunctionLowerer<'_> {
         });
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let success_target = self.alloc_block();
-        let kind = self.try_kind(inner.ty).unwrap_or(FunctionTryKind::Optional);
+        let kind = self
+            .try_kind(inner.ty)
+            .expect("try operand kind validated before function lowering");
         self.finish_block(
             blocks,
             *current,

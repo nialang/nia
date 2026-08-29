@@ -247,10 +247,19 @@ impl BodyInputValidator<'_, '_> {
             | TypedExprKind::OptionalSome { expr }
             | TypedExprKind::ErrorOk { expr }
             | TypedExprKind::ErrorErr { expr }
-            | TypedExprKind::Try { expr, .. }
             | TypedExprKind::Cast { expr, .. }
             | TypedExprKind::TraitObjectUpcast { expr, .. }
             | TypedExprKind::TraitObjectCoercion { expr, .. } => self.validate_value_expr(expr),
+            TypedExprKind::Try { expr: inner, .. } => {
+                self.validate_value_expr(inner)?;
+                if self.try_kind(inner.ty).is_none() {
+                    return Err(FunctionLoweringDiagnostic {
+                        span: expr.span,
+                        message: "try operand must have Optional or ErrorUnion type".to_string(),
+                    });
+                }
+                Ok(())
+            }
             TypedExprKind::CallableCoercion { state, .. } => self.validate_value_expr(state),
             TypedExprKind::Binary { lhs, rhs, .. } | TypedExprKind::Index { lhs, index: rhs } => {
                 self.validate_value_expr(lhs)?;
@@ -602,6 +611,14 @@ impl BodyInputValidator<'_, '_> {
             });
         }
         Ok(())
+    }
+
+    fn try_kind(&self, ty: InternedTyId) -> Option<FunctionTryKind> {
+        match self.types.get(ty) {
+            Some(TyKind::Optional { .. }) => Some(FunctionTryKind::Optional),
+            Some(TyKind::ErrorUnion { .. }) => Some(FunctionTryKind::ErrorUnion),
+            _ => None,
+        }
     }
 
     fn expr_is_effect_only(&self, expr: &TypedExpr) -> bool {

@@ -3972,6 +3972,11 @@ acceptance item only when its phase-wide evidence is complete.
       checks that the supplied pointee is a struct and that its field index is
       in range before entering `LLVMBuildStructGEP2`; wrapper regressions cover
       scalar pointees and out-of-bounds fields.
+- [x] Batch 660 closes the function-lowering try-kind boundary. Typed `try`
+      operands are now required to be `Optional` or `ErrorUnion` before CFG
+      construction; malformed primitive operands receive a lowering diagnostic
+      instead of silently becoming optional propagation, and a focused input
+      regression covers the refusal.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
