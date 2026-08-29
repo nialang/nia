@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 732 completed entries in this ledger.
+- Latest implementation batch: 733 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4398,6 +4398,17 @@ acceptance item only when its phase-wide evidence is complete.
       and driver trait/object/const-generic integration. This is current-host
       evidence; final clean/incremental, constrained-resource, and external
       target acceptance remains open.
+- [x] Batch 733 records a resource-traced full workspace rerun.
+      `NIA_TEST_RESOURCE_TRACE=1 cargo test --workspace --all-features --
+      --nocapture` completes successfully with all 167 libtest/doctest result
+      groups green and 473 managed child commands observed. Under the current
+      approximately 7.8 GiB cgroup, the shared capacities were compiler 4,
+      runtime 15, and memory 15; managed commands reached two descendant
+      processes and roughly 1.43 GiB peak RSS in the representative build
+      metadata workload. No command timeout, permit failure, or failed test
+      result was recorded. This is comprehensive current-host resource
+      evidence, not a substitute for the distinct low-memory or external-target
+      final acceptance runs.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
