@@ -4001,6 +4001,11 @@ acceptance item only when its phase-wide evidence is complete.
       readiness, rather than aborting membership construction; focused
       readiness and closure regressions preserve pending behavior for valid
       unpublished dependencies.
+- [x] Batch 666 closes backend partition declaration lookup panics. Missing
+      function, global, aggregate, or trait-object instance records in a
+      declaration membership now produce `INVALID_BACKEND_IR` diagnostics and
+      allow validation to continue; a stale function-instance membership
+      regression covers the diagnostic boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
