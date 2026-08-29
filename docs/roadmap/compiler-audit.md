@@ -4086,6 +4086,10 @@ acceptance item only when its phase-wide evidence is complete.
       assumptions. Successful instance materialization now returns its exact
       appended index to discovery, so closure/body scanning cannot panic if the
       append contract changes; existing 128 backend-lowering tests remain green.
+- [x] Batch 684 closes resolved const pattern binding `local_id` assumptions.
+      Malformed evaluator bindings now return the same stable unresolved-local
+      diagnostic as early bindings instead of panicking; direct pattern and
+      function-pattern regressions cover both binding paths.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
