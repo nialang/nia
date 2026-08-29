@@ -154,9 +154,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
         for &def_id in &self.declarations.structs {
-            let item = self.program.struct_item(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing struct {def_id:?}")
-            });
+            let item = self.program.struct_item(def_id).ok_or_else(|| {
+                self.error(
+                    Span::default(),
+                    format!("missing declared struct {def_id:?}"),
+                )
+            })?;
             let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
@@ -168,7 +171,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let item = self
                 .program
                 .struct_instance(key.def_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| panic!("Nia ICE: missing struct instance declaration member"));
+                .ok_or_else(|| self.error(Span::default(), "missing declared struct instance"))?;
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -184,9 +187,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.struct_instance_type_lookups.borrow_mut().clear();
         }
         for &def_id in &self.declarations.unions {
-            let item = self.program.union_item(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing union {def_id:?}")
-            });
+            let item = self.program.union_item(def_id).ok_or_else(|| {
+                self.error(
+                    Span::default(),
+                    format!("missing declared union {def_id:?}"),
+                )
+            })?;
             let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
@@ -198,7 +204,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let item = self
                 .program
                 .union_instance(key.def_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| panic!("Nia ICE: missing union instance declaration member"));
+                .ok_or_else(|| self.error(Span::default(), "missing declared union instance"))?;
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -218,9 +224,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn define_struct_bodies(&mut self) -> Result<(), Diagnostic> {
         for &def_id in &self.declarations.structs {
-            let item = self.program.struct_item(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing struct {def_id:?}")
-            });
+            let item = self.program.struct_item(def_id).ok_or_else(|| {
+                self.error(
+                    Span::default(),
+                    format!("missing declared struct {def_id:?}"),
+                )
+            })?;
             let Some(struct_ty) = self.structs.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -242,7 +251,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let item = self
                 .program
                 .struct_instance(key.def_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| panic!("Nia ICE: missing struct instance declaration member"));
+                .ok_or_else(|| self.error(Span::default(), "missing declared struct instance"))?;
             let Some(struct_ty) = self
                 .struct_instances
                 .get(&item.def_id)
@@ -262,9 +271,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
         }
         for &def_id in &self.declarations.unions {
-            let item = self.program.union_item(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing union {def_id:?}")
-            });
+            let item = self.program.union_item(def_id).ok_or_else(|| {
+                self.error(
+                    Span::default(),
+                    format!("missing declared union {def_id:?}"),
+                )
+            })?;
             let Some(union_ty) = self.unions.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -285,7 +297,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let item = self
                 .program
                 .union_instance(key.def_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| panic!("Nia ICE: missing union instance declaration member"));
+                .ok_or_else(|| self.error(Span::default(), "missing declared union instance"))?;
             let Some(union_ty) = self
                 .union_instances
                 .get(&item.def_id)
@@ -311,9 +323,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn declare_functions(&mut self) -> Result<(), Diagnostic> {
         for &def_id in &self.declarations.functions {
-            let function = self.program.function(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing function {def_id:?}")
-            });
+            let function = self.program.function(def_id).ok_or_else(|| {
+                self.error(
+                    Span::default(),
+                    format!("missing declared function {def_id:?}"),
+                )
+            })?;
             if !function.generics.is_empty() {
                 continue;
             }
@@ -347,7 +362,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &key.args,
                     &key.const_args,
                 )
-                .unwrap_or_else(|| panic!("Nia ICE: missing function instance declaration member"));
+                .ok_or_else(|| self.error(Span::default(), "missing declared function instance"))?;
             let ty = self.function_signature_type_in(FunctionSignature {
                 param_tys: instance
                     .params
@@ -456,9 +471,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {
         for &def_id in &self.declarations.globals {
-            let global = self.program.global(def_id).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing global {def_id:?}")
-            });
+            let global = self.program.global(def_id).ok_or_else(|| {
+                self.error(
+                    Span::default(),
+                    format!("missing declared global {def_id:?}"),
+                )
+            })?;
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
@@ -481,7 +499,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let global = self
                 .program
                 .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
-                .unwrap_or_else(|| panic!("Nia ICE: missing global instance declaration member"));
+                .ok_or_else(|| self.error(Span::default(), "missing declared global instance"))?;
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
@@ -578,9 +596,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let ptr_ty = self.context.ptr_type(Default::default());
         let mut inserted_vtable = false;
         for key in &self.declarations.vtables {
-            let vtable = self.program.trait_object_vtable(key).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration membership references missing vtable {key:?}")
-            });
+            let vtable = self.program.trait_object_vtable(key).ok_or_else(|| {
+                self.error(Span::default(), format!("missing declared vtable {key:?}"))
+            })?;
             if self
                 .trait_object_vtables
                 .contains_key(&(vtable.key.self_ty, vtable.key.object_ty))
