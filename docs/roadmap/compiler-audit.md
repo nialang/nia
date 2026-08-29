@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 712 completed entries in this ledger.
+- Latest implementation batch: 714 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4228,6 +4228,15 @@ acceptance item only when its phase-wide evidence is complete.
       ownership, and target-layout disagreement remain diagnostic or validated
       internal-contract paths. No new backend defect was identified; Phase B
       remains open for its complete entry-point and clean/incremental matrix.
+- [x] Batch 714 records the remaining Phase A/C owner matrix. Type/value
+      resolution and normalization owners pass 44 tests; const IR/evaluation,
+      const checking, static checking/IR, closure checking, flow checking, and
+      Body IR owners pass 159 tests; `nia-compiler-query` passes all 256 tests.
+      Strict owner Clippy is clean, and the compiler-query suite covers
+      clean/incremental invalidation, const/static dependencies, closure safety,
+      cross-module traits, and executable reachability. No new soundness or
+      semantic recovery gap was identified; Phases A and C remain open pending
+      their phase-wide acceptance matrices and residual-risk review.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
