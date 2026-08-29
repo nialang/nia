@@ -26,3 +26,26 @@ impl Span {
         self.start == self.end
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Span;
+
+    #[test]
+    fn half_open_ranges_report_length_and_empty_boundaries() {
+        let span = Span::new(3, 8);
+        assert_eq!(span.len(), 5);
+        assert!(!span.is_empty());
+
+        let empty = Span::new(4, 4);
+        assert_eq!(empty.len(), 0);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn reversed_ranges_have_saturating_zero_length() {
+        let span = Span::new(9, 2);
+        assert_eq!(span.len(), 0);
+        assert!(!span.is_empty());
+    }
+}

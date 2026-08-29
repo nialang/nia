@@ -95,3 +95,39 @@ impl LocalName {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_symbol::SymbolId;
+
+    #[test]
+    fn local_name_categories_preserve_identity() {
+        let symbol = SymbolId::from_stable_hash(7);
+        assert_eq!(LocalName::named(symbol).symbol(), Some(symbol));
+        assert!(LocalName::SelfValue.is_self_value());
+        assert_eq!(LocalName::temporary(3).symbol(), None);
+        assert_eq!(
+            LocalName::generated(GeneratedLocalName::ForIterator).symbol(),
+            None
+        );
+    }
+
+    #[test]
+    fn internal_storage_names_are_stable_and_distinct() {
+        assert_eq!(LocalName::SelfValue.internal_storage_name(), "self");
+        assert_eq!(
+            LocalName::generated(GeneratedLocalName::ForIterable).internal_storage_name(),
+            "__for_iterable"
+        );
+        assert_eq!(
+            LocalName::generated(GeneratedLocalName::ForIterator).internal_storage_name(),
+            "__for_iter"
+        );
+        assert_eq!(
+            LocalName::temporary(12).internal_storage_name(),
+            "fir.tmp.12"
+        );
+        assert_eq!(LocalName::Anonymous.internal_storage_name(), "_");
+    }
+}

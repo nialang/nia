@@ -76,3 +76,35 @@ pub type FastBuildHasher = BuildHasherDefault<FastHasher>;
 pub type FastHashMap<K, V> = std::collections::HashMap<K, V, FastBuildHasher>;
 /// Hash set using [`FastBuildHasher`].
 pub type FastHashSet<T> = std::collections::HashSet<T, FastBuildHasher>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::hash::{Hash, Hasher};
+
+    #[test]
+    fn hasher_is_deterministic_for_bytes_and_scalars() {
+        let mut bytes = FastHasher::default();
+        bytes.write(b"nia-hash");
+        let mut scalars = FastHasher::default();
+        scalars.write_u64(u64::from_le_bytes(*b"nia-hash"));
+        assert_eq!(bytes.finish(), scalars.finish());
+
+        let mut first = FastHasher::default();
+        42u32.hash(&mut first);
+        let mut second = FastHasher::default();
+        42u32.hash(&mut second);
+        assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn map_and_set_use_the_fast_build_hasher() {
+        let mut map = FastHashMap::default();
+        map.insert("key", 7u32);
+        assert_eq!(map.get("key"), Some(&7));
+
+        let mut set = FastHashSet::default();
+        assert!(set.insert("key"));
+        assert!(!set.insert("key"));
+    }
+}
