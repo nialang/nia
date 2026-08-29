@@ -442,10 +442,12 @@ impl<'a> MembershipBuilder<'a> {
             return;
         };
         self.dependency_modules.insert(owner);
-        assert!(
-            !self.index.is_published(owner),
-            "Nia ICE: declaration closure references missing {item} in published module {owner:?}"
-        );
+        if self.index.is_published(owner) {
+            self.invalid(format!(
+                "declaration closure references missing {item} in published module {owner:?}"
+            ));
+            return;
+        }
         self.pending_modules.insert(owner);
     }
 
@@ -1259,7 +1261,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "missing function instance in published module")]
     fn published_owner_without_payload_is_a_structural_error() {
         let mut module_ids = ModuleIdAllocator::new();
         let caller = module_ids.allocate();
@@ -1283,6 +1284,11 @@ mod tests {
         publisher.publish(caller);
         publisher.publish(actual_owner);
 
-        let _ = CodegenDeclarationMembership::build(&partition, &index, &owners);
+        let result = CodegenDeclarationMembership::build(&partition, &index, &owners);
+        let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
+            panic!("expected invalid membership result")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].summary.contains("missing function instance"));
     }
 }
