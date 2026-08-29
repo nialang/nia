@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 699 completed entries in this ledger.
+- Latest implementation batch: 700 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4165,6 +4165,14 @@ acceptance item only when its phase-wide evidence is complete.
       producer/state-machine contracts with explicit validation before the
       public consumers reach them; no malformed external product currently
       bypasses those checks, so no API broadening or recovery shim is justified.
+- [x] Batch 700 audits function-IR optimization, const evaluation budgets,
+      static-initializer classification, closure escape fixed-point analysis,
+      and flow termination tracking. Optimizer entry and pass boundaries retain
+      structural validation failures with an unchanged recovery body; const
+      session/call limits distinguish bounded evaluation errors from unbalanced
+      cleanup bugs; closure defer stacks and flow traversal maintain their
+      established lexical invariants. Owner suites and strict Clippy pass with
+      no additional malformed-input recovery gap identified.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
