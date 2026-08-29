@@ -6,6 +6,13 @@ use crate::{
     TypeStoreAppend,
 };
 
+/// Recursively substitutes generic, `Self`, and const-generic arguments in a type.
+///
+/// Every reconstructed composite type is interned through `append`, so the
+/// result remains canonical in the originating [`TypeStore`]. Const arguments
+/// are substituted together with the types they carry, including array-length
+/// parameters, trait-object bindings, and associated-type projections. A
+/// missing mapping leaves the original parameter handle unchanged.
 pub fn substitute_ty(
     store: &TypeStore,
     append: &TypeStoreAppend,
