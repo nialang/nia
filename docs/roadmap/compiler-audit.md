@@ -3990,6 +3990,11 @@ acceptance item only when its phase-wide evidence is complete.
       Method calls now report a codegen diagnostic if receiver classification
       unexpectedly produces no ABI entry, instead of interpreting the empty
       result as an omitted receiver and continuing with a mismatched call.
+- [x] Batch 664 closes LLVM declaration-membership panic fallbacks. Missing
+      structs, unions, functions, globals, aggregate/function instances, and
+      trait-object vtables now return codegen diagnostics from declaration and
+      definition setup instead of relying on panic recovery at the outer LLVM
+      boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
