@@ -48,6 +48,7 @@ impl<'a> ModuleLowerer<'a> {
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
+            missing_source_identity_diagnostics: HashSet::new(),
             extension_generics_by_method,
             extension_method_sources_by_def,
             trait_context,

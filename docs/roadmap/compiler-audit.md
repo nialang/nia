@@ -4020,6 +4020,11 @@ acceptance item only when its phase-wide evidence is complete.
       `INVALID_BACKEND_IR` diagnostics and are skipped while valid owners
       continue lowering; the finalization contract regression asserts the
       diagnostic instead of expecting a panic.
+- [x] Batch 670 closes backend symbol-mangling source-identity panics. Missing
+      module identities now produce one deduplicated `INVALID_BACKEND_IR`
+      diagnostic per module and use a deterministic placeholder only for
+      recovery, preserving lowering progress for other items; focused helper
+      coverage verifies stable recovery and diagnostic deduplication.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
