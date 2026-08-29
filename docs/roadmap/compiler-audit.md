@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 763 completed entries in this ledger.
+- Latest implementation batch: 764 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4685,6 +4685,11 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-compiler-query` (256) pass with strict Rustdoc, all-target Clippy,
       formatting, maintenance, and diff checks. Broader Phase C budget and
       final resource acceptance remain open.
+- [x] Batch 764 refreshes full workspace evidence with
+      `cargo test --workspace --all-features`. All unit, integration, build-case,
+      linker, runtime, and doc-test suites pass; the existing ignored test
+      remains non-blocking and unchanged. Formatting, diff, maintenance,
+      Rustdoc, and Clippy gates remain required for the next focused batch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
