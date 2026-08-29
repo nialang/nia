@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 714 completed entries in this ledger.
+- Latest implementation batch: 715 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4237,6 +4237,15 @@ acceptance item only when its phase-wide evidence is complete.
       cross-module traits, and executable reachability. No new soundness or
       semantic recovery gap was identified; Phases A and C remain open pending
       their phase-wide acceptance matrices and residual-risk review.
+- [x] Batch 715 records the Phase E frontend and identity owner matrix. The
+      lexer, parser, syntax, AST walking, item-tree, definition/id, node-id,
+      symbol, span, diagnostic, ICE, and structural frontend owner suites pass;
+      parser malformed-input/origin recovery includes 123 tests and the syntax
+      suite includes 12 tests. Strict `-D warnings` Clippy passes for all
+      affected owner libraries. Recovery, delimiter, source-revision identity,
+      collision, and diagnostic-boundary cases remain deterministic; no new
+      externally reachable frontend defect was identified, so Phase E remains
+      open pending its phase-wide acceptance and residual-risk review.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
