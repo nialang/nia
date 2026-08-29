@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 722 completed entries in this ledger.
+- Latest implementation batch: 723 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4304,6 +4304,15 @@ acceptance item only when its phase-wide evidence is complete.
       intentionally ignored cross-process stress worker), and strict
       all-target Clippy remains clean. This strengthens simulated target-plan
       rejection evidence without claiming cross-target runtime execution.
+- [x] Batch 723 records additional standard-library runtime consumer coverage.
+      Real `nia-cli` executable/static tests pass for error-union handling (3),
+      core allocator and layout behavior (4), allocator resize/remap/free and
+      retry paths (14), ArrayList ownership and zero-sized elements (6), and
+      memory intrinsics/cross-module slice and generic cases (4), for 31 tests
+      total. Strict CLI test Clippy passes. The matrix exercises invalid and
+      forged ownership inputs, replacement after failure, release retries,
+      empty and zero-sized values, and cross-module intrinsic receivers;
+      non-host runtime and constrained-resource evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
