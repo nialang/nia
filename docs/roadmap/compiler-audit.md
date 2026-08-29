@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 715 completed entries in this ledger.
+- Latest implementation batch: 716 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4246,6 +4246,13 @@ acceptance item only when its phase-wide evidence is complete.
       collision, and diagnostic-boundary cases remain deterministic; no new
       externally reachable frontend defect was identified, so Phase E remains
       open pending its phase-wide acceptance and residual-risk review.
+- [x] Batch 716 records repository maintenance and std-build-host closure
+      evidence. `nia-maintain check` and the compatibility audit pass, while
+      `audit std-build-host --print` emits schema-v1 closure data for 96
+      standard-library/runtime/build modules from the builtin, startup, and
+      build roots. No compatibility-identity or source-closure drift was
+      identified; cross-target runtime execution and final resource reruns
+      remain separate acceptance requirements.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
