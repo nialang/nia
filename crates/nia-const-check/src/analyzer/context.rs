@@ -1,5 +1,9 @@
 use super::*;
 
+fn type_kind_or_error(store: &nia_ty::TypeStore, ty: nia_ids::InternedTyId) -> TyKind {
+    store.get(ty).cloned().unwrap_or(TyKind::Error)
+}
+
 fn active_execution_frames(frames: &[ConstCallFrame]) -> impl Iterator<Item = &ConstCallFrame> {
     // `module_id` marks a function-call boundary. Lexical scopes pushed above
     // it belong to that function; frames below it belong to callers and may
@@ -907,12 +911,10 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn active_ty_kind(&self, ty: nia_ids::InternedTyId) -> TyKind {
-        self.input.type_store.get(ty).cloned().unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: const type {:?} is not present in the session type store",
-                ty
-            )
-        })
+        // A stale handle can arrive from an incremental or cross-module
+        // product. Treat it as the existing error type so callers preserve
+        // their normal diagnostic paths instead of aborting the analysis.
+        type_kind_or_error(self.input.type_store, ty)
     }
 
     pub(super) fn ensure_type_context(&mut self, module_id: ModuleId) -> Option<()> {
@@ -1587,5 +1589,16 @@ mod tests {
         let (types, _) = merged_execution_substitutions(&[outer, function, scope]);
 
         assert_eq!(types.get(&name), Some(&scope_ty));
+    }
+
+    #[test]
+    fn missing_type_handles_recover_as_error_types() {
+        let store = nia_ty::TypeStore::new();
+        let missing = nia_ids::InternedTyId::new(
+            nia_ids::TypeStoreId::fresh(),
+            nia_ids::TypeStoreIndex::from_store_index(0),
+        );
+
+        assert_eq!(type_kind_or_error(&store, missing), TyKind::Error);
     }
 }

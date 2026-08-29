@@ -4090,6 +4090,10 @@ acceptance item only when its phase-wide evidence is complete.
       Malformed evaluator bindings now return the same stable unresolved-local
       diagnostic as early bindings instead of panicking; direct pattern and
       function-pattern regressions cover both binding paths.
+- [x] Batch 685 closes const-check stale type-handle panics. Active type
+      lookup now recovers missing store slots as the existing `TyKind::Error`
+      sentinel, preserving downstream diagnostics for union, builtin, and
+      generic paths; a focused missing-slot regression locks recovery.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
