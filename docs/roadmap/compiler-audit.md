@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 700 completed entries in this ledger.
+- Latest implementation batch: 701 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4173,6 +4173,14 @@ acceptance item only when its phase-wide evidence is complete.
       cleanup bugs; closure defer stacks and flow traversal maintain their
       established lexical invariants. Owner suites and strict Clippy pass with
       no additional malformed-input recovery gap identified.
+- [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
+      arithmetic and ownership boundaries. Public range operations validate
+      indices before private stable-replacement helpers, probing calls only
+      derive set-bit indexes from non-empty masks and valid power-of-two
+      capacities, and allocator address/capacity arithmetic is checked while
+      foreign or forged blocks are rejected. No new runtime recovery defect was
+      identified in this pass; Phase F still requires real target/runtime
+      integration evidence before acceptance.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
