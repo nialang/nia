@@ -38,7 +38,9 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
         (-1isize) as usize,
         0,
     );
-    if ret < 0 {
+    // i686 mmap pointers may have the sign bit set; only the Linux errno
+    // range denotes failure for a syscall result.
+    if ret < 0isize and ret >= -4095isize {
         ret.syscall_error()!
     } else if ret == 0isize {
         Errno::Io!

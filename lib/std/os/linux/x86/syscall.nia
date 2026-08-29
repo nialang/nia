@@ -174,6 +174,7 @@ pub fn syscall6(
     arg4: usize,
     arg5: usize,
 ) isize {
+    let args: [usize; 6] = [arg0, arg1, arg2, arg3, arg4, arg5];
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
@@ -181,6 +182,12 @@ pub fn syscall6(
             \\push esi
             \\push edi
             \\push ebp
+            \\mov ebx, [ecx]
+            \\mov edx, [ecx + 8]
+            \\mov esi, [ecx + 12]
+            \\mov edi, [ecx + 16]
+            \\mov ebp, [ecx + 20]
+            \\mov ecx, [ecx + 4]
             \\int 0x80
             \\pop ebp
             \\pop edi
@@ -192,12 +199,7 @@ pub fn syscall6(
         },
         inputs: std::builtin::AsmInputs {
             eax: number,
-            ebx: arg0,
-            ecx: arg1,
-            edx: arg2,
-            esi: arg3,
-            edi: arg4,
-            ebp: arg5,
+            ecx: &args[0] as usize,
         },
         clobbers: [b"memory"],
         options: [b"volatile"],

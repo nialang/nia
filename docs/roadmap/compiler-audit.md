@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 785 completed entries in this ledger.
+- Latest implementation batch: 786 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4835,6 +4835,13 @@ acceptance item only when its phase-wide evidence is complete.
       regression target-width independent. Overflow cases now use
       `usize::MAX` and a derived multiplying operand rather than 64-bit
       literals; the focused host and i686 `emit_exe_process` test both pass.
+- [x] Batch 786 closes i686 standard-library IO runtime gaps. The Linux x86
+      `syscall6` facade snapshots arguments on the stack before loading the
+      i386 callee-saved syscall registers, preserving the caller ABI across
+      `mmap` and related six-argument calls. Page mapping now treats only the
+      Linux `-1..-4095` range as errno so valid high-bit i686 addresses are not
+      rejected. The complete `emit_exe_io` suite passes 17/17 on both i686 and
+      x86_64 hosts.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
