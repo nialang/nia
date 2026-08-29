@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 730 completed entries in this ledger.
+- Latest implementation batch: 731 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4378,6 +4378,16 @@ acceptance item only when its phase-wide evidence is complete.
       restrictions, target-dependent layout builtins, and source-fact identity
       tracking. Phase-wide clean/incremental acceptance, constrained-resource
       reruns, and external-target evidence remain open.
+- [x] Batch 731 records Phase E frontend, identity, and diagnostic owner
+      evidence. Strict Rustdoc is clean for `nia-lexer`, `nia-ast-walk`,
+      `nia-item-tree`, `nia-defs`, `nia-ids`, `nia-symbol`, `nia-symbol-table`,
+      `nia-span`, `nia-diagnostic`, and `nia-ice`; their complete suites pass
+      64 tests total with strict all-target Clippy. Coverage includes lossless
+      lexical boundaries, AST traversal, conditional item-tree ownership,
+      stable definition/module identities, symbol registries, diagnostic
+      rendering and stable bundles, and structured ICE conversion. Parser-wide
+      acceptance, larger frontend consumers, phase-wide clean/incremental,
+      resource, and external-target evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
