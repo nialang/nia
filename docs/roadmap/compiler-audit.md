@@ -4006,6 +4006,10 @@ acceptance item only when its phase-wide evidence is complete.
       declaration membership now produce `INVALID_BACKEND_IR` diagnostics and
       allow validation to continue; a stale function-instance membership
       regression covers the diagnostic boundary.
+- [x] Batch 667 closes published-owner readiness assertions. A declaration
+      closure that names an owner whose module is published but whose payload
+      lacks the requested item now returns `INVALID_BACKEND_IR` instead of
+      panicking; the structural-error regression now asserts the diagnostic.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
