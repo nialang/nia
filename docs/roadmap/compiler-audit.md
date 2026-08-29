@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 741 completed entries in this ledger.
+- Latest implementation batch: 742 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4470,6 +4470,13 @@ acceptance item only when its phase-wide evidence is complete.
       ignored; strict Rustdoc, strict all-target Clippy, workspace formatting,
       diff checks, and a repository suppression scan pass. Workspace-wide
       strict Rustdoc and the final acceptance matrix remain separate gates.
+- [x] Batch 742 documents the `nia-maintain` foundation and host-resource
+      boundaries: command result/temporary-directory ownership, audit/baseline/
+      report module contracts, machine metadata, procfs/cgroup parsing, and
+      effective resource calculations. Its 43 library tests, 2 binary tests,
+      and 3 workflow tests pass with strict Clippy and workspace formatting;
+      workspace strict Rustdoc warnings fall from 232 to 177. Baseline and
+      report schema documentation plus final acceptance evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
