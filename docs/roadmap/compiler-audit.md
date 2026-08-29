@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 759 completed entries in this ledger.
+- Latest implementation batch: 760 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4654,6 +4654,13 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-body-check` (279), strict Rustdoc, all-target Clippy, formatting,
       maintenance, and diff checks. Broader Phase A cross-module acceptance
       remains open.
+- [x] Batch 760 adds direct normalization coverage for callable aliases whose
+      parameter and return components themselves reference aliases. The test
+      verifies canonical `CallablePointee` output and recursive `u8` component
+      identities; `nia-type-normalize` (10), `nia-type-lower` (19), and
+      `nia-program-signatures` (7) pass with strict Rustdoc, all-target
+      Clippy, formatting, maintenance, and diff checks. Broader Phase A type
+      normalization acceptance remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

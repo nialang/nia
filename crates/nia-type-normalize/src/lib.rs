@@ -899,6 +899,56 @@ fn id(p: RawPtr[u8]) &u8 { p }
     }
 
     #[test]
+    fn expands_callable_alias_components() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let (module, errors) = parse_module(
+            r#"
+type Byte = u8;
+type Callback = Fn(Byte) Byte;
+fn id(cb: Callback) Callback { cb }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(module_id, &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
+        assert!(
+            normalization.diagnostics.is_empty(),
+            "{:?}",
+            normalization.diagnostics
+        );
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
+            matches!(ty, TyKind::Nominal { .. })
+                && matches!(
+                    type_store.get(normalization.normalize(ty_id)),
+                    Some(TyKind::CallablePointee {
+                        params,
+                        return_type,
+                        ..
+                    }) if params.len() == 1
+                        && type_store.get(params[0])
+                            == Some(&TyKind::Primitive(PrimitiveTy::U8))
+                        && type_store.get(*return_type)
+                            == Some(&TyKind::Primitive(PrimitiveTy::U8))
+                )
+        }));
+    }
+
+    #[test]
     fn expands_interleaved_type_and_const_generic_aliases() {
         let mut module_ids = ModuleIdAllocator::new();
         let module_id = module_ids.allocate();
