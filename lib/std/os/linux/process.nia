@@ -326,12 +326,14 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
     } else if options.stderr() == StdIo::Pipe {
         dup_to(stderr_pipe.write().?, types::FileDescriptor::stderr()).?;
     }
-    stdin_pipe.close_all();
-    stdout_pipe.close_all();
-    stderr_pipe.close_all();
+    stdin_pipe.close_all_except(options);
+    stdout_pipe.close_all_except(options);
+    stderr_pipe.close_all_except(options);
     match dev_null {
         ?fd => {
-            fd.close().?;
+            if not isStandardTarget(fd, options) {
+                fd.close().?;
+            }
         },
         null => {},
     }
@@ -520,6 +522,31 @@ extend SpawnPipe {
         self.close_read();
         self.close_write();
     }
+
+    fn close_all_except(&mut self, options: SpawnOptions) () {
+        match self.take_read() {
+            ?fd => {
+                if not isStandardTarget(fd, options) {
+                    _ = fd.close();
+                }
+            },
+            null => {},
+        }
+        match self.take_write() {
+            ?fd => {
+                if not isStandardTarget(fd, options) {
+                    _ = fd.close();
+                }
+            },
+            null => {},
+        }
+    }
+}
+
+fn isStandardTarget(fd: types::FileDescriptor, options: SpawnOptions) bool {
+    (options.stdin() != StdIo::Inherit and fd.raw() == 0)
+        or (options.stdout() != StdIo::Inherit and fd.raw() == 1)
+        or (options.stderr() != StdIo::Inherit and fd.raw() == 2)
 }
 
 extend SpawnResources {

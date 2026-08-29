@@ -59,6 +59,78 @@ fn deny_wait4(command: &mut Command) {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn emit_exe_std_process_pipes_survive_closed_parent_standard_descriptors() {
+    use std::os::unix::process::CommandExt as _;
+
+    let root = temp_dir("emit_exe_std_process_pipes_survive_closed_parent_standard_descriptors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    let arguments: [&[char]; 2] = [&"-c", &"printf collision"];
+    let command = process::Command::init(std::PathView::init(&"/bin/sh"), init.env())
+        .withArguments(&arguments)
+        .withStdout(process::StdIo::Pipe);
+    let mut spawn = command.spawn();
+    let mut child = spawn.finish().exit().?;
+    let mut stdout = match child.takeStdout() {
+        ?value => value,
+        null => return process::exit(2)!,
+    };
+    let mut bytes: [u8; 9] = [0; 9];
+    match stdout.readExact(&mut bytes[..]) {
+        !ok => { _ = ok; },
+        error! => return process::exit(3)!,
+    }
+    match stdout.close() {
+        !ok => { _ = ok; },
+        error! => return process::exit(4)!,
+    }
+    let term = child.wait().exit().?;
+    if not term.succeeded() or bytes[0] != b'c' or bytes[1] != b'o'
+        or bytes[2] != b'l' or bytes[3] != b'l' or bytes[4] != b'i'
+        or bytes[5] != b's' or bytes[6] != b'i' or bytes[7] != b'o'
+        or bytes[8] != b'n'
+    {
+        return process::exit(5)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let emit = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe std process closed standard descriptors");
+    assert!(
+        emit.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+
+    let mut run = Command::new(&exe);
+    unsafe {
+        run.pre_exec(|| {
+            libc::close(1);
+            Ok(())
+        });
+    }
+    let status = run.status_timeout("run emitted executable with closed standard descriptors");
+    assert_eq!(status.code(), Some(0));
+}
+
 #[test]
 fn emit_exe_std_process_command_spawn_and_wait() {
     let root = temp_dir("emit_exe_std_process_command_spawn_and_wait");
