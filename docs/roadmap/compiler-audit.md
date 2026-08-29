@@ -4048,6 +4048,11 @@ acceptance item only when its phase-wide evidence is complete.
       diagnostic and uses a deterministic module placeholder when a referenced
       source identity is absent; focused coverage verifies instance symbols
       remain recoverable while the malformed input is reported.
+- [x] Batch 676 closes shared mangling missing-type panics. The common type
+      mangler now emits an explicit, deterministic `ty_missing` recovery
+      encoding for stale `InternedTyId` handles, allowing validator layers to
+      report malformed backend state without an earlier ICE; focused tests lock
+      the recovery string and its stability.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

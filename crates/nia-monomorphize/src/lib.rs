@@ -18,8 +18,8 @@
 //! recursing indefinitely.
 #![warn(missing_docs)]
 
-use std::collections::{HashMap, HashSet, VecDeque};
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use nia_ast::GenericParamKind;
 use nia_const_check::ConstCheck;
