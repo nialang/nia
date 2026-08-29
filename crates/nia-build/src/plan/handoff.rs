@@ -17,43 +17,70 @@ static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Failure while durably publishing or reading a canonical build plan.
 #[derive(Debug)]
-#[allow(missing_docs)]
 pub enum PlanHandoffError {
+    /// Canonical plan encoding failed.
     Encode(PlanCodecError),
+    /// The destination path has no parent directory.
     MissingParent {
+        /// Path whose parent was required.
         path: PathBuf,
     },
+    /// Temporary handoff file creation failed.
     CreateTemporary {
+        /// Temporary path that could not be created.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Writing the temporary handoff file failed.
     WriteTemporary {
+        /// Temporary path that could not be written.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Syncing the temporary handoff file failed.
     SyncTemporary {
+        /// Temporary path that could not be synced.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Atomic publication of the temporary file failed.
     Publish {
+        /// Temporary source path.
         from: PathBuf,
+        /// Durable destination path.
         to: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Syncing the parent directory after publication failed.
     SyncDirectory {
+        /// Parent directory that could not be synced.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Opening a persisted plan failed.
     Open {
+        /// Plan path that could not be opened.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Reading a persisted plan failed.
     Read {
+        /// Plan path that could not be read.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Decoding a persisted plan failed.
     Decode {
+        /// Plan path containing invalid bytes.
         path: PathBuf,
+        /// Codec error describing the invalid payload.
         error: PlanCodecError,
     },
 }

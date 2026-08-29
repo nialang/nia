@@ -15,30 +15,47 @@ pub(crate) const MAX_PLAN_STRING_BYTES: usize = 1024 * 1024;
 
 /// Rejection reason for a non-canonical, unsupported, or invalid plan encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum PlanCodecError {
+    /// Encoded payload exceeds the bounded plan size.
     TooLarge {
+        /// Maximum accepted payload size.
         limit: usize,
+        /// Actual payload size.
         actual: usize,
     },
+    /// Payload magic does not match the registered format.
     BadMagic,
+    /// Payload uses an unsupported schema version.
     UnsupportedVersion(u32),
+    /// Payload ended before the required field at this offset.
     Truncated {
+        /// Byte offset where decoding stopped.
         offset: usize,
     },
+    /// Payload contains bytes after the canonical plan.
     TrailingData {
+        /// Byte offset of the unexpected bytes.
         offset: usize,
     },
+    /// A tagged value uses an unknown tag.
     InvalidTag {
+        /// Value family whose tag was rejected.
         kind: &'static str,
+        /// Unknown tag value.
         tag: u8,
+        /// Byte offset containing the tag.
         offset: usize,
     },
+    /// A string field is not valid UTF-8.
     InvalidUtf8 {
+        /// Byte offset of the invalid string payload.
         offset: usize,
     },
+    /// A stable name failed validation.
     InvalidStableName(StableNameError),
+    /// A logical path failed validation.
     InvalidLogicalPath(LogicalPathError),
+    /// Decoded fields failed semantic plan validation.
     Semantic(Box<PlanError>),
 }
 
