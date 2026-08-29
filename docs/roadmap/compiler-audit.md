@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 769 completed entries in this ledger.
+- Latest implementation batch: 770 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4720,6 +4720,14 @@ acceptance item only when its phase-wide evidence is complete.
       compiler capacity is 4, runtime capacity 15, and compiler child RSS
       peaks at about 335.5 MiB with no timeout or permit leak. This is current-
       host evidence; low-memory and external-target reruns remain open.
+- [x] Batch 770 records the first real non-host target attempt. After installing
+      `i686-unknown-linux-gnu`, `cargo check --workspace --all-targets
+      --all-features --target i686-unknown-linux-gnu` compiles the pure Rust
+      layers through backend IR before the LLVM C wrapper fails because the
+      host lacks `i686-linux-gnu-gcc` and 32-bit glibc headers; focused layout,
+      ABI, backend-IR, and target-config `cargo check` succeeds for i686.
+      Runtime/test linking on this target remains an explicit environment
+      blocker rather than claimed evidence.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
