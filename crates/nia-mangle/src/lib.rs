@@ -374,6 +374,7 @@ where
             if args.is_empty() && const_args.is_empty() {
                 format!("nom__{base}")
             } else {
+                let arg_count = args.len();
                 let args = args
                     .iter()
                     .map(|arg| {
@@ -396,7 +397,7 @@ where
                 let const_args = const_arg_parts.join("__");
                 format!(
                     "nom__{base}__argc{}__{}__constargc{}__{}",
-                    args.len(),
+                    arg_count,
                     args,
                     const_arg_parts.len(),
                     const_args
@@ -411,6 +412,7 @@ where
             if args.is_empty() {
                 format!("builtin_trait__{base}")
             } else {
+                let arg_count = args.len();
                 let args = args
                     .iter()
                     .map(|arg| {
@@ -418,7 +420,7 @@ where
                     })
                     .collect::<Vec<_>>()
                     .join("__");
-                format!("builtin_trait__{base}__argc{}__{}", args.len(), args)
+                format!("builtin_trait__{base}__argc{}__{}", arg_count, args)
             }
         }
         Some(TyKind::TraitObject {
@@ -437,6 +439,7 @@ where
                 TraitId::Source(def_id) => mangle_source_def(*def_id, module_id, nominal_name),
                 TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
             };
+            let trait_arg_count = trait_args.len();
             let trait_args = trait_args
                 .iter()
                 .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
@@ -505,7 +508,7 @@ where
             format!(
                 "{prefix}__{}__argc{}__{}__cargc{}__{}__assoc{}__{}",
                 trait_name,
-                trait_args.len(),
+                trait_arg_count,
                 trait_args,
                 trait_const_arg_parts.len(),
                 trait_const_args,
@@ -523,6 +526,7 @@ where
                 TraitId::Source(def_id) => mangle_source_def(*def_id, module_id, nominal_name),
                 TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
             };
+            let trait_arg_count = trait_args.len();
             let trait_args = trait_args
                 .iter()
                 .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
@@ -591,7 +595,7 @@ where
             format!(
                 "trait_obj_pointee__{}__argc{}__{}__cargc{}__{}__assoc{}__{}",
                 trait_name,
-                trait_args.len(),
+                trait_arg_count,
                 trait_args,
                 trait_const_arg_parts.len(),
                 trait_const_args,
@@ -612,6 +616,7 @@ where
                 TraitId::Source(def_id) => mangle_source_def(*def_id, module_id, nominal_name),
                 TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
             };
+            let trait_arg_count = trait_args.len();
             let trait_args = trait_args
                 .iter()
                 .map(|arg| mangle_type_inner(type_store, *arg, module_id, nominal_name, array_len))
@@ -628,7 +633,7 @@ where
                 "proj__{}__as__{}__argc{}__{}__cargc{}__{}__{}",
                 self_ty,
                 trait_name,
-                trait_args.len(),
+                trait_arg_count,
                 trait_args,
                 trait_const_arg_parts.len(),
                 trait_const_args,
@@ -740,7 +745,7 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{DefId, ModuleIdAllocator, TypeStoreIndex};
+    use nia_ids::{BuiltinTrait, DefId, ModuleIdAllocator, TypeStoreIndex};
 
     #[test]
     fn base_mangling_is_stable_across_module_allocator_universes() {
@@ -938,6 +943,40 @@ mod tests {
             mangle_type_with(&type_store, reversed, resolvers()),
             "tuple__len__2__bool__i32"
         );
+    }
+
+    #[test]
+    fn generic_mangling_records_argument_counts_not_encoded_text_lengths() {
+        let type_store = TypeStore::new();
+        let module_id = ModuleIdAllocator::new().allocate();
+        let append = type_store.append_for_module(module_id);
+        let i32_ty = append.primitive(PrimitiveTy::I32);
+        let nominal = append.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(4),
+            },
+            args: vec![i32_ty],
+            const_args: Vec::new(),
+        });
+        let builtin_trait = append.intern(TyKind::BuiltinTrait {
+            trait_id: BuiltinTrait::Deref,
+            args: vec![i32_ty],
+        });
+        let resolvers = || {
+            MangleResolvers::new(
+                |_| MangleModuleId::from_normalized_source_path("main.nia"),
+                |_| "Item".into(),
+                |_| None,
+            )
+        };
+
+        let nominal_name = mangle_type_with(&type_store, nominal, resolvers());
+        let trait_name = mangle_type_with(&type_store, builtin_trait, resolvers());
+        assert!(nominal_name.contains("__argc1__i32__"), "{nominal_name}");
+        assert!(trait_name.ends_with("__argc1__i32"), "{trait_name}");
+        assert!(!nominal_name.contains("__argc3__"), "{nominal_name}");
+        assert!(!trait_name.contains("__argc3__"), "{trait_name}");
     }
 
     #[test]

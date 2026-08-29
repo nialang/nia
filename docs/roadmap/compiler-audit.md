@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 755 completed entries in this ledger.
+- Latest implementation batch: 756 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4621,6 +4621,14 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-loader-query` (96) pass, with strict Rustdoc, Clippy, formatting,
       maintenance, and diff checks. Broader Phase E and cross-cutting
       acceptance remain open.
+- [x] Batch 756 fixes mangled generic arity metadata. Nominal, builtin-trait,
+      trait-object, pointee, and projection encodings now retain the original
+      type-argument count instead of measuring the rendered string byte length
+      (`i32` previously produced `argc3`). The owner regression covers nominal
+      and builtin-trait symbols; `nia-mangle` (9), `nia-backend-lower` (128),
+      and `nia-codegen-llvm` (333) suites pass with strict Rustdoc, Clippy,
+      formatting, maintenance, and diff checks. Broader backend ABI/codegen
+      acceptance and cross-cutting test-gap review remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
