@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 746 completed entries in this ledger.
+- Latest implementation batch: 747 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4503,6 +4503,15 @@ acceptance item only when its phase-wide evidence is complete.
       comparison, and CLI report entry points are documented. All 6 comparison
       owner tests, strict Clippy, workspace formatting, and diff checks pass;
       workspace strict Rustdoc warnings fall to 28, all in crate boundaries.
+- [x] Batch 747 closes the workspace strict Rustdoc gate. Crate-boundary report
+      options, Cargo metadata schema, source/public-item metrics, dependency
+      ownership, TSV rendering, and collection entry points are documented;
+      `RUSTDOCFLAGS='-D missing-docs' cargo doc --workspace --all-features
+      --no-deps` passes across all 69 documentation targets with no repository
+      `missing_docs` suppression. The complete `nia-maintain` suite (43 library,
+      2 binary, and 3 workflow tests), strict Clippy, `cargo maintain check`,
+      workspace formatting, and diff checks pass. The fixed cross-cutting item
+      remains open for its separate test-gap review and final acceptance matrix.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
