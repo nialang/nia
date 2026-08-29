@@ -281,7 +281,10 @@ mod tests {
             return Err(DecodeError::Version);
         }
         let payload_len = u32::from_le_bytes(encoded[12..16].try_into().unwrap()) as usize;
-        if encoded.len() > RUNNER_CONFIG_MAX_BYTES || encoded.len() != 24 + payload_len {
+        let Some(expected_len) = 24usize.checked_add(payload_len) else {
+            return Err(DecodeError::Length);
+        };
+        if encoded.len() > RUNNER_CONFIG_MAX_BYTES || encoded.len() != expected_len {
             return Err(DecodeError::Length);
         }
         let checksum = u64::from_le_bytes(encoded[16..24].try_into().unwrap());
