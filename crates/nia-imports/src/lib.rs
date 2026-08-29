@@ -10,7 +10,9 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_source::SourceIdentity;
 pub use nia_source::SourcePath;
 use nia_span::Span;
-use nia_symbol::{KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, stable_hash};
+use nia_symbol::{
+    KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, stable_hash, symbol_identity_key,
+};
 
 /// Reserved module-map name for the entry package.
 pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
@@ -62,7 +64,7 @@ pub fn is_builtin_module_root(symbol: SymbolId) -> bool {
     symbol == known::BUILTIN
 }
 
-/// Returns known text for a module root, with a stable fallback.
+/// Returns known text for a module root, with a stable identity fallback.
 pub fn module_symbol_text(symbol: SymbolId) -> String {
     fallback_module_symbol_text(symbol)
 }
@@ -71,8 +73,8 @@ fn fallback_module_symbol_text(symbol: SymbolId) -> String {
     known::WELL_KNOWN
         .iter()
         .find_map(|(known, text)| (*known == symbol).then_some(*text))
-        .unwrap_or("<symbol>")
-        .to_string()
+        .map(str::to_owned)
+        .unwrap_or_else(|| symbol_identity_key(symbol))
 }
 
 fn resolved_module_symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> String {
@@ -578,7 +580,12 @@ impl ModuleGraph {
             package: *name,
             segments: Vec::new(),
         };
-        self.intern_module(path, module_path, None, false, false)
+        let id = self.intern_module(path, module_path, None, false, false);
+        // A stable source path can be shared by package aliases. Keep every
+        // requested package identity resolvable even when interning reuses the
+        // existing module node.
+        self.package_roots.insert(*name, id);
+        id
     }
 
     /// Interns a declared child with default processing flags.
@@ -1216,5 +1223,212 @@ mod tests {
 
         assert!(graph.get(child).is_some());
         assert!(snapshot.get(child).is_none());
+    }
+
+    #[test]
+    fn module_map_rejects_reserved_roots_and_preserves_default_entries() {
+        let mut map = ModuleMap::new();
+        let package_path = SourcePath::new("deps/pkg/root.nia");
+        map.try_insert("vendor", package_path.clone())
+            .expect("ordinary package root");
+        assert_eq!(map.get("vendor"), Some(&package_path));
+        for reserved in COMPILER_RESERVED_MODULE_ROOTS {
+            let error = map
+                .try_insert(*reserved, SourcePath::new("reserved.nia"))
+                .expect_err("reserved package root");
+            assert!(error.contains(reserved));
+        }
+
+        let entry = map.with_entry(SourcePath::new("src/main.nia"));
+        assert_eq!(entry.get("entry"), Some(&SourcePath::new("src/main.nia")));
+        let std = entry.with_default_std(SourcePath::new("stdlib/root.nia"));
+        assert_eq!(std.std_path(), Some(&SourcePath::new("stdlib/root.nia")));
+        let preserved = std.with_default_std(SourcePath::new("other/std.nia"));
+        assert_eq!(
+            preserved.std_path(),
+            Some(&SourcePath::new("stdlib/root.nia"))
+        );
+        assert!(!preserved.is_empty());
+    }
+
+    #[test]
+    fn module_path_navigation_and_root_classification_are_stable() {
+        let root = ModulePath::root("entry");
+        assert!(root.is_package_root());
+        assert!(root.is_entry_package());
+        assert!(!root.is_std_package());
+        assert!(!root.is_std_start_module());
+        assert_eq!(root.parent(), None);
+
+        let child = root.child(known::START);
+        assert!(!child.is_package_root());
+        assert_eq!(child.parent(), Some(root.clone()));
+        assert!(!child.is_std_start_module());
+
+        let std_start = ModulePath::root("std").child(known::START);
+        assert!(std_start.is_std_package());
+        assert!(std_start.is_std_start_module());
+        assert!(!ModulePath::root("std").is_std_start_module());
+    }
+
+    #[test]
+    fn unknown_module_symbols_keep_distinct_identity_text() {
+        let first = SymbolId::from_stable_hash(0x1111);
+        let second = SymbolId::from_stable_hash(0x2222);
+        assert_eq!(module_symbol_text(known::ENTRY), "entry");
+        assert_eq!(module_symbol_text(first), "sym:0000000000001111");
+        assert_ne!(module_symbol_text(first), module_symbol_text(second));
+
+        let parent = ModulePath::root("entry");
+        let source = SourcePath::new("src/main.nia");
+        let first_path = declared_child_source_path_for(&source, &parent, first);
+        let second_path = declared_child_source_path_for(&source, &parent, second);
+        assert_eq!(first_path.as_str(), "src/sym:0000000000001111.nia");
+        assert_ne!(first_path.identity(), second_path.identity());
+    }
+
+    #[test]
+    fn package_aliases_and_root_selectors_resolve_to_reused_modules() {
+        let mut graph = ModuleGraph::new(SourcePath::new("src/main.nia"));
+        let entry = graph.entry();
+        let package = SymbolId::from_stable_hash(stable_hash("dependency"));
+        let root = graph.intern_package_root(&package, SourcePath::new("deps/root.nia"));
+        let alias = SymbolId::from_stable_hash(stable_hash("dependency_alias"));
+        assert_eq!(
+            graph.intern_package_root(&alias, SourcePath::new("deps/./root.nia")),
+            root
+        );
+        assert_eq!(graph.package_root(&package), Some(root));
+        assert_eq!(graph.package_root(&alias), Some(root));
+        assert_eq!(
+            graph.root_module_for_segment(entry, ModuleRootSegment::Named(alias)),
+            Some(root)
+        );
+        assert_eq!(
+            graph.root_module_for_segment(entry, ModuleRootSegment::PackageRelative),
+            Some(entry)
+        );
+        assert_eq!(
+            graph.root_module_for_segment(entry, ModuleRootSegment::Parent),
+            None
+        );
+    }
+
+    #[test]
+    fn visibility_and_module_declaration_boundaries_follow_module_ancestry() {
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let entry = graph.entry();
+        let parent_name = SymbolId::from_stable_hash(stable_hash("parent"));
+        let sibling_name = SymbolId::from_stable_hash(stable_hash("sibling"));
+        let child_name = SymbolId::from_stable_hash(stable_hash("child"));
+        let parent = graph
+            .intern_declared_child(entry, &parent_name, Visibility::Public, Span::default())
+            .expect("parent module");
+        let sibling = graph
+            .intern_declared_child(entry, &sibling_name, Visibility::Public, Span::default())
+            .expect("sibling module");
+        let child = graph
+            .intern_declared_child(parent, &child_name, Visibility::Private, Span::default())
+            .expect("nested module");
+
+        assert!(visibility_allows(
+            Visibility::Private,
+            &graph,
+            parent,
+            parent
+        ));
+        assert!(!visibility_allows(
+            Visibility::Private,
+            &graph,
+            parent,
+            sibling
+        ));
+        assert!(visibility_allows(
+            Visibility::PublicSuper,
+            &graph,
+            parent,
+            entry
+        ));
+        assert!(visibility_allows(
+            Visibility::PublicSuper,
+            &graph,
+            parent,
+            sibling
+        ));
+        assert!(visibility_allows(
+            Visibility::PublicSuper,
+            &graph,
+            parent,
+            child
+        ));
+        assert!(module_declaration_visibility_allows(
+            Visibility::Private,
+            &graph,
+            parent,
+            child,
+        ));
+        assert!(!module_declaration_visibility_allows(
+            Visibility::Private,
+            &graph,
+            parent,
+            sibling,
+        ));
+
+        let package = SymbolId::from_stable_hash(stable_hash("other"));
+        let other_root = graph.intern_package_root(&package, SourcePath::new("other/root.nia"));
+        assert!(visibility_allows(
+            Visibility::Public,
+            &graph,
+            parent,
+            other_root
+        ));
+        assert!(!visibility_allows(
+            Visibility::PublicPkg,
+            &graph,
+            parent,
+            other_root
+        ));
+        assert!(visibility_allows(
+            Visibility::PublicPkg,
+            &graph,
+            parent,
+            child
+        ));
+    }
+
+    #[test]
+    fn module_processing_flags_are_idempotent_and_duplicate_declarations_error() {
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let entry = graph.entry();
+        let child_name = known::START;
+        let child = graph
+            .intern_declared_child_with_processing(
+                entry,
+                &child_name,
+                Visibility::Public,
+                Span::default(),
+                false,
+                false,
+            )
+            .expect("deferred child");
+        let node = graph.get(child).expect("child node");
+        assert!(!node.semantic_selected);
+        assert!(!node.process_used_paths);
+        assert!(!node.process_declared_children);
+        assert!(graph.mark_process_used_paths(child));
+        assert!(!graph.mark_process_used_paths(child));
+        assert!(!graph.mark_semantic_selected(child));
+        graph.mark_process_declared_children(child);
+        assert!(
+            graph
+                .get(child)
+                .expect("selected child")
+                .process_declared_children
+        );
+
+        let duplicate = graph
+            .intern_declared_child(entry, &child_name, Visibility::Public, Span::new(1, 2))
+            .expect_err("duplicate declaration");
+        assert_eq!(duplicate.summary, "duplicate module declaration `start`");
     }
 }
