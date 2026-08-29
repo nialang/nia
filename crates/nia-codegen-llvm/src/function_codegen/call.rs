@@ -438,13 +438,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let receiver_ty = param_tys.first().copied().ok_or_else(|| {
                         self.error(expr.span, "method metadata is missing receiver parameter")
                     })?;
-                    match self
+                    let receiver_abi = self
                         .module
                         .classify_function_params(std::iter::once(receiver_ty))
                         .into_iter()
                         .next()
-                        .unwrap_or(AbiParam::Omit)
-                    {
+                        .ok_or_else(|| {
+                            self.error(expr.span, "method receiver ABI classification is missing")
+                        })?;
+                    match receiver_abi {
                         AbiParam::Direct(_) => llvm_args.push(self.emit_method_receiver_arg(
                             *receiver_kind,
                             receiver_ty,
