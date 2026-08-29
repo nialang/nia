@@ -466,7 +466,8 @@ fn option_box_type_ref_decl_eq(lhs: Option<&TypeRef>, rhs: Option<&TypeRef>) -> 
     option_type_ref_decl_eq(lhs, rhs)
 }
 
-fn expr_decl_eq(lhs: &Expr, rhs: &Expr) -> bool {
+/// Compares expression declaration structure while ignoring source locations.
+pub fn expr_decl_eq(lhs: &Expr, rhs: &Expr) -> bool {
     expr_identity(lhs) == expr_identity(rhs)
 }
 

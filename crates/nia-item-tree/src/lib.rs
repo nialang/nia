@@ -2,11 +2,12 @@
 //! Module-level item trees for conditional selection and signature queries.
 
 use nia_ast::{
-    Attribute, AttributeKind, BindingItem, ConditionExpr, EnumItem, EnumVariant,
+    Attribute, AttributeKind, BindingItem, ConditionExpr, ConditionExprKind, EnumItem, EnumVariant,
     ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
     Item, ItemKind, Module, ModuleItem, Param, StructItem, TraitAssociatedType,
     TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem, UsingItem, Visibility,
-    option_type_ref_decl_eq, type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
+    expr_decl_eq, option_type_ref_decl_eq, type_ref_decl_eq, type_refs_decl_eq,
+    where_clause_decl_eq,
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -378,7 +379,59 @@ fn item_attributes_declaration_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool 
         && lhs
             .iter()
             .zip(rhs.iter())
-            .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+            .all(|(lhs, rhs)| attribute_kind_declaration_eq(&lhs.kind, &rhs.kind))
+}
+
+fn attribute_kind_declaration_eq(lhs: &AttributeKind, rhs: &AttributeKind) -> bool {
+    match (lhs, rhs) {
+        (AttributeKind::If(lhs), AttributeKind::If(rhs)) => condition_declaration_eq(lhs, rhs),
+        (AttributeKind::Meta(lhs), AttributeKind::Meta(rhs)) => {
+            lhs.path == rhs.path
+                && lhs.args.len() == rhs.args.len()
+                && lhs
+                    .args
+                    .iter()
+                    .zip(rhs.args.iter())
+                    .all(|(lhs, rhs)| expr_decl_eq(lhs, rhs))
+        }
+        _ => false,
+    }
+}
+
+fn condition_declaration_eq(lhs: &ConditionExpr, rhs: &ConditionExpr) -> bool {
+    match (&lhs.kind, &rhs.kind) {
+        (ConditionExprKind::Bool(lhs), ConditionExprKind::Bool(rhs)) => lhs == rhs,
+        (ConditionExprKind::Integer(lhs), ConditionExprKind::Integer(rhs))
+        | (ConditionExprKind::String(lhs), ConditionExprKind::String(rhs)) => lhs == rhs,
+        (ConditionExprKind::Ident(lhs), ConditionExprKind::Ident(rhs)) => lhs == rhs,
+        (
+            ConditionExprKind::Unary {
+                op: lhs_op,
+                expr: lhs_expr,
+            },
+            ConditionExprKind::Unary {
+                op: rhs_op,
+                expr: rhs_expr,
+            },
+        ) => lhs_op == rhs_op && condition_declaration_eq(lhs_expr, rhs_expr),
+        (
+            ConditionExprKind::Binary {
+                lhs: lhs_lhs,
+                op: lhs_op,
+                rhs: lhs_rhs,
+            },
+            ConditionExprKind::Binary {
+                lhs: rhs_lhs,
+                op: rhs_op,
+                rhs: rhs_rhs,
+            },
+        ) => {
+            lhs_op == rhs_op
+                && condition_declaration_eq(lhs_lhs, rhs_lhs)
+                && condition_declaration_eq(lhs_rhs, rhs_rhs)
+        }
+        _ => false,
+    }
 }
 
 fn item_attributes_definition_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
@@ -386,7 +439,7 @@ fn item_attributes_definition_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool {
         && lhs
             .iter()
             .zip(rhs.iter())
-            .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+            .all(|(lhs, rhs)| attribute_kind_declaration_eq(&lhs.kind, &rhs.kind))
 }
 
 fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTreeNode> {
@@ -957,6 +1010,21 @@ fn selected() i32 { 2 }
         let before_tree =
             parse_versioned_item_tree("pub fn main() i32 { 0 }", SourceRevision::INITIAL);
         let after_tree = parse_versioned_item_tree("pub fn main() i32 { 1 }", SourceRevision(1));
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    #[test]
+    fn attribute_layout_and_source_revision_do_not_change_declaration_shape() {
+        let before_tree = parse_versioned_item_tree(
+            "@[if true]\n@[link_name(\"main\")]\npub fn main() i32 { 0 }",
+            SourceRevision::INITIAL,
+        );
+        let after_tree = parse_versioned_item_tree(
+            "\n\n@[if true]\n@[link_name(\"main\")]\npub fn main() i32 { 1 }",
+            SourceRevision(1),
+        );
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
