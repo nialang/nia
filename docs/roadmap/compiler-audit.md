@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 728 completed entries in this ledger.
+- Latest implementation batch: 729 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4360,6 +4360,16 @@ acceptance item only when its phase-wide evidence is complete.
       function-instance const identity preservation. Broader const-evaluator,
       body-check consumer, phase-wide clean/incremental, resource, and
       external-target evidence remain open.
+- [x] Batch 729 records Phase C const-evaluation and executable-reachability
+      owner evidence. Strict Rustdoc is clean for `nia-const-ir`,
+      `nia-const-eval`, `nia-const-check`, `nia-executable-facts`, and
+      `nia-executable-reachability`; their complete suites pass 131 tests total
+      with strict all-target Clippy. Coverage includes resolved-flow contracts,
+      target-width and endianness-sensitive const values, evaluation frame and
+      budget cleanup, aggregate/union storage and pointer provenance,
+      const-generic identity, semantic fact filtering, and recursive trait
+      reachability guards. Broader body-check consumers, phase-wide
+      clean/incremental, resource, and external-target evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
