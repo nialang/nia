@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 805 completed entries in this ledger.
+- Latest implementation batch: 806 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4963,6 +4963,13 @@ acceptance item only when its phase-wide evidence is complete.
       construction uses checked arithmetic. Host and i686 `nia-codegen-llvm`
       suites both pass 333/333, including all backend validation and lowering
       regressions.
+- [x] Batch 806 closes the remaining i686 owner assertion gaps in linker,
+      loader, and query infrastructure. GNU invocation expectations now include
+      target emulation and native dynamic-linker probing; freestanding loader
+      paths and composite query-key sizes derive from the active architecture;
+      memory-capacity fixtures use checked 64-bit-to-`usize` conversion. Host
+      and i686 suites pass for `nia-linker` (32), `nia-loader-query` (97), and
+      `nia-query` (83), with no production behavior change required.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
