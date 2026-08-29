@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 795 completed entries in this ledger.
+- Latest implementation batch: 796 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4895,6 +4895,14 @@ acceptance item only when its phase-wide evidence is complete.
       std build-host closure check. This is current-host evidence; non-host,
       constrained-resource, and final phase acceptance requirements remain
       tracked separately.
+- [x] Batch 796 records an independent low-memory runtime rerun. Under a
+      temporary Linux cgroup scope with `MemoryMax=3G` and no swap,
+      `NIA_TEST_RESOURCE_TRACE=1 cargo test -p nia-cli --test
+      emit_exe_intrinsics --all-features` passes 8/8. The resource pools derive
+      compiler/runtime capacity 6 from the 3 GiB limit; managed compiler
+      children peak at roughly 336 MiB RSS, with no timeout or permit leak.
+      This strengthens constrained-host evidence without claiming final
+      external-target acceptance.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
