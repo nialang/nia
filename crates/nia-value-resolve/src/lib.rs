@@ -1014,10 +1014,12 @@ impl<'a> ValueResolver<'a> {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
                     if let Some(item) = surfaces.public_type(module_id, &name) {
-                        return Some(ResolvedNamespace::Type(GlobalDefId {
+                        let type_id = GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
-                        }));
+                        };
+                        self.insert_qualified_type_prefix(segment.node_key, type_id);
+                        return Some(ResolvedNamespace::Type(type_id));
                     }
                 }
                 if let Some((child_module, visibility)) =
@@ -1036,7 +1038,9 @@ impl<'a> ValueResolver<'a> {
                 }
                 match self.direct_type_member(module_id, &name) {
                     DirectMember::Visible(def_id) => {
-                        Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+                        let type_id = GlobalDefId { module_id, def_id };
+                        self.insert_qualified_type_prefix(segment.node_key, type_id);
+                        Some(ResolvedNamespace::Type(type_id))
                     }
                     DirectMember::Private => {
                         let name = self.symbol_name(name);
