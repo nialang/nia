@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 731 completed entries in this ledger.
+- Latest implementation batch: 732 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4388,6 +4388,16 @@ acceptance item only when its phase-wide evidence is complete.
       rendering and stable bundles, and structured ICE conversion. Parser-wide
       acceptance, larger frontend consumers, phase-wide clean/incremental,
       resource, and external-target evidence remain open.
+- [x] Batch 732 records cross-cutting driver, linker, loader, and query owner
+      evidence. Strict Rustdoc is clean for `nia-driver`, `nia-linker`,
+      `nia-loader-query`, and `nia-query`; their complete suites pass 865 tests
+      total (655, 31, 96, and 83 respectively) with strict all-target Clippy.
+      Coverage includes cache and archive corruption/replacement, target and
+      linker identity, module/provider graph invalidation, persistent product
+      verification, query lifecycle/cycle recovery, shared execution budgets,
+      and driver trait/object/const-generic integration. This is current-host
+      evidence; final clean/incremental, constrained-resource, and external
+      target acceptance remains open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
