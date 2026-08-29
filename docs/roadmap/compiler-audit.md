@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 773 completed entries in this ledger.
+- Latest implementation batch: 774 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4746,6 +4746,13 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-llvm` (95 tests plus 2 compile-fail doctests) and
       `nia-codegen-llvm` (333 tests) pass with strict Rustdoc, Clippy,
       formatting, and diff checks. Broader LLVM target and external-target
+      acceptance remains open.
+- [x] Batch 774 hardens const-evaluation cleanup invariants. An outer budget
+      session now rejects leaked function-call depth instead of silently
+      resetting it, with a direct panic-boundary regression. `nia-const-eval`
+      (49), `nia-const-check` (45), `nia-static-check` (15), and
+      `nia-compiler-query` (256) pass with strict Rustdoc, all-target Clippy,
+      formatting, and diff checks. Broader Phase C resource and incremental
       acceptance remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.

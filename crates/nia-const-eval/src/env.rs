@@ -80,6 +80,10 @@ impl ConstEvalBudget {
         // at depth zero prevents a recursive const call from replenishing its
         // parent's step allowance.
         if self.session_depth == 0 {
+            assert_eq!(
+                self.call_depth, 0,
+                "const evaluation session began with active function calls"
+            );
             self.remaining_steps = self.step_limit;
             self.call_depth = 0;
         }
