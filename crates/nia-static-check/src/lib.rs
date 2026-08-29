@@ -1065,6 +1065,18 @@ static mut value: i32 = base + 2;
     }
 
     #[test]
+    fn accepts_builtin_integer_limits_in_static_initializers() {
+        let checked = check(
+            r#"
+static mut signed_min: i32 = i32::MIN;
+static mut unsigned_max: usize = usize::MAX;
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
     fn accepts_scalar_const_values_in_static_initializers() {
         let checked = check(
             r#"

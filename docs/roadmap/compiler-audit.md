@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 761 completed entries in this ledger.
+- Latest implementation batch: 762 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4669,6 +4669,14 @@ acceptance item only when its phase-wide evidence is complete.
       and `nia-program-signatures` (7) pass with strict Rustdoc, all-target
       Clippy, formatting, maintenance, and diff checks. Broader Phase A trait
       acceptance remains open.
+- [x] Batch 762 adds static/const consumer coverage for builtin integer limit
+      values. Static initializers using `i32::MIN` and `usize::MAX` now have a
+      direct owner regression proving the value-resolution, const-evaluation,
+      target-width, and static-data paths compose without diagnostics.
+      `nia-static-check` (15), `nia-const-check` (45), and `nia-body-check`
+      (279) pass with strict Rustdoc, all-target Clippy, formatting,
+      maintenance, and diff checks. Broader Phase C target-matrix acceptance
+      remains open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
