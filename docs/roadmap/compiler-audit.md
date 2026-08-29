@@ -4067,6 +4067,11 @@ acceptance item only when its phase-wide evidence is complete.
       nominal type sorting now uses deterministic missing-module recovery keys
       instead of aborting when stale ownership metadata reaches ordering;
       focused membership coverage verifies the recovered definition key.
+- [x] Batch 680 closes function-optimizer validation ICEs. The optimizer now
+      returns structural validation failures explicitly, preserves the original
+      body as its recovery product, and backend lowering records the failure as
+      `INVALID_BACKEND_IR`; focused coverage verifies malformed input does not
+      panic or get rewritten.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

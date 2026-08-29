@@ -23,6 +23,14 @@ impl<'a> ModuleLowerer<'a> {
             policy: &self.optimization,
             is_zero_sized: zero_sized_types,
         });
+        if let Some(error) = output.validation_error {
+            self.diagnostics
+                .push(nia_diagnostic::Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    error.span,
+                    format!("function optimizer rejected invalid IR: {}", error.message),
+                ));
+        }
         for pass in output.changed_passes {
             self.optimization_report.changed_passes.push(
                 crate::BackendOptimizationChange::Function {
