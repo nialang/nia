@@ -4173,6 +4173,14 @@ acceptance item only when its phase-wide evidence is complete.
       cleanup bugs; closure defer stacks and flow traversal maintain their
       established lexical invariants. Owner suites and strict Clippy pass with
       no additional malformed-input recovery gap identified.
+- [x] Batch 707 audits query executor lifecycle and cross-thread wait safety.
+      Worker shutdown closes admission before draining accepted work and joins
+      every non-current worker; nested execution reuses the active executor and
+      process budget to avoid self-deadlock; wait-for edges are released by RAII
+      across cycle, panic, and retirement paths. The `nia-query` owner suite
+      (83 tests) and strict `cargo clippy -p nia-query --lib -- -D warnings`
+      pass, with no externally reachable lifecycle or resource-retirement gap
+      identified.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
