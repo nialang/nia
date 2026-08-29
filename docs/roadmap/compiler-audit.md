@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 794 completed entries in this ledger.
+- Latest implementation batch: 795 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4888,6 +4888,13 @@ acceptance item only when its phase-wide evidence is complete.
       `std/os/linux/x86*` and `std/start/freestanding/linux/x86.nia`; the
       `nia-maintain` test suite passes 48/48, keeping the source closure and
       fixture synchronized.
+- [x] Batch 795 records the post-snapshot full workspace regression gate.
+      `cargo test --workspace --all-features` passes across owner, query/cache,
+      frontend, backend/LLVM, build, executable runtime, filesystem, process,
+      allocator, relocation, and maintenance suites, including the refreshed
+      std build-host closure check. This is current-host evidence; non-host,
+      constrained-resource, and final phase acceptance requirements remain
+      tracked separately.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
