@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 793 completed entries in this ledger.
+- Latest implementation batch: 794 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4883,6 +4883,11 @@ acceptance item only when its phase-wide evidence is complete.
       `wasm32-unknown-unknown`, with host suites passing 83 and 20 tests. The
       broader `nia-build` wasm check remains blocked by the local `llvm-sys`
       C wrapper lacking wasm system headers; no runtime support claim is made.
+- [x] Batch 794 refreshes the maintained standard-library build-host closure
+      snapshot for the experimental i686 runtime modules. The audit now tracks
+      `std/os/linux/x86*` and `std/start/freestanding/linux/x86.nia`; the
+      `nia-maintain` test suite passes 48/48, keeping the source closure and
+      fixture synchronized.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
