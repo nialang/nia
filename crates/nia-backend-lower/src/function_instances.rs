@@ -502,14 +502,16 @@ impl<'a> ModuleLowerer<'a> {
                 });
             let state_type = self.instantiate_ty_with_id(entry.state_ty, substitution_id);
             let return_type = self.instantiate_ty_with_id(entry.return_type, substitution_id);
-            closure_entries.push(self.materialize_closure_entry(
+            if let Some(lowered_entry) = self.materialize_closure_entry(
                 &entry,
                 BackendClosureEntryOwner::FunctionInstance(owner_key.clone()),
                 &symbol,
                 state_type,
                 return_type,
                 body,
-            ));
+            ) {
+                closure_entries.push(lowered_entry);
+            }
         }
         instances.push(BackendFunctionInstance {
             def_id,

@@ -285,14 +285,16 @@ impl<'a> ModuleLowerer<'a> {
             let owner_symbol =
                 self.mangle_instance_symbol(function.def_id, function.name, None, &[], &[]);
             for entry in self.input.program.closure_entries(function.def_id) {
-                lowered.push(self.materialize_closure_entry(
+                if let Some(lowered_entry) = self.materialize_closure_entry(
                     entry,
                     BackendClosureEntryOwner::Source(function.def_id),
                     &owner_symbol,
                     entry.state_ty,
                     entry.return_type,
                     entry.body.clone(),
-                ));
+                ) {
+                    lowered.push(lowered_entry);
+                }
             }
         }
         lowered

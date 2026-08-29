@@ -4034,6 +4034,10 @@ acceptance item only when its phase-wide evidence is complete.
       `INVALID_BACKEND_IR` diagnostics and recover with the existing error type
       when a session handle is missing; focused tests cover the diagnostic
       contract while normal generic and trait matrices remain green.
+- [x] Batch 673 closes closure-entry ABI local lookup panics. Source and
+      generic closure materialization now reports `INVALID_BACKEND_IR` and
+      skips malformed entries when a state or parameter local is absent,
+      preventing invalid ABI metadata from entering later phases.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
