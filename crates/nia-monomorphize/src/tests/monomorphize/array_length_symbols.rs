@@ -59,6 +59,42 @@ fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
 }
 
 #[test]
+fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
+    let (module, errors) = parse_module("fn take[T](value: T) T { value }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let fixture = test_fixture();
+    let defs = collect_module_defs(fixture.module_id, &module);
+    let take_id = GlobalDefId {
+        module_id: fixture.module_id,
+        def_id: value_def(&defs, "take"),
+    };
+    let elem = fixture.types.primitive(PrimitiveTy::I32);
+    let instantiations = vec![inst(take_id, vec![elem], Span::new(1, 2), None)];
+    let normalization = normalization_for();
+    let const_eval = ConstCheck::default();
+    let const_exprs = HashMap::new();
+
+    let mono = collect_monomorphizations(
+        &[mono_input(
+            &defs,
+            &normalization,
+            &const_eval,
+            &const_exprs,
+            &instantiations,
+        )],
+        std::iter::empty(),
+        &fixture.type_store,
+    );
+
+    assert_eq!(mono.instances.len(), 1);
+    assert!(mono.instances[0].symbol.contains("__inst__"));
+    assert_eq!(mono.diagnostics.len(), 1);
+    assert!(mono.diagnostics[0]
+        .summary
+        .contains("missing source identity"));
+}
+
+#[test]
 fn repeated_unresolved_array_length_symbol_reuses_cached_diagnostic() {
     let (module, errors) = parse_module(
         r#"

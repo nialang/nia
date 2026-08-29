@@ -4043,6 +4043,11 @@ acceptance item only when its phase-wide evidence is complete.
       published, preserving already visible modules and avoiding an ICE during
       readiness windows; focused coverage exercises the unpublished-module
       state.
+- [x] Batch 675 closes monomorphization source-identity panic recovery. Generic
+      symbol generation now records a deduplicated `INVALID_BACKEND_IR`
+      diagnostic and uses a deterministic module placeholder when a referenced
+      source identity is absent; focused coverage verifies instance symbols
+      remain recoverable while the malformed input is reported.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
