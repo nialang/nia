@@ -600,10 +600,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 end += 1;
             }
             if initialized {
-                let segment = bytes[start..end]
-                    .iter()
-                    .map(|byte| byte.expect("initialized promoted byte segment"))
-                    .collect::<Vec<_>>();
+                let segment = initialized_promoted_byte_segment(&bytes[start..end], span)?;
                 values.push(
                     self.module
                         .context
@@ -1008,5 +1005,42 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_gep(array_ty, base_ptr, &[zero, index], "elemptr")
                 .map_err(|_| self.error(span, "failed to build array element address"))
         }
+    }
+}
+
+fn initialized_promoted_byte_segment(
+    bytes: &[Option<u8>],
+    span: Span,
+) -> Result<Vec<u8>, Diagnostic> {
+    bytes
+        .iter()
+        .copied()
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| {
+            Diagnostic::user_error_at(
+                nia_diagnostic::codes::LLVM_CODEGEN,
+                span,
+                "promoted byte segment contains an uninitialized byte",
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initialized_promoted_byte_segment;
+    use nia_span::Span;
+
+    #[test]
+    fn promoted_byte_segment_rejects_uninitialized_bytes() {
+        let error = initialized_promoted_byte_segment(&[Some(1), None], Span::default())
+            .expect_err("uninitialized byte must be rejected");
+        assert!(error.summary.contains("uninitialized byte"));
+    }
+
+    #[test]
+    fn promoted_byte_segment_preserves_initialized_bytes() {
+        let bytes = initialized_promoted_byte_segment(&[Some(1), Some(2)], Span::default())
+            .expect("initialized bytes");
+        assert_eq!(bytes, vec![1, 2]);
     }
 }

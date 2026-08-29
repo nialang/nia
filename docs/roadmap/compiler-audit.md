@@ -4025,6 +4025,10 @@ acceptance item only when its phase-wide evidence is complete.
       diagnostic per module and use a deterministic placeholder only for
       recovery, preserving lowering progress for other items; focused helper
       coverage verifies stable recovery and diagnostic deduplication.
+- [x] Batch 671 closes promoted artifact byte-segment panic recovery. A
+      malformed initialized segment containing an absent byte now returns an
+      LLVM codegen diagnostic instead of calling `expect`; focused unit tests
+      cover both rejection and byte-preserving success behavior.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
