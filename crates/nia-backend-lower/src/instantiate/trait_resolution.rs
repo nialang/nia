@@ -423,7 +423,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         current: GlobalDefId,
     ) -> Option<(Vec<nia_item_signatures::WherePredicateSignature>, ModuleId)> {
-        let source = self.extension_method_source(current)?;
+        let source = self.extension_method_source(current)?.clone();
         let target_ty = self.normalized_type_from_module(source.module_id, source.target_ty);
         let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(target_ty).cloned() else {
             return None;
@@ -509,7 +509,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn trait_id_and_args(
-        &self,
+        &mut self,
         ty: InternedTyId,
     ) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let ty = self.normalize_instance_arg_type(ty);
