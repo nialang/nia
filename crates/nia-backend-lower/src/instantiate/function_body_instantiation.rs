@@ -584,8 +584,10 @@ impl<'a> ModuleLowerer<'a> {
                                                 args: target_args,
                                                 const_args: Vec::new(),
                                                 receiver_kind: self
-                                                    .receiver_kind_for_method(def_id)
-                                                    .unwrap_or(nia_ids::ReceiverKind::Value),
+                                                    .receiver_kind_for_method_or_diagnose(
+                                                        def_id,
+                                                        receiver.span,
+                                                    ),
                                                 receiver,
                                             },
                                             args,

@@ -3981,6 +3981,11 @@ acceptance item only when its phase-wide evidence is complete.
       emission already rejects fieldless storage before addressing payloads and
       now asserts the validated offset invariant instead of substituting byte
       offset `0` if metadata is internally inconsistent.
+- [x] Batch 662 closes backend method receiver metadata fallbacks. Builtin
+      operator, place-method, extension-method, and instantiated dispatch now
+      report `INVALID_BACKEND_IR` when a resolved method lacks receiver mode
+      metadata, instead of silently treating it as a value receiver. Recovery
+      retains a value mode only after recording the fatal lowering diagnostic.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

@@ -25,6 +25,25 @@ impl ModuleLowerer<'_> {
             .and_then(|param| param.receiver)
     }
 
+    pub(crate) fn receiver_kind_for_method_or_diagnose(
+        &mut self,
+        method_id: GlobalDefId,
+        span: nia_span::Span,
+    ) -> nia_ids::ReceiverKind {
+        self.receiver_kind_for_method(method_id).unwrap_or_else(|| {
+            self.diagnostics.push(
+                nia_diagnostic::Diagnostic::internal_error(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    "resolved method is missing receiver metadata",
+                )
+                .primary(span, "resolved method is missing receiver metadata")
+                .debug("method_id", method_id)
+                .finish(),
+            );
+            nia_ids::ReceiverKind::Value
+        })
+    }
+
     pub(crate) fn def_id_for_node(
         &mut self,
         node_key: &VersionedNodeKey,
