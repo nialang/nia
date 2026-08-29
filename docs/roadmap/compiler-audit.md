@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 787 completed entries in this ledger.
+- Latest implementation batch: 788 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4849,6 +4849,11 @@ acceptance item only when its phase-wide evidence is complete.
       descriptor ownership, retry paths, and wide-integer division builtins.
       This confirms the experimental i686 syscall facade beyond the focused
       intrinsic and IO matrices; general target support remains experimental.
+- [x] Batch 788 makes the custom standard-library startup regression target
+      complete. The fixture now supplies both x86_64 and i686 freestanding
+      startup modules, including the i386 `int 0x80` exit path, so loader
+      selection is exercised without architecture-specific missing-input
+      failures. `emit_exe_startup` passes 4/4 on both host x86_64 and i686.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

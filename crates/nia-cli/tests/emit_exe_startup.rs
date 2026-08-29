@@ -45,6 +45,7 @@ fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
     let std_start_freestanding = root.join("custom_std/std/start/freestanding.nia");
     let std_start_freestanding_linux = root.join("custom_std/std/start/freestanding/linux.nia");
     let std_start_linux_x86_64 = root.join("custom_std/std/start/freestanding/linux/x86_64.nia");
+    let std_start_linux_x86 = root.join("custom_std/std/start/freestanding/linux/x86.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
         .expect("create custom std dir");
@@ -76,10 +77,12 @@ pub fn asm(config: AsmConfig) ();
     std::fs::write(
         &std_start,
         r#"
-@[if os == "linux" and arch == "x86_64"]
+@[if os == "linux" and (arch == "x86_64" or arch == "x86")]
 pub(pkg) module freestanding;
 @[if os == "linux" and arch == "x86_64"]
 using pkg::start::freestanding::linux::x86_64;
+@[if os == "linux" and arch == "x86"]
+using pkg::start::freestanding::linux::x86;
 "#,
     )
     .expect("write custom std start facade");
@@ -96,6 +99,8 @@ pub(pkg) module linux;
         r#"
 @[if arch == "x86_64"]
 pub(pkg) module x86_64;
+@[if arch == "x86"]
+pub(pkg) module x86;
 "#,
     )
     .expect("write custom std linux facade");
@@ -138,6 +143,45 @@ extern fn custom_start() () {
 "#,
     )
     .expect("write custom std start");
+    std::fs::write(
+        &std_start_linux_x86,
+        r#"
+using entry;
+
+fn syscall_exit(code: i32) () {
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\int 0x80
+        ,
+        inputs: std::builtin::AsmInputs {
+            eax: 1,
+            ebx: code,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+}
+
+@[naked]
+pub extern fn _start() () {
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\call custom_start
+            \\ud2
+        ,
+        clobbers: [b"eax", b"ecx", b"edx", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}
+
+extern fn custom_start() () {
+    syscall_exit(entry::mymain());
+    loop {}
+}
+"#,
+    )
+    .expect("write custom i686 std start");
     std::fs::write(
         &main,
         r#"
