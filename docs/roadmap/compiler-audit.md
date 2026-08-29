@@ -3977,6 +3977,10 @@ acceptance item only when its phase-wide evidence is complete.
       construction; malformed primitive operands receive a lowering diagnostic
       instead of silently becoming optional propagation, and a focused input
       regression covers the refusal.
+- [x] Batch 661 removes the LLVM enum payload-offset fallback. Enum variant
+      emission already rejects fieldless storage before addressing payloads and
+      now asserts the validated offset invariant instead of substituting byte
+      offset `0` if metadata is internally inconsistent.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
