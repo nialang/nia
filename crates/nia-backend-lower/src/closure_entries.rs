@@ -7,6 +7,7 @@ use crate::ModuleLowerer;
 use nia_backend_ir::{
     BackendClosureEntry, BackendClosureEntryAbi, BackendClosureEntryKey, BackendClosureEntryOwner,
 };
+use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionClosureEntry};
 use nia_ids::{InternedTyId, LocalId};
 
@@ -20,27 +21,37 @@ impl ModuleLowerer<'_> {
     /// and instance paths from assigning different ABI parameter order or
     /// types to the same closure entry shape.
     pub(crate) fn materialize_closure_entry(
-        &self,
+        &mut self,
         entry: &FunctionClosureEntry,
         owner: BackendClosureEntryOwner,
         owner_symbol: &str,
         state_type: InternedTyId,
         return_type: InternedTyId,
         body: FunctionBody,
-    ) -> BackendClosureEntry {
+    ) -> Option<BackendClosureEntry> {
         let local_types = body
             .locals
             .iter()
             .map(|local| (local.id, local.ty))
             .collect::<HashMap<_, _>>();
-        let state_pointer_type =
-            closure_param_type(&local_types, entry.state_param, entry, "state parameter");
-        let params = entry
-            .params
-            .iter()
-            .map(|param| closure_param_type(&local_types, *param, entry, "parameter"))
-            .collect();
-        BackendClosureEntry {
+        let state_pointer_type = closure_param_type(
+            &local_types,
+            entry.state_param,
+            entry,
+            "state parameter",
+            &mut self.diagnostics,
+        )?;
+        let mut params = Vec::with_capacity(entry.params.len());
+        for param in &entry.params {
+            params.push(closure_param_type(
+                &local_types,
+                *param,
+                entry,
+                "parameter",
+                &mut self.diagnostics,
+            )?);
+        }
+        Some(BackendClosureEntry {
             key: BackendClosureEntryKey {
                 closure_id: entry.closure_id,
                 owner,
@@ -57,7 +68,7 @@ impl ModuleLowerer<'_> {
             local_names: self.function_local_names(&body),
             span: body.span,
             function_body: body,
-        }
+        })
     }
 }
 
@@ -66,11 +77,18 @@ fn closure_param_type(
     local_id: LocalId,
     entry: &FunctionClosureEntry,
     role: &str,
-) -> InternedTyId {
-    local_types.get(&local_id).copied().unwrap_or_else(|| {
-        panic!(
-            "Nia ICE: closure entry {:?} is missing {role} {:?}",
-            entry.closure_id, local_id
-        )
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<InternedTyId> {
+    local_types.get(&local_id).copied().or_else(|| {
+        diagnostics.push(
+            Diagnostic::internal_error(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                format!("closure entry is missing {role} local"),
+            )
+            .debug("closure_id", entry.closure_id)
+            .debug("local_id", local_id)
+            .finish(),
+        );
+        None
     })
 }
