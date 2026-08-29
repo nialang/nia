@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 740 completed entries in this ledger.
+- Latest implementation batch: 741 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4463,6 +4463,13 @@ acceptance item only when its phase-wide evidence is complete.
       All 68 coordinator tests, strict Rustdoc, strict all-target Clippy,
       workspace formatting, and diff checks pass. Top-level build bootstrap
       error documentation and final acceptance evidence remain open.
+- [x] Batch 741 removes the final repository `missing_docs` suppression by
+      documenting every top-level `BuildError` bootstrap, runner, handoff,
+      execution, and cleanup variant and payload. The complete `nia-build`
+      owner suite passes 216 tests with one expected cross-process worker
+      ignored; strict Rustdoc, strict all-target Clippy, workspace formatting,
+      diff checks, and a repository suppression scan pass. Workspace-wide
+      strict Rustdoc and the final acceptance matrix remain separate gates.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
