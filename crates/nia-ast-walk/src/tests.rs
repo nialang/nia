@@ -123,3 +123,40 @@ fn run[N: kinds::Function]() () {}
         );
     }
 }
+
+#[test]
+fn finds_static_bindings_nested_in_expression_blocks_and_closures() {
+    let source = r#"
+fn collect() () {
+    static root: i32 = 0;
+    let root_value = 0;
+    let closure = \[root_value] -> { static nested: i32 = 1; };
+    if true { static branch: i32 = 2; }
+    match true {
+        true => { static arm: i32 = 3; }
+    }
+}
+"#;
+    let module = parse(source);
+    let function = match &module.items[0].kind {
+        nia_ast::ItemKind::Function(function) => function,
+        other => panic!("expected function, got {other:?}"),
+    };
+    let body = function.body.as_ref().expect("function body");
+    let mut declarations = Vec::new();
+    walk_static_bindings(body, &mut |stmt| {
+        if matches!(stmt.kind, nia_ast::StmtKind::Static(_)) {
+            declarations.push(source[stmt.span.start..stmt.span.end].to_owned());
+        }
+    });
+
+    assert_eq!(
+        declarations,
+        [
+            "static root: i32 = 0;",
+            "static nested: i32 = 1;",
+            "static branch: i32 = 2;",
+            "static arm: i32 = 3;",
+        ]
+    );
+}
