@@ -4197,6 +4197,15 @@ acceptance item only when its phase-wide evidence is complete.
       standard descriptors are closed. No additional externally reachable
       process or startup-runtime defect was identified; Phase F remains open
       pending its allocator/filesystem and target-matrix acceptance evidence.
+- [x] Batch 710 records real executable filesystem and allocator evidence.
+      The `nia-cli` `emit_exe_fs` suite (25 tests) and standard allocator suites
+      (18 tests) pass. Coverage includes capability-relative path and symlink
+      enforcement, directory iteration, non-UTF-8 native paths, file metadata
+      and handle ownership, plus fixed-buffer, arena, and general-purpose
+      allocator resize/remap/realloc/free failure recovery, forged-header
+      rejection, and container integration. No additional externally reachable
+      filesystem or allocator defect was identified; Phase F remains open only
+      for its remaining target-matrix and final acceptance evidence.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
