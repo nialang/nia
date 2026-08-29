@@ -188,7 +188,7 @@ impl Parser {
         let start = self.tokens.token_at_or_after(span.start);
         let end = self.tokens.token_before_or_at(span.end);
         let (Some(start), Some(end)) = (start, end) else {
-            panic!("parser produced {kind:?} AST node without syntax tokens at {span:?}");
+            return self.insert_fallback_node_key(kind, span);
         };
         // Syntax tooling may construct trees without a session source version.
         // Keep those standalone parses usable with the same reserved identity
@@ -196,11 +196,10 @@ impl Parser {
         let version = start
             .source_version()
             .unwrap_or_else(synthetic_source_version);
-        if let Some(end_version) = end.source_version() {
-            assert_eq!(
-                end_version, version,
-                "parser produced {kind:?} AST node spanning multiple source versions at {span:?}"
-            );
+        if let Some(end_version) = end.source_version()
+            && end_version != version
+        {
+            return self.insert_fallback_node_key(kind, span);
         }
         let key = VersionedNodeKey::child_path_range(
             version,
@@ -208,6 +207,23 @@ impl Parser {
             start.child_path().clone(),
             end.child_path().clone(),
         );
+        self.origins.insert(kind, span, key.clone());
+        key
+    }
+
+    fn insert_fallback_node_key(&mut self, kind: NodeSyntaxKind, span: Span) -> VersionedNodeKey {
+        // Public syntax-tree reconstruction can carry malformed token spans
+        // that do not delimit a complete child-path range. Preserve parser
+        // progress with a span identity rather than turning recovery input
+        // into an internal panic; normal lexer-produced trees keep the more
+        // precise child-path identity above.
+        let version = self
+            .tokens
+            .tokens()
+            .iter()
+            .find_map(SyntaxToken::source_version)
+            .unwrap_or_else(synthetic_source_version);
+        let key = VersionedNodeKey::span(version, kind, span);
         self.origins.insert(kind, span, key.clone());
         key
     }

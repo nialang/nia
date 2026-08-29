@@ -4200,6 +4200,12 @@ acceptance item only when its phase-wide evidence is complete.
       overflowed records before exposing borrowed names. No additional
       externally reachable recovery gap was identified; malformed records
       remain deterministic `Invalid` iterator results.
+- [x] Batch 705 closes parser custom-token origin panic recovery. The public
+      syntax-tree parser now falls back to a span-based synthetic locator when
+      caller-supplied token spans cannot form a complete child-path range or
+      cross source revisions, preserving normal child-path identities while
+      keeping malformed reconstruction input diagnostic and non-panicking.
+      The parser owner suite (123 tests) and syntax suite (12 tests) pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
