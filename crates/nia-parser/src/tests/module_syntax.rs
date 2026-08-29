@@ -92,6 +92,7 @@ fn main(a: i32) i32 {
     let mut x = a;
     x
 }
+
 "#,
         Some(version),
     );
@@ -118,6 +119,41 @@ fn main(a: i32) i32 {
         NodePosition::ChildPathRange { start, end }
             if !start.steps().is_empty() && !end.steps().is_empty()
     ));
+}
+
+#[test]
+fn malformed_caller_token_spans_use_recovery_node_identity_without_panicking() {
+    let zero = nia_span::Span::new(0, 0);
+    let tokens = vec![
+        nia_lexer::LosslessToken {
+            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::Fn),
+            span: zero,
+        },
+        nia_lexer::LosslessToken {
+            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::Ident),
+            span: zero,
+        },
+        nia_lexer::LosslessToken {
+            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::LParen),
+            span: zero,
+        },
+        nia_lexer::LosslessToken {
+            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::RParen),
+            span: zero,
+        },
+        nia_lexer::LosslessToken {
+            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::LBrace),
+            span: zero,
+        },
+        nia_lexer::LosslessToken {
+            kind: nia_lexer::LosslessTokenKind::Token(nia_lexer::TokenKind::RBrace),
+            span: zero,
+        },
+    ];
+    let syntax = nia_syntax::SyntaxTree::from_lossless_tokens("", None, tokens);
+    let result = std::panic::catch_unwind(|| parse_module_syntax_with_origins(&syntax));
+    let (_module, _errors, origins) = result.expect("malformed token spans must not panic");
+    assert!(!origins.is_empty());
 }
 
 #[test]
