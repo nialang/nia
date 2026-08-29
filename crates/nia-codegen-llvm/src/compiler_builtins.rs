@@ -18,13 +18,18 @@ use nia_ty::{PrimitiveTy, TyKind};
 use crate::program_index::ProgramIndex;
 
 pub(crate) fn required_symbols(index: &ProgramIndex) -> CompilerBuiltinSymbols {
-    let mut collector = CompilerBuiltinCollector::default();
+    let mut collector = CompilerBuiltinCollector {
+        wide_i64_div_rem: usize::BITS < 64,
+        ..CompilerBuiltinCollector::default()
+    };
     collector.collect_program(index);
     collector.symbols
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CompilerBuiltinSymbols {
+    pub(crate) u64_div_rem: bool,
+    pub(crate) i64_div_rem: bool,
     pub(crate) u128_div_rem: bool,
     pub(crate) i128_div_rem: bool,
     pub(crate) u128_from_f32: bool,
@@ -39,7 +44,9 @@ pub(crate) struct CompilerBuiltinSymbols {
 
 impl CompilerBuiltinSymbols {
     pub(crate) fn any(self) -> bool {
-        self.u128_div_rem
+        self.u64_div_rem
+            || self.i64_div_rem
+            || self.u128_div_rem
             || self.i128_div_rem
             || self.u128_from_f32
             || self.u128_from_f64
@@ -57,6 +64,10 @@ impl CompilerBuiltinSymbols {
     /// it to reserve only helpers that the compiler-builtins object will own.
     pub(crate) fn external_definitions(self) -> impl Iterator<Item = &'static str> {
         [
+            self.u64_div_rem.then_some("__udivdi3"),
+            self.u64_div_rem.then_some("__umoddi3"),
+            self.i64_div_rem.then_some("__divdi3"),
+            self.i64_div_rem.then_some("__moddi3"),
             self.u128_div_rem.then_some("__udivti3"),
             self.u128_div_rem.then_some("__umodti3"),
             self.i128_div_rem.then_some("__divti3"),
@@ -78,6 +89,7 @@ impl CompilerBuiltinSymbols {
 #[derive(Debug, Default)]
 struct CompilerBuiltinCollector {
     symbols: CompilerBuiltinSymbols,
+    wide_i64_div_rem: bool,
 }
 
 impl CompilerBuiltinCollector {
@@ -328,6 +340,12 @@ impl CompilerBuiltinCollector {
             return;
         }
         match index.ty_kind(lhs.ty) {
+            Some(TyKind::Primitive(PrimitiveTy::U64)) if self.wide_i64_div_rem => {
+                self.symbols.u64_div_rem = true;
+            }
+            Some(TyKind::Primitive(PrimitiveTy::I64)) if self.wide_i64_div_rem => {
+                self.symbols.i64_div_rem = true;
+            }
             Some(TyKind::Primitive(PrimitiveTy::U128)) => self.symbols.u128_div_rem = true,
             Some(TyKind::Primitive(PrimitiveTy::I128)) => self.symbols.i128_div_rem = true,
             _ => {}
@@ -339,6 +357,12 @@ impl CompilerBuiltinCollector {
             return;
         }
         match index.ty_kind(place.ty) {
+            Some(TyKind::Primitive(PrimitiveTy::U64)) if self.wide_i64_div_rem => {
+                self.symbols.u64_div_rem = true;
+            }
+            Some(TyKind::Primitive(PrimitiveTy::I64)) if self.wide_i64_div_rem => {
+                self.symbols.i64_div_rem = true;
+            }
             Some(TyKind::Primitive(PrimitiveTy::U128)) => self.symbols.u128_div_rem = true,
             Some(TyKind::Primitive(PrimitiveTy::I128)) => self.symbols.i128_div_rem = true,
             _ => {}
@@ -479,11 +503,17 @@ pub(crate) fn emit_object(
     target
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
+    if symbols.u64_div_rem {
+        emit_wide_div_rem(&context, &module, 64, false)?;
+    }
+    if symbols.i64_div_rem {
+        emit_wide_div_rem(&context, &module, 64, true)?;
+    }
     if symbols.u128_div_rem {
-        emit_u128_div_rem(&context, &module, false)?;
+        emit_wide_div_rem(&context, &module, 128, false)?;
     }
     if symbols.i128_div_rem {
-        emit_u128_div_rem(&context, &module, true)?;
+        emit_wide_div_rem(&context, &module, 128, true)?;
     }
     if symbols.u128_from_f32 {
         emit_i128_from_float(&context, &module, PrimitiveTy::F32, false)?;
@@ -1002,46 +1032,44 @@ fn emit_i128_from_float<'ctx>(
     Ok(())
 }
 
-fn emit_u128_div_rem<'ctx>(
+fn emit_wide_div_rem<'ctx>(
     context: &'ctx Context,
     module: &nia_llvm::module::Module<'ctx>,
+    bits: u32,
     signed: bool,
 ) -> Result<(), Diagnostic> {
-    let i128_ty = context.i128_type();
-    let fn_ty = i128_ty
-        .fn_type(&[i128_ty.into(), i128_ty.into()], false)
+    let int_ty = context
+        .custom_width_int_type(bits)
+        .map_err(diagnostic_from_llvm_error)?;
+    let (div_name, rem_name, divmod_name) = match (bits, signed) {
+        (64, false) => ("__udivdi3", "__umoddi3", "__nia_udivmoddi4"),
+        (64, true) => ("__divdi3", "__moddi3", "__nia_sdivmoddi4"),
+        (128, false) => ("__udivti3", "__umodti3", "__nia_udivmodti4"),
+        (128, true) => ("__divti3", "__modti3", "__nia_sdivmodti4"),
+        _ => {
+            return Err(diagnostic_from_llvm_error(LlvmError::ice(
+                "unsupported wide integer builtin width",
+            )));
+        }
+    };
+    let fn_ty = int_ty
+        .fn_type(&[int_ty.into(), int_ty.into()], false)
         .map_err(diagnostic_from_llvm_error)?;
     let div = module
-        .add_function(
-            if signed { "__divti3" } else { "__udivti3" },
-            fn_ty,
-            Some(Linkage::External),
-        )
+        .add_function(div_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
     let rem = module
-        .add_function(
-            if signed { "__modti3" } else { "__umodti3" },
-            fn_ty,
-            Some(Linkage::External),
-        )
+        .add_function(rem_name, fn_ty, Some(Linkage::External))
         .map_err(diagnostic_from_llvm_error)?;
 
-    let divmod_ty = i128_ty
+    let divmod_ty = int_ty
         .fn_type(
-            &[i128_ty.into(), i128_ty.into(), context.bool_type().into()],
+            &[int_ty.into(), int_ty.into(), context.bool_type().into()],
             false,
         )
         .map_err(diagnostic_from_llvm_error)?;
     let divmod = module
-        .add_function(
-            if signed {
-                "__nia_sdivmodti4"
-            } else {
-                "__nia_udivmodti4"
-            },
-            divmod_ty,
-            Some(Linkage::Internal),
-        )
+        .add_function(divmod_name, divmod_ty, Some(Linkage::Internal))
         .map_err(diagnostic_from_llvm_error)?;
 
     let builder = context
@@ -1090,31 +1118,31 @@ fn emit_u128_div_rem<'ctx>(
 
     builder.position_at_end(entry);
     let quotient = builder
-        .build_alloca(i128_ty, "quotient")
+        .build_alloca(int_ty, "quotient")
         .map_err(diagnostic_from_llvm_error)?;
     let remainder = builder
-        .build_alloca(i128_ty, "remainder")
+        .build_alloca(int_ty, "remainder")
         .map_err(diagnostic_from_llvm_error)?;
     let shift = builder
-        .build_alloca(i128_ty, "shift")
+        .build_alloca(int_ty, "shift")
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_store(
             quotient,
-            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+            int_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
         )
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_store(
             remainder,
-            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+            int_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
         )
         .map_err(diagnostic_from_llvm_error)?;
     builder
         .build_store(
             shift,
-            i128_ty
-                .const_int(128, false)
+            int_ty
+                .const_int(u64::from(bits), false)
                 .map_err(diagnostic_from_llvm_error)?,
         )
         .map_err(diagnostic_from_llvm_error)?;
@@ -1122,7 +1150,7 @@ fn emit_u128_div_rem<'ctx>(
         .build_int_compare(
             IntPredicate::EQ,
             b,
-            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+            int_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
             "divzero",
         )
         .map_err(diagnostic_from_llvm_error)?;
@@ -1136,12 +1164,12 @@ fn emit_u128_div_rem<'ctx>(
         .map_err(diagnostic_from_llvm_error)?;
 
     builder.position_at_end(loop_block);
-    let current_shift = load_i128(&builder, i128_ty, shift, "shift.load")?;
+    let current_shift = load_int(&builder, int_ty, shift, "shift.load")?;
     let keep_going = builder
         .build_int_compare(
             IntPredicate::UGT,
             current_shift,
-            i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
+            int_ty.const_zero().map_err(diagnostic_from_llvm_error)?,
             "keepgoing",
         )
         .map_err(diagnostic_from_llvm_error)?;
@@ -1153,7 +1181,7 @@ fn emit_u128_div_rem<'ctx>(
     let next_shift = builder
         .build_int_sub(
             current_shift,
-            i128_ty
+            int_ty
                 .const_int(1, false)
                 .map_err(diagnostic_from_llvm_error)?,
             "nextshift",
@@ -1162,17 +1190,17 @@ fn emit_u128_div_rem<'ctx>(
     builder
         .build_store(shift, next_shift)
         .map_err(diagnostic_from_llvm_error)?;
-    let rem_value = load_i128(&builder, i128_ty, remainder, "rem.load")?;
+    let rem_value = load_int(&builder, int_ty, remainder, "rem.load")?;
     let rem_shifted = builder
         .build_left_shift(
             rem_value,
-            i128_ty
+            int_ty
                 .const_int(1, false)
                 .map_err(diagnostic_from_llvm_error)?,
             "rem.shift",
         )
         .map_err(diagnostic_from_llvm_error)?;
-    let one = i128_ty
+    let one = int_ty
         .const_int(1, false)
         .map_err(diagnostic_from_llvm_error)?;
     let bit = builder
@@ -1199,10 +1227,10 @@ fn emit_u128_div_rem<'ctx>(
     builder
         .build_store(remainder, rem_sub)
         .map_err(diagnostic_from_llvm_error)?;
-    let quotient_value = load_i128(&builder, i128_ty, quotient, "quo.load")?;
+    let quotient_value = load_int(&builder, int_ty, quotient, "quo.load")?;
     let quotient_bit = builder
         .build_left_shift(
-            i128_ty
+            int_ty
                 .const_int(1, false)
                 .map_err(diagnostic_from_llvm_error)?,
             next_shift,
@@ -1225,8 +1253,8 @@ fn emit_u128_div_rem<'ctx>(
         .map_err(diagnostic_from_llvm_error)?;
 
     builder.position_at_end(done_block);
-    let final_quotient = load_i128(&builder, i128_ty, quotient, "final.quo")?;
-    let final_remainder = load_i128(&builder, i128_ty, remainder, "final.rem")?;
+    let final_quotient = load_int(&builder, int_ty, quotient, "final.quo")?;
+    let final_remainder = load_int(&builder, int_ty, remainder, "final.rem")?;
     let result = builder
         .build_select(
             want_rem.into(),
@@ -1242,21 +1270,26 @@ fn emit_u128_div_rem<'ctx>(
         .map_err(diagnostic_from_llvm_error)?;
 
     if signed {
-        emit_i128_builtin_wrapper(context, div, divmod, false)?;
-        emit_i128_builtin_wrapper(context, rem, divmod, true)?;
+        emit_wide_builtin_wrapper(context, div, divmod, bits, true, false)?;
+        emit_wide_builtin_wrapper(context, rem, divmod, bits, true, true)?;
     } else {
-        emit_u128_builtin_wrapper(context, div, divmod, false)?;
-        emit_u128_builtin_wrapper(context, rem, divmod, true)?;
+        emit_wide_builtin_wrapper(context, div, divmod, bits, false, false)?;
+        emit_wide_builtin_wrapper(context, rem, divmod, bits, false, true)?;
     }
     Ok(())
 }
 
-fn emit_u128_builtin_wrapper<'ctx>(
+fn emit_wide_builtin_wrapper<'ctx>(
     context: &'ctx Context,
     function: nia_llvm::values::FunctionValue<'ctx>,
     divmod: nia_llvm::values::FunctionValue<'ctx>,
+    bits: u32,
+    signed: bool,
     want_rem: bool,
 ) -> Result<(), Diagnostic> {
+    if signed {
+        return emit_signed_wide_builtin_wrapper(context, function, divmod, bits, want_rem);
+    }
     let i1_ty = context.bool_type();
     let entry = context
         .append_basic_block(function, "entry")
@@ -1297,13 +1330,16 @@ fn emit_u128_builtin_wrapper<'ctx>(
     Ok(())
 }
 
-fn emit_i128_builtin_wrapper<'ctx>(
+fn emit_signed_wide_builtin_wrapper<'ctx>(
     context: &'ctx Context,
     function: nia_llvm::values::FunctionValue<'ctx>,
     divmod: nia_llvm::values::FunctionValue<'ctx>,
+    bits: u32,
     want_rem: bool,
 ) -> Result<(), Diagnostic> {
-    let i128_ty = context.i128_type();
+    let int_ty = context
+        .custom_width_int_type(bits)
+        .map_err(diagnostic_from_llvm_error)?;
     let i1_ty = context.bool_type();
     let entry = context
         .append_basic_block(function, "entry")
@@ -1324,7 +1360,7 @@ fn emit_i128_builtin_wrapper<'ctx>(
         .map_err(diagnostic_from_llvm_error)?
         .into_int_value()
         .map_err(diagnostic_from_llvm_error)?;
-    let zero = i128_ty.const_zero().map_err(diagnostic_from_llvm_error)?;
+    let zero = int_ty.const_zero().map_err(diagnostic_from_llvm_error)?;
     let a_neg = builder
         .build_int_compare(IntPredicate::SLT, a, zero, "a.neg")
         .map_err(diagnostic_from_llvm_error)?;
@@ -1389,7 +1425,7 @@ fn emit_i128_builtin_wrapper<'ctx>(
     Ok(())
 }
 
-fn load_i128<'ctx>(
+fn load_int<'ctx>(
     builder: &nia_llvm::builder::Builder<'ctx>,
     ty: nia_llvm::types::IntType<'ctx>,
     ptr: PointerValue<'ctx>,

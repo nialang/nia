@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 783 completed entries in this ledger.
+- Latest implementation batch: 784 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4824,6 +4824,13 @@ acceptance item only when its phase-wide evidence is complete.
       now proves that startup and syscall facades select `linux/x86` modules
       while excluding their x86_64 counterparts. `nia-loader-query` (97 tests)
       passes with the existing host and i686 executable evidence intact.
+- [x] Batch 784 closes the remaining i686 wide-integer link gap. On 32-bit
+      compiler targets, compiler-builtin discovery now requests `u64`/`i64`
+      division and remainder helpers and emits the same checked shift/subtract
+      implementation used for 128-bit operations, defining the i386
+      `__udivdi3`/`__divdi3` family without relying on a host GCC library path.
+      `nia-codegen-llvm` (333 tests) passes, and the i686 process checked-math
+      executable plus all three freestanding division-link tests pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
