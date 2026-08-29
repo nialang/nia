@@ -5,7 +5,10 @@ pub(pkg) module random;
 pub(pkg) module stat;
 pub(pkg) module syscall;
 pub(pkg) module types;
+@[if arch == "x86_64"]
 pub(pkg) module x86_64;
+@[if arch == "x86"]
+pub(pkg) module x86;
 
 using pkg::os::linux::fd;
 using pkg::os::linux::mem as memory;

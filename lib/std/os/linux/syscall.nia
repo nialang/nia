@@ -1,5 +1,7 @@
 @[if arch == "x86_64"]
 using pkg::os::linux::x86_64::syscall as platform;
+@[if arch == "x86"]
+using pkg::os::linux::x86::syscall as platform;
 
 pub using platform::{
     chdir,

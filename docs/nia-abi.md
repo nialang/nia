@@ -515,8 +515,10 @@ Normal Nia functions use the Nia function ABI.
 `extern` functions use the C function ABI.
 
 Executable startup is owned by the selected standard-library runtime. The
-default Linux x86_64 runtime exports `_start` as an `extern fn` symbol and calls
-the Nia-level root entry contract from standard-library code.
+default Linux x86_64 and i686 runtimes export `_start` as an `extern fn` symbol
+and call the Nia-level root entry contract from standard-library code. The i686
+runtime uses the Linux `int 0x80` syscall ABI and remains an experimental target
+until its complete executable matrix is accepted.
 
 ### 15.1 Nia Function Parameters
 

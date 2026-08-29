@@ -3649,8 +3649,8 @@ A conforming Nia compiler supports:
 - trait declarations, associated types, and direct trait implementation checks;
 - lowering to a typed backend IR;
 - LLVM IR or object emission;
-- freestanding executable emission for Linux x86_64 when a target linker is
-  available.
+- freestanding executable emission for Linux x86_64, with experimental i686
+  support, when a target linker is available.
 
 Standard-library APIs are specified beside their owning `lib/std` facades.
 The `nia` command surface is documented by its help output and the repository

@@ -24,7 +24,9 @@ The repository is exercised in these environments:
 - managed `ubuntu-24.04` x86_64 correctness and performance workflows using
   LLVM 22; and
 - freestanding Linux x86_64 executable tests using the standard-library startup
-  facade and a target linker without CRT startup.
+  facade and a target linker without CRT startup; and
+- experimental i686 workspace compilation and selected freestanding executable
+  tests using the standard-library `int 0x80` startup/syscall facade.
 
 Native object emission is limited by the targets built into the selected LLVM
 installation. The managed Linux workflows are architecture and regression
@@ -56,7 +58,8 @@ The project does not claim support for:
 
 - Windows or macOS compiler hosts;
 - stable target-triple selection or cross-compilation behavior;
-- freestanding executable startup outside Linux x86_64;
+- complete freestanding executable startup outside Linux x86_64 and experimental
+  i686 coverage;
 - a complete bare-metal build workflow;
 - target-aware linker selection beyond the `NIA_LINKER` override; or
 - every valid LLVM installation layout.

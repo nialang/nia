@@ -299,7 +299,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "-o for --obj is accepted only when one object file is produced.",
                 "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
                 "For --linker-flavor lld, an explicit --linker wins; otherwise NIA_LLD or PATH is used to find ld.lld.",
-                "The default executable runtime is freestanding and enters through the injected standard-library startup facade; the current implementation is Linux x86_64.",
+                "The default executable runtime is freestanding and enters through the injected standard-library startup facade; Linux x86_64 is maintained and i686 is experimental.",
                 "Missing parent directories for -o and --out-dir are created automatically.",
             ],
         },

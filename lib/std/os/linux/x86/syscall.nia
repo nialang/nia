@@ -1,0 +1,206 @@
+pub const read: usize = 3usize;
+pub const write: usize = 4usize;
+pub const close: usize = 6usize;
+pub const dup2: usize = 63usize;
+pub const lseek: usize = 19usize;
+pub const mmap: usize = 192usize;
+pub const munmap: usize = 91usize;
+pub const fork: usize = 2usize;
+pub const execve: usize = 11usize;
+pub const exit: usize = 1usize;
+pub const wait4: usize = 114usize;
+pub const kill: usize = 37usize;
+pub const fchmod: usize = 94usize;
+pub const fsync: usize = 118usize;
+pub const fdatasync: usize = 148usize;
+pub const ftruncate: usize = 93usize;
+pub const getcwd: usize = 183usize;
+pub const chdir: usize = 12usize;
+pub const getdents64: usize = 220usize;
+pub const openat: usize = 295usize;
+pub const openat2: usize = 437usize;
+pub const mkdirat: usize = 296usize;
+pub const unlinkat: usize = 301usize;
+pub const renameat: usize = 302usize;
+pub const pipe2: usize = 331usize;
+pub const getrandom: usize = 355usize;
+pub const statx: usize = 383usize;
+
+pub fn syscall0(number: usize) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\int 0x80
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall1(number: usize, arg0: usize) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\push ebx
+            \\int 0x80
+            \\pop ebx
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+            ebx: arg0,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\push ebx
+            \\int 0x80
+            \\pop ebx
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+            ebx: arg0,
+            ecx: arg1,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\push ebx
+            \\int 0x80
+            \\pop ebx
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+            ebx: arg0,
+            ecx: arg1,
+            edx: arg2,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\push ebx
+            \\push esi
+            \\int 0x80
+            \\pop esi
+            \\pop ebx
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+            ebx: arg0,
+            ecx: arg1,
+            edx: arg2,
+            esi: arg3,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\push ebx
+            \\push esi
+            \\push edi
+            \\int 0x80
+            \\pop edi
+            \\pop esi
+            \\pop ebx
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+            ebx: arg0,
+            ecx: arg1,
+            edx: arg2,
+            esi: arg3,
+            edi: arg4,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall6(
+    number: usize,
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    arg5: usize,
+) isize {
+    let mut ret: isize = 0;
+    std::builtin::asm(std::builtin::AsmConfig {
+        code:
+            b\\push ebx
+            \\push esi
+            \\push edi
+            \\push ebp
+            \\int 0x80
+            \\pop ebp
+            \\pop edi
+            \\pop esi
+            \\pop ebx
+        ,
+        outputs: std::builtin::AsmOutputs {
+            eax: ret,
+        },
+        inputs: std::builtin::AsmInputs {
+            eax: number,
+            ebx: arg0,
+            ecx: arg1,
+            edx: arg2,
+            esi: arg3,
+            edi: arg4,
+            ebp: arg5,
+        },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
