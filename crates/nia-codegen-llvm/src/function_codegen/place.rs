@@ -325,9 +325,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let value = self.emit_expr(expr)?.into_int_value()?;
         let target = self.module.usize_llvm_type(expr.span)?;
         let bits = value.get_type()?.bit_width();
-        if bits == 64 {
+        let target_bits = target.bit_width();
+        if bits == target_bits {
             Ok(value)
-        } else if bits > 64 {
+        } else if bits > target_bits {
             self.builder
                 .build_int_truncate(value, target, "usizecast")
                 .map_err(|_| self.error(expr.span, "failed to truncate range bound"))

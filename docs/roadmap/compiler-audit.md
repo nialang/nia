@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 779 completed entries in this ledger.
+- Latest implementation batch: 780 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4795,6 +4795,14 @@ acceptance item only when its phase-wide evidence is complete.
       i686-unknown-linux-gnu` with explicit 32-bit C-wrapper flags. This
       preserves the owner and linker evidence from Batch 778 without claiming
       that i686 executable runtime tests or startup ABI behavior are complete.
+- [x] Batch 780 fixes target-width conversion of LLVM range and slice bounds.
+      Codegen now compares an integer bound with the emitted target `usize`
+      bit width before selecting identity, truncation, or zero-extension;
+      32-bit targets no longer attempt an invalid `z_extend(i32 -> i32)`.
+      Real i686 `emit_exe_intrinsics` execution now compiles and links all 8
+      cases (up from link-time failure); the lane-range trap case passes, while
+      7 cases still terminate by signal in the 32-bit startup/runtime ABI and
+      remain open for follow-up.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
