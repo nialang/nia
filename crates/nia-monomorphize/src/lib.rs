@@ -19,6 +19,7 @@
 #![warn(missing_docs)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::cell::RefCell;
 
 use nia_ast::GenericParamKind;
 use nia_const_check::ConstCheck;
@@ -160,6 +161,7 @@ pub fn collect_monomorphizations(
         effective_generics: HashMap::new(),
         effective_const_generics: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
+        missing_source_identity_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };
     for input in inputs {
@@ -198,6 +200,7 @@ struct MonoCollector<'a> {
     effective_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
     effective_const_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
+    missing_source_identity_diagnostics: HashSet<ModuleId>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -1539,31 +1542,46 @@ impl MonoCollector<'_> {
         let const_by_module = &self.const_by_module;
         let const_expr_summaries_by_module = &self.const_expr_summaries_by_module;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
-        let diagnostics = &mut self.diagnostics;
+        let diagnostics = RefCell::new(Vec::new());
+        let missing_source_identity_diagnostics =
+            RefCell::new(&mut self.missing_source_identity_diagnostics);
         let source_identities = &self.source_identities;
         let symbol = mangle_type_with(
             self.type_store,
             ty,
             MangleResolvers::new(
-                |module_id| module_mangle_id(source_identities, module_id),
+                |module_id| {
+                    module_mangle_id_or_diagnose(
+                        source_identities,
+                        module_id,
+                        &mut missing_source_identity_diagnostics.borrow_mut(),
+                        &mut diagnostics.borrow_mut(),
+                    )
+                },
                 |def_id| cached_def_name(defs_by_module, def_names, def_id),
                 |id| {
                     array_len(
                         const_by_module,
                         const_expr_summaries_by_module,
                         missing_array_len_diagnostics,
-                        diagnostics,
+                        &mut diagnostics.borrow_mut(),
                         id,
                     )
                 },
             ),
         );
+        self.diagnostics.extend(diagnostics.into_inner());
         self.type_symbols.insert((module_id, ty), symbol.clone());
         symbol
     }
 
-    fn module_mangle_id(&self, module_id: ModuleId) -> MangleModuleId {
-        module_mangle_id(&self.source_identities, module_id)
+    fn module_mangle_id(&mut self, module_id: ModuleId) -> MangleModuleId {
+        module_mangle_id_or_diagnose(
+            &self.source_identities,
+            module_id,
+            &mut self.missing_source_identity_diagnostics,
+            &mut self.diagnostics,
+        )
     }
 }
 
@@ -1684,14 +1702,26 @@ fn projection_keys_match_semantic(
             .same_const_generic_args_for_equiv(&left.trait_const_args, &right.trait_const_args)
 }
 
-fn module_mangle_id(
+fn module_mangle_id_or_diagnose(
     source_identities: &HashMap<ModuleId, SourceIdentity>,
     module_id: ModuleId,
+    missing_source_identity_diagnostics: &mut HashSet<ModuleId>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> MangleModuleId {
-    let source_identity = source_identities.get(&module_id).unwrap_or_else(|| {
-        panic!("Nia ICE: missing source identity for monomorphized module {module_id:?}")
-    });
-    MangleModuleId::from_normalized_source_path(source_identity.normalized_path())
+    if let Some(source_identity) = source_identities.get(&module_id) {
+        return MangleModuleId::from_normalized_source_path(source_identity.normalized_path());
+    }
+    if missing_source_identity_diagnostics.insert(module_id) {
+        diagnostics.push(Diagnostic::internal_error_at(
+            codes::INVALID_BACKEND_IR,
+            Span::default(),
+            format!("missing source identity for monomorphized module {module_id:?}"),
+        ));
+    }
+    MangleModuleId::from_normalized_source_path(&format!(
+        "<missing-module-{}>",
+        module_id.local_index()
+    ))
 }
 
 fn array_len(

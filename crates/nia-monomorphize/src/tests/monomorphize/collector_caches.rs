@@ -91,6 +91,7 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
         effective_generics: HashMap::new(),
         effective_const_generics: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
+        missing_source_identity_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };
     (*module_id, collector)
