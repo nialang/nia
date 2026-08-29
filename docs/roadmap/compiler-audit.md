@@ -4181,6 +4181,14 @@ acceptance item only when its phase-wide evidence is complete.
       (83 tests) and strict `cargo clippy -p nia-query --lib -- -D warnings`
       pass, with no externally reachable lifecycle or resource-retirement gap
       identified.
+- [x] Batch 708 records backend/LLVM boundary evidence. `nia-llvm` (94 unit
+      tests plus 2 compile-fail docs) and `nia-codegen-llvm` (333 tests) pass;
+      strict library Clippy is clean. Null-handle conversion, operand/shape
+      validation, target and bitcode failures, debug metadata construction,
+      declaration membership, and module-index publication all retain checked
+      diagnostics or validated internal contracts. No new externally reachable
+      backend safety gap was identified, so Phases B and C remain open pending
+      their complete acceptance matrices and cross-module evidence.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
