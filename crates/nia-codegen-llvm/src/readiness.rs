@@ -148,6 +148,12 @@ impl CodegenReadinessCoordinator {
                     );
                     unresolved.push(partition);
                 }
+                CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                    ready.push(CodegenPartitionPreparation::Invalid {
+                        partition,
+                        diagnostics,
+                    });
+                }
             }
         }
         self.pending = unresolved;

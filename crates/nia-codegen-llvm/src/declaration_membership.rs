@@ -7,11 +7,13 @@ use nia_backend_ir::{
     BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
     CodegenPartition, CodegenUnitDependencies, CodegenUnitId, CodegenUnitPendingModules,
 };
+use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     DynamicTraitCallRef, FunctionBodyRefs, FunctionInstanceKey, TraitObjectVtableRef,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{MangleModuleId, MangleResolvers, mangle_symbol_id, mangle_type_with};
+use nia_span::Span;
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TraitId, TyKind};
 
 use crate::program_index::ProgramIndex;
@@ -33,6 +35,7 @@ pub(super) struct CodegenDeclarationMembership {
 pub(super) enum CodegenDeclarationMembershipBuild {
     Ready(Box<CodegenDeclarationMembership>),
     Pending(CodegenUnitPendingModules),
+    Invalid { diagnostics: Vec<Diagnostic> },
 }
 
 impl CodegenDeclarationMembership {
@@ -81,6 +84,7 @@ struct MembershipBuilder<'a> {
     visited_types: HashSet<InternedTyId>,
     dependency_modules: BTreeSet<ModuleId>,
     pending_modules: BTreeSet<ModuleId>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> MembershipBuilder<'a> {
@@ -102,6 +106,7 @@ impl<'a> MembershipBuilder<'a> {
             visited_types: HashSet::new(),
             dependency_modules: BTreeSet::new(),
             pending_modules: BTreeSet::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -413,9 +418,12 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn add_dependency(&mut self, owner: Option<ModuleId>, item: &str) {
-        let owner = owner.unwrap_or_else(|| {
-            panic!("Nia ICE: declaration closure references missing {item} owner")
-        });
+        let Some(owner) = owner else {
+            self.invalid(format!(
+                "declaration closure references missing {item} owner"
+            ));
+            return;
+        };
         self.dependency_modules.insert(owner);
     }
 
@@ -427,9 +435,12 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn wait_for_owner(&mut self, owner: Option<ModuleId>, item: &str) {
-        let owner = owner.unwrap_or_else(|| {
-            panic!("Nia ICE: declaration closure references missing {item} owner")
-        });
+        let Some(owner) = owner else {
+            self.invalid(format!(
+                "declaration closure references missing {item} owner"
+            ));
+            return;
+        };
         self.dependency_modules.insert(owner);
         assert!(
             !self.index.is_published(owner),
@@ -507,9 +518,12 @@ impl<'a> MembershipBuilder<'a> {
 
     fn close_types(&mut self) {
         while let Some(ty) = self.pending_types.pop_front() {
-            let kind = self.index.ty_kind(ty).unwrap_or_else(|| {
-                panic!("Nia ICE: declaration closure references missing type {ty:?}")
-            });
+            let Some(kind) = self.index.ty_kind(ty) else {
+                self.invalid(format!(
+                    "declaration closure references missing type {ty:?}"
+                ));
+                continue;
+            };
             self.add_type_owner_dependencies(kind);
             kind.visit_referenced_types(|referenced| self.add_type(referenced));
             let TyKind::Nominal {
@@ -565,6 +579,11 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn finish(mut self, unit: CodegenUnitId) -> CodegenDeclarationMembershipBuild {
+        if !self.diagnostics.is_empty() {
+            return CodegenDeclarationMembershipBuild::Invalid {
+                diagnostics: self.diagnostics,
+            };
+        }
         for module_id in &self.dependency_modules {
             if !self.index.is_published(*module_id) {
                 self.pending_modules.insert(*module_id);
@@ -651,6 +670,14 @@ impl<'a> MembershipBuilder<'a> {
             global_instances,
             vtables,
         }))
+    }
+
+    fn invalid(&mut self, message: String) {
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            Span::default(),
+            message,
+        ));
     }
 }
 
@@ -925,6 +952,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before its actual instance owner")
             }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
+            }
         };
         assert_eq!(pending.unit(), partition.id);
         assert_eq!(pending.modules(), &[actual_owner]);
@@ -936,6 +966,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Ready(ready) => ready,
             CodegenDeclarationMembershipBuild::Pending(pending) => {
                 panic!("membership remained pending for {:?}", pending.modules())
+            }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
             }
         };
         assert_eq!(ready.dependencies.modules(), &[caller, actual_owner]);
@@ -1007,6 +1040,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before the const expression owner")
             }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
+            }
         };
         assert_eq!(pending.modules(), &[const_owner]);
     }
@@ -1064,6 +1100,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Pending(pending) => pending,
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before the const expression owner")
+            }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
             }
         };
         assert_eq!(pending.modules(), &[const_owner]);
@@ -1186,6 +1225,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before the vtable function owner")
             }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
+            }
         };
         assert_eq!(pending.modules(), &[vtable_owner]);
 
@@ -1195,6 +1237,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Ready(_) => {
                 panic!("membership became ready before the vtable function owner")
             }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
+            }
         };
         assert_eq!(pending.modules(), &[function_owner]);
 
@@ -1203,6 +1248,9 @@ mod tests {
             CodegenDeclarationMembershipBuild::Ready(ready) => ready,
             CodegenDeclarationMembershipBuild::Pending(pending) => {
                 panic!("membership remained pending for {:?}", pending.modules())
+            }
+            CodegenDeclarationMembershipBuild::Invalid { diagnostics } => {
+                panic!("membership became invalid: {diagnostics:?}")
             }
         };
         assert_eq!(ready.functions, vec![function_def]);
