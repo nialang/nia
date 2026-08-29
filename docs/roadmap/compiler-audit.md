@@ -4193,6 +4193,13 @@ acceptance item only when its phase-wide evidence is complete.
       configured standard target instead of closing an aliased target from a
       different pipe. A real `emit --exe` regression closes the host child's
       standard descriptors and verifies piped stdout remains readable.
+- [x] Batch 704 audits startup argument/environment vectors and Linux
+      directory iteration. Runtime-owned `Init` receives ABI-terminated
+      vectors, while public accessors cap indices and tolerate null entries;
+      directory parsing rejects short, oversized, unterminated, and
+      overflowed records before exposing borrowed names. No additional
+      externally reachable recovery gap was identified; malformed records
+      remain deterministic `Invalid` iterator results.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
