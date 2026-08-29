@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 782 completed entries in this ledger.
+- Latest implementation batch: 783 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4819,6 +4819,11 @@ acceptance item only when its phase-wide evidence is complete.
       zero counts from the emitted `usize` width instead of assuming 64 bits.
       The real i686 `emit_exe_intrinsics` matrix reaches 8/8 passing cases;
       host execution remains covered by the same target-independent assertions.
+- [x] Batch 783 adds a loader-owner regression for the experimental i686
+      freestanding target. A complete `LoadRequest` with the Linux x86 target
+      now proves that startup and syscall facades select `linux/x86` modules
+      while excluding their x86_64 counterparts. `nia-loader-query` (97 tests)
+      passes with the existing host and i686 executable evidence intact.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.

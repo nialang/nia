@@ -101,3 +101,36 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     assert_module_not_loaded(&program, "lib/std/atomic.nia");
     assert_module_not_loaded(&program, "lib/std/debug.nia");
 }
+
+#[test]
+fn query_loader_selects_i686_freestanding_start_and_syscall_facades() {
+    let root = temp_dir("query_loader_selects_i686_freestanding_start_and_syscall_facades");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        "using std::process; pub fn main(init: process::Init) process::ExitCode!() { _ = init; !() }",
+    );
+
+    let target = nia_target_config::TargetConfig {
+        arch: "x86".to_string(),
+        vendor: "unknown".to_string(),
+        os: "linux".to_string(),
+        env: "gnu".to_string(),
+        abi: "".to_string(),
+        endian: "little".to_string(),
+        pointer_width: 32,
+    };
+    let program = load_program_request(
+        LoadRequest::new(main_path.to_string_lossy().into_owned())
+            .with_target(target)
+            .with_entry_runtime(EntryRuntime::Freestanding)
+            .with_toolchain_layout(test_toolchain_layout()),
+    )
+    .expect("i686 freestanding program load must succeed");
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86.nia");
+    assert_module_loaded(&program, "lib/std/os/linux/x86/syscall.nia");
+    assert_module_not_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
+    assert_module_not_loaded(&program, "lib/std/os/linux/x86_64/syscall.nia");
+}
