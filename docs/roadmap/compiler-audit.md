@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 754 completed entries in this ledger.
+- Latest implementation batch: 755 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4610,6 +4610,17 @@ acceptance item only when its phase-wide evidence is complete.
       pass with strict Rustdoc, all-target Clippy, workspace formatting,
       maintenance, and diff checks; the broader Phase E acceptance and
       cross-cutting test-gap review remain open.
+- [x] Batch 755 fixes item-tree declaration identity for source-positioned
+      attributes. Conditional expressions and metadata arguments now compare
+      by semantic structure, ignoring attribute/condition spans and syntax
+      revisions while retaining paths, literals, symbols, operators, and
+      argument order. `nia-ast` exposes its existing expression declaration
+      comparator as the shared owner helper; the item-tree regression covers
+      whitespace, body, and revision changes. The `nia-item-tree`/`nia-ast`
+      owners pass 19 tests, and `nia-compiler-query` (256) plus
+      `nia-loader-query` (96) pass, with strict Rustdoc, Clippy, formatting,
+      maintenance, and diff checks. Broader Phase E and cross-cutting
+      acceptance remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
