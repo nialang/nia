@@ -292,6 +292,30 @@ const OFF: usize = marker_offset[3]();
 }
 
 #[test]
+fn const_generic_integer_rejects_unsupported_target_pointer_width() {
+    let mut target = nia_target_config::TargetConfig::host();
+    target.pointer_width = 256;
+    let fixture = check_source_for_target(
+        r#"
+const fn identity[N: usize]() usize {
+    N
+}
+
+const VALUE: usize = identity[1]();
+"#,
+        target,
+    );
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.summary
+                == "const generic integer argument requires a supported target pointer width"
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn records_enum_backing_types_for_const_variant_values() {
     let fixture = check_source(
         r#"

@@ -210,9 +210,15 @@ impl Analyzer<'_> {
                 if primitive_integer_layout(primitive, self.input.target.pointer_width)
                     .is_some() =>
             {
-                let (min, max) =
+                let Some((min, max)) =
                     primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
-                        .expect("integer primitive must have a target range");
+                else {
+                    return Err(ConstError {
+                        span: expr.span(),
+                        message: "const generic integer argument requires a supported target pointer width"
+                            .to_string(),
+                    });
+                };
                 if !int_const_in_i128_range(value, min, max) {
                     return Err(ConstError {
                         span: expr.span(),

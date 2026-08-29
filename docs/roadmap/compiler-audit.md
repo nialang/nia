@@ -4102,6 +4102,11 @@ acceptance item only when its phase-wide evidence is complete.
       Unique user-implementation selection now handles an unexpectedly empty
       iterator explicitly, preserving `Unsatisfied` as the conservative result
       while retaining normal ambiguity and unique-selection behavior.
+- [x] Batch 688 closes const generic target-range panic recovery. Const-check
+      now reports a stable `ConstError` when an `isize`/`usize` generic argument
+      is evaluated under an unsupported target pointer width, preserving the
+      source span and avoiding an internal range `expect`; a malformed 256-bit
+      target regression covers the recovery path.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
