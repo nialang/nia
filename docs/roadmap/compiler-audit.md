@@ -4187,6 +4187,12 @@ acceptance item only when its phase-wide evidence is complete.
       replacement, cross-module const generics, malformed LLVM-boundary IR,
       zero-sized values, vtables, static archives, and std IO/process paths.
       No consumer bypass of the reviewed validation boundaries was observed.
+- [x] Batch 703 closes Linux spawn descriptor-alias cleanup. When a child
+      inherits closed standard descriptors, `pipe2` can place a pipe end at
+      fd 0, 1, or 2; after `dup2`, per-pipe cleanup now preserves every
+      configured standard target instead of closing an aliased target from a
+      different pipe. A real `emit --exe` regression closes the host child's
+      standard descriptors and verifies piped stdout remains readable.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
