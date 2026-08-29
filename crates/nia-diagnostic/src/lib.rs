@@ -1291,4 +1291,21 @@ mod tests {
 
         sink.emit(diagnostic);
     }
+
+    #[test]
+    fn renders_utf8_and_crlf_spans_at_stable_line_columns() {
+        let source = "let α = 1;\r\nβ();\n";
+        let beta_start = source.find('β').expect("beta source position");
+        let diagnostic = Diagnostic::user_error(codes::PARSE, "invalid call")
+            // Deliberately start inside the UTF-8 encoding of `β`; rendering
+            // must clamp to the preceding character boundary.
+            .primary(Span::new(beta_start + 1, beta_start + 2), "call here")
+            .finish();
+
+        let rendered = render_diagnostic("main.nia", source, &diagnostic);
+
+        assert!(rendered.contains("--> main.nia:2:1"));
+        assert!(rendered.contains("2 | β();"));
+        assert!(rendered.contains("| ^ call here"));
+    }
 }
