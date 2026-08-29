@@ -566,21 +566,35 @@ pub fn item_signature_fingerprint(
     let mut builder = QueryFingerprintBuilder::new(ITEM_SIGNATURE_DOMAIN);
     let mut cursor = 0;
     for span in body_spans {
-        assert!(
-            cursor <= span.start && span.start <= span.end && span.end <= source.len(),
-            "Nia ICE: function body spans must be ordered within source bounds"
-        );
-        let prefix = source
-            .get(cursor..span.start)
-            .expect("Nia ICE: function body span must lie on UTF-8 boundaries");
+        if cursor > span.start
+            || span.start > span.end
+            || span.end > source.len()
+            || !source.is_char_boundary(cursor)
+            || !source.is_char_boundary(span.start)
+            || !source.is_char_boundary(span.end)
+        {
+            return recovered_item_signature_fingerprint(source);
+        }
+        let Some(prefix) = source.get(cursor..span.start) else {
+            return recovered_item_signature_fingerprint(source);
+        };
         builder.write_bytes(prefix.as_bytes());
         builder.write_u8(1);
         cursor = span.end;
     }
-    let suffix = source
-        .get(cursor..)
-        .expect("Nia ICE: function body span must end on a UTF-8 boundary");
+    let Some(suffix) = source.get(cursor..) else {
+        return recovered_item_signature_fingerprint(source);
+    };
     builder.write_bytes(suffix.as_bytes());
+    ItemSignatureFingerprint(builder.finish())
+}
+
+fn recovered_item_signature_fingerprint(source: &str) -> ItemSignatureFingerprint {
+    // A stale item tree must not abort cache-key computation. The marker keeps
+    // malformed-span recovery distinct from the normal body-elision stream.
+    let mut builder = QueryFingerprintBuilder::new(ITEM_SIGNATURE_DOMAIN);
+    builder.write_u8(0xff);
+    builder.write_bytes(source.as_bytes());
     ItemSignatureFingerprint(builder.finish())
 }
 
@@ -663,6 +677,36 @@ extend Value {
 
         assert_eq!(before, body_edit);
         assert_ne!(before, signature_edit);
+    }
+
+    #[test]
+    fn item_signature_fingerprint_recovers_malformed_body_spans() {
+        let source = "fn main() i32 { 1 }";
+        let (module, errors) = nia_parser::parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let syntax = SyntaxTree::parse(source, None);
+        let mut item_tree = ModuleItemTree::from_module(&module);
+        if let ItemTreeNodeKind::Function(function) = &mut item_tree.items[0].kind {
+            let body = function.body.as_mut().expect("expected function body");
+            body.span = Span::new(body.span.end, body.span.start);
+        } else {
+            panic!("expected function item");
+        }
+        let recovered = item_signature_fingerprint(&syntax, &item_tree);
+
+        if let ItemTreeNodeKind::Function(function) = &mut item_tree.items[0].kind {
+            let body = function.body.as_mut().expect("expected function body");
+            body.span = Span::new(0, source.len() + 1);
+        } else {
+            panic!("expected function item");
+        }
+        let out_of_bounds = item_signature_fingerprint(&syntax, &item_tree);
+
+        assert_ne!(
+            recovered,
+            item_signature_fingerprint(&syntax, &ModuleItemTree::from_module(&module))
+        );
+        assert_eq!(recovered, out_of_bounds);
     }
 
     #[test]
