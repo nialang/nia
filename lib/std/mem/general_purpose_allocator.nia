@@ -37,8 +37,14 @@ extend Error!DeinitStatus {
 
 const maxSmallSize: usize = 2048;
 const minSlotSize: usize = 16;
+@[if arch == "x86_64"]
 const smallMagic: usize = 0x6e69615f67707331;
+@[if arch == "x86"]
+const smallMagic: usize = 0x67707331;
+@[if arch == "x86_64"]
 const largeMagic: usize = 0x6e69615f67706131;
+@[if arch == "x86"]
+const largeMagic: usize = 0x67706131;
 
 struct SmallSlot {
     magic: usize,
