@@ -4010,6 +4010,11 @@ acceptance item only when its phase-wide evidence is complete.
       closure that names an owner whose module is published but whose payload
       lacks the requested item now returns `INVALID_BACKEND_IR` instead of
       panicking; the structural-error regression now asserts the diagnostic.
+- [x] Batch 668 closes the fingerprint declaration precondition. Source-unit
+      fingerprinting now revalidates declaration membership and propagates
+      stale-item diagnostics before encoding, so direct incremental/cache
+      callers cannot trigger declaration lookup panics; a focused stale
+      fingerprint regression covers the returned error.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
