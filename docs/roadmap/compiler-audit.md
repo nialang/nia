@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 694 completed entries in this ledger.
+- Latest implementation batch: 695 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4137,6 +4137,12 @@ acceptance item only when its phase-wide evidence is complete.
       skips to the next argument boundary when the selected candidate cannot be
       replayed, instead of unwrapping an assumed-success parse result; malformed
       generic argument coverage preserves parser progress.
+- [x] Batch 695 closes parser generic-argument origin transaction recovery.
+      Ambiguous type/const generic arguments now reparse both accepted
+      interpretations after speculative rollback, preserving their Type and
+      Expr origin entries instead of retaining node keys whose origins were
+      discarded; a focused type-alias regression verifies both source-versioned
+      locators remain available.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
