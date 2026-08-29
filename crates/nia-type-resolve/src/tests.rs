@@ -3,7 +3,12 @@ use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
 use nia_ids::ModuleIdAllocator;
 use nia_item_tree::ModuleItemTree;
 use nia_parser::parse_module_with_symbols;
+use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
 
 fn resolve_source(source: &str) -> TypeResolution {
     let symbols = SymbolTable::new();
@@ -54,6 +59,28 @@ Box[i32] { value }
             .node_type_names
             .values()
             .any(|resolution| matches!(resolution, TypeNameResolution::Def(_)))
+    );
+}
+
+#[test]
+fn records_const_generic_names_in_array_type_arguments() {
+    let resolved = resolve_source(
+        r#"
+fn repeat[T, N: usize](value: T) [T; N] {
+    [value; N]
+}
+"#,
+    );
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    assert!(
+        resolved
+            .node_const_generic_names
+            .values()
+            .any(|name| *name == sym("N"))
     );
 }
 
