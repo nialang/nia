@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 768 completed entries in this ledger.
+- Latest implementation batch: 769 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4714,6 +4714,12 @@ acceptance item only when its phase-wide evidence is complete.
       deterministic fallback description. `nia-ice` (5 tests) passes with
       strict Rustdoc, all-target Clippy, formatting, and diff checks. Broader
       Phase E panic-boundary and diagnostic acceptance remains open.
+- [x] Batch 769 refreshes resource-traced executable evidence after the latest
+      owner changes. `NIA_TEST_RESOURCE_TRACE=1 cargo test -p nia-cli --test
+      emit_exe_intrinsics --all-features -- --nocapture` passes all 8 tests;
+      compiler capacity is 4, runtime capacity 15, and compiler child RSS
+      peaks at about 335.5 MiB with no timeout or permit leak. This is current-
+      host evidence; low-memory and external-target reruns remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
