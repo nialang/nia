@@ -4094,6 +4094,10 @@ acceptance item only when its phase-wide evidence is complete.
       lookup now recovers missing store slots as the existing `TyKind::Error`
       sentinel, preserving downstream diagnostics for union, builtin, and
       generic paths; a focused missing-slot regression locks recovery.
+- [x] Batch 686 closes frontend item-signature fingerprint span panics.
+      Malformed or stale function-body spans now use a deterministic recovery
+      fingerprint instead of asserting or indexing invalid UTF-8/source
+      ranges; valid body-elision fingerprints remain unchanged.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
