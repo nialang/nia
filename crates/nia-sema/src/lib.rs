@@ -303,6 +303,8 @@ mod tests {
 
     #[test]
     fn array_literal_len_infers_checks_and_reports_mismatch() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         assert_eq!(
             check_array_literal_len(None, None, Some(3)),
             ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(3))
@@ -318,11 +320,37 @@ mod tests {
             check_array_literal_len(Some(ArrayLenTy::Infer), None, None),
             ArrayLiteralLenCheck::Unknown
         );
+        assert_eq!(
+            check_array_literal_len(Some(ArrayLenTy::ConstValue(4)), None, None),
+            ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(4))
+        );
+        assert_eq!(
+            check_array_literal_len(Some(ArrayLenTy::Infer), None, Some(4)),
+            ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(4))
+        );
+        assert_eq!(
+            check_array_literal_len(Some(ArrayLenTy::ConstValue(4)), Some(4), Some(4)),
+            ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(4))
+        );
+        assert_eq!(
+            check_array_literal_len(
+                Some(ArrayLenTy::ConstExpr(nia_ids::GlobalConstExprId {
+                    module_id,
+                    const_expr_id: nia_ids::ConstExprId(0),
+                })),
+                Some(9),
+                Some(4),
+            ),
+            ArrayLiteralLenCheck::Mismatch {
+                expected: 9,
+                actual: 4
+            }
+        );
     }
 
     #[test]
     fn arity_checks_exact_and_variadic_requirements() {
-        assert_eq!(check_exact_arity(2, 2), ArityCheck::Accepted);
+        assert!(check_exact_arity(2, 2).is_accepted());
         assert_eq!(
             check_exact_arity(2, 3),
             ArityCheck::Mismatch {
@@ -337,6 +365,39 @@ mod tests {
                 requirement: ArityRequirement::AtLeast(2),
                 actual: 1
             }
+        );
+        assert!(check_arity(ArityRequirement::AtLeast(0), 0).is_accepted());
+        assert!(!check_arity(ArityRequirement::Exact(0), 1).is_accepted());
+    }
+
+    #[test]
+    fn value_map_and_unique_field_helpers_preserve_set_contracts() {
+        let actual = ["a", "a", "c"];
+        let required: FieldSetCheck<&str> = check_value_field_set(actual, ["a", "b"]);
+        assert_eq!(required.duplicate_fields.len(), 1);
+        assert_eq!(required.duplicate_fields[0].span, Span::default());
+        assert_eq!(required.unknown_fields.len(), 1);
+        assert_eq!(required.unknown_fields[0].name, "c");
+        assert_eq!(required.missing_fields, vec!["b"]);
+        assert!(!required.is_valid());
+
+        let mut values = HashMap::new();
+        values.insert("a", 1u8);
+        values.insert("b", 2u8);
+        let from_map = check_map_field_set(&values, ["a", "b"]);
+        assert!(from_map.is_valid());
+
+        let unique = check_unique_field_set([
+            NamedField::new(Span::new(4, 5), "x"),
+            NamedField::new(Span::new(8, 9), "x"),
+            NamedField::new(Span::new(10, 11), "x"),
+        ]);
+        assert_eq!(
+            unique,
+            vec![
+                NamedField::new(Span::new(8, 9), "x"),
+                NamedField::new(Span::new(10, 11), "x"),
+            ]
         );
     }
 }
