@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 788 completed entries in this ledger.
+- Latest implementation batch: 789 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4854,6 +4854,12 @@ acceptance item only when its phase-wide evidence is complete.
       startup modules, including the i386 `int 0x80` exit path, so loader
       selection is exercised without architecture-specific missing-input
       failures. `emit_exe_startup` passes 4/4 on both host x86_64 and i686.
+- [x] Batch 789 records complete i686 filesystem integration evidence. The
+      Linux x86 runtime passes all 25 `emit_exe_fs` compile/link/run tests,
+      covering open/read/write, path encoding, directory capabilities and
+      iteration, metadata, permissions, seek/truncate/sync, symlink escape
+      rejection, and descriptor ownership. The same 25-test matrix passes on
+      host x86_64, preserving cross-target parity for the filesystem owner.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
