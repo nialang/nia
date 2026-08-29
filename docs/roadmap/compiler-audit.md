@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 791 completed entries in this ledger.
+- Latest implementation batch: 792 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4870,6 +4870,12 @@ acceptance item only when its phase-wide evidence is complete.
       x86_64. The allocator magic sentinels now use target-conditional widths,
       preserving the 64-bit values while allowing valid 32-bit compilation and
       forged-header rejection coverage.
+- [x] Batch 792 records cross-target standard-library consumer evidence.
+      Hash-map (7), iterator/range (8), slice (2), and string/text (3) tests
+      pass 20/20 on i686 and 20/20 on host x86_64. Coverage includes map churn,
+      clone/reserve, borrowed closures, u128 ranges, direct slice iteration,
+      Unicode text, and file/process composition; no 32-bit consumer parity
+      gap remains in this matrix.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
