@@ -177,81 +177,136 @@ pub struct BuildRunnerSource {
 
 /// Failure at one of the build bootstrap, runner, handoff, or execution stages.
 #[derive(Debug)]
-#[allow(missing_docs)]
 pub enum BuildError {
+    /// Reading the process current directory failed.
     CurrentDirectory {
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Creating the invocation build directory failed.
     CreateBuildDirectory {
+        /// Build directory path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Creating the invocation action-cache directory failed.
     CreateCacheDirectory {
+        /// Cache directory path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// A path required by generated runner source is not valid UTF-8.
     NonUtf8Path {
+        /// Semantic role of the path.
         role: &'static str,
+        /// Rejected physical path.
         path: PathBuf,
     },
+    /// Creating the transient runner directory failed.
     CreateRunnerDirectory {
+        /// Runner directory path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Compiling the generated build runner failed.
     CompileRunner {
+        /// Logical runner source path.
         path: String,
+        /// Generated runner source retained for diagnostics.
         source: String,
+        /// Underlying compiler-driver error.
         error: Box<DriverError>,
     },
+    /// Spawning the generated build runner failed.
     RunRunner {
+        /// Runner executable path.
         path: PathBuf,
+        /// Underlying process-spawn error.
         error: io::Error,
     },
+    /// Preparing the private plan-draft handoff failed.
     PreparePlanDraft {
+        /// Draft handoff path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Publishing the private runner configuration failed.
     PrepareRunnerConfiguration {
+        /// Configuration handoff path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Removing the private runner configuration failed.
     CleanupRunnerConfiguration {
+        /// Configuration handoff path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// A runner-configuration field exceeds its codec limit.
     RunnerConfigurationFieldTooLarge {
+        /// Field role reported to the user.
         role: &'static str,
+        /// Encoded field length in bytes.
         len: usize,
     },
+    /// The complete runner configuration exceeds its codec limit.
     RunnerConfigurationTooLarge {
+        /// Encoded payload length in bytes.
         len: usize,
     },
+    /// Reading and validating the runner-produced plan draft failed.
     ReadPlanDraft {
+        /// Draft handoff path.
         path: PathBuf,
+        /// Underlying bounded handoff error.
         error: PlanHandoffError,
     },
+    /// Durably publishing the canonical frozen plan failed.
     PublishBuildPlan {
+        /// Canonical plan path.
         path: PathBuf,
+        /// Underlying bounded handoff error.
         error: PlanHandoffError,
     },
+    /// Executing the canonical plan failed.
     ExecuteBuildPlan {
+        /// Underlying coordinator failure.
         error: Box<CoordinatorError>,
     },
+    /// Removing the transient plan draft failed.
     CleanupPlanDraft {
+        /// Draft handoff path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// Removing the transient runner executable failed.
     CleanupRunnerExecutable {
+        /// Runner executable path.
         path: PathBuf,
+        /// Underlying filesystem error.
         error: io::Error,
     },
+    /// The generated build runner exited unsuccessfully.
     RunnerFailed {
+        /// Runner executable path.
         path: PathBuf,
+        /// Child exit status.
         status: ExitStatus,
+        /// Bounded captured standard output.
         stdout: Vec<u8>,
+        /// Bounded captured standard error.
         stderr: Vec<u8>,
     },
+    /// No `build.nia` exists at or above the requested start directory.
     MissingBuildScript {
+        /// Directory where upward discovery started.
         start: PathBuf,
     },
 }
