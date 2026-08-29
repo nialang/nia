@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 777 completed entries in this ledger.
+- Latest implementation batch: 778 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4777,6 +4777,17 @@ acceptance item only when its phase-wide evidence is complete.
       not a substitute for the stronger cgroup/no-swap acceptance gate; the
       existing cgroup run and external-target evidence remain tracked
       separately.
+- [x] Batch 778 advances real i686 target evidence. Fedora multilib, 32-bit
+      glibc, libatomic, and LLVM development packages now permit a complete
+      `cargo check --workspace --all-targets --all-features --target
+      i686-unknown-linux-gnu`; the focused `nia-abi-check` (7), `nia-backend-ir`
+      (23), `nia-layout` (28), and `nia-target-config` (5) owner suites also
+      pass on the 32-bit target. GNU linker invocation now selects `elf_i386`
+      for Linux x86/i386-family targets, with a direct owner regression. The
+      real `nia-cli` executable intrinsic matrix reaches linking and runs one
+      of 8 tests successfully; the remaining 7 expose 32-bit range-check and
+      startup/exit ABI issues and remain intentionally open rather than being
+      treated as target acceptance.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
