@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 784 completed entries in this ledger.
+- Latest implementation batch: 785 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4831,6 +4831,10 @@ acceptance item only when its phase-wide evidence is complete.
       `__udivdi3`/`__divdi3` family without relying on a host GCC library path.
       `nia-codegen-llvm` (333 tests) passes, and the i686 process checked-math
       executable plus all three freestanding division-link tests pass.
+- [x] Batch 785 makes the standard-library `usize` checked-math executable
+      regression target-width independent. Overflow cases now use
+      `usize::MAX` and a derived multiplying operand rather than 64-bit
+      literals; the focused host and i686 `emit_exe_process` test both pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
