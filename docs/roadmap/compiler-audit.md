@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 750 completed entries in this ledger.
+- Latest implementation batch: 751 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4532,6 +4532,14 @@ acceptance item only when its phase-wide evidence is complete.
       nodes. Four owner regressions cover raw/string collision pairs, generic
       parameter kind/order/type identities, and const/static binding flags;
       affected definition and signature consumers pass with strict Rustdoc,
+      Clippy, workspace formatting, and diff checks. The broader cross-cutting
+      test-gap review remains open.
+- [x] Batch 751 completes direct `nia-sema` owner coverage for shared semantic
+      contracts. Array-length checks now have explicit symbolic, concrete,
+      inferred, and diagnostic-mismatch assertions; arity acceptance covers
+      exact, variadic, zero, and failure boundaries; value/map/unique field
+      helpers verify duplicate, unknown, missing, span, and valid-set results.
+      The owner and affected const/body consumers pass with strict Rustdoc,
       Clippy, workspace formatting, and diff checks. The broader cross-cutting
       test-gap review remains open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap

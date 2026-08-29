@@ -938,6 +938,7 @@ dependencies = [
 name = "nia-sema"
 version = "0.4.3"
 dependencies = [
+ "nia-ids",
  "nia-span",
  "nia-ty",
 ]
