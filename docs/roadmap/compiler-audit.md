@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 724 completed entries in this ledger.
+- Latest implementation batch: 725 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4321,6 +4321,15 @@ acceptance item only when its phase-wide evidence is complete.
       array semantic validation, recursive and scalar pattern exhaustiveness,
       closure capture/escape and defer ordering, flow termination and loop
       context, and stable type/function/closure mangling identities. Larger
+      owners with historical Rustdoc backlogs and final cross-target evidence
+      remain open.
+- [x] Batch 725 records cross-cutting documentation and owner evidence for
+      optimizer, static-check, and value-resolution owners. Strict Rustdoc is
+      clean for `nia-function-opt`, `nia-static-check`, and `nia-value-resolve`,
+      while their complete suites pass 73 tests total with strict all-target
+      Clippy. Coverage includes CFG and defer simplification, side-effect and
+      place preservation, static initializer rejection/acceptance boundaries,
+      active-item-tree value resolution, and qualified builtin paths. Larger
       owners with historical Rustdoc backlogs and final cross-target evidence
       remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
