@@ -17,48 +17,72 @@ static PUBLIC_ITEM: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 #[derive(Debug, Clone, Default)]
+/// Optional filters for the crate-boundary report.
 pub struct Options {
+    /// Maximum non-empty Rust source lines to include.
     pub max_rust_loc: Option<usize>,
+    /// Maximum production dependents to include.
     pub max_production_dependents: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Measured source size and workspace dependency ownership for one crate.
 pub struct CrateBoundary {
+    /// Crate package name.
     pub name: String,
+    /// Count of non-empty Rust source lines.
     pub rust_loc: usize,
+    /// Count of syntactically public item declarations.
     pub public_items: usize,
+    /// Workspace crates used as production dependencies.
     pub production_dependencies: Vec<String>,
+    /// Workspace crates depending on this crate in production.
     pub production_dependents: Vec<String>,
+    /// Workspace crates depending on this crate only in dev/test contexts.
     pub dev_only_dependents: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Cargo metadata dependency-kind entry.
 pub struct DependencyKind {
     #[serde(default)]
+    /// Dependency kind, such as `normal` or `dev`.
     pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Cargo metadata dependency with normalized kind information.
 pub struct CargoDependency {
+    /// Referenced package name.
     pub name: String,
     #[serde(default)]
+    /// Legacy single dependency kind.
     pub kind: Option<String>,
     #[serde(default)]
+    /// Modern dependency-kind entries.
     pub dep_kinds: Vec<DependencyKind>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Cargo package metadata needed by the boundary report.
 pub struct CargoPackage {
+    /// Package name.
     pub name: String,
+    /// Cargo package identity.
     pub id: String,
+    /// Absolute manifest path.
     pub manifest_path: PathBuf,
     #[serde(default)]
+    /// Declared package dependencies.
     pub dependencies: Vec<CargoDependency>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Subset of `cargo metadata` used for workspace boundary analysis.
 pub struct CargoMetadata {
+    /// All packages returned by Cargo.
     pub packages: Vec<CargoPackage>,
+    /// Package identities belonging to the workspace.
     pub workspace_members: Vec<String>,
 }
 
@@ -116,6 +140,7 @@ fn collect_rust_sources(root: &Path, paths: &mut Vec<PathBuf>) -> MaintainResult
     Ok(())
 }
 
+/// Counts non-empty Rust lines and public item declarations below a crate root.
 pub fn rust_source_metrics(crate_root: &Path) -> MaintainResult<(usize, usize)> {
     let source_root = crate_root.join("src");
     if !source_root.is_dir() {
@@ -143,6 +168,7 @@ pub fn rust_source_metrics(crate_root: &Path) -> MaintainResult<(usize, usize)> 
     Ok((rust_loc, public_items))
 }
 
+/// Computes production and dev-only dependency boundaries for workspace crates.
 pub fn workspace_boundaries(metadata: &CargoMetadata) -> MaintainResult<Vec<CrateBoundary>> {
     let members = metadata
         .workspace_members
@@ -222,6 +248,7 @@ fn joined(values: &[String]) -> String {
     }
 }
 
+/// Renders crate-boundary evidence as deterministic tab-separated output.
 pub fn tsv(boundaries: &[CrateBoundary]) -> String {
     let mut output = String::from(
         "crate\trust_loc\tpublic_items\tproduction_dependencies\tproduction_dependents\tdev_only_dependents\n",
@@ -240,6 +267,7 @@ pub fn tsv(boundaries: &[CrateBoundary]) -> String {
     output
 }
 
+/// Collects Cargo metadata, applies filters, and prints the boundary report.
 pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
     let mut boundaries = workspace_boundaries(&cargo_metadata(root)?)?;
     boundaries.retain(|boundary| {
