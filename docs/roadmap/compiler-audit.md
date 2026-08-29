@@ -3965,9 +3965,9 @@ acceptance item only when its phase-wide evidence is complete.
 - [x] Batch 658 closes LLVM trait-object slot lookup fallbacks. Dynamic method
       dispatch and trait-object upcast metadata lookup now propagate an LLVM
       codegen diagnostic when the required vtable metadata or method slot is
-      absent, instead of silently substituting the caller slot or offset `0`.
-      Existing dynamic-call and upcast matrices continue to cover valid direct,
-      inherited, and const-generic supertrait paths.
+      absent or inconsistent, instead of silently substituting the caller slot
+      or offset `0`. Existing dynamic-call and upcast matrices continue to
+      cover valid direct, inherited, and const-generic supertrait paths.
 - [x] Batch 659 closes the typed LLVM struct-GEP boundary. The builder now
       checks that the supplied pointee is a struct and that its field index is
       in range before entering `LLVMBuildStructGEP2`; wrapper regressions cover

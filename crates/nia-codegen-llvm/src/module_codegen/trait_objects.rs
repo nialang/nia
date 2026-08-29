@@ -50,11 +50,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if *object_trait == trait_id {
             return Ok(slot);
         }
-        self.trait_object_vtable_metadata(object_ty)
-            .and_then(|vtable| {
+        let mut resolved = None;
+        for vtable in self.trait_object_vtable_metadata(object_ty) {
+            let Some(candidate) =
                 self.vtable_slot(vtable, trait_id, method_id, trait_args, trait_const_args)
-            })
-            .ok_or("dynamic trait call has no matching vtable method slot")
+            else {
+                return Err("dynamic trait call has no matching vtable method slot");
+            };
+            if resolved.is_some_and(|existing| existing != candidate) {
+                return Err("dynamic trait call has inconsistent vtable method slots");
+            }
+            resolved = Some(candidate);
+        }
+        resolved.ok_or("dynamic trait call has no matching vtable method slot")
     }
 
     pub(crate) fn trait_object_upcast_slot_offset(
@@ -72,34 +80,50 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         else {
             return Err(self.error(span, "trait-object upcast target is not a trait object"));
         };
-        self.trait_object_vtable_metadata(source_ty)
-            .and_then(|vtable| {
-                self.first_vtable_slot_for_trait(
-                    vtable,
-                    *target_trait,
-                    trait_args,
-                    trait_const_args,
-                )
-            })
-            .ok_or_else(|| self.error(span, "trait-object upcast metadata is missing"))
+        let mut resolved = None;
+        for vtable in self.trait_object_vtable_metadata(source_ty) {
+            let Some(candidate) = self.first_vtable_slot_for_trait(
+                vtable,
+                *target_trait,
+                trait_args,
+                trait_const_args,
+            ) else {
+                return Err(self.error(span, "trait-object upcast metadata is missing"));
+            };
+            if resolved.is_some_and(|existing| existing != candidate) {
+                return Err(self.error(
+                    span,
+                    "trait-object upcast metadata has inconsistent offsets",
+                ));
+            }
+            resolved = Some(candidate);
+        }
+        resolved.ok_or_else(|| self.error(span, "trait-object upcast metadata is missing"))
     }
 
     fn trait_object_vtable_metadata(
         &self,
         object_ty: InternedTyId,
-    ) -> Option<&BackendTraitObjectVtable> {
+    ) -> Vec<&BackendTraitObjectVtable> {
         let object_trait = match self.ty_kind(object_ty) {
             Some(TyKind::TraitObject { trait_id, .. }) => Some(*trait_id),
             _ => None,
         };
-        self.program
+        let exact = self
+            .program
             .trait_object_vtables_for_object_ty(object_ty)
-            .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
-            .or_else(|| {
-                self.program
-                    .trait_object_vtables_for_trait(object_trait?)
-                    .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
-            })
+            .filter(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            .collect::<Vec<_>>();
+        if !exact.is_empty() {
+            return exact;
+        }
+        let Some(object_trait) = object_trait else {
+            return Vec::new();
+        };
+        self.program
+            .trait_object_vtables_for_trait(object_trait)
+            .filter(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            .collect()
     }
 
     fn vtable_slot(
