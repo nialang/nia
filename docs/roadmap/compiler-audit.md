@@ -4015,6 +4015,11 @@ acceptance item only when its phase-wide evidence is complete.
       stale-item diagnostics before encoding, so direct incremental/cache
       callers cannot trigger declaration lookup panics; a focused stale
       fingerprint regression covers the returned error.
+- [x] Batch 669 closes foreign backend owner dispatch panics. Items discovered
+      for a module absent from the final module plan now produce
+      `INVALID_BACKEND_IR` diagnostics and are skipped while valid owners
+      continue lowering; the finalization contract regression asserts the
+      diagnostic instead of expecting a panic.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
