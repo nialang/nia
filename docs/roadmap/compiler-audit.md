@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 716 completed entries in this ledger.
+- Latest implementation batch: 717 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4253,6 +4253,15 @@ acceptance item only when its phase-wide evidence is complete.
       build roots. No compatibility-identity or source-closure drift was
       identified; cross-target runtime execution and final resource reruns
       remain separate acceptance requirements.
+- [x] Batch 717 records a resource-traced constrained workload. With
+      `NIA_TEST_RESOURCE_TRACE=1`, the `nia-cli` executable intrinsic matrix
+      (8 tests) passes under the current cgroup (about 7.8 GiB, 32 CPUs),
+      reporting compiler pool capacity 4, memory pool capacity 15, and runtime
+      pool capacity 15. Managed compiler children peaked at roughly
+      297.5--336.5 MiB RSS and runtime children completed without timeout or
+      permit leakage. This provides current-host resource evidence; a distinct
+      low-memory host/container rerun remains required by the final acceptance
+      checklist.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only
