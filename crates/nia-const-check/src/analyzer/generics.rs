@@ -219,7 +219,7 @@ impl Analyzer<'_> {
         let pattern_kind = self.active_ty_kind(pattern_ty);
         match pattern_kind {
             TyKind::GenericParam(name) => {
-                let canonical = self.type_for_module(actual_ty, target_module_id)?;
+                let canonical = self.type_for_module(span, actual_ty, target_module_id)?;
                 if let Some(existing) = substitutions.get(&name) {
                     if *existing != canonical {
                         let name = self.symbol_name(name);
@@ -1219,7 +1219,7 @@ impl Analyzer<'_> {
             if let Some(value) = self.resolve_const_generic_arg_for_execution(&actual) {
                 actual.value = value;
             }
-            actual.ty = self.type_for_module(actual.ty, target_module_id)?;
+            actual.ty = self.type_for_module(span, actual.ty, target_module_id)?;
             self.record_const_generic_substitution(span, name, actual, substitutions)?;
         }
         Ok(())
@@ -1291,16 +1291,15 @@ impl Analyzer<'_> {
 
     pub(super) fn type_for_module(
         &mut self,
+        span: Span,
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Result<InternedTyId, ConstError> {
-        self.type_contexts
-            .get(&target_module_id)
-            .expect("target type context must exist");
-        assert!(
+        validate_type_for_module(
+            span,
+            self.type_contexts.contains_key(&target_module_id),
             self.input.type_store.get(ty).is_some(),
-            "Nia ICE: const type belongs to a foreign type store"
-        );
+        )?;
         Ok(ty)
     }
 
@@ -1311,5 +1310,48 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.type_contexts.get(&target_module_id)?;
         self.input.type_store.get(ty).map(|_| ty)
+    }
+}
+
+fn validate_type_for_module(
+    span: Span,
+    has_type_context: bool,
+    belongs_to_store: bool,
+) -> Result<(), ConstError> {
+    if !has_type_context {
+        return Err(ConstError {
+            span,
+            message: "const type context is unavailable for target module".to_string(),
+        });
+    }
+    if !belongs_to_store {
+        return Err(ConstError {
+            span,
+            message: "const type belongs to a foreign type store".to_string(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn type_for_module_validation_recovers_missing_context_or_store() {
+        let span = Span::new(4, 9);
+        let missing_context = validate_type_for_module(span, false, true).unwrap_err();
+        assert_eq!(missing_context.span, span);
+        assert_eq!(
+            missing_context.message,
+            "const type context is unavailable for target module"
+        );
+
+        let foreign_type = validate_type_for_module(span, true, false).unwrap_err();
+        assert_eq!(foreign_type.span, span);
+        assert_eq!(
+            foreign_type.message,
+            "const type belongs to a foreign type store"
+        );
     }
 }
