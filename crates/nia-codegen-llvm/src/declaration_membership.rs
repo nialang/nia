@@ -248,6 +248,9 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn add_refs(&mut self, refs: FunctionBodyRefs) {
+        if refs.invalid_ir {
+            self.invalid("declaration closure encountered invalid function IR".to_string());
+        }
         for module_id in refs.modules {
             self.add_context_dependency(module_id);
         }
@@ -1290,5 +1293,33 @@ mod tests {
         };
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].summary.contains("missing function instance"));
+    }
+
+    #[test]
+    fn invalid_function_refs_are_a_structural_error() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let module = empty_module(module_id, "main.nia");
+        let owners = BackendModuleOwnerDirectory::from_modules([&module]);
+        let program = BackendProgram::new(vec![module]);
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(TypeStore::new()));
+        publisher.publish(module_id);
+        let mut builder = MembershipBuilder::new(&index, &owners);
+        let refs = FunctionBodyRefs {
+            invalid_ir: true,
+            ..FunctionBodyRefs::default()
+        };
+
+        builder.add_refs(refs);
+        let result = builder.finish(CodegenUnitId::SourceModule {
+            module_id,
+            ordinal: 0,
+        });
+
+        let CodegenDeclarationMembershipBuild::Invalid { diagnostics } = result else {
+            panic!("expected invalid membership result")
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].summary.contains("invalid function IR"));
     }
 }

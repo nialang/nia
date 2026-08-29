@@ -124,6 +124,12 @@ impl FunctionInstanceRef {
 /// Deduplicated identities discovered while walking one function body.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FunctionBodyRefs {
+    /// Whether traversal encountered a recovery/error node in the body.
+    ///
+    /// References collected before and after the malformed node remain
+    /// available so consumers can report the structural failure without
+    /// losing otherwise useful dependency information.
+    pub invalid_ir: bool,
     /// Modules whose definitions or type stores are needed.
     pub modules: BTreeSet<ModuleId>,
     /// Monomorphic functions referenced by value or call.
@@ -150,6 +156,7 @@ pub struct FunctionBodyRefs {
 impl FunctionBodyRefs {
     /// Merges references from another body walk into this accumulator.
     pub fn extend(&mut self, other: Self) {
+        self.invalid_ir |= other.invalid_ir;
         self.modules.extend(other.modules);
         self.functions.extend(other.functions);
         self.globals.extend(other.globals);
@@ -436,7 +443,7 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::EnumTag { value } | FunctionExprKind::EnumPayloadField { value, .. } => {
             collect_function_refs_from_expr(value, types, refs);
         }
-        FunctionExprKind::Error => unreachable_invalid_function_ir("FunctionExprKind::Error"),
+        FunctionExprKind::Error => refs.invalid_ir = true,
         FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
         | FunctionExprKind::String(_)
@@ -667,13 +674,13 @@ fn collect_function_refs_from_place(
                 span: place.span,
             });
         }
-        FunctionPlaceBase::Error => unreachable_invalid_function_ir("FunctionPlaceBase::Error"),
+        FunctionPlaceBase::Error => refs.invalid_ir = true,
     }
     for elem in &place.elems {
         match elem {
             FunctionPlaceElem::Index(expr) => collect_function_refs_from_expr(expr, types, refs),
             FunctionPlaceElem::Field(_) | FunctionPlaceElem::TupleField(_) => {}
-            FunctionPlaceElem::Error => unreachable_invalid_function_ir("FunctionPlaceElem::Error"),
+            FunctionPlaceElem::Error => refs.invalid_ir = true,
         }
     }
 }
@@ -708,10 +715,6 @@ fn collect_function_refs_from_inline_asm(
     for output in &asm.outputs {
         collect_function_refs_from_place(&output.place, types, refs);
     }
-}
-
-fn unreachable_invalid_function_ir(node: &'static str) -> ! {
-    panic!("Nia ICE: invalid function IR reached value reference traversal: {node}");
 }
 
 #[cfg(test)]
@@ -1186,6 +1189,49 @@ mod tests {
 
         assert_eq!(refs.globals, BTreeSet::from([pointee_global]));
         assert_eq!(refs.modules, BTreeSet::from([module_id]));
+        assert!(refs.types.contains(&ty));
+    }
+
+    #[test]
+    fn error_nodes_are_reported_without_panicking_reference_traversal() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let types = TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Usize);
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![FunctionOp::Expr(expr(ty, FunctionExprKind::Error))],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(expr(
+                        ty,
+                        FunctionExprKind::AddrOf(FunctionPlace {
+                            span: Span::default(),
+                            ty,
+                            base: FunctionPlaceBase::Local(nia_ids::LocalId(0)),
+                            elems: vec![FunctionPlaceElem::Error],
+                        }),
+                    )),
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        };
+
+        let refs = body.value_refs(&types);
+
+        assert!(refs.invalid_ir);
         assert!(refs.types.contains(&ty));
     }
 }

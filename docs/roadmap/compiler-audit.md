@@ -4053,6 +4053,11 @@ acceptance item only when its phase-wide evidence is complete.
       encoding for stale `InternedTyId` handles, allowing validator layers to
       report malformed backend state without an earlier ICE; focused tests lock
       the recovery string and its stability.
+- [x] Batch 677 closes Function IR reference-walk recovery panics. Value
+      reference traversal now marks encountered error expressions and place
+      elements while preserving other dependencies, and LLVM declaration
+      membership converts that marker into `INVALID_BACKEND_IR`; focused IR
+      and membership regressions cover the diagnostic boundary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
