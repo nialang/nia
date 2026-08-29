@@ -349,6 +349,12 @@ impl TraitSolver<'_> {
     }
 
     pub(crate) fn intrinsic_trait_impl_exists(&mut self, goal: &TraitGoal) -> bool {
+        // Builtin traits have no declaration-level const parameters. Rejecting
+        // an injected const argument here prevents malformed goals from
+        // falling through to otherwise-valid intrinsic implementations.
+        if !goal.trait_const_args.is_empty() {
+            return false;
+        }
         let TraitId::Builtin(trait_id) = goal.trait_id else {
             return false;
         };

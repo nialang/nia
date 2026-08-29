@@ -848,6 +848,60 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
 }
 
 #[test]
+fn builtin_traits_reject_const_arguments() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let vector = append.intern(TyKind::Vector {
+        elem: PrimitiveTy::I32,
+        lanes: 4,
+    });
+    let usize_ty = append.primitive(PrimitiveTy::Usize);
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let trait_impls = Vec::new();
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    let malformed_goal = TraitGoal {
+        self_ty: vector,
+        trait_id: TraitId::Builtin(BuiltinTrait::Simd),
+        trait_args: Vec::new(),
+        trait_const_args: vec![const_arg(usize_ty, 4)],
+    };
+
+    assert_eq!(
+        solver.resolve(malformed_goal.clone()),
+        TraitResolution::Unsatisfied
+    );
+    assert!(
+        solver
+            .resolve_associated_const(
+                vector,
+                TraitId::Builtin(BuiltinTrait::Simd),
+                &[],
+                &malformed_goal.trait_const_args,
+                &known::LANES,
+            )
+            .is_none()
+    );
+}
+
+#[test]
 fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
