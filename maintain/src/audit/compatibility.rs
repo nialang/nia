@@ -190,6 +190,7 @@ fn registered_magics(root: &Path) -> MaintainResult<BTreeSet<Vec<u8>>> {
         .collect())
 }
 
+/// Reports raw or malformed fingerprint domains found in production sources.
 pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
     let mut errors = Vec::new();
     for path in production_rust_sources(root)? {
@@ -218,6 +219,7 @@ pub fn fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
     Ok(errors)
 }
 
+/// Reports duplicate or unowned typed fingerprint-domain declarations.
 pub fn typed_fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String>> {
     let mut errors = Vec::new();
     let mut declarations = BTreeMap::<String, Vec<String>>::new();
@@ -269,6 +271,7 @@ pub fn typed_fingerprint_domain_errors(root: &Path) -> MaintainResult<Vec<String
     Ok(errors)
 }
 
+/// Reports compatibility identities defined outside their registered owner.
 pub fn global_identity_errors(root: &Path) -> MaintainResult<Vec<String>> {
     let mut errors = Vec::new();
     let registry = root.join(REGISTRY);
@@ -320,6 +323,7 @@ fn workspace_version(root: &Path) -> MaintainResult<String> {
         .ok_or_else(|| "Cargo.toml has no workspace.package.version".to_owned())
 }
 
+/// Reports duplicated workspace release-version literals in source files.
 pub fn release_version_errors(root: &Path) -> MaintainResult<Vec<String>> {
     let version = workspace_version(root)?;
     let authorities = VERSION_AUTHORITIES.into_iter().collect::<BTreeSet<_>>();
@@ -344,6 +348,7 @@ pub fn release_version_errors(root: &Path) -> MaintainResult<Vec<String>> {
     Ok(errors)
 }
 
+/// Runs all compatibility identity and release-version checks.
 pub fn audit(root: &Path) -> MaintainResult<Vec<String>> {
     let mut errors = fingerprint_domain_errors(root)?;
     errors.extend(typed_fingerprint_domain_errors(root)?);
@@ -352,6 +357,7 @@ pub fn audit(root: &Path) -> MaintainResult<Vec<String>> {
     Ok(errors)
 }
 
+/// Fails with a stable report when any compatibility check finds an error.
 pub fn run(root: &Path) -> MaintainResult<()> {
     let errors = audit(root)?;
     if errors.is_empty() {
