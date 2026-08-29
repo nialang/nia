@@ -2,23 +2,35 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
+/// Cgroup v1/v2 controller paths resolved from `/proc/self/cgroup`.
 pub struct CgroupPaths {
+    /// Unified cgroup v2 path.
     pub unified: Option<PathBuf>,
+    /// Memory controller path for cgroup v1.
     pub memory: Option<PathBuf>,
+    /// CPU controller path for cgroup v1.
     pub cpu: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Resource values probed from procfs and cgroup files.
 pub struct ResourceSnapshot {
+    /// Total system memory in bytes.
     pub system_memory_bytes: Option<u64>,
+    /// Available system memory in bytes.
     pub system_available_memory_bytes: Option<u64>,
+    /// Configured cgroup memory limit in bytes.
     pub cgroup_memory_limit_bytes: Option<u64>,
+    /// Current cgroup memory usage in bytes.
     pub cgroup_memory_current_bytes: Option<u64>,
+    /// Configured cgroup CPU quota as a CPU count.
     pub cgroup_cpu_quota: Option<f64>,
+    /// CPU model reported by procfs.
     pub cpu_model: Option<String>,
 }
 
 impl ResourceSnapshot {
+    /// Returns the tightest positive system or cgroup memory limit.
     pub fn effective_memory_limit_bytes(&self) -> Option<u64> {
         [self.system_memory_bytes, self.cgroup_memory_limit_bytes]
             .into_iter()
@@ -27,6 +39,7 @@ impl ResourceSnapshot {
             .min()
     }
 
+    /// Returns the smallest available-memory estimate across sources.
     pub fn available_memory_bytes(&self) -> Option<u64> {
         let mut candidates = self
             .system_available_memory_bytes
@@ -46,6 +59,7 @@ fn read_optional(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
+/// Parses a cgroup limit value, treating `max` and empty input as unbounded.
 pub fn parse_limit(value: Option<&str>) -> Option<u64> {
     let text = value?.trim();
     if text.is_empty() || text == "max" {
@@ -54,6 +68,7 @@ pub fn parse_limit(value: Option<&str>) -> Option<u64> {
     text.parse().ok()
 }
 
+/// Parses `MemTotal` and `MemAvailable` procfs values into bytes.
 pub fn parse_proc_memory(value: Option<&str>) -> (Option<u64>, Option<u64>) {
     let mut total = None;
     let mut available = None;
@@ -81,6 +96,7 @@ pub fn parse_proc_memory(value: Option<&str>) -> (Option<u64>, Option<u64>) {
     (total, available)
 }
 
+/// Extracts a model name from Linux CPU information text.
 pub fn parse_cpu_model(value: Option<&str>) -> Option<String> {
     value.unwrap_or_default().lines().find_map(|line| {
         let (name, model) = line.split_once(':')?;
@@ -91,6 +107,7 @@ pub fn parse_cpu_model(value: Option<&str>) -> Option<String> {
     })
 }
 
+/// Resolves cgroup v1/v2 controller paths beneath a supplied mount root.
 pub fn parse_cgroup_paths(value: Option<&str>, cgroup_root: &Path) -> CgroupPaths {
     let mut paths = CgroupPaths {
         unified: None,
@@ -118,6 +135,7 @@ pub fn parse_cgroup_paths(value: Option<&str>, cgroup_root: &Path) -> CgroupPath
     paths
 }
 
+/// Parses a cgroup v2 `cpu.max` quota/period pair.
 pub fn parse_cpu_max(value: Option<&str>) -> Option<f64> {
     let fields = value
         .unwrap_or_default()
@@ -131,6 +149,7 @@ pub fn parse_cpu_max(value: Option<&str>) -> Option<f64> {
     (period > 0).then_some(quota as f64 / period as f64)
 }
 
+/// Probes resource files below explicit procfs and cgroup roots.
 pub fn probe_resources(proc_root: &Path, cgroup_root: &Path) -> ResourceSnapshot {
     let memory = read_optional(&proc_root.join("meminfo"));
     let (total, available) = parse_proc_memory(memory.as_deref());
@@ -174,6 +193,7 @@ pub fn probe_resources(proc_root: &Path, cgroup_root: &Path) -> ResourceSnapshot
     }
 }
 
+/// Probes resources from the host's procfs and cgroup mounts.
 pub fn probe_host_resources() -> ResourceSnapshot {
     probe_resources(Path::new("/proc"), Path::new("/sys/fs/cgroup"))
 }

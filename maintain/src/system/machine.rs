@@ -6,18 +6,31 @@ use serde::{Deserialize, Serialize};
 use super::resources::probe_host_resources;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Host and container identity captured alongside a maintenance sample.
 pub struct MachineMetadata {
+    /// Optional runner classification supplied by the caller.
     pub runner_class: Option<String>,
+    /// Operating-system family.
     pub system: String,
+    /// Combined platform/release/architecture label.
     pub platform: String,
+    /// Target architecture reported by the host.
     pub architecture: String,
+    /// Optional CPU model string.
     pub cpu_model: Option<String>,
+    /// Number of logical CPUs reported by the host.
     pub logical_cpus: Option<usize>,
+    /// Number of CPUs allowed by process affinity.
     pub affinity_cpus: Option<usize>,
+    /// Cgroup CPU quota, when bounded.
     pub cgroup_cpu_quota: Option<f64>,
+    /// Effective CPU limit after affinity and cgroup constraints.
     pub effective_cpu_limit: Option<f64>,
+    /// Total system memory in bytes.
     pub system_memory_bytes: Option<u64>,
+    /// Cgroup memory limit in bytes.
     pub cgroup_memory_limit_bytes: Option<u64>,
+    /// Tightest effective memory limit in bytes.
     pub effective_memory_limit_bytes: Option<u64>,
 }
 
@@ -58,6 +71,7 @@ fn logical_cpus() -> Option<usize> {
     (count > 0).then_some(count)
 }
 
+/// Probes host identity and effective resource limits.
 pub fn machine_metadata(runner_class: Option<String>) -> MachineMetadata {
     let resources = probe_host_resources();
     let effective_memory_limit_bytes = resources.effective_memory_limit_bytes();
