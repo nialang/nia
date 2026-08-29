@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-08-29):
 
-- Latest implementation batch: 738 completed entries in this ledger.
+- Latest implementation batch: 739 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4449,6 +4449,13 @@ acceptance item only when its phase-wide evidence is complete.
       checks pass; this batch also resolves the previously recorded
       `nia-build/src/plan.rs` formatting drift. The broader plan/coordinator
       error documentation and final acceptance evidence remain open.
+- [x] Batch 739 removes the `PlanError` documentation suppression. Plan freeze
+      failures now identify duplicate and missing identities, dependency-closure
+      ownership, generated-source producers, output collisions, command and
+      artifact constraints, and target validation payloads. All 70
+      plan/codec/handoff tests, strict Rustdoc, strict all-target Clippy,
+      workspace formatting, and diff checks pass. Coordinator and top-level
+      build error documentation plus final acceptance evidence remain open.
 - [x] Batch 701 audits standard-library allocator, ArrayList, and HashMap
       arithmetic and ownership boundaries. Public range operations validate
       indices before private stable-replacement helpers, probing calls only

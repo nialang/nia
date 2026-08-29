@@ -559,78 +559,134 @@ pub struct BuildPlan {
 
 /// Semantic validation failure while freezing a build plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum PlanError {
+    /// A package identity is declared more than once.
     DuplicatePackage(PackageKey),
+    /// A referenced package has no declaration.
     MissingPackage(PackageKey),
+    /// A package root is not a canonical relative path.
     InvalidPackageRoot {
+        /// Package carrying the invalid root.
         package: PackageKey,
+        /// Package-root validation failure.
         error: PackageRootError,
     },
+    /// A module identity is declared more than once.
     DuplicateModule(ModuleKey),
+    /// An artifact identity is declared more than once.
     DuplicateArtifact(ArtifactKey),
+    /// An action identity is declared more than once.
     DuplicateAction(ActionKey),
+    /// A step identity is declared more than once.
     DuplicateStep(StepKey),
+    /// A module declares the same import name more than once.
     DuplicateImport {
+        /// Module containing the duplicate import.
         module: ModuleKey,
+        /// Repeated local import name.
         name: String,
     },
+    /// A declaration references an unknown module.
     MissingModule {
+        /// Declaration that owns the reference.
         owner: String,
+        /// Missing module identity.
         module: ModuleKey,
     },
+    /// An action references an unknown artifact.
     MissingArtifact {
+        /// Action containing the reference.
         action: ActionKey,
+        /// Missing artifact identity.
         artifact: ArtifactKey,
     },
+    /// A step references an unknown action.
     MissingAction {
+        /// Step containing the reference.
         step: StepKey,
+        /// Missing action identity.
         action: ActionKey,
     },
+    /// A plan selection or dependency references an unknown step.
     MissingStep {
+        /// Selection or step that owns the reference.
         owner: String,
+        /// Missing step identity.
         step: StepKey,
     },
+    /// Step dependencies contain a cycle in traversal order.
     StepCycle(Vec<StepKey>),
+    /// An action declares an output outside the permitted build roots.
     InvalidOutput {
+        /// Action declaring the output.
         action: ActionKey,
+        /// Rejected logical output path.
         path: LogicalPath,
     },
+    /// Two actions claim overlapping logical outputs.
     OutputCollision(Box<OutputCollision>),
+    /// An external command violates its declared execution contract.
     InvalidCommand {
+        /// Rejected action.
         action: ActionKey,
+        /// Stable rejection reason.
         reason: &'static str,
     },
+    /// An action uses an artifact in an unsupported role.
     InvalidArtifactUse {
+        /// Rejected action.
         action: ActionKey,
+        /// Artifact used by the action.
         artifact: ArtifactKey,
+        /// Stable rejection reason.
         reason: &'static str,
     },
+    /// A build-root input has no producing action.
     MissingBuildInputProducer {
+        /// Action consuming the input.
         action: Box<ActionKey>,
+        /// Input path without a producer.
         path: Box<LogicalPath>,
     },
+    /// A build-root input's producer is outside the consumer dependency closure.
     BuildInputProducerOutsideClosure {
+        /// Action consuming the input.
         action: Box<ActionKey>,
+        /// Input path produced outside the closure.
         path: Box<LogicalPath>,
+        /// Producing action absent from the closure.
         producer: Box<ActionKey>,
     },
+    /// A generated module source has no producing action.
     MissingGeneratedSourceProducer {
+        /// Compiler action consuming the module.
         action: Box<ActionKey>,
+        /// Module containing the generated source.
         module: Box<ModuleKey>,
+        /// Generated path without a producer.
         path: Box<LogicalPath>,
     },
+    /// A generated source producer is outside the compiler action dependency closure.
     GeneratedSourceProducerOutsideClosure {
+        /// Compiler action consuming the module.
         action: Box<ActionKey>,
+        /// Module containing the generated source.
         module: Box<ModuleKey>,
+        /// Generated source path.
         path: Box<LogicalPath>,
+        /// Producing action absent from the closure.
         producer: Box<ActionKey>,
     },
+    /// A nonempty plan has neither a default nor an explicitly selected step.
     MissingDefaultStep,
+    /// A host or artifact target has invalid configuration fields.
     InvalidTarget {
+        /// Target role, such as host or artifact.
         role: &'static str,
+        /// Stable rejection reason.
         reason: &'static str,
     },
+    /// A compiler action requests a target outside the plan's host/artifact pair.
     InvalidActionTarget(Box<InvalidActionTarget>),
 }
 
