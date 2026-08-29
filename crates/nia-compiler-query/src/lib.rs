@@ -226,33 +226,44 @@ pub enum ProviderGraphUpdate {
 /// Implementations must return facts from the advertised query session. Stable
 /// source identities cross persistence boundaries; module ids and node stores
 /// remain scoped to the current loaded graph.
-#[allow(missing_docs)]
 pub trait LoaderFactProvider: Send + Sync {
+    /// Returns the query session owning loader facts, when session-backed.
     fn query_session(&self) -> Option<nia_query::QuerySession>;
+    /// Returns the current provider-demand facts and revision lineage.
     fn provider_facts(&self) -> nia_query::QueryResult<ProviderFactSnapshot>;
+    /// Adds provider demands and reports whether the loader graph changed.
     fn update_provider_demands(
         &self,
         demands: Vec<ProviderDemand>,
     ) -> nia_query::QueryResult<ProviderGraphUpdate>;
+    /// Settles pending provider-demand updates before semantic queries run.
     fn settle_provider_demands(&self) -> nia_query::QueryResult<()> {
         Ok(())
     }
+    /// Returns the node store for the loaded graph.
     fn node_store(&self) -> nia_node_id::NodeStore;
+    /// Returns the loaded module graph snapshot.
     fn module_graph(&self) -> nia_query::QueryResult<ModuleGraphSnapshot>;
+    /// Returns stable source identities for all loaded modules.
     fn loaded_module_source_identities(&self) -> nia_query::QueryResult<Vec<SourceIdentity>>;
+    /// Resolves a module id to its source path.
     fn module_path(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<SourcePath>>;
+    /// Returns the source revision currently loaded for a module.
     fn module_source_version(
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<SourceVersion>>;
+    /// Returns a module's content fingerprint and byte length, when available.
     fn module_source_fingerprint(
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<(SourceContentFingerprint, usize)>>;
+    /// Returns provider-summary facts for a module.
     fn module_provider_summary(
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<ProviderSummary>>;
+    /// Computes public-surface facts from the active module item tree.
     fn module_public_surface_facts(
         &self,
         module_id: ModuleId,
@@ -271,27 +282,36 @@ pub trait LoaderFactProvider: Send + Sync {
         );
         Ok(Some(nia_defs::PublicSurfaceModuleFacts::from_defs(&defs)))
     }
+    /// Returns syntax-node origin mappings for a module.
     fn module_origins(
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<NodeOriginTable>>;
+    /// Returns parser errors recorded while loading a module.
     fn module_parse_errors(
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<Vec<ParseError>>>;
+    /// Returns the source item tree for a module.
     fn module_item_tree(
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<ModuleItemTree>>;
+    /// Returns the requested target-active item-tree projection.
     fn active_module_item_tree(
         &self,
         module_id: ModuleId,
         kind: ActiveModuleItemTreeFactKind,
     ) -> nia_query::QueryResult<Option<ActiveModuleItemTree>>;
+    /// Returns diagnostics emitted during loading.
     fn load_diagnostics(&self) -> nia_query::QueryResult<ProgramDiagnosticBundles>;
+    /// Returns the symbol table associated with the loaded graph.
     fn symbols(&self) -> SymbolTable;
+    /// Returns the target configuration used for this compilation.
     fn target(&self) -> TargetConfig;
+    /// Returns the runtime model used for this compilation.
     fn runtime(&self) -> RuntimeModel;
+    /// Returns the toolchain identity used for cache compatibility.
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
         nia_toolchain::ToolchainIdentityFingerprint::current()
     }
@@ -299,15 +319,22 @@ pub trait LoaderFactProvider: Send + Sync {
 
 /// Complete loader snapshot usable as an untracked compiler input.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(missing_docs)]
 pub struct LoadedProgram {
+    /// Module graph topology.
     pub graph: ModuleGraphSnapshot,
+    /// Provider-demand revision represented by this snapshot.
     pub provider_fact_revision: ProviderFactRevision,
+    /// Symbols interned for the loaded graph.
     pub symbols: SymbolTable,
+    /// Target configuration used to load the program.
     pub target: TargetConfig,
+    /// Runtime model selected for the program.
     pub runtime: RuntimeModel,
+    /// Toolchain identity captured with the loaded products.
     pub toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    /// Loaded per-module source and semantic facts.
     pub modules: Vec<LoadedModule>,
+    /// Diagnostics collected during loading.
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
@@ -471,25 +498,35 @@ pub enum RuntimeModel {
 
 /// Loaded source/module facts for one module.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(missing_docs)]
 pub struct LoadedModule {
+    /// Module identity in the loaded graph.
     pub id: ModuleId,
+    /// Canonical source path.
     pub path: SourcePath,
+    /// Stable source identity across revisions and persistence.
     pub source_identity: SourceIdentity,
+    /// Source revision represented by the facts.
     pub source_version: SourceVersion,
+    /// Parsed source item tree.
     pub item_tree: ModuleItemTree,
+    /// Target-active projection of the item tree.
     pub active_item_tree: ActiveModuleItemTree,
+    /// Provider summary discovered for the module.
     pub provider_summary: ProviderSummary,
+    /// Syntax-node origin mappings.
     pub origins: NodeOriginTable,
+    /// Parser errors associated with the module.
     pub parse_errors: Vec<ParseError>,
 }
 
 /// User-visible result of checking a program.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(missing_docs)]
 pub struct CheckedProgram {
+    /// Loaded module graph used by the check.
     pub graph: ModuleGraphSnapshot,
+    /// Optimization policy selected for subsequent lowering.
     pub optimization: OptimizationPolicy,
+    /// Diagnostics emitted during checking.
     pub diagnostics: Vec<ProgramDiagnostic>,
     checked_body_count: usize,
     reachable_body_count: usize,
@@ -535,26 +572,37 @@ impl CheckedProgramAnalysis {
 
 /// Checked semantic products needed before backend lowering begins.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(missing_docs)]
 pub struct CodegenPreparation {
+    /// Canonical type store used by all checked modules.
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
+    /// Module graph used by the preparation.
     pub graph: ModuleGraphSnapshot,
+    /// Optimization policy selected for lowering.
     pub optimization: OptimizationPolicy,
+    /// Checked semantic modules.
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
+    /// Collected monomorphization facts.
     pub monomorphization: std::sync::Arc<Monomorphization>,
+    /// Diagnostics accumulated before code generation.
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
 /// Complete checked and backend-lowered compiler product.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(missing_docs)]
 pub struct CodegenProgram {
+    /// Canonical type store used by the generated program.
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
+    /// Module graph used by code generation.
     pub graph: ModuleGraphSnapshot,
+    /// Optimization policy used by backend lowering.
     pub optimization: OptimizationPolicy,
+    /// Checked semantic modules.
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
+    /// Collected monomorphization facts.
     pub monomorphization: std::sync::Arc<Monomorphization>,
+    /// Backend-lowered module products.
     pub backend_lowering: std::sync::Arc<BackendLowering>,
+    /// Diagnostics accumulated through code generation preparation.
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
@@ -707,30 +755,51 @@ pub fn has_error_diagnostics(diagnostics: &[ProgramDiagnostic]) -> bool {
 
 /// Per-module checked products shared by later compiler queries.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(missing_docs)]
 pub struct CheckedModule {
+    /// Module identity in the checked graph.
     pub id: ModuleId,
+    /// Canonical source path.
     pub path: SourcePath,
+    /// Collected definitions.
     pub defs: std::sync::Arc<DefCollection>,
+    /// Diagnostics emitted while collecting definitions.
     pub definition_diagnostics: nia_diagnostic::DiagnosticBundle,
+    /// Resolved type facts.
     pub type_resolution: std::sync::Arc<TypeResolution>,
+    /// Lowered type facts.
     pub type_lowering: std::sync::Arc<TypeLowering>,
+    /// Resolved value facts.
     pub value_resolution: std::sync::Arc<ValueResolution>,
+    /// Local binding and capture resolution.
     pub local_resolution: std::sync::Arc<LocalResolution>,
+    /// Normalized projection and type facts.
     pub type_normalization: std::sync::Arc<TypeNormalization>,
+    /// Checked constant expressions.
     pub const_eval: std::sync::Arc<ConstCheck>,
+    /// Checked static initializers.
     pub static_check: std::sync::Arc<StaticCheck>,
+    /// Computed target layouts.
     pub layouts: std::sync::Arc<Layouts>,
+    /// ABI validation results.
     pub abi_check: std::sync::Arc<AbiCheck>,
+    /// Control-flow validation results.
     pub flow_check: std::sync::Arc<FlowCheck>,
+    /// Lowered body IR.
     pub body_ir: std::sync::Arc<BodyIr>,
+    /// Semantic-use index for downstream consumers.
     pub semantic_uses: std::sync::Arc<SemanticUseTable>,
+    /// Executable semantic facts.
     pub semantic_facts: std::sync::Arc<SemanticFacts>,
+    /// Provider demands discovered by this module.
     pub provider_demands: std::sync::Arc<std::collections::HashSet<ProviderDemand>>,
+    /// Reachable global definitions for executable generation.
     pub executable_reachable_globals: Option<std::collections::HashSet<GlobalDefId>>,
+    /// Reachable nominal structs for executable generation.
     pub executable_reachable_structs:
         Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
+    /// Reachable nominal unions for executable generation.
     pub executable_reachable_unions: Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
+    /// Whether this module contributed type-only executable facts.
     pub executable_type_only: bool,
     pub(crate) body_diagnostics: nia_diagnostic::DiagnosticBundle,
     pub(crate) frontend_diagnostics: Vec<nia_diagnostic::DiagnosticBundle>,
