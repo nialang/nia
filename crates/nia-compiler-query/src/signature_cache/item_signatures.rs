@@ -110,7 +110,7 @@ pub(crate) fn decode_item_signatures(
     let consts = read_def_map(&mut cursor, |cursor| {
         read_const_signature(cursor, &types, source_len)
     })?;
-    if cursor.position() as usize != encoded.len() {
+    if usize::try_from(cursor.position()).ok()? != encoded.len() {
         return None;
     }
     Some(ItemSignatures {
