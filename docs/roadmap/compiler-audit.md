@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 850 completed entries in this ledger.
+- Latest implementation batch: 851 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5281,6 +5281,14 @@ acceptance item only when its phase-wide evidence is complete.
       retain their explicit partial fallback. The `nia-body-check` owner suite
       (279 tests) and generic-arity driver regression pass with strict Clippy,
       formatting, and diff checks.
+- [x] Batch 851 aligns body-check const-pattern matching with the trait solver's
+      shared substitution environment. Nominal, trait-object, projection, and
+      dynamic-method candidate paths now instantiate const argument types with
+      type substitutions collected earlier in the same pattern, including
+      repeated const bindings. The `nia-body-check` owner suite (279 tests)
+      passes with strict Clippy, formatting, and diff checks; the source
+      resolver continues to reject dependent const parameter declarations, so
+      this hardens provider/malformed semantic inputs without widening syntax.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
