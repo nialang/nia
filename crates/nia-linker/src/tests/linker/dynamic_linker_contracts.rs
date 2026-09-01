@@ -45,6 +45,7 @@ fn detects_native_dynamic_linker_from_usr_bin_env() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn elf_interpreter_reads_bounded_program_headers_and_payload() {
     let root = env::temp_dir().join(format!("nia-linker-elf-{}", std::process::id()));
     fs::create_dir_all(&root).expect("create ELF test root");

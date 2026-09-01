@@ -9,9 +9,12 @@
 use std::{
     collections::HashSet,
     env, fs,
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Read},
     path::{Path, PathBuf},
 };
+
+#[cfg(target_os = "linux")]
+use std::io::{Seek, SeekFrom};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -1658,6 +1661,7 @@ fn default_abi_for_os(os: &str) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn elf_interpreter(path: &Path) -> Result<Option<String>, LinkerConfigError> {
     const EI_CLASS: usize = 4;
     const EI_DATA: usize = 5;
@@ -1738,12 +1742,14 @@ fn elf_interpreter(path: &Path) -> Result<Option<String>, LinkerConfigError> {
     Ok(None)
 }
 
+#[cfg(target_os = "linux")]
 fn invalid_elf(path: &Path) -> LinkerConfigError {
     LinkerConfigError::InvalidElf {
         path: path.to_path_buf(),
     }
 }
 
+#[cfg(target_os = "linux")]
 fn read_elf_bytes(
     file: &mut fs::File,
     path: &Path,
@@ -1764,16 +1770,19 @@ fn read_elf_bytes(
         })
 }
 
+#[cfg(target_os = "linux")]
 fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
     let array = bytes.get(offset..offset + 2)?.try_into().ok()?;
     Some(u16::from_le_bytes(array))
 }
 
+#[cfg(target_os = "linux")]
 fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
     let array = bytes.get(offset..offset + 4)?.try_into().ok()?;
     Some(u32::from_le_bytes(array))
 }
 
+#[cfg(target_os = "linux")]
 fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
     let array = bytes.get(offset..offset + 8)?.try_into().ok()?;
     Some(u64::from_le_bytes(array))

@@ -1,4 +1,5 @@
 use std::io::Read;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
@@ -30,6 +31,7 @@ fn require_memory_headroom() -> MaintainResult<Option<u64>> {
     Ok(available)
 }
 
+#[cfg(unix)]
 fn terminate_process_group(child: &mut std::process::Child) {
     if child.try_wait().ok().flatten().is_some() {
         return;
@@ -57,6 +59,17 @@ fn terminate_process_group(child: &mut std::process::Child) {
         .status();
     let _ = child.wait();
 }
+
+#[cfg(not(unix))]
+fn terminate_process_group(_child: &mut std::process::Child) {}
+
+#[cfg(unix)]
+fn configure_process_group(process: &mut Command) {
+    process.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_process: &mut Command) {}
 
 fn read_pipe<R: Read + Send + 'static>(
     mut pipe: R,
@@ -92,8 +105,8 @@ pub(super) fn run_bounded(
         .args(&command[1..])
         .current_dir(cwd)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0);
+        .stderr(Stdio::piped());
+    configure_process_group(&mut process);
     let mut child = process
         .spawn()
         .map_err(|error| format!("failed to run {}: {error}", command.join(" ")))?;
