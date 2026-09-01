@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 820 completed entries in this ledger.
+- Latest implementation batch: 821 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5106,6 +5106,15 @@ acceptance item only when its phase-wide evidence is complete.
       passes 97/97 on the host; host and wasm32 strict all-target Clippy pass
       with `-D warnings`; and the existing lock, replacement, corruption, and
       bounded-entry behavior remains covered without production semantic change.
+- [x] Batch 821 completes the pure-Rust wasm32 validation sweep after the
+      platform-gating fixes. With the LLVM C-wrapper dependency chain excluded,
+      workspace `cargo check` and strict `cargo clippy -D warnings` both pass;
+      `cargo test --workspace --all-targets --all-features --target
+      wasm32-unknown-unknown --no-run` also compiles every selected library,
+      maintenance, and workflow-contract test binary. No remaining
+      non-Unix process, ELF, cache-lifetime, or test-platform warning was
+      found. wasm execution and LLVM-backed target runtime remain separate
+      unsupported gates in this host environment.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
