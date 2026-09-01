@@ -4,10 +4,10 @@
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, ConditionExpr, ConditionExprKind, EnumItem, EnumVariant,
     ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
-    Item, ItemKind, Module, ModuleItem, Param, StructItem, TraitAssociatedType,
-    TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem, UsingGroupItem,
-    UsingItem, UsingName, UsingSelector, Visibility, expr_decl_eq, option_type_ref_decl_eq,
-    type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
+    GenericParam, GenericParamKind, Item, ItemKind, Module, ModuleItem, Param, StructItem,
+    TraitAssociatedType, TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem,
+    UsingGroupItem, UsingItem, UsingName, UsingSelector, Visibility, expr_decl_eq,
+    option_type_ref_decl_eq, type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -630,9 +630,23 @@ fn using_name_decl_eq(lhs: &UsingName, rhs: &UsingName) -> bool {
     lhs.name == rhs.name && lhs.alias == rhs.alias
 }
 
+fn generic_params_decl_eq(lhs: &[GenericParam], rhs: &[GenericParam]) -> bool {
+    lhs.len() == rhs.len()
+        && lhs.iter().zip(rhs.iter()).all(|(lhs, rhs)| {
+            lhs.name == rhs.name
+                && match (&lhs.kind, &rhs.kind) {
+                    (GenericParamKind::Type, GenericParamKind::Type) => true,
+                    (GenericParamKind::Const { ty: lhs }, GenericParamKind::Const { ty: rhs }) => {
+                        type_ref_decl_eq(lhs, rhs)
+                    }
+                    _ => false,
+                }
+        })
+}
+
 fn struct_decl_eq(lhs: &StructItem, rhs: &StructItem) -> bool {
     lhs.name == rhs.name
-        && lhs.generics == rhs.generics
+        && generic_params_decl_eq(&lhs.generics, &rhs.generics)
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && fields_decl_eq(&lhs.fields, &rhs.fields)
         && lhs.is_tuple == rhs.is_tuple
@@ -641,7 +655,7 @@ fn struct_decl_eq(lhs: &StructItem, rhs: &StructItem) -> bool {
 
 fn union_decl_eq(lhs: &UnionItem, rhs: &UnionItem) -> bool {
     lhs.name == rhs.name
-        && lhs.generics == rhs.generics
+        && generic_params_decl_eq(&lhs.generics, &rhs.generics)
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && fields_decl_eq(&lhs.fields, &rhs.fields)
         && lhs.is_extern == rhs.is_extern
@@ -663,7 +677,7 @@ fn field_decl_eq(lhs: &Field, rhs: &Field) -> bool {
 
 fn trait_decl_eq(lhs: &TraitItem, rhs: &TraitItem) -> bool {
     lhs.name == rhs.name
-        && lhs.generics == rhs.generics
+        && generic_params_decl_eq(&lhs.generics, &rhs.generics)
         && type_refs_decl_eq(&lhs.supertraits, &rhs.supertraits)
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && trait_associated_types_decl_eq(&lhs.associated_types, &rhs.associated_types)
@@ -703,7 +717,7 @@ fn trait_method_decl_eq(lhs: &TraitMethod, rhs: &TraitMethod) -> bool {
 }
 
 fn extend_decl_eq(lhs: &ExtendItem, rhs: &ExtendItem) -> bool {
-    lhs.generics == rhs.generics
+    generic_params_decl_eq(&lhs.generics, &rhs.generics)
         && type_ref_decl_eq(&lhs.target, &rhs.target)
         && option_type_ref_decl_eq(lhs.trait_ref.as_ref(), rhs.trait_ref.as_ref())
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
@@ -777,7 +791,7 @@ fn enum_variant_payload_decl_eq(
 
 fn type_alias_decl_eq(lhs: &TypeAliasItem, rhs: &TypeAliasItem) -> bool {
     lhs.name == rhs.name
-        && lhs.generics == rhs.generics
+        && generic_params_decl_eq(&lhs.generics, &rhs.generics)
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && match (&lhs.ty, &rhs.ty) {
             (Some(lhs), Some(rhs)) => type_ref_decl_eq(lhs, rhs),
@@ -788,7 +802,7 @@ fn type_alias_decl_eq(lhs: &TypeAliasItem, rhs: &TypeAliasItem) -> bool {
 
 fn function_decl_eq(lhs: &FunctionItem, rhs: &FunctionItem) -> bool {
     lhs.name == rhs.name
-        && lhs.generics == rhs.generics
+        && generic_params_decl_eq(&lhs.generics, &rhs.generics)
         && where_clause_decl_eq(&lhs.where_clause, &rhs.where_clause)
         && params_decl_eq(&lhs.params, &rhs.params)
         && option_type_ref_decl_eq(lhs.return_type.as_ref(), rhs.return_type.as_ref())
@@ -1109,8 +1123,8 @@ fn main(items: &[Box[i32]]) &Box[i32] { &items[0] }
         );
         let (after, after_errors) = parse_module(
             r#"
-struct Box[T] { value: T }
-extend[T] & Box[ T ] {
+struct Box[ T ] { value: T }
+extend[ T ] & Box[ T ] {
     fn get(self) T { self.value }
 }
 fn main(items: & [ Box[ i32 ] ]) & Box[ i32 ] { &items[0] }
