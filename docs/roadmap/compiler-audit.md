@@ -5181,6 +5181,12 @@ acceptance item only when its phase-wide evidence is complete.
       edit into an integer-overflow panic; valid edits retain identical offsets.
       The owner suite adds boundary coverage and passes with strict Clippy,
       formatting, and diff checks.
+- [x] Batch 834 removes a node-store lock-order inversion during revision
+      retirement. `retire_revision` now releases the store lock before reading
+      revision-owned indices, matching the intern path's revision-then-store
+      ordering and preventing a concurrent retirement/intern deadlock. The
+      `nia-node-id` owner suite and parser/AST consumers pass with strict
+      Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
