@@ -1,4 +1,4 @@
-use super::ty_substitution::substitute_ty_generics;
+use super::ty_substitution::{substitute_ty_generics, substitute_ty_generics_and_consts};
 use super::*;
 
 type ActiveProjectionSet = HashSet<(
@@ -123,22 +123,16 @@ impl Analyzer<'_> {
             return TraitResolution::Unsatisfied;
         };
         let assumptions = self.current_trait_goals();
-        let normalization = self.type_normalization_for_module(module_id);
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let program_is_enum_query = self.input.program.program_is_enum;
         let program_is_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
                 return local_enums.contains_key(&def_id.def_id);
             }
-            self.input
-                .program
-                .program_is_enum
-                .is_some_and(|program_is_enum| program_is_enum(def_id))
-        };
-        let Some(normalization) = normalization else {
-            return TraitResolution::Unsatisfied;
+            program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let visible_extensions = self
             .input
@@ -146,6 +140,23 @@ impl Analyzer<'_> {
             .visible_extensions
             .and_then(|visible_extensions| visible_extensions(module_id));
         let trait_impls = self.trait_impls_for_solver_module(module_id);
+        let array_lengths = self.trait_solver_array_lengths(
+            self_ty,
+            trait_id,
+            &trait_args,
+            &[],
+            &assumptions,
+            &trait_impls,
+        );
+        let const_expr_value = |id, _ty| {
+            array_lengths
+                .get(&id)
+                .map(|value| ConstGenericValue::Int(IntConst::unsigned((*value).into())))
+        };
+        let normalization = self.type_normalization_for_module(module_id);
+        let Some(normalization) = normalization else {
+            return TraitResolution::Unsatisfied;
+        };
         let impl_is_visible = |impl_module_id, impl_id| {
             impl_module_id == module_id
                 || visible_extensions
@@ -167,7 +178,7 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
-            const_expr_value: None,
+            const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(&assumptions);
@@ -189,19 +200,16 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
         let assumptions = self.current_trait_goals();
-        let normalization = self.type_normalization_for_module(module_id)?;
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let program_is_enum_query = self.input.program.program_is_enum;
         let program_is_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
                 return local_enums.contains_key(&def_id.def_id);
             }
-            self.input
-                .program
-                .program_is_enum
-                .is_some_and(|program_is_enum| program_is_enum(def_id))
+            program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let visible_extensions = self
             .input
@@ -209,6 +217,20 @@ impl Analyzer<'_> {
             .visible_extensions
             .and_then(|visible_extensions| visible_extensions(module_id));
         let trait_impls = self.trait_impls_for_solver_module(module_id);
+        let array_lengths = self.trait_solver_array_lengths(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            &assumptions,
+            &trait_impls,
+        );
+        let const_expr_value = |id, _ty| {
+            array_lengths
+                .get(&id)
+                .map(|value| ConstGenericValue::Int(IntConst::unsigned((*value).into())))
+        };
+        let normalization = self.type_normalization_for_module(module_id)?;
         let impl_is_visible = |impl_module_id, impl_id| {
             impl_module_id == module_id
                 || visible_extensions
@@ -228,7 +250,7 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
-            const_expr_value: None,
+            const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(&assumptions);
@@ -240,11 +262,21 @@ impl Analyzer<'_> {
         projection: &AssociatedConstProjection,
     ) -> Option<nia_trait_solve::AssociatedConstResolution> {
         let (type_substitutions, const_substitutions) = self.current_execution_substitutions();
-        let self_ty = self.substitute_ty_generics_from_map(projection.self_ty, &type_substitutions);
+        let self_ty = self.substitute_ty_generics_and_consts_from_maps(
+            projection.self_ty,
+            &type_substitutions,
+            &const_substitutions,
+        );
         let trait_args = projection
             .trait_args
             .iter()
-            .map(|arg| self.substitute_ty_generics_from_map(*arg, &type_substitutions))
+            .map(|arg| {
+                self.substitute_ty_generics_and_consts_from_maps(
+                    *arg,
+                    &type_substitutions,
+                    &const_substitutions,
+                )
+            })
             .collect::<Vec<_>>();
         let trait_const_args = projection
             .trait_const_args
@@ -260,19 +292,16 @@ impl Analyzer<'_> {
             .collect::<Vec<_>>();
         let module_id = self.ensure_trait_solver_module(self_ty, &trait_args)?;
         let assumptions = self.current_trait_goals();
-        let normalization = self.type_normalization_for_module(module_id)?;
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let program_is_enum_query = self.input.program.program_is_enum;
         let program_is_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
                 return local_enums.contains_key(&def_id.def_id);
             }
-            self.input
-                .program
-                .program_is_enum
-                .is_some_and(|program_is_enum| program_is_enum(def_id))
+            program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let visible_extensions = self
             .input
@@ -280,6 +309,20 @@ impl Analyzer<'_> {
             .visible_extensions
             .and_then(|visible_extensions| visible_extensions(module_id));
         let trait_impls = self.trait_impls_for_solver_module(module_id);
+        let array_lengths = self.trait_solver_array_lengths(
+            self_ty,
+            projection.trait_id,
+            &trait_args,
+            &trait_const_args,
+            &assumptions,
+            &trait_impls,
+        );
+        let const_expr_value = |id, _ty| {
+            array_lengths
+                .get(&id)
+                .map(|value| ConstGenericValue::Int(IntConst::unsigned((*value).into())))
+        };
+        let normalization = self.type_normalization_for_module(module_id)?;
         let impl_is_visible = |impl_module_id, impl_id| {
             impl_module_id == module_id
                 || visible_extensions
@@ -299,7 +342,7 @@ impl Analyzer<'_> {
             local_module_id: module_id,
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
-            const_expr_value: None,
+            const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&impl_is_visible),
         };
         let mut solver = context.solver(&assumptions);
@@ -393,9 +436,17 @@ impl Analyzer<'_> {
     ) -> Vec<TraitGoal> {
         let mut goals = Vec::new();
         for predicate in predicates {
-            let self_ty = self.substitute_ty_generics_from_map(predicate.ty, substitutions);
+            let self_ty = self.substitute_ty_generics_and_consts_from_maps(
+                predicate.ty,
+                substitutions,
+                const_substitutions,
+            );
             for bound in &predicate.bounds {
-                let trait_ty = self.substitute_ty_generics_from_map(bound.trait_ty, substitutions);
+                let trait_ty = self.substitute_ty_generics_and_consts_from_maps(
+                    bound.trait_ty,
+                    substitutions,
+                    const_substitutions,
+                );
                 let Some((trait_id, trait_args, trait_const_args)) =
                     self.trait_id_and_args(trait_ty)
                 else {
@@ -421,6 +472,78 @@ impl Analyzer<'_> {
         goals
     }
 
+    fn trait_solver_array_lengths(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+        assumptions: &[TraitGoal],
+        trait_impls: &[ProgramTraitImplSignature],
+    ) -> HashMap<GlobalConstExprId, u64> {
+        let mut needed = HashSet::new();
+        self.collect_array_len_const_exprs_in_ty(self_ty, &mut needed);
+        for ty in trait_args {
+            self.collect_array_len_const_exprs_in_ty(*ty, &mut needed);
+        }
+        self.collect_trait_solver_const_arg_exprs(trait_const_args, &mut needed);
+
+        for assumption in assumptions {
+            self.collect_array_len_const_exprs_in_ty(assumption.self_ty, &mut needed);
+            for ty in &assumption.trait_args {
+                self.collect_array_len_const_exprs_in_ty(*ty, &mut needed);
+            }
+            self.collect_trait_solver_const_arg_exprs(&assumption.trait_const_args, &mut needed);
+        }
+
+        for impl_signature in trait_impls {
+            if impl_signature.trait_id != trait_id {
+                continue;
+            }
+            self.collect_array_len_const_exprs_in_ty(impl_signature.target_ty, &mut needed);
+            for ty in &impl_signature.trait_args {
+                self.collect_array_len_const_exprs_in_ty(*ty, &mut needed);
+            }
+            self.collect_trait_solver_const_arg_exprs(
+                &impl_signature.trait_const_args,
+                &mut needed,
+            );
+            for predicate in &impl_signature.where_predicates {
+                self.collect_array_len_const_exprs_in_ty(predicate.ty, &mut needed);
+                for bound in &predicate.bounds {
+                    self.collect_array_len_const_exprs_in_ty(bound.trait_ty, &mut needed);
+                }
+            }
+        }
+
+        let mut array_lengths = self.array_lengths.clone();
+        for id in needed {
+            if !array_lengths.contains_key(&id)
+                && let Some(value) = self.eval_array_len_const_expr_id(id)
+            {
+                array_lengths.insert(id, value);
+            }
+        }
+        array_lengths
+    }
+
+    fn collect_trait_solver_const_arg_exprs(
+        &self,
+        args: &[ConstGenericArg],
+        out: &mut HashSet<GlobalConstExprId>,
+    ) {
+        for arg in args {
+            self.collect_array_len_const_exprs_in_ty(arg.ty, out);
+            if matches!(
+                self.ty_kind(arg.ty),
+                Some(TyKind::Primitive(PrimitiveTy::Usize))
+            ) && let ConstGenericValue::ConstExpr(id) = arg.value
+            {
+                out.insert(id);
+            }
+        }
+    }
+
     pub(super) fn substitute_ty_generics_from_map(
         &mut self,
         ty: InternedTyId,
@@ -437,18 +560,45 @@ impl Analyzer<'_> {
         substitute_ty_generics(interner, ty, &|name| substitutions.get(name).copied())
     }
 
+    pub(super) fn substitute_ty_generics_and_consts_from_maps(
+        &mut self,
+        ty: InternedTyId,
+        type_substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> InternedTyId {
+        let module_id = self.current_execution_module_id();
+        if self.ensure_type_context(module_id).is_none() {
+            return ty;
+        }
+        let interner = self
+            .type_contexts
+            .get(&module_id)
+            .expect("type context must exist");
+        substitute_ty_generics_and_consts(
+            interner,
+            ty,
+            &|name| type_substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+        )
+    }
+
     pub(super) fn substitute_const_generic_arg_from_maps(
         &mut self,
-        mut arg: ConstGenericArg,
+        arg: ConstGenericArg,
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> ConstGenericArg {
-        arg.ty = self.substitute_ty_generics_from_map(arg.ty, substitutions);
-        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
-            && let Some(resolved) = const_substitutions.get(name)
-        {
-            arg = resolved.clone();
-        }
+        let mut arg = match &arg.value {
+            nia_ty::ConstGenericValue::GenericParam(name) => {
+                const_substitutions.get(name).cloned().unwrap_or(arg)
+            }
+            _ => arg,
+        };
+        arg.ty = self.substitute_ty_generics_and_consts_from_maps(
+            arg.ty,
+            substitutions,
+            const_substitutions,
+        );
         arg
     }
 

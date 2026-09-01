@@ -1271,6 +1271,38 @@ fn main() usize {
 }
 
 #[test]
+fn const_function_associated_const_projection_substitutes_array_length() {
+    let root = temp_dir("const_function_associated_const_projection_substitutes_array_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait HasLen {
+    const Len: usize;
+}
+
+extend [u8; 4] : HasLen {
+    const Len: usize = 4usize;
+}
+
+const fn len[N: usize]() usize
+where [u8; N]: HasLen
+{
+    [[u8; N] as HasLen]::Len
+}
+
+const RESULT: usize = len[4]();
+
+fn main() usize {
+    RESULT
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn supertrait_associated_const_projection_resolves_through_subtrait_bound() {
     let root = temp_dir("supertrait_associated_const_projection_resolves_through_subtrait_bound");
     write(
