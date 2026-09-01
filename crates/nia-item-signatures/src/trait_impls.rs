@@ -77,7 +77,10 @@ pub(super) fn stable_trait_impl_id(identity: &TraitImplIdentity) -> u64 {
     hash.string(&identity.target);
     hash.optional_string(identity.trait_ref.as_deref());
     hash.string_slice(&identity.generics);
-    hash.u64(identity.where_clause.len() as u64);
+    hash.u64(
+        u64::try_from(identity.where_clause.len())
+            .expect("trait implementation where-clause length exceeds u64"),
+    );
     for (ty, bounds) in &identity.where_clause {
         hash.string(ty);
         hash.string_slice(bounds);
@@ -111,7 +114,10 @@ impl StableTraitImplHasher {
     }
 
     fn string_slice(&mut self, values: &[String]) {
-        self.u64(values.len() as u64);
+        self.u64(
+            u64::try_from(values.len())
+                .expect("trait implementation identity list length exceeds u64"),
+        );
         for value in values {
             self.string(value);
         }
@@ -128,7 +134,10 @@ impl StableTraitImplHasher {
     }
 
     fn string(&mut self, value: &str) {
-        self.u64(value.len() as u64);
+        self.u64(
+            u64::try_from(value.len())
+                .expect("trait implementation identity text length exceeds u64"),
+        );
         self.bytes(value.as_bytes());
     }
 
