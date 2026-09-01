@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 853 completed entries in this ledger.
+- Latest implementation batch: 854 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5304,6 +5304,17 @@ acceptance item only when its phase-wide evidence is complete.
       `[u8; N]` return regression passes with the `nia-const-check` owner suite
       (46 tests), `nia-static-check` (15 tests), `nia-compiler-query` (256
       tests), strict owner Clippy, and the workspace all-target/all-feature
+      check.
+- [x] Batch 854 completes const-execution trait projection instantiation and
+      const-expression matching. Associated projections and where-clause goals
+      now substitute nested const parameters together with type parameters, and
+      all const-check trait solver entry points provide evaluated array-length
+      facts from the active goal, assumptions, and matching impl candidates. A
+      const-function projection from `[u8; N]` to the concrete `[u8; 4]` impl
+      has an end-to-end regression; the `nia-const-check` owner suite (46
+      tests), driver associated-type suite (36 tests), and
+      `nia-compiler-query` owner suite (256 tests) pass with strict owner
+      Clippy, formatting, diff checks, and the workspace all-target/all-feature
       check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
