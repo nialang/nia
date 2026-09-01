@@ -5595,6 +5595,19 @@ acceptance item only when its phase-wide evidence is complete.
       refresh remains current-host evidence under the approximately 7.8-GiB
       WSL limit and does not close the separately required no-swap cgroup or
       external-target runtime gates.
+- [x] Batch 882 refreshes i686 external-target evidence with the available
+      LLVM 22 installation. Setting `LLVM_SYS_221_PREFIX=/usr/lib/llvm22`, the
+      complete workspace `cargo test --workspace --all-features --target
+      i686-unknown-linux-gnu --no-run` matrix compiles all library, CLI, and
+      integration binaries. The real i686 `nia-cli` `emit_exe_intrinsics`
+      matrix passes 8/8, and the 14-case `build_cases` integration matrix
+      passes 14/14, covering startup, const/SIMD/width boundaries, target
+      validation, dependency closure, ordering, and failure diagnostics. A
+      wasm32 no-run attempt with the same prefix reaches the LLVM C wrapper but
+      remains blocked by the target's unsupported `libc` C-type surface (the
+      upstream `llvm-sys` bindings report 898 missing `c_*` aliases). Thus
+      i686 compile/runtime evidence is current, while wasm32 runtime and the
+      aggregate external-target gate remain open.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
