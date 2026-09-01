@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 814 completed entries in this ledger.
+- Latest implementation batch: 815 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5050,6 +5050,17 @@ acceptance item only when its phase-wide evidence is complete.
       identities, source-closure reachability, and current ownership direction;
       phase-wide semantic acceptance and external-target runtime evidence stay
       separate gates.
+- [x] Batch 815 extends bounded-process standard-library runtime evidence to
+      filesystem and process ownership. Under `prlimit --as=3221225472` with
+      resource tracing enabled, `nia-cli` `emit_exe_fs` passes 25/25 and
+      `emit_exe_process` passes 47/47. The suites cover capability-relative
+      paths, symlink containment, descriptor ownership, metadata and mutation,
+      command argument/environment encoding, pipes, cwd, spawn/reap retries,
+      repeated wait/try-wait, kill signals, and closed-parent descriptor
+      handling. Compiler children peak at about 437 MiB for filesystem and
+      519 MiB for process cases; no timeout, failed action, or permit leak was
+      observed. This is RLIMIT-based bounded evidence only; the read-only WSL
+      cgroup and external-target runtime gates remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
