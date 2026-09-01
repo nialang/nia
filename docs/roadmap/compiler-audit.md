@@ -5635,6 +5635,16 @@ acceptance item only when its phase-wide evidence is complete.
       capabilities, descriptor/path ownership, buffering, partial transfers,
       formatting, parsing, and failure cleanup. No target runtime failure was
       observed; the no-swap cgroup and wasm32 LLVM gates remain separate.
+- [x] Batch 886 completes the current i686 process-runtime sample. With
+      `LLVM_SYS_221_PREFIX=/usr/lib/llvm22`, `emit_exe_process` passes 47/47,
+      covering command spawn/wait/try-wait, exit status, cwd and exact
+      environment, argument encoding, stdin/stdout/stderr pipes, EOF, kill and
+      signal selection, exec errors, repeated waits, closed-parent descriptors,
+      and spawn/reap failure cleanup and retry ownership. Together with
+      Batches 883 and 885, this brings the current real i686 executable sample
+      to 121 passing tests. No target runtime failure was observed in this
+      process matrix; no-swap cgroup and wasm32 LLVM support remain explicitly
+      outside the available host gate.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
