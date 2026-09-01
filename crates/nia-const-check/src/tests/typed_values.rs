@@ -1847,6 +1847,45 @@ const RESULT: usize = inspect(VALUE, 1i32);
     );
 }
 
+#[test]
+fn const_call_rejects_nested_expected_return_constructor_mismatch() {
+    let fixture = check_source(
+        r#"
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+struct Other[T] {
+    value: T,
+}
+
+struct Box[T] {
+    value: T,
+}
+
+const fn make[T]() Pair[T, Other[bool]] {
+    Pair[T, Other[bool]] {
+        first: 1i32,
+        second: Other[bool] { value: true },
+    }
+}
+
+const RESULT: Pair[i32, Box[bool]] = make();
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const call return type does not match expected type")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
 fn const_value(fixture: &CheckedFixture, name: &str) -> ConstValue {
     let def_id = fixture
         .defs
