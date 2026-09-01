@@ -5645,6 +5645,15 @@ acceptance item only when its phase-wide evidence is complete.
       to 121 passing tests. No target runtime failure was observed in this
       process matrix; no-swap cgroup and wasm32 LLVM support remain explicitly
       outside the available host gate.
+- [x] Batch 887 extends the current i686 memory-ownership runtime sample.
+      Using `LLVM_SYS_221_PREFIX=/usr/lib/llvm22`, the allocator-core (4/4),
+      allocator (14/14), ArrayList (6/6), and memory-intrinsic (4/4) matrices
+      all pass, for 28/28 tests. Coverage includes realloc/remap and release
+      ranges, arena and general-purpose allocator ownership, over-aligned and
+      zero-sized allocations, retry-after-failure cleanup, ArrayList shrink
+      and clone/owned-copy behavior, and cross-module slice/memory intrinsics.
+      Combined with Batches 883, 885, and 886, the current real i686 sample is
+      149 passing executable tests; no target failure was observed.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
