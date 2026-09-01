@@ -133,7 +133,7 @@ pub(super) fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProvi
     let checksum = QueryFingerprint::from_parts(read_parts(&mut cursor)?);
     let mut payload = vec![0; payload_len];
     cursor.read_exact(&mut payload).ok()?;
-    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
     (provider_demand_plan_checksum(&payload) == checksum).then_some(())?;
 
     let mut cursor = Cursor::new(payload.as_slice());
@@ -215,7 +215,7 @@ pub(super) fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProvi
         .windows(2)
         .all(|pair| compare_provider_demands(&pair[0], &pair[1]).is_lt())
         .then_some(())?;
-    (cursor.position() as usize == payload_len).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == payload_len).then_some(())?;
     Some(DecodedProviderDemandPlan {
         key,
         namespace,
