@@ -268,6 +268,7 @@ impl<'a> SignatureCollector<'a> {
             .methods
             .iter()
             .filter_map(|method| {
+                self.check_method_generic_shadowing(&extend.generics, &method.function);
                 self.collect_method(signatures, &method.function)
                     .map(|def_id| TraitImplMethodSignature {
                         def_id,
@@ -375,6 +376,7 @@ impl<'a> SignatureCollector<'a> {
         }
         let mut methods = Vec::new();
         for method in &item_trait.methods {
+            self.check_method_generic_shadowing(&item_trait.generics, &method.function);
             let Some(method_id) = self.def_id_for_node(
                 &method.function.node_key,
                 method.function.span,
@@ -427,6 +429,29 @@ impl<'a> SignatureCollector<'a> {
             .functions
             .insert(def_id, self.function_signature(method));
         Some(def_id)
+    }
+
+    fn check_method_generic_shadowing(
+        &mut self,
+        enclosing_generics: &[GenericParam],
+        method: &FunctionItem,
+    ) {
+        let enclosing_names = enclosing_generics
+            .iter()
+            .map(|generic| generic.name)
+            .collect::<std::collections::HashSet<_>>();
+        for generic in &method.generics {
+            if enclosing_names.contains(&generic.name) {
+                let name = self.symbol_debug_text(generic.name);
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    generic.name_span,
+                    format!(
+                        "method generic parameter cannot shadow enclosing generic parameter `{name}`"
+                    ),
+                ));
+            }
+        }
     }
 
     fn collect_enum(
