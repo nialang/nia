@@ -287,9 +287,9 @@ not a reliable project percentage: completing work can increase both numbers.
 Track the fixed acceptance checklist below separately from this expandable
 ledger, and report the two dimensions together.
 
-Current snapshot (2026-08-29):
+Current snapshot (2026-09-01):
 
-- Latest implementation batch: 807 completed entries in this ledger.
+- Latest implementation batch: 808 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4977,6 +4977,19 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-compiler-query` (256), and the complete const-evaluation,
       normalization, lowering, resolution, trait, flow, static, and layout
       owners. No additional ILP32 behavior gap was identified.
+- [x] Batch 808 makes the diagnostic bundle layout regression target-aware.
+      `DiagnosticBundleId` retains its fixed two-`u32` (8-byte) identity
+      contract, while the `Arc`-backed `DiagnosticBundle` assertion derives
+      its size from the active pointer width. The complete host frontend and
+      identity owner sweep passes 241 tests across `nia-lexer`, `nia-parser`,
+      `nia-syntax`, `nia-ast`, `nia-ast-walk`, `nia-item-tree`, `nia-defs`,
+      `nia-ids`, `nia-symbol`, `nia-symbol-table`, `nia-span`,
+      `nia-diagnostic`, `nia-ice`, and `nia-local-resolve`; strict Clippy,
+      formatting, whitespace, and `nia-maintain check` are green. All 14
+      owner test binaries compile for `i686-unknown-linux-gnu` with the
+      explicit LLVM 22 and `-m32` environment. Executing those 32-bit test
+      binaries is currently blocked by this host's seccomp policy (`SIGSYS`),
+      so no additional i686 runtime claim is made.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
