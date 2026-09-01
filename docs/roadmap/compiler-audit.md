@@ -5187,6 +5187,11 @@ acceptance item only when its phase-wide evidence is complete.
       ordering and preventing a concurrent retirement/intern deadlock. The
       `nia-node-id` owner suite and parser/AST consumers pass with strict
       Clippy, formatting, and diff checks.
+- [x] Batch 835 hardens session-local module and local indices on narrow
+      targets. `nia-imports` and `nia-local-resolve` now use checked conversions
+      when indexing vectors or minting `u32` handles, so malformed/foreign IDs
+      cannot truncate into unrelated entries. Their owner suites and parser
+      consumers pass with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
