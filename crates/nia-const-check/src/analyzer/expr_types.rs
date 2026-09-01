@@ -1,4 +1,3 @@
-use super::ty_substitution::substitute_ty_generics;
 use super::*;
 
 impl Analyzer<'_> {
@@ -558,6 +557,7 @@ impl Analyzer<'_> {
             function_id.module_id,
             signature.return_type,
             &instantiation.type_substitutions,
+            &instantiation.const_substitutions,
         )
     }
 
@@ -604,12 +604,20 @@ impl Analyzer<'_> {
         &mut self,
         source_module_id: ModuleId,
         ty: InternedTyId,
-        substitutions: &SymbolMap<InternedTyId>,
+        type_substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
         self.ensure_type_context(source_module_id)?;
         let substituted = {
             let types = self.type_contexts.get(&source_module_id)?;
-            substitute_ty_generics(types, ty, &|generic| substitutions.get(generic).copied())
+            nia_ty::substitute_ty(
+                types.store,
+                &types.append,
+                ty,
+                &|generic| type_substitutions.get(generic).copied(),
+                &|generic| const_substitutions.get(generic).cloned(),
+                None,
+            )
         };
         self.type_for_module_or_none(substituted, self.current_execution_module_id())
     }

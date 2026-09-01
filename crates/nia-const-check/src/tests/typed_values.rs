@@ -292,6 +292,32 @@ const OFF: usize = marker_offset[3]();
 }
 
 #[test]
+fn substitutes_const_generic_function_return_array_length() {
+    let fixture = check_source(
+        r#"
+const fn identity[N: usize](value: [u8; N]) [u8; N] {
+    value
+}
+
+const RESULT: [u8; 3] = identity[3]([7, 7, 7]);
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "RESULT"),
+        ConstValue::Array(vec![
+            ConstValue::Int(IntConst::unsigned(7)),
+            ConstValue::Int(IntConst::unsigned(7)),
+            ConstValue::Int(IntConst::unsigned(7)),
+        ])
+    );
+}
+
+#[test]
 fn const_generic_integer_rejects_unsupported_target_pointer_width() {
     let mut target = nia_target_config::TargetConfig::host();
     target.pointer_width = 256;
