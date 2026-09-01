@@ -5626,6 +5626,15 @@ acceptance item only when its phase-wide evidence is complete.
       therefore remain wasm32-clean on the current toolchain; the only failed
       full-target attempt is the known `llvm-sys` binding/libc surface, not a
       Rust source warning or error in the pure-Rust owners.
+- [x] Batch 885 extends current i686 standard-library runtime evidence with
+      filesystem and IO ownership. Using `LLVM_SYS_221_PREFIX=/usr/lib/llvm22`,
+      `emit_exe_fs` passes 25/25 and `emit_exe_io` passes 17/17. Combined with
+      the 32 tests recorded in Batch 883, the current target run now covers
+      74 real i686 executable tests across startup, compiler intrinsics,
+      build-plan fixtures, trait objects, slices, strings, filesystem
+      capabilities, descriptor/path ownership, buffering, partial transfers,
+      formatting, parsing, and failure cleanup. No target runtime failure was
+      observed; the no-swap cgroup and wasm32 LLVM gates remain separate.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
