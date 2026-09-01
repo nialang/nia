@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 856 completed entries in this ledger.
+- Latest implementation batch: 857 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5332,6 +5332,17 @@ acceptance item only when its phase-wide evidence is complete.
       multiple pattern bindings. A reversed `Slot[i32]`/`Slot[bool]` binding
       regression proves the inferred array return length remains 2; disabling
       the trait-argument guard reproduces the prior expected-4 mismatch. The
+      `nia-const-check` owner suite (48 tests), driver associated-type suite (36
+      tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
+      owner Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check.
+- [x] Batch 857 carries completed type inference into the following const
+      inference walk. Structural patterns are instantiated with known type and
+      const arguments before const parameters are collected, so generic
+      associated-binding keys such as `Slot[A]` and `Slot[B]` cannot exchange
+      their array lengths after `A` and `B` have become concrete. The Batch 856
+      regression now covers interleaved type/const inference; removing this
+      propagation reproduces the expected-4/actual-2 mismatch. The
       `nia-const-check` owner suite (48 tests), driver associated-type suite (36
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       owner Clippy, formatting, diff checks, and the workspace
