@@ -720,6 +720,35 @@ fn main(input: usize) i32 {
 }
 
 #[test]
+fn const_method_generics_preserve_extension_target_generics() {
+    let root = temp_dir("const_method_generics_preserve_extension_target_generics");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    const fn convert[U](self, value: U) U {
+        let _ = self;
+        value
+    }
+}
+
+const result: bool = Box[i32] { value: 1 }.convert[bool](true);
+
+fn main() i32 {
+    if result { 0 } else { 1 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_const_functions_and_methods_work_at_comptime_and_runtime() {
     let root = temp_dir("imported_const_functions_and_methods_work_at_comptime_and_runtime");
     write(

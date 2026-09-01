@@ -97,6 +97,9 @@ impl Analyzer<'_> {
             }
             let mut argument_types = Vec::new();
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
+                if param.receiver.is_some() {
+                    continue;
+                }
                 let expected = self.const_expected_param_type(
                     signature_module_id,
                     param.ty,
@@ -146,17 +149,17 @@ impl Analyzer<'_> {
                         span: arg_expr.span(),
                         message: "cannot resolve const call argument type".to_string(),
                     })?;
-                argument_types.push((param.ty, arg_ty));
+                argument_types.push((param.ty, arg_ty, arg_expr.clone()));
                 if self.inference_pattern_accepts_type_shape(instantiated_expected, arg_ty) {
                     substitutions = candidate_substitutions;
                     const_substitutions = candidate_const_substitutions;
                 }
             }
-            for (index, (param_ty, arg_ty)) in argument_types.iter().enumerate() {
+            for (param_ty, arg_ty, arg_expr) in argument_types {
                 let expected = self
                     .const_expected_param_type(
                         signature_module_id,
-                        *param_ty,
+                        param_ty,
                         &substitutions,
                         &const_substitutions,
                     )
@@ -164,10 +167,9 @@ impl Analyzer<'_> {
                         span,
                         message: "cannot resolve const call argument type".to_string(),
                     })?;
-                if !self.inference_pattern_accepts_type_shape(expected, *arg_ty)
+                if !self.inference_pattern_accepts_type_shape(expected, arg_ty)
                     && !self.type_contains_generic(expected)
                 {
-                    let arg_expr = &arg_exprs[index];
                     return Err(ConstError {
                         span: arg_expr.span(),
                         message: match arg_expr.kind() {
@@ -257,6 +259,9 @@ impl Analyzer<'_> {
                 }
             }
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
+                if param.receiver.is_some() {
+                    continue;
+                }
                 let expected = self
                     .const_expected_param_type(
                         signature_module_id,
