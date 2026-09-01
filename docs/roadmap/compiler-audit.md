@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 851 completed entries in this ledger.
+- Latest implementation batch: 852 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5289,6 +5289,13 @@ acceptance item only when its phase-wide evidence is complete.
       passes with strict Clippy, formatting, and diff checks; the source
       resolver continues to reject dependent const parameter declarations, so
       this hardens provider/malformed semantic inputs without widening syntax.
+- [x] Batch 852 fixes associated-call expected-return inference for interleaved
+      nominal type/const parameters. Generic nominal prefixes now rebuild both
+      compact type arguments and const arguments by declaration kind, and
+      expected-return matching substitutes the complete instance before
+      comparing candidate signatures. `Box[T, N]::make` inference from
+      `Box[i32, 3]` has a direct regression; the `nia-body-check` owner suite
+      (280 tests) passes with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
