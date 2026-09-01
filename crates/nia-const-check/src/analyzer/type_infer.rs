@@ -184,13 +184,8 @@ impl Analyzer<'_> {
                 {
                     return Err(ConstError {
                         span: arg_expr.span(),
-                        message: match arg_expr.kind() {
-                            ResolvedConstExprKind::Match(_) => {
-                                "const match expression does not match expected type"
-                            }
-                            _ => "const call argument does not match expected type",
-                        }
-                        .to_string(),
+                        message: self
+                            .const_call_argument_mismatch_message(expected, arg_ty, &arg_expr),
                     });
                 }
             }
@@ -348,6 +343,38 @@ impl Analyzer<'_> {
             type_substitutions: substitutions,
             const_substitutions,
         })
+    }
+
+    fn const_call_argument_mismatch_message(
+        &mut self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+        arg_expr: &ResolvedConstExpr,
+    ) -> String {
+        if let (
+            Some(TyKind::Array {
+                len: expected_len, ..
+            }),
+            Some(TyKind::Array {
+                len: actual_len, ..
+            }),
+        ) = (self.ty_kind(expected), self.ty_kind(actual))
+            && let (Some(expected_len), Some(actual_len)) = (
+                self.array_len_const_value(expected_len),
+                self.array_len_const_value(actual_len),
+            )
+            && expected_len != actual_len
+        {
+            return format!(
+                "const array length {actual_len} does not match expected length {expected_len}"
+            );
+        }
+        match arg_expr.kind() {
+            ResolvedConstExprKind::Match(_) => {
+                "const match expression does not match expected type".to_string()
+            }
+            _ => "const call argument does not match expected type".to_string(),
+        }
     }
 
     fn const_generic_arg_from_resolved_expr(
@@ -2223,6 +2250,23 @@ impl Analyzer<'_> {
             ) => {
                 expected_readonly == actual_readonly
                     && self.const_function_types_match(expected_elem, actual_elem)
+            }
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: expected_elem,
+                }),
+                Some(TyKind::Array {
+                    elem: actual_elem, ..
+                }),
+            ) => {
+                let Some(TyKind::SlicePointee {
+                    elem: expected_elem,
+                }) = self.ty_kind(expected_elem)
+                else {
+                    return false;
+                };
+                self.const_function_types_match(expected_elem, actual_elem)
             }
             (
                 Some(TyKind::ErrorUnion {
