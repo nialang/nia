@@ -5431,6 +5431,17 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-compiler-query` owner suite (256 tests) pass with strict owner
       Clippy, formatting, diff checks, and the workspace all-target/all-feature
       check.
+- [x] Batch 866 preserves resolved method receivers while validating const-call
+      arguments. Receiver parameters without an explicit declared type are no
+      longer treated as ordinary value parameters during inferred or explicit
+      generic instantiation; extension-target matching remains the authority
+      for their type, and non-receiver arguments retain their original source
+      spans during final validation. A const method combining target generic
+      `T` with explicit method generic `U` has a direct driver regression. The
+      `nia-const-check` owner suite (58 tests), driver associated-type suite (36
+      tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
+      const-check and driver Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
