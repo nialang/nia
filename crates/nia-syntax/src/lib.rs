@@ -817,9 +817,9 @@ fn shift_span(span: Span, edit: &TextEdit) -> Span {
 
 fn shift_offset(offset: usize, delta: isize) -> usize {
     if delta.is_negative() {
-        offset - delta.unsigned_abs()
+        offset.saturating_sub(delta.unsigned_abs())
     } else {
-        offset + delta as usize
+        offset.saturating_add(delta as usize)
     }
 }
 
@@ -984,6 +984,12 @@ mod tests {
                 TokenKind::Error(nia_lexer::LexError::UnexpectedByte(_))
             ) && token.text == "中"
         }));
+    }
+
+    #[test]
+    fn offset_shifting_saturates_malformed_extremes() {
+        assert_eq!(shift_offset(usize::MAX, 1), usize::MAX);
+        assert_eq!(shift_offset(0, -1), 0);
     }
 
     #[test]
