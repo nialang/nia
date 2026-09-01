@@ -70,7 +70,12 @@ impl TraitSolver<'_> {
                 .iter()
                 .zip(&goal.trait_const_args)
                 .all(|(actual, expected)| {
-                    self.match_const_impl_pattern(actual, expected, &mut const_substitutions)
+                    self.match_const_impl_pattern(
+                        actual,
+                        expected,
+                        &mut substitutions,
+                        &mut const_substitutions,
+                    )
                 });
         let where_holds = trait_const_args_match
             && self.impl_where_predicates_hold(
@@ -156,7 +161,12 @@ impl TraitSolver<'_> {
                 .iter()
                 .zip(&specific_const_args)
                 .all(|(general, specific)| {
-                    self.match_const_impl_pattern(general, specific, &mut const_substitutions)
+                    self.match_const_impl_pattern(
+                        general,
+                        specific,
+                        &mut substitutions,
+                        &mut const_substitutions,
+                    )
                 })
     }
 
@@ -583,7 +593,12 @@ impl TraitSolver<'_> {
                         .iter()
                         .zip(&actual_const_args)
                         .all(|(arg, actual_arg)| {
-                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                            self.match_const_impl_pattern(
+                                arg,
+                                actual_arg,
+                                substitutions,
+                                const_substitutions,
+                            )
                         })
                 }
                 _ => false,
@@ -634,7 +649,12 @@ impl TraitSolver<'_> {
                         )
                     }) && trait_const_args.iter().zip(&actual_const_args).all(
                         |(arg, actual_arg)| {
-                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                            self.match_const_impl_pattern(
+                                arg,
+                                actual_arg,
+                                substitutions,
+                                const_substitutions,
+                            )
                         },
                     ) && self.match_associated_type_binding_patterns(
                         &associated_type_bindings,
@@ -670,7 +690,12 @@ impl TraitSolver<'_> {
                         )
                     }) && trait_const_args.iter().zip(&actual_const_args).all(
                         |(arg, actual_arg)| {
-                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                            self.match_const_impl_pattern(
+                                arg,
+                                actual_arg,
+                                substitutions,
+                                const_substitutions,
+                            )
                         },
                     ) && self.match_associated_type_binding_patterns(
                         &associated_type_bindings,
@@ -713,7 +738,12 @@ impl TraitSolver<'_> {
                         )
                     }) && trait_const_args.iter().zip(&actual_const_args).all(
                         |(arg, actual_arg)| {
-                            self.match_const_impl_pattern(arg, actual_arg, const_substitutions)
+                            self.match_const_impl_pattern(
+                                arg,
+                                actual_arg,
+                                substitutions,
+                                const_substitutions,
+                            )
                         },
                     )
                 }
@@ -730,17 +760,22 @@ impl TraitSolver<'_> {
         &mut self,
         pattern: &ConstGenericArg,
         actual: &ConstGenericArg,
-        substitutions: &mut SymbolMap<ConstGenericArg>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
     ) -> bool {
-        if !self.types_equivalent(pattern.ty, actual.ty) {
+        let pattern_ty =
+            self.substitute_ty_with_consts(pattern.ty, substitutions, const_substitutions);
+        let actual_ty =
+            self.substitute_ty_with_consts(actual.ty, substitutions, const_substitutions);
+        if !self.types_equivalent(pattern_ty, actual_ty) {
             return false;
         }
         match &pattern.value {
             ConstGenericValue::GenericParam(name) => {
-                if let Some(existing) = substitutions.get(name).cloned() {
+                if let Some(existing) = const_substitutions.get(name).cloned() {
                     self.const_generic_args_equivalent(&existing, actual)
                 } else {
-                    substitutions.insert(*name, actual.clone());
+                    const_substitutions.insert(*name, actual.clone());
                     true
                 }
             }
@@ -843,6 +878,7 @@ impl TraitSolver<'_> {
                     self.match_const_impl_pattern(
                         pattern,
                         actual,
+                        &mut candidate_substitutions,
                         &mut candidate_const_substitutions,
                     )
                 })

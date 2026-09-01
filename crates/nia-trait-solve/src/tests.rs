@@ -949,6 +949,95 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
 }
 
 #[test]
+fn user_impl_substitutes_const_argument_types_before_matching() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(module_id);
+    let u8_ty = append.primitive(PrimitiveTy::U8);
+    let u16_ty = append.primitive(PrimitiveTy::U16);
+    let type_name = SymbolId::from_stable_hash(2);
+    let const_name = SymbolId::from_stable_hash(3);
+    let generic_ty = append.intern(TyKind::GenericParam(type_name));
+    let container = GlobalDefId {
+        module_id,
+        def_id: DefId(3),
+    };
+    let trait_id = TraitId::Source(GlobalDefId {
+        module_id,
+        def_id: DefId(4),
+    });
+    let pattern_ty = append.intern(TyKind::Nominal {
+        def_id: container,
+        args: vec![generic_ty],
+        const_args: vec![const_param(generic_ty, const_name)],
+    });
+    let actual_ty = append.intern(TyKind::Nominal {
+        def_id: container,
+        args: vec![u8_ty],
+        const_args: vec![const_arg(u8_ty, 3)],
+    });
+    let mismatched_ty = append.intern(TyKind::Nominal {
+        def_id: container,
+        args: vec![u8_ty],
+        const_args: vec![const_arg(u16_ty, 3)],
+    });
+    let trait_impls = vec![ProgramTraitImplSignature {
+        module_id,
+        impl_id: TraitImplId(2),
+        builtin: None,
+        generics: vec![type_name, const_name],
+        generic_params: vec![
+            nia_item_signatures::GenericParamSignature {
+                name: type_name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Type,
+            },
+            nia_item_signatures::GenericParamSignature {
+                name: const_name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: generic_ty },
+            },
+        ],
+        target_ty: pattern_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        where_predicates: Vec::new(),
+        associated_types: Vec::new(),
+        associated_values: Vec::new(),
+    }];
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &trait_impls,
+        trait_impl_index: None,
+        layouts: None,
+        local_module_id: module_id,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+
+    assert!(context.solver(&[]).proves(TraitGoal {
+        self_ty: actual_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    }));
+    assert!(!context.solver(&[]).proves(TraitGoal {
+        self_ty: mismatched_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    }));
+}
+
+#[test]
 fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();
