@@ -1608,6 +1608,16 @@ const BYTES: [u8; 4] = STORAGE.bytes;
 }
 
 #[test]
+fn bool_vector_splat_accepts_associated_lane_type() {
+    let fixture = check_source(
+        r#"
+const MASK: boolx4 = std::builtin::splat[boolx4](false);
+"#,
+    );
+    assert!(fixture.checked.diagnostics.is_empty(), "{:?}", fixture.checked.diagnostics);
+}
+
+#[test]
 fn usize_vector_union_fields_follow_artifact_pointer_width() {
     for (pointer_width, bytes_len) in [(32, 8), (64, 16)] {
         let mut target = nia_target_config::TargetConfig::host();

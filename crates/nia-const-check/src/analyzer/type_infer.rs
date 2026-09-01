@@ -416,14 +416,22 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.ensure_type_context(module_id)?;
         let types = self.type_contexts.get(&module_id)?;
-        Some(nia_ty::substitute_ty(
+        let substituted = nia_ty::substitute_ty(
             types.store,
             &types.append,
             ty,
             &|generic| type_substitutions.get(generic).copied(),
             &|generic| const_substitutions.get(generic).cloned(),
             None,
-        ))
+        );
+        let Some(TyKind::Projection { self_ty, .. }) = self.ty_kind(substituted) else {
+            return Some(substituted);
+        };
+        if self.type_contains_generic(self_ty) {
+            Some(substituted)
+        } else {
+            Some(self.normalize_projection(substituted))
+        }
     }
 
     pub(super) fn resolved_const_arg_runtime_type(
