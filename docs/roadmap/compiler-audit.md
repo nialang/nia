@@ -5208,6 +5208,12 @@ acceptance item only when its phase-wide evidence is complete.
       preventing silent truncation on wider targets. `nia-defs`,
       `nia-item-signatures`, and `nia-type-resolve` owner suites pass with
       strict Clippy, formatting, and diff checks.
+- [x] Batch 839 hardens signature-cache cursor boundary checks. Decoder
+      completion now converts `Cursor::position()` to `usize` through checked
+      paths before comparing entry and payload lengths, preventing wide cursor
+      positions from truncating into false cache acceptance. The 256-test
+      `nia-compiler-query` owner suite passes with strict Clippy, formatting,
+      and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
