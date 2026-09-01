@@ -4,8 +4,9 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_identity_key};
 
 use crate::{
-    ArrayElements, AssignOp, BinaryOp, BracketArg, Expr, ExprKind, FieldInit, IndexArg, SliceRange,
-    StringLiteral, UnaryOp,
+    ArrayElements, AssignOp, BinaryOp, Block, BracketArg, Expr, ExprKind, FieldInit, IndexArg,
+    MatchArmBody, NominalPatternFields, Pattern, PatternKind, SliceRange, Stmt, StmtKind,
+    StringLiteral, UnaryOp, UsingGroupItem, UsingItem, UsingName, UsingSelector,
 };
 
 /// Kind of one source path segment.
@@ -779,9 +780,264 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             out.push(')');
         }
         ExprKind::Range(range) => write_slice_range_identity(out, "range_expr", range),
-        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::IfPattern(_) | ExprKind::Match(_) => {
-            out.push_str("control_expr")
+        ExprKind::Block(block) => write_block_identity(out, block),
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            out.push_str("if(");
+            write_expr_identity(out, cond);
+            out.push('|');
+            write_block_identity(out, then_branch);
+            out.push('|');
+            write_optional_expr_identity(out, else_branch.as_deref());
+            out.push(')');
         }
+        ExprKind::IfPattern(value) => {
+            out.push_str("if_pattern(");
+            write_expr_identity(out, &value.target);
+            out.push('|');
+            write_pattern_identity(out, &value.pattern);
+            out.push('|');
+            write_block_identity(out, &value.then_branch);
+            out.push('|');
+            write_optional_expr_identity(out, value.else_branch.as_deref());
+            out.push(')');
+        }
+        ExprKind::Match(value) => {
+            out.push_str("match(");
+            write_expr_identity(out, &value.target);
+            out.push('|');
+            for (index, arm) in value.arms.iter().enumerate() {
+                if index > 0 {
+                    out.push(';');
+                }
+                write_joined(out, &arm.patterns, write_pattern_identity);
+                out.push('=');
+                write_match_arm_body_identity(out, &arm.body);
+            }
+            out.push(')');
+        }
+    }
+}
+
+fn write_block_identity(out: &mut String, block: &Block) {
+    out.push_str("block(");
+    for (index, stmt) in block.stmts.iter().enumerate() {
+        if index > 0 {
+            out.push(';');
+        }
+        write_stmt_identity(out, stmt);
+    }
+    out.push('|');
+    write_optional_expr_identity(out, block.tail.as_deref());
+    out.push(')');
+}
+
+fn write_stmt_identity(out: &mut String, stmt: &Stmt) {
+    match &stmt.kind {
+        StmtKind::Binding(binding) => {
+            out.push_str("binding(");
+            write_pattern_identity(out, &binding.pattern);
+            out.push('|');
+            if let Some(ty) = &binding.ty {
+                write_type_ref_identity(out, ty);
+            } else {
+                out.push_str("none");
+            }
+            out.push('|');
+            write_optional_expr_identity(out, binding.value.as_ref());
+            out.push('|');
+            out.push_str(if binding.is_mutable() {
+                "mut"
+            } else if binding.is_const() {
+                "const"
+            } else {
+                "let"
+            });
+            out.push(')');
+        }
+        StmtKind::Static(item) => {
+            out.push_str("static(");
+            out.push_str(&symbol_identity_key(item.name));
+            out.push('|');
+            if let Some(ty) = &item.ty {
+                write_type_ref_identity(out, ty);
+            } else {
+                out.push_str("none");
+            }
+            out.push('|');
+            write_optional_expr_identity(out, item.value.as_ref());
+            out.push('|');
+            out.push_str(if item.is_mutable() { "mut" } else { "const" });
+            out.push(')');
+        }
+        StmtKind::Using(item) => {
+            out.push_str("using(");
+            write_using_identity(out, item);
+            out.push(')');
+        }
+        StmtKind::Expr(expr) => {
+            out.push_str("expr(");
+            write_expr_identity(out, expr);
+            out.push(')');
+        }
+        StmtKind::Return(expr) => {
+            out.push_str("return(");
+            write_optional_expr_identity(out, expr.as_deref());
+            out.push(')');
+        }
+        StmtKind::Defer(expr) => {
+            out.push_str("defer(");
+            write_expr_identity(out, expr);
+            out.push(')');
+        }
+        StmtKind::ForIn(value) => {
+            out.push_str("for(");
+            write_pattern_identity(out, &value.pattern);
+            out.push('|');
+            write_expr_identity(out, &value.iter);
+            out.push('|');
+            write_block_identity(out, &value.body);
+            out.push(')');
+        }
+        StmtKind::While(value) => {
+            out.push_str("while(");
+            write_expr_identity(out, &value.cond);
+            out.push('|');
+            write_block_identity(out, &value.body);
+            out.push(')');
+        }
+        StmtKind::Loop(value) => {
+            out.push_str("loop(");
+            write_block_identity(out, &value.body);
+            out.push(')');
+        }
+        StmtKind::Break => out.push_str("break"),
+        StmtKind::Continue => out.push_str("continue"),
+    }
+}
+
+fn write_using_identity(out: &mut String, item: &UsingItem) {
+    write_joined(out, &item.host, |out, segment| {
+        write_path_segment_identity(out, segment.kind)
+    });
+    out.push('|');
+    write_using_selector_identity(out, &item.selector);
+}
+
+fn write_using_selector_identity(out: &mut String, selector: &UsingSelector) {
+    match selector {
+        UsingSelector::Single(name) => write_using_name_identity(out, name),
+        UsingSelector::Group(items) => {
+            out.push_str("group(");
+            write_joined(out, items, |out, item| match item {
+                UsingGroupItem::Name(name) => write_using_name_identity(out, name),
+                UsingGroupItem::Nested { host, selector } => {
+                    out.push_str("nested(");
+                    write_joined(out, host, |out, segment| {
+                        write_path_segment_identity(out, segment.kind)
+                    });
+                    out.push('|');
+                    write_using_selector_identity(out, selector);
+                    out.push(')');
+                }
+            });
+            out.push(')');
+        }
+        UsingSelector::Wildcard { .. } => out.push_str("wildcard"),
+        UsingSelector::SelfName => out.push_str("self"),
+    }
+}
+
+fn write_using_name_identity(out: &mut String, name: &UsingName) {
+    write_symbol_identity(out, name.name);
+    out.push(':');
+    match name.alias {
+        Some(alias) => write_symbol_identity(out, alias),
+        None => out.push_str("none"),
+    }
+}
+
+fn write_pattern_identity(out: &mut String, pattern: &Pattern) {
+    match &pattern.kind {
+        PatternKind::Wildcard => out.push_str("wildcard"),
+        PatternKind::Bind {
+            name, is_mutable, ..
+        } => {
+            out.push_str(if *is_mutable { "bind_mut(" } else { "bind(" });
+            write_symbol_identity(out, *name);
+            out.push(')');
+        }
+        PatternKind::Pointer(inner) => write_unary_pattern_identity(out, "ptr", inner),
+        PatternKind::MutPointer(inner) => write_unary_pattern_identity(out, "mut_ptr", inner),
+        PatternKind::OptionalSome(inner) => write_unary_pattern_identity(out, "some", inner),
+        PatternKind::ErrorOk(inner) => write_unary_pattern_identity(out, "ok", inner),
+        PatternKind::ErrorErr(inner) => write_unary_pattern_identity(out, "err", inner),
+        PatternKind::OptionalNull => out.push_str("null"),
+        PatternKind::Tuple(values) => {
+            out.push_str("tuple(");
+            write_joined(out, values, write_pattern_identity);
+            out.push(')');
+        }
+        PatternKind::Nominal {
+            constructor,
+            fields,
+        } => {
+            out.push_str("nominal(");
+            write_expr_identity(out, constructor);
+            out.push('|');
+            match fields {
+                NominalPatternFields::Tuple(values) => {
+                    write_joined(out, values, write_pattern_identity)
+                }
+                NominalPatternFields::Named { fields, rest } => {
+                    for (index, field) in fields.iter().enumerate() {
+                        if index > 0 {
+                            out.push(',');
+                        }
+                        write_symbol_identity(out, field.name);
+                        out.push('=');
+                        write_pattern_identity(out, &field.pattern);
+                    }
+                    out.push('|');
+                    out.push_str(if rest.is_some() { "rest" } else { "exact" });
+                }
+            }
+            out.push(')');
+        }
+        PatternKind::Expr(expr) => {
+            out.push_str("expr(");
+            write_expr_identity(out, expr);
+            out.push(')');
+        }
+        PatternKind::Range {
+            start,
+            end,
+            inclusive,
+        } => {
+            out.push_str(if *inclusive { "range_inc(" } else { "range(" });
+            write_expr_identity(out, start);
+            out.push('|');
+            write_expr_identity(out, end);
+            out.push(')');
+        }
+    }
+}
+
+fn write_unary_pattern_identity(out: &mut String, tag: &str, pattern: &Pattern) {
+    out.push_str(tag);
+    out.push('(');
+    write_pattern_identity(out, pattern);
+    out.push(')');
+}
+
+fn write_match_arm_body_identity(out: &mut String, body: &MatchArmBody) {
+    match body {
+        MatchArmBody::Expr(expr) => write_expr_identity(out, expr),
+        MatchArmBody::Stmt(stmt) => write_stmt_identity(out, stmt),
+        MatchArmBody::Block(block) => write_block_identity(out, block),
     }
 }
 
@@ -975,6 +1231,7 @@ fn write_joined<T>(out: &mut String, values: &[T], mut write: impl FnMut(&mut St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MatchExpr;
     use nia_node_id::{SyntaxKind, VersionedNodeKey};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
 
@@ -1103,5 +1360,40 @@ mod tests {
             type_ref_identity(&embedded_separator)
         );
         assert!(!type_ref_decl_eq(&adjacent, &embedded_separator));
+    }
+
+    #[test]
+    fn control_expression_identity_preserves_branch_structure() {
+        let empty = || Block {
+            span: Span::default(),
+            stmts: Vec::new(),
+            tail: None,
+        };
+        let if_true = expr(
+            ExprKind::If {
+                cond: Box::new(expr(ExprKind::Bool(true), Span::default())),
+                then_branch: empty(),
+                else_branch: None,
+            },
+            Span::default(),
+        );
+        let if_false = expr(
+            ExprKind::If {
+                cond: Box::new(expr(ExprKind::Bool(false), Span::default())),
+                then_branch: empty(),
+                else_branch: None,
+            },
+            Span::default(),
+        );
+        let matched = expr(
+            ExprKind::Match(Box::new(MatchExpr {
+                target: expr(ExprKind::Bool(true), Span::default()),
+                arms: Vec::new(),
+            })),
+            Span::default(),
+        );
+
+        assert!(!expr_decl_eq(&if_true, &if_false));
+        assert!(!expr_decl_eq(&if_true, &matched));
     }
 }
