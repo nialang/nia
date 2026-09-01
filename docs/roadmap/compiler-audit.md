@@ -5128,6 +5128,11 @@ acceptance item only when its phase-wide evidence is complete.
       flags are now retained in the span-independent statement encoding, so
       nested control expressions cannot conflate declarations that share only
       a name. The focused `nia-ast` owner suite and formatting/diff checks pass.
+- [x] Batch 824 closes the remaining closure-expression identity omission.
+      Closure bodies now contribute recursively to declaration identity while
+      capture names/values and parameter type shapes remain unchanged. The
+      `nia-ast` owner regression distinguishes closures with different bodies;
+      `nia-item-tree` tests, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
