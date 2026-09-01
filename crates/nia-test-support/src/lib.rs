@@ -1050,25 +1050,69 @@ fn process_start_time(_pid: u32) -> Option<u64> {
 mod tests {
     use super::*;
 
+    fn large_memory_limit() -> usize {
+        usize::try_from(8u64 * 1024 * 1024 * 1024).unwrap_or(3usize * 1024 * 1024 * 1024)
+    }
+
+    fn very_large_memory_limit() -> usize {
+        usize::try_from(32u64 * 1024 * 1024 * 1024).unwrap_or(usize::MAX)
+    }
+
     #[test]
     fn compiler_limit_reserves_memory_and_caps_cpu_parallelism() {
-        assert_eq!(compiler_limit(32, Some(8 * 1024 * 1024 * 1024)), 2);
+        let large_limit = large_memory_limit();
+        let expected_large_limit = if cfg!(target_pointer_width = "64") {
+            2
+        } else {
+            1
+        };
+        assert_eq!(compiler_limit(32, Some(large_limit)), expected_large_limit);
         assert_eq!(compiler_limit(32, Some(3 * 1024 * 1024 * 1024)), 1);
-        assert_eq!(compiler_limit(2, Some(8 * 1024 * 1024 * 1024)), 2);
-        assert_eq!(compiler_limit(32, Some(32 * 1024 * 1024 * 1024)), 8);
+        assert_eq!(
+            compiler_limit(2, Some(large_limit)),
+            expected_large_limit.min(2)
+        );
+        let very_large_limit = very_large_memory_limit();
+        let expected_very_large_limit = if cfg!(target_pointer_width = "64") {
+            8
+        } else {
+            1
+        };
+        assert_eq!(
+            compiler_limit(32, Some(very_large_limit)),
+            expected_very_large_limit
+        );
     }
 
     #[test]
     fn runtime_limit_uses_cpu_and_lightweight_memory_budget() {
-        assert_eq!(runtime_limit(32, Some(8 * 1024 * 1024 * 1024)), 16);
-        assert_eq!(runtime_limit(8, Some(8 * 1024 * 1024 * 1024)), 8);
+        let large_limit = large_memory_limit();
+        let expected_large_limit = if cfg!(target_pointer_width = "64") {
+            16
+        } else {
+            6
+        };
+        assert_eq!(runtime_limit(32, Some(large_limit)), expected_large_limit);
+        assert_eq!(
+            runtime_limit(8, Some(large_limit)),
+            expected_large_limit.min(8)
+        );
         assert_eq!(runtime_limit(32, Some(1024 * 1024 * 1024)), 2);
         assert_eq!(runtime_limit(32, None), UNKNOWN_MEMORY_PARALLEL_RUNTIMES);
     }
 
     #[test]
     fn shared_memory_tokens_bound_mixed_workloads() {
-        assert_eq!(memory_token_capacity(Some(8 * 1024 * 1024 * 1024)), 16);
+        let large_limit = large_memory_limit();
+        let expected_large_capacity = if cfg!(target_pointer_width = "64") {
+            16
+        } else {
+            6
+        };
+        assert_eq!(
+            memory_token_capacity(Some(large_limit)),
+            expected_large_capacity
+        );
         assert_eq!(memory_tokens(0), 0);
         assert_eq!(memory_tokens(COMPILER_MEMORY_BYTES), 6);
         assert_eq!(memory_tokens(RUNTIME_MEMORY_BYTES), 1);
@@ -1095,9 +1139,15 @@ mod tests {
 
     #[test]
     fn compiler_scheduler_capacity_accounts_for_build_weight() {
-        assert_eq!(
-            compiler_scheduler_limit(32, Some(8 * 1024 * 1024 * 1024)),
+        let large_limit = large_memory_limit();
+        let expected_large_limit = if cfg!(target_pointer_width = "64") {
             4
+        } else {
+            2
+        };
+        assert_eq!(
+            compiler_scheduler_limit(32, Some(large_limit)),
+            expected_large_limit
         );
         assert_eq!(
             compiler_scheduler_limit(32, Some(3 * 1024 * 1024 * 1024)),
@@ -1110,16 +1160,22 @@ mod tests {
 
     #[test]
     fn available_memory_gate_scales_down_on_small_hosts() {
-        assert_eq!(
-            minimum_available_memory(8 * 1024 * 1024 * 1024, 2 * COMPILER_MEMORY_BYTES),
+        let large_limit = large_memory_limit();
+        let expected_large_workload = if cfg!(target_pointer_width = "64") {
             7 * 512 * 1024 * 1024
+        } else {
+            3 * 512 * 1024 * 1024
+        };
+        assert_eq!(
+            minimum_available_memory(large_limit, 2 * COMPILER_MEMORY_BYTES),
+            expected_large_workload
         );
         assert_eq!(
             minimum_available_memory(3 * 1024 * 1024 * 1024, COMPILER_MEMORY_BYTES),
             3 * 512 * 1024 * 1024
         );
         assert_eq!(
-            minimum_available_memory(8 * 1024 * 1024 * 1024, RUNTIME_MEMORY_BYTES),
+            minimum_available_memory(large_limit, RUNTIME_MEMORY_BYTES),
             RUNTIME_MEMORY_BYTES + AVAILABLE_MEMORY_HEADROOM_BYTES
         );
     }
@@ -1203,9 +1259,15 @@ mod tests {
     #[test]
     fn scheduling_weight_does_not_inflate_memory_requirement() {
         let build = ResourceRequest::new(BUILD_SCHEDULING_SLOTS, COMPILER_MEMORY_BYTES);
-        assert_eq!(
-            minimum_available_memory(8 * 1024 * 1024 * 1024, build.minimum_memory_bytes),
+        let large_limit = large_memory_limit();
+        let expected = if cfg!(target_pointer_width = "64") {
             2 * 1024 * 1024 * 1024
+        } else {
+            3 * 512 * 1024 * 1024
+        };
+        assert_eq!(
+            minimum_available_memory(large_limit, build.minimum_memory_bytes),
+            expected
         );
     }
 
