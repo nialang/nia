@@ -930,6 +930,9 @@ impl<'a> BodyChecker<'a> {
                     elem: actual_elem,
                 }),
             ) => {
+                // Slice values are lowered as pointers whose element is either
+                // an array or the canonical slice-pointee marker. Inspect the
+                // pointee to infer `T` without widening mutable references.
                 if !(pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly) {
                     return false;
                 }
@@ -2137,6 +2140,9 @@ impl<'a> BodyChecker<'a> {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => {
+                // Generic inference sees the pre-coercion pointer-to-array
+                // shape; peel that representation before inferring the slice
+                // element while preserving readonly compatibility.
                 if let Some(TyKind::Slice {
                     is_readonly: actual_const,
                     elem: actual_elem,
