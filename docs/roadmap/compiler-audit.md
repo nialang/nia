@@ -5143,6 +5143,11 @@ acceptance item only when its phase-wide evidence is complete.
       source spans, preserving semantic pruning and annotation differences in
       nested control expressions. The `nia-ast` attribute regression plus
       `nia-item-tree` tests, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 827 makes item-tree using declaration comparison span-independent.
+      Host segments, aliases, nested groups, wildcard selectors, and self
+      imports now compare by semantic structure rather than `PartialEq` over
+      source spans. A multi-entry grouped-using revision regression passes in
+      `nia-item-tree` with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
