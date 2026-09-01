@@ -1557,6 +1557,29 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn infers_const_generic_nominal_prefix_from_expected_return() {
+    let checked = pipeline(
+        r#"
+struct Box[T, N: usize] {
+    value: T,
+}
+
+extend[T, N: usize] Box[T, N] {
+    fn make(value: T) Box[T, N] {
+        Self { value }
+    }
+}
+
+fn main() i32 {
+    let value: Box[i32, 3] = Box::make(42);
+    value.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_lowercase_generic_type_prefix_associated_function_calls() {
     let checked = pipeline(
         r#"

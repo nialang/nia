@@ -488,7 +488,7 @@ impl<'a> BodyChecker<'a> {
             let ty = self.ty_for_type(ty);
             return Some(self.normalization.normalize(ty));
         }
-        let (nominal_def_id, mut type_args, const_args) = self.type_prefix_instance(ty_expr)?;
+        let (nominal_def_id, mut type_args, mut const_args) = self.type_prefix_instance(ty_expr)?;
         if type_args.is_empty()
             && const_args.is_empty()
             && let Some(expected) = expected
@@ -498,13 +498,15 @@ impl<'a> BodyChecker<'a> {
                 ..
             }) = self.interner.get(prefix_ty).cloned()
             && let candidates = self.method_candidates_for_target(prefix_ty, name)
-            && let Some(inferred) = self.infer_associated_type_args_from_candidates(
-                normalized_def_id,
-                &candidates,
-                expected,
-            )
+            && let Some((inferred_type_args, inferred_const_args)) = self
+                .infer_associated_type_args_from_candidates(
+                    normalized_def_id,
+                    &candidates,
+                    expected,
+                )
         {
-            type_args = inferred;
+            type_args = inferred_type_args;
+            const_args = inferred_const_args;
         }
         if !type_args.is_empty()
             || !const_args.is_empty()
@@ -542,12 +544,22 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
-        let args = self
-            .nominal_type_generics(def_id)?
-            .into_iter()
-            .map(|generic| self.interner.intern(TyKind::GenericParam(generic)))
-            .collect();
-        self.associated_nominal_target_ty(def_id, args, Vec::new())
+        let mut args = Vec::new();
+        let mut const_args = Vec::new();
+        for param in self.generic_params_for_nominal_def(def_id)? {
+            match param.kind {
+                nia_item_signatures::GenericParamSignatureKind::Type => {
+                    args.push(self.interner.intern(TyKind::GenericParam(param.name)));
+                }
+                nia_item_signatures::GenericParamSignatureKind::Const { ty } => {
+                    const_args.push(nia_ty::ConstGenericArg {
+                        ty,
+                        value: nia_ty::ConstGenericValue::GenericParam(param.name),
+                    });
+                }
+            }
+        }
+        self.associated_nominal_target_ty(def_id, args, const_args)
     }
 
     fn infer_associated_type_args_from_expected_return(
@@ -555,12 +567,12 @@ impl<'a> BodyChecker<'a> {
         nominal_def_id: GlobalDefId,
         signature: &FunctionSignature,
         expected: InternedTyId,
-    ) -> Option<Vec<InternedTyId>> {
+    ) -> Option<(Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let expected = self.associated_expected_return_ty(expected);
         let Some(nia_ty::TyKind::Nominal {
             def_id: expected_def,
             args: expected_args,
-            ..
+            const_args: expected_const_args,
         }) = self.interner.get(expected).cloned()
         else {
             return None;
@@ -568,11 +580,20 @@ impl<'a> BodyChecker<'a> {
         if expected_def != nominal_def_id {
             return None;
         }
-        let substitutions = self.nominal_type_generic_substitutions(nominal_def_id, &expected_args);
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let (substitutions, const_substitutions) = self
+            .strict_generic_substitutions_and_consts_for_def(
+                nominal_def_id,
+                &expected_args,
+                &expected_const_args,
+            )?;
+        let return_type = self.substitute_generics_and_consts(
+            signature.return_type,
+            &substitutions,
+            &const_substitutions,
+        );
         let return_type = self.normalize_aliases_in_type(return_type);
         if self.types_match(expected, return_type) {
-            Some(expected_args)
+            Some((expected_args, expected_const_args))
         } else {
             None
         }
@@ -602,7 +623,7 @@ impl<'a> BodyChecker<'a> {
         nominal_def_id: GlobalDefId,
         candidates: &[MethodCandidate],
         expected: InternedTyId,
-    ) -> Option<Vec<InternedTyId>> {
+    ) -> Option<(Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let mut inferred = Vec::new();
         for candidate in candidates {
             let Some(signature) = self
@@ -611,17 +632,17 @@ impl<'a> BodyChecker<'a> {
             else {
                 continue;
             };
-            if let Some(args) = self.infer_associated_type_args_from_expected_return(
+            if let Some(instance) = self.infer_associated_type_args_from_expected_return(
                 nominal_def_id,
                 &signature,
                 expected,
-            ) && !inferred.contains(&args)
+            ) && !inferred.contains(&instance)
             {
-                inferred.push(args);
+                inferred.push(instance);
             }
         }
         match inferred.as_slice() {
-            [args] => Some(args.clone()),
+            [instance] => Some(instance.clone()),
             _ => None,
         }
     }

@@ -398,16 +398,6 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    pub(crate) fn nominal_type_generic_substitutions(
-        &mut self,
-        def_id: GlobalDefId,
-        args: &[InternedTyId],
-    ) -> SymbolMap<InternedTyId> {
-        self.nominal_type_generics(def_id)
-            .map(|generics| self.generic_substitutions(&generics, args))
-            .unwrap_or_default()
-    }
-
     pub(crate) fn expand_type_alias_instance(
         &mut self,
         def_id: GlobalDefId,
