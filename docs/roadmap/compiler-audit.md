@@ -5262,6 +5262,13 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-program-signatures` owner suite (7 tests), `nia-body-check` consumer
       suite (279 tests), and `nia-compiler-query` consumer suite (256 tests)
       pass with strict Clippy, formatting, and diff checks.
+- [x] Batch 848 makes trait-implementation matching substitute already inferred
+      type parameters into const-argument declared types before comparing them.
+      Mixed generic impl headers no longer reject valid candidates when a const
+      parameter's type depends on an earlier type parameter, while mismatched
+      concrete const types remain rejected. The `nia-trait-solve` owner suite
+      (26 tests) and `nia-body-check` consumer suite (279 tests) pass with
+      formatting and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
