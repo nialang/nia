@@ -5160,6 +5160,11 @@ acceptance item only when its phase-wide evidence is complete.
       operators and operands. The versioned enum regression passes with the
       complete `nia-item-tree` owner suite, strict Clippy, formatting, and diff
       checks.
+- [x] Batch 830 hardens source revision allocation against counter wraparound.
+      `SourceRevision::next` now uses checked arithmetic and rejects exhaustion
+      instead of reusing revision zero after `u64::MAX`; the owner suite adds an
+      explicit overflow regression and passes with strict Clippy, formatting,
+      and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
