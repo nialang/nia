@@ -1535,6 +1535,8 @@ pub struct ResolvedConstTypeArg {
 #[derive(Debug, Clone, PartialEq)]
 /// A resolved generic argument, retaining type versus const kind.
 pub enum ResolvedConstGenericArg {
+    /// Generic argument explicitly left for call-site inference with `_`.
+    Infer(Span),
     /// Resolved type argument.
     Type(ResolvedConstTypeArg),
     /// Resolved const expression argument.
@@ -1545,6 +1547,7 @@ impl ResolvedConstGenericArg {
     /// Returns the source span of either generic argument form.
     pub fn span(&self) -> Span {
         match self {
+            Self::Infer(span) => *span,
             Self::Type(arg) => arg.span(),
             Self::Const(expr) => expr.span(),
         }
@@ -2369,6 +2372,8 @@ pub struct EarlyConstTypeArg {
 #[derive(Debug, Clone, PartialEq)]
 /// Early generic argument retaining type versus const form.
 pub enum EarlyConstGenericArg {
+    /// Generic argument explicitly left for call-site inference with `_`.
+    Infer(Span),
     /// Type argument, possibly unresolved.
     Type(EarlyConstTypeArg),
     /// Const expression argument.

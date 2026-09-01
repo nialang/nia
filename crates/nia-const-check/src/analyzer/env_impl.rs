@@ -1643,6 +1643,13 @@ impl Analyzer<'_> {
         let type_args = generic_args
             .iter()
             .map(|arg| match arg {
+                ResolvedConstGenericArg::Infer(span) => Err(ConstError {
+                    span: *span,
+                    message: format!(
+                        "builtin `{}` generic argument could not be inferred",
+                        builtin.name()
+                    ),
+                }),
                 ResolvedConstGenericArg::Type(arg) => Ok(arg),
                 ResolvedConstGenericArg::Const(expr) => Err(ConstError {
                     span: expr.span(),

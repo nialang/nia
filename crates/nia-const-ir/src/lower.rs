@@ -625,6 +625,13 @@ fn lower_generic_args_with_context(
 ) -> Result<Vec<EarlyConstGenericArg>, ConstLowerError> {
     args.iter()
         .map(|arg| {
+            if arg
+                .ty
+                .as_ref()
+                .is_some_and(|ty| matches!(ty.kind, nia_ast::TypeKind::Infer))
+            {
+                return Ok(EarlyConstGenericArg::Infer(arg.span));
+            }
             // The parser retains both interpretations for ambiguous bracket
             // arguments such as `N`. Semantic facts decide whether `N` is a
             // type or const value. Before those facts exist, keep the type

@@ -246,7 +246,10 @@ fn generic_call_lowering_uses_semantic_facts_to_distinguish_type_and_const_args(
 
     let early = lower_expr_early(&call)
         .expect("early lowering without semantic facts should retain type candidates");
-    let EarlyConstExprKind::Call { generic_args, .. } = early.kind else {
+    let EarlyConstExprKind::Call {
+        ref generic_args, ..
+    } = early.kind
+    else {
         panic!("expression should lower to a call");
     };
     assert!(matches!(
@@ -275,5 +278,66 @@ fn generic_call_lowering_uses_semantic_facts_to_distinguish_type_and_const_args(
         generic_args.as_slice(),
         [ResolvedConstGenericArg::Const(expr)]
             if expr.name_resolution() == Some(ConstNameResolution::GenericParam(generic_name))
+    ));
+}
+
+#[test]
+fn generic_call_lowering_preserves_inferred_underscore_slots() {
+    let call = nia_ast::Expr {
+        span: Span::new(0, 8),
+        node_key: expr_key(30),
+        kind: nia_ast::ExprKind::Call {
+            callee: Box::new(nia_ast::Expr {
+                span: Span::new(0, 6),
+                node_key: expr_key(31),
+                kind: nia_ast::ExprKind::BracketSuffix {
+                    callee: Box::new(ast_ident("choose")),
+                    args: vec![nia_ast::BracketArg {
+                        span: other_span(),
+                        expr: None,
+                        ty: Some(nia_ast::TypeRef {
+                            span: other_span(),
+                            node_key: type_key(30),
+                            text: "_".to_string(),
+                            kind: nia_ast::TypeKind::Infer,
+                        }),
+                    }],
+                },
+            }),
+            args: Vec::new(),
+        },
+    };
+
+    let early = lower_expr_early(&call).expect("early lowering should preserve infer slots");
+    let EarlyConstExprKind::Call {
+        ref generic_args, ..
+    } = early.kind
+    else {
+        panic!("expression should lower to a call");
+    };
+    assert!(matches!(
+        generic_args.as_slice(),
+        [EarlyConstGenericArg::Infer(span)] if *span == other_span()
+    ));
+
+    let module_id = ModuleIdAllocator::new().allocate();
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_global_value_use(
+        expr_key(0),
+        GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+    );
+    let semantic_uses = semantic_uses.finish();
+    let context = ResolvedConstLowerInputs::new(&semantic_uses);
+    let resolved = lower_expr_resolved_with_context(&call, &context)
+        .expect("resolved lowering should preserve infer slots without type ids");
+    let ResolvedConstExprKind::Call { generic_args, .. } = resolved.kind() else {
+        panic!("expression should resolve to a call");
+    };
+    assert!(matches!(
+        generic_args.as_slice(),
+        [ResolvedConstGenericArg::Infer(span)] if *span == other_span()
     ));
 }

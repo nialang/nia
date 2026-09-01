@@ -235,8 +235,12 @@ impl Analyzer<'_> {
                 return Err(ConstError { span, message });
             }
         } else {
+            let mut has_infer_slot = false;
             for (generic, arg) in signature.generic_params.iter().zip(generic_args) {
                 match (&generic.kind, arg) {
+                    (_, ResolvedConstGenericArg::Infer(_)) => {
+                        has_infer_slot = true;
+                    }
                     (GenericParamSignatureKind::Type, ResolvedConstGenericArg::Type(arg)) => {
                         let canonical =
                             self.type_for_module(span, arg.ty(), signature_module_id)?;
@@ -269,6 +273,22 @@ impl Analyzer<'_> {
                         });
                     }
                 }
+            }
+            if has_infer_slot {
+                return self.instantiate_resolved_function_generics(
+                    span,
+                    ConstFunctionInstantiationInput {
+                        signature_module_id,
+                        signature,
+                        generic_args: &[],
+                        arg_exprs,
+                        expected_return,
+                        initial: ConstGenericInstantiation {
+                            type_substitutions: substitutions,
+                            const_substitutions,
+                        },
+                    },
+                );
             }
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
                 if param.receiver.is_some() {
