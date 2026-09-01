@@ -1294,6 +1294,87 @@ const RESULT: usize = inspect(VALUE);
 }
 
 #[test]
+fn const_generic_inference_rejects_evidence_below_mismatched_layout_constructor() {
+    let fixture = check_source(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+struct Other[T] {
+    value: T,
+}
+
+struct Packet[T] {
+    value: T,
+}
+
+const fn inspect[T, U](
+    value: [Packet[U]; std::builtin::size[Box[T]]()],
+    marker: T,
+) usize {
+    let _ = (value, marker);
+    7
+}
+
+const VALUE: [Packet[bool]; std::builtin::size[Other[bool]]()] = [Packet[bool] { value: true }];
+const RESULT: usize = inspect(VALUE, 1i32);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer const generic type argument `U`")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn const_generic_inference_rejects_evidence_below_nested_layout_constructor() {
+    let fixture = check_source(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+struct Other[T] {
+    value: T,
+}
+
+struct Packet[T] {
+    value: T,
+}
+
+const fn inspect[T, U](
+    value: [Packet[U]; std::builtin::size[Box[Box[T]]]()],
+    marker: T,
+) usize {
+    let _ = (value, marker);
+    7
+}
+
+const VALUE: [Packet[bool]; std::builtin::size[Box[Other[bool]]]()] =
+    [Packet[bool] { value: true }];
+const RESULT: usize = inspect(VALUE, 1i32);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer const generic type argument `U`")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_inference_through_layout_builtin_and_marker() {
     let fixture = check_source(
         r#"

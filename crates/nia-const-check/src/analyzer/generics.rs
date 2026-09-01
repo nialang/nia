@@ -45,8 +45,7 @@ impl Analyzer<'_> {
             .chain(std::iter::once((&pattern.ty, &actual.ty)))
             .all(|(pattern, actual)| {
                 let pattern = self.substitute_ty_generics_from_map(*pattern, substitutions);
-                self.type_contains_generic(pattern)
-                    || self.const_function_types_match(pattern, *actual)
+                self.inference_pattern_accepts_type_shape(pattern, *actual)
             })
     }
 
@@ -57,12 +56,457 @@ impl Analyzer<'_> {
     ) -> bool {
         pattern.len() == actual.len()
             && pattern.iter().zip(actual).all(|(pattern, actual)| {
-                let types_compatible = self.type_contains_generic(pattern.ty)
-                    || self.const_function_types_match(pattern.ty, actual.ty);
+                let types_compatible =
+                    self.inference_pattern_accepts_type_shape(pattern.ty, actual.ty);
                 let values_compatible = matches!(pattern.value, ConstGenericValue::GenericParam(_))
                     || self.const_generic_values_match_for_execution(pattern, actual);
                 types_compatible && values_compatible
             })
+    }
+
+    /// Checks the complete structural path through which generic inference
+    /// would collect evidence. Concrete leaves use normal const-call matching;
+    /// open leaves accept an actual type only below compatible constructors.
+    fn inference_pattern_accepts_type_shape(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
+        let pattern_kind = self.active_ty_kind(pattern);
+        if matches!(pattern_kind, TyKind::GenericParam(_)) {
+            return true;
+        }
+        if !self.type_contains_generic(pattern) {
+            return self.const_function_types_match(pattern, actual);
+        }
+        match (pattern_kind, self.active_ty_kind(actual)) {
+            (TyKind::Tuple(patterns), TyKind::Tuple(actuals)) => {
+                patterns.len() == actuals.len()
+                    && patterns.iter().zip(actuals).all(|(pattern, actual)| {
+                        self.inference_pattern_accepts_type_shape(*pattern, actual)
+                    })
+            }
+            (
+                TyKind::ClosureState {
+                    closure_id: pattern_id,
+                    captures: pattern_captures,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                TyKind::ClosureState {
+                    closure_id: actual_id,
+                    captures: actual_captures,
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) => {
+                pattern_id == actual_id
+                    && pattern_captures.len() == actual_captures.len()
+                    && pattern_params.len() == actual_params.len()
+                    && pattern_captures
+                        .iter()
+                        .zip(actual_captures)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.inference_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Pointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            )
+            | (
+                TyKind::VolatilePointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            )
+            | (
+                TyKind::Slice {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            ) => {
+                readonly_pointer_accepts(pattern_readonly, actual_readonly)
+                    && self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
+            }
+            (
+                TyKind::SlicePointee { elem: pattern_elem },
+                TyKind::SlicePointee { elem: actual_elem },
+            )
+            | (TyKind::Optional { elem: pattern_elem }, TyKind::Optional { elem: actual_elem }) => {
+                self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
+            }
+            (
+                TyKind::Array {
+                    len: pattern_len,
+                    elem: pattern_elem,
+                },
+                TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                },
+            ) => {
+                self.inference_array_len_pattern_accepts(&pattern_len, &actual_len)
+                    && self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
+            }
+            (
+                TyKind::Range {
+                    kind: pattern_kind,
+                    bound: pattern_bound,
+                },
+                TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                },
+            ) => {
+                pattern_kind == actual_kind
+                    && match (pattern_bound, actual_bound) {
+                        (Some(pattern), Some(actual)) => {
+                            self.inference_pattern_accepts_type_shape(pattern, actual)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
+            (
+                TyKind::FunctionPointer {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                    is_variadic: pattern_variadic,
+                },
+                TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: actual_variadic,
+                },
+            ) => {
+                pattern_variadic == actual_variadic
+                    && pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.inference_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Callable {
+                    is_readonly: pattern_readonly,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                TyKind::Callable {
+                    is_readonly: actual_readonly,
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) => {
+                pattern_readonly == actual_readonly
+                    && pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.inference_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::CallablePointee {
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                TyKind::CallablePointee {
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) => {
+                pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.inference_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::ErrorUnion {
+                    error: pattern_error,
+                    value: pattern_value,
+                },
+                TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                },
+            ) => {
+                self.inference_pattern_accepts_type_shape(pattern_error, actual_error)
+                    && self.inference_pattern_accepts_type_shape(pattern_value, actual_value)
+            }
+            (
+                TyKind::Nominal {
+                    def_id: pattern_def,
+                    args: pattern_args,
+                    const_args: pattern_const_args,
+                },
+                TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                    const_args: actual_const_args,
+                },
+            ) => {
+                pattern_def == actual_def
+                    && pattern_args.len() == actual_args.len()
+                    && self
+                        .const_generic_args_allow_inference(&pattern_const_args, &actual_const_args)
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+            }
+            (
+                TyKind::BuiltinTrait {
+                    trait_id: pattern_trait,
+                    args: pattern_args,
+                },
+                TyKind::BuiltinTrait {
+                    trait_id: actual_trait,
+                    args: actual_args,
+                },
+            ) => {
+                pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+            }
+            (
+                TyKind::TraitObject {
+                    is_readonly: pattern_readonly,
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    associated_type_bindings: pattern_bindings,
+                },
+                TyKind::TraitObject {
+                    is_readonly: actual_readonly,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                },
+            ) => {
+                pattern_readonly == actual_readonly
+                    && pattern_trait == actual_trait
+                    && self.inference_trait_type_parts_accept_shapes(
+                        TraitTypeParts {
+                            args: &pattern_args,
+                            const_args: &pattern_const_args,
+                            bindings: &pattern_bindings,
+                        },
+                        TraitTypeParts {
+                            args: &actual_args,
+                            const_args: &actual_const_args,
+                            bindings: &actual_bindings,
+                        },
+                    )
+            }
+            (
+                TyKind::TraitObjectPointee {
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    associated_type_bindings: pattern_bindings,
+                },
+                TyKind::TraitObjectPointee {
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    associated_type_bindings: actual_bindings,
+                },
+            ) => {
+                pattern_trait == actual_trait
+                    && self.inference_trait_type_parts_accept_shapes(
+                        TraitTypeParts {
+                            args: &pattern_args,
+                            const_args: &pattern_const_args,
+                            bindings: &pattern_bindings,
+                        },
+                        TraitTypeParts {
+                            args: &actual_args,
+                            const_args: &actual_const_args,
+                            bindings: &actual_bindings,
+                        },
+                    )
+            }
+            (
+                TyKind::Projection {
+                    self_ty: pattern_self,
+                    trait_id: pattern_trait,
+                    trait_args: pattern_args,
+                    trait_const_args: pattern_const_args,
+                    name: pattern_name,
+                },
+                TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    trait_const_args: actual_const_args,
+                    name: actual_name,
+                },
+            ) => {
+                pattern_trait == actual_trait
+                    && pattern_name == actual_name
+                    && pattern_args.len() == actual_args.len()
+                    && self
+                        .const_generic_args_allow_inference(&pattern_const_args, &actual_const_args)
+                    && self.inference_pattern_accepts_type_shape(pattern_self, actual_self)
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.inference_pattern_accepts_type_shape(*pattern, actual)
+                        })
+            }
+            _ => false,
+        }
+    }
+
+    fn inference_array_len_pattern_accepts(
+        &mut self,
+        pattern: &ArrayLenTy,
+        actual: &ArrayLenTy,
+    ) -> bool {
+        if matches!(pattern, ArrayLenTy::GenericParam(_)) || pattern == actual {
+            return true;
+        }
+        if let (
+            ArrayLenTy::Builtin {
+                builtin: pattern_builtin,
+                ty: pattern_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: actual_builtin,
+                ty: actual_ty,
+            },
+        ) = (pattern, actual)
+            && pattern_builtin == actual_builtin
+        {
+            return self.inference_pattern_accepts_type_shape(*pattern_ty, *actual_ty);
+        }
+        matches!(
+            (
+                self.array_len_const_value(pattern.clone()),
+                self.array_len_const_value(actual.clone()),
+            ),
+            (Some(pattern), Some(actual)) if pattern == actual
+        )
+    }
+
+    fn inference_trait_type_parts_accept_shapes(
+        &mut self,
+        pattern: TraitTypeParts<'_>,
+        actual: TraitTypeParts<'_>,
+    ) -> bool {
+        pattern.args.len() == actual.args.len()
+            && pattern.bindings.len() == actual.bindings.len()
+            && pattern
+                .args
+                .iter()
+                .zip(actual.args)
+                .all(|(pattern, actual)| {
+                    self.inference_pattern_accepts_type_shape(*pattern, *actual)
+                })
+            && self.const_generic_args_allow_inference(pattern.const_args, actual.const_args)
+            && self.inference_binding_patterns_accept_shapes(pattern.bindings, actual.bindings)
+    }
+
+    fn inference_binding_patterns_accept_shapes(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+    ) -> bool {
+        if patterns.len() != actuals.len() {
+            return false;
+        }
+        self.inference_binding_patterns_accept_shapes_inner(
+            patterns,
+            actuals,
+            0,
+            &mut vec![false; actuals.len()],
+        )
+    }
+
+    fn inference_binding_patterns_accept_shapes_inner(
+        &mut self,
+        patterns: &[nia_ty::AssociatedTypeBindingTy],
+        actuals: &[nia_ty::AssociatedTypeBindingTy],
+        pattern_index: usize,
+        used: &mut [bool],
+    ) -> bool {
+        let Some(pattern) = patterns.get(pattern_index) else {
+            return true;
+        };
+        for (actual_index, actual) in actuals.iter().enumerate() {
+            if used[actual_index]
+                || pattern.name != actual.name
+                || pattern.trait_id != actual.trait_id
+                || pattern.trait_args.len() != actual.trait_args.len()
+                || !pattern
+                    .trait_args
+                    .iter()
+                    .zip(&actual.trait_args)
+                    .all(|(pattern, actual)| {
+                        self.inference_pattern_accepts_type_shape(*pattern, *actual)
+                    })
+                || !self.const_generic_args_allow_inference(
+                    &pattern.trait_const_args,
+                    &actual.trait_const_args,
+                )
+                || !self.inference_pattern_accepts_type_shape(pattern.ty, actual.ty)
+            {
+                continue;
+            }
+            used[actual_index] = true;
+            let matched = self.inference_binding_patterns_accept_shapes_inner(
+                patterns,
+                actuals,
+                pattern_index + 1,
+                used,
+            );
+            used[actual_index] = false;
+            if matched {
+                return true;
+            }
+        }
+        false
     }
 
     fn infer_type_generics_from_associated_bindings(
@@ -268,8 +712,7 @@ impl Analyzer<'_> {
             &candidate,
             &SymbolMap::default(),
         );
-        let compatible = self.type_contains_generic(instantiated)
-            || self.const_function_types_match(instantiated, actual_ty);
+        let compatible = self.inference_pattern_accepts_type_shape(instantiated, actual_ty);
         if compatible {
             *substitutions = candidate;
         }
@@ -298,8 +741,7 @@ impl Analyzer<'_> {
             &SymbolMap::default(),
             &candidate,
         );
-        let compatible = self.type_contains_generic(instantiated)
-            || self.const_function_types_match(instantiated, actual_ty);
+        let compatible = self.inference_pattern_accepts_type_shape(instantiated, actual_ty);
         if compatible {
             *substitutions = candidate;
         }
