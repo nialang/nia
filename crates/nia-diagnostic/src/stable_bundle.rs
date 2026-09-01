@@ -187,8 +187,14 @@ fn write_span(
     if span.start > span.end || span.end > source_len {
         return Err(StableDiagnosticBundleError::InvalidSpan);
     }
-    write_u64(encoded, span.start as u64)?;
-    write_u64(encoded, span.end as u64)?;
+    write_u64(
+        encoded,
+        u64::try_from(span.start).map_err(|_| StableDiagnosticBundleError::TooLarge)?,
+    )?;
+    write_u64(
+        encoded,
+        u64::try_from(span.end).map_err(|_| StableDiagnosticBundleError::TooLarge)?,
+    )?;
     Ok(())
 }
 
@@ -257,7 +263,10 @@ fn write_len(encoded: &mut Vec<u8>, len: usize) -> Result<(), StableDiagnosticBu
     if len > MAX_SEQUENCE_LEN {
         return Err(StableDiagnosticBundleError::TooLarge);
     }
-    write_u64(encoded, len as u64)
+    write_u64(
+        encoded,
+        u64::try_from(len).map_err(|_| StableDiagnosticBundleError::TooLarge)?,
+    )
 }
 
 fn read_len(cursor: &mut Cursor<&[u8]>) -> Option<usize> {
