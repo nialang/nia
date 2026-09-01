@@ -377,7 +377,7 @@ fn read_string(cursor: &mut Cursor<&[u8]>, limit: usize) -> Option<String> {
     let start = usize::try_from(cursor.position()).ok()?;
     let end = start.checked_add(len)?;
     let value = std::str::from_utf8(cursor.get_ref().get(start..end)?).ok()?;
-    cursor.set_position(end as u64);
+    cursor.set_position(u64::try_from(end).ok()?);
     Some(value.to_string())
 }
 
