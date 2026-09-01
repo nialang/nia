@@ -5269,6 +5269,11 @@ acceptance item only when its phase-wide evidence is complete.
       concrete const types remain rejected. The `nia-trait-solve` owner suite
       (26 tests) and `nia-body-check` consumer suite (279 tests) pass with
       formatting and diff checks.
+- [x] Batch 849 makes repeated const-pattern comparisons use the same substituted
+      type environment for existing and incoming arguments, and documents the
+      mixed-header invariant at the matcher boundary. The `nia-trait-solve`
+      owner suite (26 tests) passes with strict Clippy, formatting, and diff
+      checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
