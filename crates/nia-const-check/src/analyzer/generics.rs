@@ -207,6 +207,12 @@ impl Analyzer<'_> {
             actual_ty,
             type_substitutions,
         )?;
+        let pattern_ty = self.substitute_inference_generics(
+            target_module_id,
+            pattern_ty,
+            type_substitutions,
+            const_substitutions,
+        );
         self.infer_const_generics_from_tys(
             span,
             target_module_id,
