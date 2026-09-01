@@ -63,6 +63,18 @@ impl Analyzer<'_> {
                 ),
             });
         }
+        if let ArityCheck::Mismatch { actual, .. } =
+            check_exact_arity(signature.params.len(), arg_exprs.len())
+        {
+            return Err(ConstError {
+                span,
+                message: format!(
+                    "const function argument count mismatch: expected {}, got {}",
+                    signature.params.len(),
+                    actual
+                ),
+            });
+        }
         let mut substitutions = initial.type_substitutions;
         let mut const_substitutions = initial.const_substitutions;
         if generic_args.is_empty() {
