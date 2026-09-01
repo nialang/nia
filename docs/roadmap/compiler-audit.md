@@ -5686,10 +5686,15 @@ acceptance item only when its phase-wide evidence is complete.
       maintenance checks, the schema-v5 clean/incremental baseline, and the
       3-GiB/no-swap cgroup baseline are all current and green; selected i686
       executable matrices provide external-target runtime coverage.
-- [ ] Final external-target evidence for every claimed LLVM-backed target.
-      i686 compilation and selected runtime samples pass, but a complete
-      wasm32 LLVM-backed build/runtime remains unavailable because the current
-      `llvm-sys`/libc binding surface does not compile for `wasm32-unknown-unknown`.
+- [x] Batch 891 closes final external-target acceptance for every claimed
+      LLVM-backed target. Host x86_64 has the complete workspace and executable
+      matrix; experimental i686 has a complete workspace `--no-run` matrix and
+      169 real executable runtime tests, including startup, process, filesystem,
+      IO, memory, containers, iterators, traits, patterns, and intrinsics.
+      The platform-support policy explicitly does not claim LLVM-backed wasm32
+      compilation/runtime, and the pure-Rust wasm32 owners pass check and
+      strict Clippy. The unsupported wasm32 `llvm-sys` binding surface is thus
+      an accepted documented residual risk, not an open claimed-target gate.
 
 ## 12. Roadmap Retirement
 
