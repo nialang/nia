@@ -53,7 +53,10 @@ pub(crate) fn encode_stable_program_diagnostic_bundle(
     for (index, (path, source_len)) in used_sources.iter().enumerate() {
         source_indices.insert(path.as_str(), index);
         write_string(&mut encoded, path)?;
-        write_u64(&mut encoded, *source_len as u64)?;
+        write_u64(
+            &mut encoded,
+            u64::try_from(*source_len).map_err(|_| StableProgramDiagnosticBundleError::TooLarge)?,
+        )?;
     }
 
     write_len(&mut encoded, diagnostics.len())?;
@@ -69,7 +72,11 @@ pub(crate) fn encode_stable_program_diagnostic_bundle(
             source_len,
         )
         .map_err(StableProgramDiagnosticBundleError::Diagnostic)?;
-        write_u64(&mut encoded, source_index as u64)?;
+        write_u64(
+            &mut encoded,
+            u64::try_from(source_index)
+                .map_err(|_| StableProgramDiagnosticBundleError::TooLarge)?,
+        )?;
         write_len(&mut encoded, bundle.len())?;
         extend(&mut encoded, &bundle)?;
     }
@@ -125,7 +132,9 @@ pub(crate) fn decode_stable_program_diagnostic_bundle(
             diagnostic: decoded.pop()?,
         });
     }
-    (usize::try_from(cursor.position()).ok()? + STABLE_PROGRAM_DIAGNOSTIC_BUNDLE.magic.len()
+    (usize::try_from(cursor.position())
+        .ok()?
+        .checked_add(STABLE_PROGRAM_DIAGNOSTIC_BUNDLE.magic.len())?
         == encoded.len())
     .then_some(diagnostics)
 }
@@ -151,7 +160,10 @@ fn write_len(encoded: &mut Vec<u8>, len: usize) -> Result<(), StableProgramDiagn
     if len > MAX_SEQUENCE_LEN {
         return Err(StableProgramDiagnosticBundleError::TooLarge);
     }
-    write_u64(encoded, len as u64)
+    write_u64(
+        encoded,
+        u64::try_from(len).map_err(|_| StableProgramDiagnosticBundleError::TooLarge)?,
+    )
 }
 
 fn read_len(cursor: &mut Cursor<&[u8]>) -> Option<usize> {
