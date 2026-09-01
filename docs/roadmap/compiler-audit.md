@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 849 completed entries in this ledger.
+- Latest implementation batch: 850 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5274,6 +5274,13 @@ acceptance item only when its phase-wide evidence is complete.
       mixed-header invariant at the matcher boundary. The `nia-trait-solve`
       owner suite (26 tests) passes with strict Clippy, formatting, and diff
       checks.
+- [x] Batch 850 adds a strict body-check substitution helper for exact
+      declaration instances. Type aliases and nominal/trait where-obligation
+      expansion now reject a mismatched type/const split instead of propagating
+      partially substituted generic terms, while inherited-owner call paths
+      retain their explicit partial fallback. The `nia-body-check` owner suite
+      (279 tests) and generic-arity driver regression pass with strict Clippy,
+      formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
