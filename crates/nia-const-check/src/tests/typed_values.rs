@@ -1265,6 +1265,35 @@ const RESULT: usize = inspect(VALUE);
 }
 
 #[test]
+fn const_generic_inference_rejects_evidence_below_mismatched_layout_operand() {
+    let fixture = check_source(
+        r#"
+struct Packet[T] {
+    value: T,
+}
+
+const fn inspect[T](value: [Packet[T]; std::builtin::size[i32]()]) usize {
+    let _ = value;
+    7
+}
+
+const VALUE: [Packet[bool]; std::builtin::size[bool]()] = [Packet[bool] { value: true }];
+const RESULT: usize = inspect(VALUE);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer const generic type argument `T`")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_inference_through_layout_builtin_and_marker() {
     let fixture = check_source(
         r#"

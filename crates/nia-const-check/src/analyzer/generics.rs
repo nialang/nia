@@ -246,6 +246,66 @@ impl Analyzer<'_> {
         )
     }
 
+    fn infer_type_generics_from_compatible_tys(
+        &mut self,
+        span: Span,
+        target_module_id: ModuleId,
+        pattern_ty: InternedTyId,
+        actual_ty: InternedTyId,
+        substitutions: &mut SymbolMap<InternedTyId>,
+    ) -> Result<bool, ConstError> {
+        let mut candidate = substitutions.clone();
+        self.infer_generics_from_tys(
+            span,
+            target_module_id,
+            pattern_ty,
+            actual_ty,
+            &mut candidate,
+        )?;
+        let instantiated = self.substitute_inference_generics(
+            target_module_id,
+            pattern_ty,
+            &candidate,
+            &SymbolMap::default(),
+        );
+        let compatible = self.type_contains_generic(instantiated)
+            || self.const_function_types_match(instantiated, actual_ty);
+        if compatible {
+            *substitutions = candidate;
+        }
+        Ok(compatible)
+    }
+
+    fn infer_const_generics_from_compatible_tys(
+        &mut self,
+        span: Span,
+        target_module_id: ModuleId,
+        pattern_ty: InternedTyId,
+        actual_ty: InternedTyId,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> Result<bool, ConstError> {
+        let mut candidate = substitutions.clone();
+        self.infer_const_generics_from_tys(
+            span,
+            target_module_id,
+            pattern_ty,
+            actual_ty,
+            &mut candidate,
+        )?;
+        let instantiated = self.substitute_inference_generics(
+            target_module_id,
+            pattern_ty,
+            &SymbolMap::default(),
+            &candidate,
+        );
+        let compatible = self.type_contains_generic(instantiated)
+            || self.const_function_types_match(instantiated, actual_ty);
+        if compatible {
+            *substitutions = candidate;
+        }
+        Ok(compatible)
+    }
+
     pub(super) fn infer_generics_from_tys(
         &mut self,
         span: Span,
@@ -409,16 +469,14 @@ impl Analyzer<'_> {
                                     builtin: actual_builtin,
                                     ty: actual_ty,
                                 },
-                            ) if pattern_builtin == actual_builtin => {
-                                self.infer_generics_from_tys(
+                            ) if pattern_builtin == actual_builtin => self
+                                .infer_type_generics_from_compatible_tys(
                                     span,
                                     target_module_id,
                                     *pattern_ty,
                                     *actual_ty,
                                     substitutions,
-                                )?;
-                                true
-                            }
+                                )?,
                             _ => matches!(
                                 (
                                     self.array_len_const_value(len.clone()),
@@ -837,16 +895,14 @@ impl Analyzer<'_> {
                                 builtin: actual_builtin,
                                 ty: actual_ty,
                             },
-                        ) if pattern_builtin == actual_builtin => {
-                            self.infer_const_generics_from_tys(
+                        ) if pattern_builtin == actual_builtin => self
+                            .infer_const_generics_from_compatible_tys(
                                 span,
                                 target_module_id,
                                 *pattern_ty,
                                 *actual_ty,
                                 substitutions,
-                            )?;
-                            true
-                        }
+                            )?,
                         _ => matches!(
                             (
                                 self.array_len_const_value(pattern_len.clone()),
