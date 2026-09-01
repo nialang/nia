@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 809 completed entries in this ledger.
+- Latest implementation batch: 810 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5002,6 +5002,18 @@ acceptance item only when its phase-wide evidence is complete.
       binaries without further target-width errors. Runtime execution of
       generic i686 test binaries remains subject to the host seccomp `SIGSYS`
       limitation recorded in Batch 808.
+- [x] Batch 810 refreshes the workspace validation matrix after the target
+      portability fixes. `cargo test --workspace --all-features` passes every
+      host unit, integration, and doc-test suite (including the 655-case
+      driver and 333-case LLVM owners, with only the existing intentional
+      ignored case). The full i686 `cargo test --workspace --all-features
+      --target i686-unknown-linux-gnu --no-run` matrix also compiles all
+      library, CLI, and integration test binaries. Host workspace Clippy,
+      formatting, diff, maintenance, and targeted i686 Clippy gates remain
+      green; whole-workspace i686 Clippy is not claimed because this host
+      cannot execute its 32-bit `/usr/lib/llvm22/bin/llvm-config` under the
+      seccomp policy, while the 64-bit LLVM prefix lacks the target config
+      header required by the i686 build.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
