@@ -182,12 +182,12 @@ impl SignatureTypeEquivalence<'_> {
 
 pub(super) fn lower_trait_method_signature(
     input: TraitMethodSubstitution<'_>,
-) -> FunctionSignature {
+) -> Option<FunctionSignature> {
     let (substitutions, const_substitutions) = substitutions_from_generic_params(
         input.trait_generic_params,
         input.trait_args,
         input.trait_const_args,
-    );
+    )?;
     let target = TypeSubstitutionTarget {
         projection: Some(ProjectionImplContext {
             trait_id: input.trait_id,
@@ -226,7 +226,7 @@ pub(super) fn lower_trait_method_signature(
         &const_substitutions,
         target,
     );
-    signature
+    Some(signature)
 }
 
 pub(super) fn normalize_impl_method_signature(
@@ -983,33 +983,11 @@ pub(super) fn substitutions_from_generic_params(
     params: &[nia_item_signatures::GenericParamSignature],
     type_args: &[nia_ids::InternedTyId],
     const_args: &[nia_ty::ConstGenericArg],
-) -> (
+) -> Option<(
     SymbolMap<nia_ids::InternedTyId>,
     SymbolMap<nia_ty::ConstGenericArg>,
-) {
-    // Type and const arguments are stored in separate lists on applied types.
-    // Walking the declaration-order parameter list with one cursor per kind
-    // reconstructs the original mixed parameter list without assuming that
-    // const arguments are self-describing or grouped in the declaration.
-    let mut type_args = type_args.iter().copied();
-    let mut const_args = const_args.iter().cloned();
-    let mut substitutions = SymbolMap::default();
-    let mut const_substitutions = SymbolMap::default();
-    for param in params {
-        match param.kind {
-            nia_item_signatures::GenericParamSignatureKind::Type => {
-                if let Some(arg) = type_args.next() {
-                    substitutions.insert(param.name, arg);
-                }
-            }
-            nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
-                if let Some(arg) = const_args.next() {
-                    const_substitutions.insert(param.name, arg);
-                }
-            }
-        }
-    }
-    (substitutions, const_substitutions)
+)> {
+    nia_item_signatures::generic_argument_substitutions(params, type_args, const_args)
 }
 
 fn substitute_const_arg(
