@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 812 completed entries in this ledger.
+- Latest implementation batch: 813 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5033,6 +5033,14 @@ acceptance item only when its phase-wide evidence is complete.
       the cgroup hierarchy is read-only in this WSL environment, so this is
       RLIMIT-based evidence only and does not replace the required 3-GiB
       no-swap cgroup run.
+- [x] Batch 813 reruns the workspace documentation gate after the latest
+      portability and validation changes. `RUSTDOCFLAGS='-D missing-docs'
+      cargo doc --workspace --all-features --no-deps` completes successfully,
+      generating documentation for all 69 workspace targets without missing
+      public-item warnings. This confirms that the current owner APIs and
+      recent test-support changes preserve the cross-cutting Rustdoc contract;
+      phase-wide semantic acceptance and external-target runtime evidence
+      remain separate requirements.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
