@@ -5422,6 +5422,15 @@ acceptance item only when its phase-wide evidence is complete.
       and `nia-compiler-query` owner suite (256 tests) pass with strict owner
       Clippy, formatting, diff checks, and the workspace all-target/all-feature
       check.
+- [x] Batch 865 applies the same argument and return validation to explicit
+      generic const calls. Calls such as `inspect[i32](...)` no longer bypass
+      nested parameter constructors, and `make[i32]()` now rejects a return
+      shape that disagrees below a matching outer nominal. Dedicated explicit
+      parameter and return regressions cover both paths. The `nia-const-check`
+      owner suite (58 tests), driver associated-type suite (36 tests), and
+      `nia-compiler-query` owner suite (256 tests) pass with strict owner
+      Clippy, formatting, diff checks, and the workspace all-target/all-feature
+      check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
