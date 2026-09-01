@@ -5219,6 +5219,12 @@ acceptance item only when its phase-wide evidence is complete.
       convert `Cursor::position()` to `usize` through checked paths before
       accepting exact payload consumption. The 97-test `nia-loader-query`
       owner suite passes with strict Clippy, formatting, and diff checks.
+- [x] Batch 841 completes signature-cache cursor boundary hardening for item
+      signatures and type-graph products. Nested entry and outer payload
+      decoders now use checked `Cursor::position()` conversions before exact
+      consumption checks, closing the remaining malformed-cache truncation
+      paths. The 256-test `nia-compiler-query` owner suite passes with strict
+      Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
