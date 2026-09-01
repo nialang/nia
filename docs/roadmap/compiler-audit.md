@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 808 completed entries in this ledger.
+- Latest implementation batch: 809 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -4990,6 +4990,18 @@ acceptance item only when its phase-wide evidence is complete.
       explicit LLVM 22 and `-m32` environment. Executing those 32-bit test
       binaries is currently blocked by this host's seccomp policy (`SIGSYS`),
       so no additional i686 runtime claim is made.
+- [x] Batch 809 removes ILP32 compile-time overflow from resource-accounting
+      test fixtures. Eight- and 32-GiB memory scenarios now use checked `u64`
+      literals with target-width fallbacks and target-aware expected capacities;
+      the resource algorithms remain unchanged. `nia-test-support` passes all
+      20 host tests with strict Rustdoc and all-target Clippy, and its i686
+      test binary compiles successfully. The complete host
+      `cargo test --workspace --all-features` matrix passes every suite (with
+      the existing intentional ignored case), while the complete workspace
+      i686 `--no-run` matrix covers all library, CLI, and integration test
+      binaries without further target-width errors. Runtime execution of
+      generic i686 test binaries remains subject to the host seccomp `SIGSYS`
+      limitation recorded in Batch 808.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
