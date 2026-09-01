@@ -5148,6 +5148,12 @@ acceptance item only when its phase-wide evidence is complete.
       imports now compare by semantic structure rather than `PartialEq` over
       source spans. A multi-entry grouped-using revision regression passes in
       `nia-item-tree` with strict Clippy, formatting, and diff checks.
+- [x] Batch 828 makes generic declaration comparison span-independent across
+      structs, unions, traits, extensions, aliases, and functions. Type
+      parameters compare by name/kind, while const parameters additionally use
+      structural type identity; source formatting and revision changes no
+      longer spuriously invalidate declarations. The expanded item-tree
+      formatting regression and strict owner gates pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
