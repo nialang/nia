@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 810 completed entries in this ledger.
+- Latest implementation batch: 811 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5014,6 +5014,16 @@ acceptance item only when its phase-wide evidence is complete.
       cannot execute its 32-bit `/usr/lib/llvm22/bin/llvm-config` under the
       seccomp policy, while the 64-bit LLVM prefix lacks the target config
       header required by the i686 build.
+- [x] Batch 811 refreshes the representative clean/incremental build baseline
+      after the portability changes. `cargo maintain baseline build --nia
+      target/release/nia --resource-root lib --repetitions 1` produces a
+      schema-v5 report with all 9 clean, warm, source-edit, module-map-edit,
+      corruption/recovery, and failed-action acceptance states passing. The
+      clean run executes 4 actions, observes about 48.25 seconds wall time,
+      and peaks at about 1.31 GiB RSS; warm reuse, invalidation, corruption
+      recovery, and failed-action counters all satisfy their contracts. This
+      is current-host baseline evidence; the separate 3-GiB/no-swap matrix and
+      external-target runtime acceptance remain open.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
