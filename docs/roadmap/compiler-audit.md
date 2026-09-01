@@ -5499,9 +5499,10 @@ acceptance item only when its phase-wide evidence is complete.
       coercion rules. A generic `&[T]` parameter now infers `T` from a
       readonly pointer to an array or slice pointee, while mutable parameters
       retain their readonly compatibility guard. The regression covers a
-      string literal pointer, and the `nia-body-check` owner suite (281 tests),
-      driver lib suite (660 tests), strict Clippy, formatting, diff checks, and
-      workspace all-target/all-feature check pass.
+      string literal pointer plus mutable and readonly array-pointer cases;
+      the `nia-body-check` owner suite (283 tests), driver lib suite (660
+      tests), strict Clippy, formatting, diff checks, and workspace
+      all-target/all-feature check pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
