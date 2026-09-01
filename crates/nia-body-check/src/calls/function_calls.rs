@@ -921,6 +921,29 @@ impl<'a> BodyChecker<'a> {
                     && self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem)
             }
             (
+                TyKind::Slice {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) => {
+                if !(pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly) {
+                    return false;
+                }
+                match self.interner.get(actual_elem).cloned() {
+                    Some(TyKind::Array {
+                        elem: actual_elem, ..
+                    })
+                    | Some(TyKind::SlicePointee { elem: actual_elem }) => {
+                        self.generic_pattern_accepts_type_shape(pattern_elem, actual_elem)
+                    }
+                    _ => false,
+                }
+            }
+            (
                 TyKind::SlicePointee { elem: pattern_elem },
                 Some(TyKind::SlicePointee { elem: actual_elem }),
             )
@@ -2121,6 +2144,27 @@ impl<'a> BodyChecker<'a> {
                     && (pattern_const == actual_const || pattern_const && !actual_const)
                 {
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
+                } else if let Some(TyKind::Pointer {
+                    is_readonly: actual_const,
+                    elem: actual_elem,
+                }) = self.interner.get(actual).cloned()
+                    && (pattern_const == actual_const || pattern_const && !actual_const)
+                {
+                    let actual_elem = self.interner.get(actual_elem).cloned();
+                    if let Some(
+                        TyKind::Array {
+                            elem: actual_elem, ..
+                        }
+                        | TyKind::SlicePointee { elem: actual_elem },
+                    ) = actual_elem
+                    {
+                        self.infer_generics_from_type(
+                            pattern_elem,
+                            actual_elem,
+                            substitutions,
+                            span,
+                        );
+                    }
                 }
             }
             Some(TyKind::SlicePointee { elem: pattern_elem }) => {

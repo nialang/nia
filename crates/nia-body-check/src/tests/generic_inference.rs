@@ -1236,3 +1236,19 @@ fn main(flag: bool) i32 {
             .all(|diagnostic| !diagnostic.summary.contains("argument count mismatch"))
     );
 }
+
+#[test]
+fn infers_generic_element_from_string_slice_pointer_coercion() {
+    let checked = pipeline(
+        r#"
+fn first[T](value: &[T]) T {
+    value[0]
+}
+
+fn main() char {
+    first(&"nia")
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
