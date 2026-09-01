@@ -1252,3 +1252,35 @@ fn main() char {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn infers_generic_element_from_mutable_array_slice_pointer() {
+    let checked = pipeline(
+        r#"
+fn first[T](value: &mut [T]) T {
+    value[0]
+}
+
+fn main(values: [i32; 2]) i32 {
+    first(&mut values)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_readonly_array_pointer_for_mutable_slice_parameter() {
+    let checked = pipeline(
+        r#"
+fn first[T](value: &mut [T]) T {
+    value[0]
+}
+
+fn main(values: [i32; 2]) i32 {
+    first(&values)
+}
+"#,
+    );
+    assert!(!checked.diagnostics.is_empty());
+}
