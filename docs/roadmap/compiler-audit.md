@@ -5138,6 +5138,11 @@ acceptance item only when its phase-wide evidence is complete.
       retain distinct storage/linkage tags alongside their type and initializer
       identities. The direct `nia-ast` regression distinguishes const from
       static storage, and owner formatting, diff, tests, and strict Clippy pass.
+- [x] Batch 826 includes block-statement attributes in AST expression identity.
+      Conditional and metadata attributes are encoded recursively without
+      source spans, preserving semantic pruning and annotation differences in
+      nested control expressions. The `nia-ast` attribute regression plus
+      `nia-item-tree` tests, strict Clippy, formatting, and diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
