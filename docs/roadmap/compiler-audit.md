@@ -5442,6 +5442,15 @@ acceptance item only when its phase-wide evidence is complete.
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       const-check and driver Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check.
+- [x] Batch 867 moves exact value-argument arity validation into const-function
+      instantiation. Missing and surplus arguments can no longer be silently
+      truncated by parameter zipping while the type phase infers or caches a
+      partial generic instance; the evaluator retains its independent boundary
+      check before frame creation. Direct regressions cover both directions of
+      the mismatch. The `nia-const-check` owner suite (60 tests), driver
+      associated-type suite (36 tests), and `nia-compiler-query` owner suite
+      (256 tests) pass with strict owner Clippy, formatting, diff checks, and
+      the workspace all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
