@@ -5154,6 +5154,12 @@ acceptance item only when its phase-wide evidence is complete.
       structural type identity; source formatting and revision changes no
       longer spuriously invalidate declarations. The expanded item-tree
       formatting regression and strict owner gates pass.
+- [x] Batch 829 makes enum discriminant declaration comparison structural.
+      Explicit variant values now use expression declaration equality, ignoring
+      source spans and syntax revisions while preserving their semantic
+      operators and operands. The versioned enum regression passes with the
+      complete `nia-item-tree` owner suite, strict Clippy, formatting, and diff
+      checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
