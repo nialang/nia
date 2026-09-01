@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 815 completed entries in this ledger.
+- Latest implementation batch: 816 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5061,6 +5061,17 @@ acceptance item only when its phase-wide evidence is complete.
       519 MiB for process cases; no timeout, failed action, or permit leak was
       observed. This is RLIMIT-based bounded evidence only; the read-only WSL
       cgroup and external-target runtime gates remain open.
+- [x] Batch 816 extends the same `RLIMIT_AS=3 GiB` runtime evidence to IO and
+      memory ownership. `emit_exe_io` passes 17/17, `std_mem_allocator_core`
+      4/4, `std_mem_allocators` 14/14, `std_mem_array_list` 6/6, and
+      `std_mem_intrinsics` 4/4, for 45/45 tests. Coverage includes partial and
+      invalid transfers, buffered recovery, formatting/parsing, allocator
+      resize/remap/realloc and cleanup retries, zero-sized collections,
+      ArrayList ownership/copy/range behavior, and cross-module memory
+      intrinsics. Compiler children peak at about 431 MiB RSS, with no timeout,
+      failed action, or resource-permit leak. This remains RLIMIT-based current
+      host evidence; the read-only WSL cgroup and external-target runtime gates
+      are not replaced.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
