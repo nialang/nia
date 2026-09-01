@@ -5197,6 +5197,11 @@ acceptance item only when its phase-wide evidence is complete.
       `u64` representation through checked conversions, returning `TooLarge`
       rather than truncating on wider targets. The 19-test `nia-diagnostic`
       owner suite passes with strict Clippy, formatting, and diff checks.
+- [x] Batch 837 hardens query fingerprint byte-length encoding at the
+      persistence-width boundary. `QueryFingerprintBuilder::write_bytes` now
+      rejects lengths that cannot fit its `u64` format field instead of
+      silently truncating them. The 83-test `nia-query` owner suite passes with
+      strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
