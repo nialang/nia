@@ -1557,6 +1557,29 @@ const RESULT: [u8; 2] = run();
 }
 
 #[test]
+fn const_execution_infers_array_length_nested_in_tuple() {
+    let fixture = check_source(
+        r#"
+const fn inspect[N: usize](value: ([u8; N], bool)) usize {
+    let _ = value;
+    7
+}
+
+const RESULT: usize = inspect(([1u8, 2u8], true));
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "RESULT"),
+        ConstValue::Int(IntConst::unsigned(7))
+    );
+}
+
+#[test]
 fn const_execution_inference_preserves_generic_array_lengths_in_associated_bindings() {
     let fixture = check_source(
         r#"

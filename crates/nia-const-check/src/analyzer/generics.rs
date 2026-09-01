@@ -759,6 +759,62 @@ impl Analyzer<'_> {
         let pattern_kind = self.active_ty_kind(pattern_ty);
         let actual_kind = self.active_ty_kind(actual_ty);
         match (pattern_kind, actual_kind) {
+            (TyKind::Tuple(pattern_elems), TyKind::Tuple(actual_elems))
+                if pattern_elems.len() == actual_elems.len() =>
+            {
+                for (pattern, actual) in pattern_elems.into_iter().zip(actual_elems) {
+                    self.infer_const_generics_from_tys(
+                        span,
+                        target_module_id,
+                        pattern,
+                        actual,
+                        substitutions,
+                    )?;
+                }
+            }
+            (
+                TyKind::ClosureState {
+                    closure_id: pattern_id,
+                    captures: pattern_captures,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                TyKind::ClosureState {
+                    closure_id: actual_id,
+                    captures: actual_captures,
+                    params: actual_params,
+                    return_type: actual_return,
+                },
+            ) if pattern_id == actual_id
+                && pattern_captures.len() == actual_captures.len()
+                && pattern_params.len() == actual_params.len() =>
+            {
+                for (pattern, actual) in pattern_captures.into_iter().zip(actual_captures) {
+                    self.infer_const_generics_from_tys(
+                        span,
+                        target_module_id,
+                        pattern,
+                        actual,
+                        substitutions,
+                    )?;
+                }
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_tys(
+                        span,
+                        target_module_id,
+                        pattern,
+                        actual,
+                        substitutions,
+                    )?;
+                }
+                self.infer_const_generics_from_tys(
+                    span,
+                    target_module_id,
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                )?;
+            }
             (
                 TyKind::Array {
                     len: pattern_len,
