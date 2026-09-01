@@ -511,7 +511,10 @@ impl StableDefHasher {
                 self.string(target);
                 self.optional_string(trait_ref.as_deref());
                 self.string_slice(generics);
-                self.u64(where_clause.len() as u64);
+                self.u64(
+                    u64::try_from(where_clause.len())
+                        .expect("definition where-clause length exceeds u64"),
+                );
                 for (ty, bounds) in where_clause {
                     self.string(ty);
                     self.string_slice(bounds);
@@ -555,7 +558,7 @@ impl StableDefHasher {
     }
 
     fn string_slice(&mut self, values: &[String]) {
-        self.u64(values.len() as u64);
+        self.u64(u64::try_from(values.len()).expect("definition identity list length exceeds u64"));
         for value in values {
             self.string(value);
         }
@@ -572,7 +575,7 @@ impl StableDefHasher {
     }
 
     fn string(&mut self, value: &str) {
-        self.u64(value.len() as u64);
+        self.u64(u64::try_from(value.len()).expect("definition identity text length exceeds u64"));
         self.bytes(value.as_bytes());
     }
 
