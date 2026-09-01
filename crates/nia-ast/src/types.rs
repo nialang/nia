@@ -870,7 +870,17 @@ fn write_stmt_identity(out: &mut String, stmt: &Stmt) {
             out.push('|');
             write_optional_expr_identity(out, item.value.as_ref());
             out.push('|');
-            out.push_str(if item.is_mutable() { "mut" } else { "const" });
+            out.push_str(if item.is_mutable() {
+                if item.is_extern() {
+                    "mut_extern"
+                } else {
+                    "mut"
+                }
+            } else if item.is_extern() {
+                "extern"
+            } else {
+                "const"
+            });
             out.push(')');
         }
         StmtKind::Using(item) => {
