@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 839 completed entries in this ledger.
+- Latest implementation batch: 843 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5231,6 +5231,12 @@ acceptance item only when its phase-wide evidence is complete.
       addition before accepting exact consumption. The 256-test
       `nia-compiler-query` owner suite passes with strict Clippy, formatting,
       and diff checks.
+- [x] Batch 843 completes signature-cache decoder cursor hardening. Nested
+      entry and string decoders now convert validated `usize` end positions
+      back to `u64` through checked paths before advancing their cursors,
+      preventing a final wide-target truncation in malformed-cache handling.
+      The 256-test `nia-compiler-query` owner suite passes with strict Clippy,
+      formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
