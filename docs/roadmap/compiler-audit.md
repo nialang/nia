@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 845 completed entries in this ledger.
+- Latest implementation batch: 846 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5249,6 +5249,11 @@ acceptance item only when its phase-wide evidence is complete.
       checks, preventing wide-target truncation from accepting malformed cache
       records. The 97-test `nia-loader-query` owner suite passes with strict
       Clippy, formatting, and diff checks.
+- [x] Batch 846 records the post-cache workspace validation gate. All workspace
+      crates and test targets pass `cargo check --workspace --all-targets
+      --all-features`, followed by strict workspace Clippy with `-D warnings`.
+      This confirms the recent build, signature-cache, and frontend-cache
+      boundary fixes remain compatible across the complete dependency graph.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
