@@ -416,15 +416,14 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.ensure_type_context(module_id)?;
         let types = self.type_contexts.get(&module_id)?;
-        let substituted = nia_ty::substitute_ty(
+        Some(nia_ty::substitute_ty(
             types.store,
             &types.append,
             ty,
             &|generic| type_substitutions.get(generic).copied(),
             &|generic| const_substitutions.get(generic).cloned(),
             None,
-        );
-        Some(self.normalize_projection(substituted))
+        ))
     }
 
     pub(super) fn resolved_const_arg_runtime_type(
