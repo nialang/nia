@@ -5584,7 +5584,7 @@ acceptance item only when its phase-wide evidence is complete.
       recorded in Batches 811-816; no-swap cgroup and external-target runtime
       evidence are still unavailable in this WSL/LLVM environment and remain
       accepted residual risks rather than completed gates.
-- [ ] Cross-cutting Rustdoc/comment completion and test-gap closure.
+- [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
 
