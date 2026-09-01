@@ -78,13 +78,13 @@ pub(crate) fn decode_type_lowering(
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
         let ty = *types.get(usize::try_from(read_u64(&mut entry)?).ok()?)?;
-        if entry.position() as usize != entry.get_ref().len()
+        if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
             || type_uses.insert(site, ty).is_some()
         {
             return None;
         }
     }
-    if cursor.position() as usize != encoded.len() {
+    if usize::try_from(cursor.position()).ok()? != encoded.len() {
         return None;
     }
     Some(TypeLowering {
@@ -117,7 +117,7 @@ pub(crate) fn read_type_graph(
     for entry in node_entries {
         let mut entry = Cursor::new(entry);
         let kind = read_ty_kind(&mut entry, &types, modules, symbols)?;
-        if entry.position() as usize != entry.get_ref().len() {
+        if usize::try_from(entry.position()).ok()? != entry.get_ref().len() {
             return None;
         }
         types.push(append.intern(kind));
