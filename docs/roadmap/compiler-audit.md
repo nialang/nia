@@ -5547,7 +5547,19 @@ acceptance item only when its phase-wide evidence is complete.
       constrained-resource reruns remain final cross-cutting gates.
 - [x] Phase C: const, static, closure, flow, and IR semantics.
 - [x] Phase D: query, cache, loader, import, and build state.
-- [ ] Phase E: frontend, identity, diagnostics, and structural boundaries.
+- [x] Batch 878 closes Phase E acceptance. The frontend/identity owner matrix
+      covers `nia-lexer` (12), `nia-syntax` (13), `nia-ast` (12),
+      `nia-ast-walk` (3), `nia-parser` (123), `nia-item-tree` (13),
+      `nia-defs` (8), `nia-ids` (11), `nia-node-id` (18), `nia-symbol` (5),
+      `nia-symbol-table` (5), `nia-span` (2), `nia-diagnostic` (19), and
+      `nia-ice` (5), for 249 tests total. Strict Clippy, missing-docs Rustdoc,
+      compiler-query (256), loader-query (97), driver import (79),
+      crate-boundary, and compatibility reports pass. Parser recovery,
+      delimiter/UTF-8 handling, revision identity, stale handles, symbol
+      collisions, diagnostic stability, ICE conversion, and dependency
+      ownership are covered; no new structural or user-input recovery gap was
+      identified.
+- [x] Phase E: frontend, identity, diagnostics, and structural boundaries.
 - [ ] Phase F: standard library and runtime.
 - [ ] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
