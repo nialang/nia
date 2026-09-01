@@ -467,15 +467,10 @@ fn atomic_publish(path: &Path, encoded: &[u8], replace: bool) -> io::Result<()> 
     validate_entry_size(encoded.len())?;
     let stage_id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
     let staged = path.with_extension(format!("tmp-{}-{stage_id}", std::process::id()));
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&staged)?;
-    if let Err(error) = file.write_all(encoded).and_then(|()| file.sync_all()) {
+    if let Err(error) = write_staged_file(&staged, encoded) {
         let _ = fs::remove_file(&staged);
         return Err(error);
     }
-    drop(file);
     let result = (|| {
         let _lock = SignatureCacheMutationLock::acquire(path)?;
         if !replace && path.is_file() {
@@ -493,6 +488,15 @@ fn atomic_publish(path: &Path, encoded: &[u8], replace: bool) -> io::Result<()> 
         let _ = fs::remove_file(&staged);
     }
     result
+}
+
+fn write_staged_file(staged: &Path, encoded: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(staged)?;
+    file.write_all(encoded).and_then(|()| file.sync_all())?;
+    Ok(())
 }
 
 struct SignatureCacheMutationLock {
@@ -614,10 +618,11 @@ mod tests {
     #[test]
     fn oversized_entry_is_rejected_from_metadata_without_full_read() {
         let path = test_root("oversized");
-        let file = File::create(&path).expect("create sparse cache entry");
-        file.set_len((MAX_ENTRY_BYTES + 1) as u64)
-            .expect("extend sparse cache entry");
-        drop(file);
+        {
+            let file = File::create(&path).expect("create sparse cache entry");
+            file.set_len((MAX_ENTRY_BYTES + 1) as u64)
+                .expect("extend sparse cache entry");
+        }
 
         assert!(matches!(
             read_signature_cache_entry(&path).expect("read bounded cache entry"),
@@ -651,10 +656,11 @@ mod tests {
         let root = test_root("oversized-retirement");
         fs::create_dir_all(&root).expect("create cache root");
         let path = root.join("entry.bin");
-        let file = File::create(&path).expect("create oversized entry");
-        file.set_len((MAX_ENTRY_BYTES + 1) as u64)
-            .expect("extend oversized entry");
-        drop(file);
+        {
+            let file = File::create(&path).expect("create oversized entry");
+            file.set_len((MAX_ENTRY_BYTES + 1) as u64)
+                .expect("extend oversized entry");
+        }
         assert!(matches!(
             read_signature_cache_entry(&path).expect("observe oversized entry"),
             SignatureCacheEntryRead::Oversized
