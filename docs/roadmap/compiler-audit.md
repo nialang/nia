@@ -5459,8 +5459,18 @@ acceptance item only when its phase-wide evidence is complete.
       regressions cover accepted distinct names plus rejected extension and
       trait shadowing. The `nia-item-signatures` owner suite (13 tests), method
       generic driver regressions (3 tests), and `nia-compiler-query` owner suite
-      (256 tests) pass with strict owner/driver Clippy, formatting, diff checks, and
-      the workspace all-target/all-feature check.
+      (256 tests) pass with strict owner/driver Clippy, formatting, diff checks,
+      and the workspace all-target/all-feature check.
+- [x] Batch 869 preserves explicit `_` generic slots through const IR lowering
+      and resolution, allowing const-call type and const parameters to be
+      inferred from value arguments and expected return types. Builtin const
+      paths reject any remaining unresolved slot with a dedicated diagnostic;
+      IR contract coverage verifies both early and resolved representations,
+      while the driver regression covers mixed type and const inference. The
+      `nia-const-ir` owner suite (16 tests), `nia-const-check` owner suite (60
+      tests), and const-eval basics suite (37 tests) pass; compiler-query,
+      strict owner/driver Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check are run for the batch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
