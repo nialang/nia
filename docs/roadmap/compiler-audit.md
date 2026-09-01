@@ -5389,6 +5389,17 @@ acceptance item only when its phase-wide evidence is complete.
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       owner Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check.
+- [x] Batch 862 applies the structural shape gate to associated-binding
+      prefilters and post-inference validation. A binding whose first nested
+      argument would infer `N` but whose later nominal constructor mismatches
+      can no longer commit that prefix while leaving another generic open. The
+      `Pair[[u8; N], Box[[u8; M]]]` versus `Pair[[u8; 4], Other[bool]]`
+      regression now rejects `N` as well as `M`; with the previous post-check it
+      reported only unresolved `M`, proving that `N=4` had leaked. The
+      `nia-const-check` owner suite (54 tests), driver associated-type suite (36
+      tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
+      owner Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
