@@ -5489,6 +5489,12 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-const-check` owner suite (61 tests), driver lib suite (660 tests),
       strict owner Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check pass.
+- [x] Batch 872 refreshes the complete workspace acceptance matrix after the
+      const-call coercion changes. `cargo test --workspace --all-features`
+      passes across unit, doc, CLI, filesystem, process, standard-library,
+      linker, cache, and toolchain-relocation coverage, including the newly
+      repaired const-call regressions. The final formatting and diff checks
+      remain clean with no residual worktree changes.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
