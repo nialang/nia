@@ -1501,6 +1501,62 @@ const WORDS: [u32; 2] = STORAGE.words;
 }
 
 #[test]
+fn const_execution_const_inference_matches_associated_bindings_by_trait_args() {
+    let fixture = check_source(
+        r#"
+trait Slot[T] {
+    type Item;
+}
+
+trait Both : Slot[i32] + Slot[bool] {}
+
+struct Store {}
+
+extend Store : Slot[i32] {
+    type Item = [u8; 2];
+}
+
+extend Store : Slot[bool] {
+    type Item = [u8; 4];
+}
+
+extend Store : Both {}
+
+const fn inspect[N: usize, M: usize](value: &Both[
+    [Self as Slot[i32]]::Item = [u8; N],
+    [Self as Slot[bool]]::Item = [u8; M],
+]) [u8; N] {
+    let _ = value;
+    [7, 7]
+}
+
+const fn run() [u8; 2] {
+    let store = Store {};
+    let value: &Both[
+        [Self as Slot[bool]]::Item = [u8; 4],
+        [Self as Slot[i32]]::Item = [u8; 2],
+    ] = &store;
+    inspect(value)
+}
+
+const RESULT: [u8; 2] = run();
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "RESULT"),
+        ConstValue::Array(vec![
+            ConstValue::Int(IntConst::unsigned(7)),
+            ConstValue::Int(IntConst::unsigned(7)),
+        ])
+    );
+}
+
+#[test]
 fn const_execution_inference_preserves_generic_array_lengths_in_associated_bindings() {
     let fixture = check_source(
         r#"
