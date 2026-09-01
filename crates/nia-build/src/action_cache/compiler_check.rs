@@ -771,7 +771,7 @@ fn runtime_tag(runtime: Runtime) -> u8 {
 pub(super) fn read_tag(cursor: &mut Cursor<&[u8]>, exclusive_max: u8) -> Option<u8> {
     let position = usize::try_from(cursor.position()).ok()?;
     let value = *cursor.get_ref().get(position)?;
-    cursor.set_position(cursor.position() + 1);
+    cursor.set_position(cursor.position().checked_add(1)?);
     (value < exclusive_max).then_some(value)
 }
 
