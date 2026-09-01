@@ -325,11 +325,18 @@ impl NodeStore {
 
     /// Retires a source revision and returns its number of invalidated handles.
     pub fn retire_revision(&self, version: SourceVersion) -> usize {
-        let mut core = self.core.lock().expect("node store lock poisoned");
-        let Some(revision) = core.revisions.remove(&version) else {
+        let revision = {
+            let mut core = self.core.lock().expect("node store lock poisoned");
+            core.revisions.remove(&version)
+        };
+        let Some(revision) = revision else {
             return 0;
         };
+        // Read revision-owned indices after releasing the store lock. Interning
+        // takes the revision lock before reacquiring the store lock; keeping
+        // both here would invert that order and permit a concurrent deadlock.
         let indices = revision.indices();
+        let mut core = self.core.lock().expect("node store lock poisoned");
         for index in &indices {
             core.active_indices.remove(index);
         }
