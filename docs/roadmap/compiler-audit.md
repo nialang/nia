@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 843 completed entries in this ledger.
+- Latest implementation batch: 844 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5237,6 +5237,12 @@ acceptance item only when its phase-wide evidence is complete.
       preventing a final wide-target truncation in malformed-cache handling.
       The 256-test `nia-compiler-query` owner suite passes with strict Clippy,
       formatting, and diff checks.
+- [x] Batch 844 hardens compiler-check cache tag decoding against cursor
+      overflow. The one-byte tag reader now advances through checked addition,
+      preserving the `Option`-based malformed-entry rejection contract at the
+      `u64` cursor boundary. The 216-test `nia-build` owner suite (one
+      cross-process test ignored) passes with strict Clippy, formatting, and
+      diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
