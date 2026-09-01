@@ -741,14 +741,11 @@ fn staged_path(path: &Path) -> PathBuf {
 
 fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> {
     validate_cache_entry_size(encoded.len())?;
+    if let Err(error) = write_staged_file(staged, encoded) {
+        let _ = fs::remove_file(staged);
+        return Err(error);
+    }
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(staged)?;
-        file.write_all(encoded)?;
-        file.sync_all()?;
-        drop(file);
         let _lock = FrontendCacheMutationLock::acquire(path)?;
         if path.is_file() {
             return Ok(());
@@ -759,6 +756,15 @@ fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> 
         let _ = fs::remove_file(staged);
     }
     result
+}
+
+fn write_staged_file(staged: &Path, encoded: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(staged)?;
+    file.write_all(encoded)?;
+    file.sync_all()
 }
 
 fn validate_cache_entry_size(len: usize) -> io::Result<()> {
@@ -1839,10 +1845,11 @@ mod tests {
         let root = test_root("oversized-retirement");
         fs::create_dir_all(&root).expect("create cache root");
         let path = root.join("entry.bin");
-        let file = File::create(&path).expect("create oversized entry");
-        file.set_len((MAX_CACHE_ENTRY_BYTES + 1) as u64)
-            .expect("extend oversized entry");
-        drop(file);
+        {
+            let file = File::create(&path).expect("create oversized entry");
+            file.set_len((MAX_CACHE_ENTRY_BYTES + 1) as u64)
+                .expect("extend oversized entry");
+        }
         fs::write(&path, b"replacement").expect("publish replacement");
 
         retire_oversized(&path);
