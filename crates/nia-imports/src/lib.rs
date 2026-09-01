@@ -422,13 +422,13 @@ impl ModuleGraph {
     /// Looks up a module node by its allocated id.
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
         self.modules
-            .get(id.local_index() as usize)
+            .get(usize::try_from(id.local_index()).ok()?)
             .filter(|module| module.id == id)
     }
 
     fn get_mut(&mut self, id: ModuleId) -> Option<&mut ModuleNode> {
         self.modules
-            .get_mut(id.local_index() as usize)
+            .get_mut(usize::try_from(id.local_index()).ok()?)
             .filter(|module| module.id == id)
     }
 
@@ -692,7 +692,10 @@ impl ModuleGraph {
             return id;
         }
         let id = self.module_ids.allocate();
-        debug_assert_eq!(id.local_index() as usize, self.modules.len());
+        debug_assert_eq!(
+            usize::try_from(id.local_index()).expect("module index exceeds target index width"),
+            self.modules.len()
+        );
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package, id);
         }

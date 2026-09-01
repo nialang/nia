@@ -107,15 +107,17 @@ pub struct LocalMap {
 impl LocalMap {
     /// Returns a local by its allocated id.
     pub fn get(&self, id: LocalId) -> Option<&Local> {
-        self.locals.get(id.0 as usize)
+        self.locals.get(usize::try_from(id.0).ok()?)
     }
 
     /// Iterates locals in allocation order.
     pub fn iter(&self) -> impl Iterator<Item = (LocalId, &Local)> {
-        self.locals
-            .iter()
-            .enumerate()
-            .map(|(index, local)| (LocalId(index as u32), local))
+        self.locals.iter().enumerate().map(|(index, local)| {
+            (
+                LocalId(u32::try_from(index).expect("local index exceeds local identity capacity")),
+                local,
+            )
+        })
     }
 
     /// Returns the number of allocated locals.
@@ -129,7 +131,9 @@ impl LocalMap {
     }
 
     fn push(&mut self, local: Local) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
+        let id = LocalId(
+            u32::try_from(self.locals.len()).expect("local index exceeds local identity capacity"),
+        );
         self.locals.push(local);
         id
     }
