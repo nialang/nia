@@ -5560,7 +5560,17 @@ acceptance item only when its phase-wide evidence is complete.
       ownership are covered; no new structural or user-input recovery gap was
       identified.
 - [x] Phase E: frontend, identity, diagnostics, and structural boundaries.
-- [ ] Phase F: standard library and runtime.
+- [x] Batch 879 closes Phase F acceptance. The real executable and standard
+      library matrix covers startup, process/syscall, filesystem capabilities,
+      I/O buffering, formatting/parsing, allocators, ArrayList/hash-map,
+      iterators, strings, error conversion, linker, build protocol, and
+      toolchain relocation. The latest complete workspace all-feature run is
+      green, `nia-cli` test Clippy and missing-docs Rustdoc pass, and
+      `nia-build` passes 216 tests with one intentional ignored stress case.
+      Target-specific behavior is covered by the existing i686/wasm compile
+      matrices; non-host runtime execution remains explicitly outside this
+      host's supported gate.
+- [x] Phase F: standard library and runtime.
 - [ ] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
