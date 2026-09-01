@@ -1497,8 +1497,15 @@ impl Analyzer<'_> {
             | Some(TyKind::Optional { elem }) => self.type_contains_generic_inner(elem, seen),
             Some(TyKind::Array { len, elem }) => {
                 self.type_contains_generic_inner(elem, seen)
-                    || matches!(len, ArrayLenTy::Builtin { ty, .. }
-                        if self.type_contains_generic_inner(ty, seen))
+                    || match len {
+                        ArrayLenTy::GenericParam(_) => true,
+                        ArrayLenTy::Builtin { ty, .. } => {
+                            self.type_contains_generic_inner(ty, seen)
+                        }
+                        ArrayLenTy::Infer
+                        | ArrayLenTy::ConstValue(_)
+                        | ArrayLenTy::ConstExpr(_) => false,
+                    }
             }
             Some(TyKind::Range { bound, .. }) => {
                 bound.is_some_and(|bound| self.type_contains_generic_inner(bound, seen))
@@ -1531,9 +1538,10 @@ impl Analyzer<'_> {
             }) => {
                 args.into_iter()
                     .any(|arg| self.type_contains_generic_inner(arg, seen))
-                    || const_args
-                        .into_iter()
-                        .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+                    || const_args.into_iter().any(|arg| {
+                        self.type_contains_generic_inner(arg.ty, seen)
+                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                    })
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
                 .into_iter()
@@ -1553,18 +1561,19 @@ impl Analyzer<'_> {
                 trait_args
                     .into_iter()
                     .any(|arg| self.type_contains_generic_inner(arg, seen))
-                    || trait_const_args
-                        .into_iter()
-                        .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+                    || trait_const_args.into_iter().any(|arg| {
+                        self.type_contains_generic_inner(arg.ty, seen)
+                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                    })
                     || associated_type_bindings.into_iter().any(|binding| {
                         binding
                             .trait_args
                             .into_iter()
                             .any(|arg| self.type_contains_generic_inner(arg, seen))
-                            || binding
-                                .trait_const_args
-                                .into_iter()
-                                .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+                            || binding.trait_const_args.into_iter().any(|arg| {
+                                self.type_contains_generic_inner(arg.ty, seen)
+                                    || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                            })
                             || self.type_contains_generic_inner(binding.ty, seen)
                     })
             }
@@ -1578,9 +1587,10 @@ impl Analyzer<'_> {
                     || trait_args
                         .into_iter()
                         .any(|arg| self.type_contains_generic_inner(arg, seen))
-                    || trait_const_args
-                        .into_iter()
-                        .any(|arg| self.type_contains_generic_inner(arg.ty, seen))
+                    || trait_const_args.into_iter().any(|arg| {
+                        self.type_contains_generic_inner(arg.ty, seen)
+                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                    })
             }
             Some(
                 TyKind::Error
