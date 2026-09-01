@@ -446,7 +446,10 @@ impl<'a> SyntaxNode<'a> {
             .filter_map(|(index, child)| match child {
                 GreenElement::Node(node) => {
                     let mut path = self.path.clone();
-                    path.push(index as u32);
+                    path.push(
+                        u32::try_from(index)
+                            .expect("syntax child index exceeds node path capacity"),
+                    );
                     Some(SyntaxNode {
                         tree: self.tree,
                         path,
@@ -468,7 +471,7 @@ impl<'a> SyntaxNode<'a> {
     fn push_tokens(&self, tokens: &mut Vec<SyntaxToken>) {
         for (index, child) in self.node.children.iter().enumerate() {
             let mut path = self.path.clone();
-            path.push(index as u32);
+            path.push(u32::try_from(index).expect("syntax child index exceeds node path capacity"));
             match child {
                 GreenElement::Node(node) => SyntaxNode {
                     tree: self.tree,
