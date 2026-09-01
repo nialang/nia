@@ -330,6 +330,34 @@ impl<'a> BodyChecker<'a> {
         (substitutions, const_substitutions)
     }
 
+    /// Rebuilds substitutions only for a fully applied declaration instance.
+    ///
+    /// Some call paths intentionally use the partial helper above while they
+    /// append inherited owner generics. Exact aliases and declaration-owned
+    /// predicates must not do that: accepting one vector with the wrong
+    /// type/const split would leave generic parameters silently unsubstituted.
+    pub(crate) fn strict_generic_substitutions_and_consts_for_def(
+        &mut self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
+        let defs = self.defs_for_module(def_id.module_id)?;
+        let def = defs.as_ref().defs.get(def_id.def_id)?;
+        let expected_type_args = def
+            .generic_params
+            .iter()
+            .filter(|param| matches!(param.kind, GenericParamKind::Type))
+            .count();
+        let expected_const_args = def
+            .generic_params
+            .iter()
+            .filter(|param| matches!(param.kind, GenericParamKind::Const { .. }))
+            .count();
+        (args.len() == expected_type_args && const_args.len() == expected_const_args)
+            .then(|| self.generic_substitutions_and_consts_for_def(def_id, args, const_args))
+    }
+
     pub(crate) fn nominal_type_generics(&mut self, def_id: GlobalDefId) -> Option<Vec<SymbolId>> {
         if let Some(resolved) = self.resolved_struct_signature(def_id) {
             return Some(resolved.signature.generics);
@@ -392,8 +420,11 @@ impl<'a> BodyChecker<'a> {
             if alias.generics.len() != args.len() + const_args.len() {
                 return Some(self.error());
             }
-            let (substitutions, const_substitutions) =
-                self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+            let Some((substitutions, const_substitutions)) =
+                self.strict_generic_substitutions_and_consts_for_def(def_id, args, const_args)
+            else {
+                return Some(self.error());
+            };
             let target = self.substitute_generics_and_consts(
                 alias.target,
                 &substitutions,
@@ -405,8 +436,11 @@ impl<'a> BodyChecker<'a> {
             if alias.signature.generics.len() != args.len() + const_args.len() {
                 return Some(self.error());
             }
-            let (substitutions, const_substitutions) =
-                self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+            let Some((substitutions, const_substitutions)) =
+                self.strict_generic_substitutions_and_consts_for_def(def_id, args, const_args)
+            else {
+                return Some(self.error());
+            };
             let target = alias.signature.target;
             let target =
                 self.substitute_generics_and_consts(target, &substitutions, &const_substitutions);

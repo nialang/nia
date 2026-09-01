@@ -400,8 +400,11 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        let (substitutions, const_substitutions) =
-            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        let Some((substitutions, const_substitutions)) =
+            self.strict_generic_substitutions_and_consts_for_def(def_id, &args, &const_args)
+        else {
+            return;
+        };
         let predicates = predicates
             .1
             .iter()
@@ -1307,12 +1310,15 @@ impl<'a> BodyChecker<'a> {
                 let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
                     return;
                 };
-                let (substitutions, const_substitutions) = self
-                    .generic_substitutions_and_consts_for_def(
+                let Some((substitutions, const_substitutions)) = self
+                    .strict_generic_substitutions_and_consts_for_def(
                         source_trait_id,
                         &obligation.trait_args,
                         &obligation.trait_const_args,
-                    );
+                    )
+                else {
+                    return;
+                };
                 for supertrait in &trait_signature.supertraits {
                     let supertrait_ty = self.substitute_generics_and_consts(
                         supertrait.ty,
@@ -1832,8 +1838,11 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        let (substitutions, const_substitutions) =
-            self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
+        let Some((substitutions, const_substitutions)) =
+            self.strict_generic_substitutions_and_consts_for_def(def_id, args, const_args)
+        else {
+            return;
+        };
         let predicates = predicates
             .iter()
             .map(|predicate| {
