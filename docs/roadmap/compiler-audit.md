@@ -5123,6 +5123,11 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-ast` owner regression distinguishes conditional branches and match
       expressions, while `nia-item-tree` and `nia-type-normalize` consumers
       pass with strict all-target Clippy, formatting, and focused tests.
+- [x] Batch 823 completes the control-flow identity follow-up for static
+      statements. Static type, initializer, mutability, and external-linkage
+      flags are now retained in the span-independent statement encoding, so
+      nested control expressions cannot conflate declarations that share only
+      a name. The focused `nia-ast` owner suite and formatting/diff checks pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
