@@ -282,7 +282,7 @@ impl SourceTable {
             .lock()
             .expect("source table lock poisoned")
             .paths_by_id
-            .get(id.0 as usize)
+            .get(usize::try_from(id.0).ok()?)
             .cloned()
     }
 }
@@ -480,6 +480,15 @@ mod tests {
         assert_eq!(table.path_for_id(SourceId(0)).as_deref(), Some(&main));
         assert_eq!(table.path_for_id(SourceId(1)).as_deref(), Some(&defs));
         assert_eq!(table.path_for_id(SourceId(2)), None);
+    }
+
+    #[test]
+    fn source_table_rejects_ids_that_do_not_fit_target_indices() {
+        let table = SourceTable::new();
+        let path = SourcePath::new("main.nia");
+        table.id_for_path(&path);
+
+        assert_eq!(table.path_for_id(SourceId(u32::MAX)), None);
     }
 
     #[test]
