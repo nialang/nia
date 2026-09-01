@@ -5608,6 +5608,15 @@ acceptance item only when its phase-wide evidence is complete.
       upstream `llvm-sys` bindings report 898 missing `c_*` aliases). Thus
       i686 compile/runtime evidence is current, while wasm32 runtime and the
       aggregate external-target gate remain open.
+- [x] Batch 883 extends the current i686 executable runtime sample beyond
+      compiler/build fixtures. With `LLVM_SYS_221_PREFIX=/usr/lib/llvm22`, the
+      target matrices pass startup (4/4), trait-object (1/1), slice (2/2), and
+      string (3/3) tests, in addition to Batch 882's intrinsic (8/8) and
+      build-case (14/14) runs: 32 current real i686 tests in total. The WSL
+      cgroup v2 hierarchy remains read-only for the user slice, with unlimited
+      `memory.max` and `memory.swap.max`, so the required no-swap resource
+      experiment cannot be created here. wasm32 remains compile/runtime
+      blocked by the `llvm-sys` libc C-type surface documented in Batch 882.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
