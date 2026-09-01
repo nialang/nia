@@ -1240,6 +1240,31 @@ const RESULT: usize = inspect(Packet[i32, 4] { value: 1 });
 }
 
 #[test]
+fn const_generic_inference_rejects_evidence_below_mismatched_array_length() {
+    let fixture = check_source(
+        r#"
+const fn inspect[N: usize](value: [[u8; N]; 2]) usize {
+    let _ = value;
+    7
+}
+
+const VALUE: [[u8; 3]; 3] = [[1u8, 2u8, 3u8]; 3];
+const RESULT: usize = inspect(VALUE);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer const generic argument `N`")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_inference_through_layout_builtin_and_marker() {
     let fixture = check_source(
         r#"
