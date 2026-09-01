@@ -681,7 +681,9 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             out.push(')');
         }
         ExprKind::Closure {
-            captures, params, ..
+            captures,
+            params,
+            body,
         } => {
             out.push_str("closure(");
             for (index, capture) in captures.iter().enumerate() {
@@ -703,6 +705,8 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
                     out.push_str("receiver");
                 }
             }
+            out.push('|');
+            write_expr_identity(out, body);
             out.push(')');
         }
         ExprKind::ArrayLiteral { elems } => write_array_elements_identity(out, "array", elems),
@@ -1405,5 +1409,22 @@ mod tests {
 
         assert!(!expr_decl_eq(&if_true, &if_false));
         assert!(!expr_decl_eq(&if_true, &matched));
+    }
+
+    #[test]
+    fn closure_identity_includes_body_structure() {
+        let closure = |body| {
+            expr(
+                ExprKind::Closure {
+                    captures: Vec::new(),
+                    params: Vec::new(),
+                    body: Box::new(expr(body, Span::default())),
+                },
+                Span::default(),
+            )
+        };
+        let left = closure(ExprKind::Bool(true));
+        let right = closure(ExprKind::Bool(false));
+        assert!(!expr_decl_eq(&left, &right));
     }
 }
