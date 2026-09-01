@@ -1508,7 +1508,7 @@ trait Slot[T] {
     type Item;
 }
 
-trait Both : Slot[i32] + Slot[bool] {}
+trait Both[A, B] : Slot[A] + Slot[B] {}
 
 struct Store {}
 
@@ -1520,11 +1520,11 @@ extend Store : Slot[bool] {
     type Item = [u8; 4];
 }
 
-extend Store : Both {}
+extend Store : Both[i32, bool] {}
 
-const fn inspect[N: usize, M: usize](value: &Both[
-    [Self as Slot[i32]]::Item = [u8; N],
-    [Self as Slot[bool]]::Item = [u8; M],
+const fn inspect[A, B, N: usize, M: usize](value: &Both[A, B,
+    [Self as Slot[A]]::Item = [u8; N],
+    [Self as Slot[B]]::Item = [u8; M],
 ]) [u8; N] {
     let _ = value;
     [7, 7]
@@ -1532,7 +1532,7 @@ const fn inspect[N: usize, M: usize](value: &Both[
 
 const fn run() [u8; 2] {
     let store = Store {};
-    let value: &Both[
+    let value: &Both[i32, bool,
         [Self as Slot[bool]]::Item = [u8; 4],
         [Self as Slot[i32]]::Item = [u8; 2],
     ] = &store;
