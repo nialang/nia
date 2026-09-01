@@ -66,17 +66,34 @@ impl Analyzer<'_> {
         let mut substitutions = initial.type_substitutions;
         let mut const_substitutions = initial.const_substitutions;
         if generic_args.is_empty() {
-            if let Some(expected) = expected_return
-                && let Some(expected) = self.type_for_module_or_none(expected, signature_module_id)
-            {
+            let expected_return = expected_return
+                .and_then(|expected| self.type_for_module_or_none(expected, signature_module_id));
+            if let Some(expected) = expected_return {
+                let mut candidate_substitutions = substitutions.clone();
+                let mut candidate_const_substitutions = const_substitutions.clone();
                 self.infer_generic_substitutions_from_tys(
                     span,
                     signature_module_id,
                     signature.return_type,
                     expected,
-                    &mut substitutions,
-                    &mut const_substitutions,
+                    &mut candidate_substitutions,
+                    &mut candidate_const_substitutions,
                 )?;
+                let instantiated_return = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        signature.return_type,
+                        &candidate_substitutions,
+                        &candidate_const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "cannot resolve const call return type".to_string(),
+                    })?;
+                if self.inference_pattern_accepts_type_shape(instantiated_return, expected) {
+                    substitutions = candidate_substitutions;
+                    const_substitutions = candidate_const_substitutions;
+                }
             }
             let mut argument_types = Vec::new();
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
@@ -160,6 +177,25 @@ impl Analyzer<'_> {
                             _ => "const call argument does not match expected type",
                         }
                         .to_string(),
+                    });
+                }
+            }
+            if let Some(expected) = expected_return {
+                let instantiated_return = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        signature.return_type,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "cannot resolve const call return type".to_string(),
+                    })?;
+                if !self.inference_pattern_accepts_type_shape(instantiated_return, expected) {
+                    return Err(ConstError {
+                        span,
+                        message: "const call return type does not match expected type".to_string(),
                     });
                 }
             }

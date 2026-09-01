@@ -533,19 +533,23 @@ impl Analyzer<'_> {
             .into_iter()
             .chain(args.iter().cloned())
             .collect::<Vec<_>>();
-        let instantiation = self
-            .instantiate_resolved_function_generics(
-                span,
-                ConstFunctionInstantiationInput {
-                    signature_module_id: function_id.module_id,
-                    signature: &signature,
-                    generic_args,
-                    arg_exprs: &call_args,
-                    expected_return: expected,
-                    initial: resolved_callee.target_instantiation,
-                },
-            )
-            .ok()?;
+        let instantiation = match self.instantiate_resolved_function_generics(
+            span,
+            ConstFunctionInstantiationInput {
+                signature_module_id: function_id.module_id,
+                signature: &signature,
+                generic_args,
+                arg_exprs: &call_args,
+                expected_return: expected,
+                initial: resolved_callee.target_instantiation,
+            },
+        ) {
+            Ok(instantiation) => instantiation,
+            Err(error) => {
+                self.push_engine_error(error);
+                return None;
+            }
+        };
         self.resolved_call_instantiations
             .insert(span, instantiation.clone());
         if let Some(return_ty) =
