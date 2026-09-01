@@ -14,3 +14,19 @@ pub(super) fn substitute_ty_generics(
         None,
     )
 }
+
+pub(super) fn substitute_ty_generics_and_consts(
+    interner: &ConstTypeCx<'_>,
+    ty: InternedTyId,
+    type_lookup: &impl Fn(&SymbolId) -> Option<InternedTyId>,
+    const_lookup: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
+) -> InternedTyId {
+    nia_ty::substitute_ty(
+        interner.store,
+        &interner.append,
+        ty,
+        type_lookup,
+        const_lookup,
+        None,
+    )
+}
