@@ -374,6 +374,12 @@ fn const_generic_supertrait_instances_require_exact_impl_arguments() {
         kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: usize_ty },
     }];
 
+    assert!(substitutions_from_generic_params(&params, &[], std::slice::from_ref(&four)).is_some());
+    assert!(substitutions_from_generic_params(&params, &[], &[]).is_none());
+    assert!(
+        substitutions_from_generic_params(&params, &[], &[four.clone(), eight.clone()]).is_none()
+    );
+
     let substituted = substitute_trait_bound(
         &append,
         &type_store,

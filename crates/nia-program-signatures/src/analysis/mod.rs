@@ -924,7 +924,7 @@ fn validate_trait_impl(
         let Some(actual) = module.function_signatures.functions.get(&method.def_id) else {
             continue;
         };
-        let required_signature = lower_trait_method_signature(TraitMethodSubstitution {
+        let Some(required_signature) = lower_trait_method_signature(TraitMethodSubstitution {
             append: &append,
             module,
             type_store: input.type_store,
@@ -935,7 +935,14 @@ fn validate_trait_impl(
             self_ty: target_ty,
             trait_id,
             impl_signature,
-        });
+        }) else {
+            diagnostics.push(Diagnostic::internal_error_at(
+                codes::NAME_RESOLUTION,
+                impl_signature.span,
+                "trait method arguments do not match declaration parameters",
+            ));
+            continue;
+        };
         let actual_signature = normalize_impl_method_signature(ImplMethodSignatureNormalize {
             append: &append,
             module,
@@ -995,11 +1002,13 @@ struct TraitAssociatedConstTypeMatch<'a> {
 
 fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>) -> bool {
     let append = input.type_store.append_for_module(input.module.module_id);
-    let (substitutions, const_substitutions) = substitutions_from_generic_params(
+    let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
         &input.trait_signature.signature.generic_params,
         input.trait_args,
         input.trait_const_args,
-    );
+    ) else {
+        return false;
+    };
     let projection_context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
         trait_args: input.trait_args,
@@ -1455,11 +1464,18 @@ fn validate_supertrait_impls(
             ));
             continue;
         }
-        let (substitutions, const_substitutions) = substitutions_from_generic_params(
+        let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
             &trait_signature.signature.generic_params,
             &trait_goal.trait_args,
             &trait_goal.trait_const_args,
-        );
+        ) else {
+            diagnostics.push(Diagnostic::internal_error_at(
+                codes::NAME_RESOLUTION,
+                impl_signature.span,
+                "supertrait arguments do not match declaration parameters",
+            ));
+            continue;
+        };
         let bindings = supertrait
             .associated_type_bindings
             .iter()
@@ -1871,11 +1887,14 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 visited.pop();
                 return;
             };
-            let (substitutions, const_substitutions) = substitutions_from_generic_params(
+            let Some((substitutions, const_substitutions)) = substitutions_from_generic_params(
                 &trait_signature.signature.generic_params,
                 &goal.trait_args,
                 &goal.trait_const_args,
-            );
+            ) else {
+                visited.pop();
+                return;
+            };
             let append = context
                 .type_store
                 .append_for_module(context.module.module_id);
