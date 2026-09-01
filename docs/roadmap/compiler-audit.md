@@ -5669,6 +5669,17 @@ acceptance item only when its phase-wide evidence is complete.
       tuple and nominal-pattern destructuring, const/runtime agreement, and
       `Into`-based error propagation. The current real i686 sample now totals
       169 passing executable tests with no observed target runtime failure.
+- [x] Batch 890 closes the constrained-resource baseline gate on the current
+      host. A temporary cgroup v2 was created with `memory.max=3221225472` and
+      `memory.swap.max=0`, then removed after the run; as an unprivileged
+      workspace user, `cargo maintain baseline build --nia target/release/nia
+      --resource-root lib --repetitions 1` produced an accepted schema-v5
+      report across all 9 clean, warm, source-edit, module-map-edit,
+      corruption/recovery, and failed-action states. The cgroup recorded
+      `memory.peak=1550295040` bytes, `memory.swap.peak=0`, and zero `oom`,
+      `oom_kill`, `high`, and `max` events. Together with the cgroup-bound
+      i686 intrinsics run (8/8, in the same acceptance pass), this is genuine
+      no-swap resource evidence rather than RLIMIT-only evidence.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
