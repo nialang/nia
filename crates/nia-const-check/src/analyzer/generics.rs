@@ -66,8 +66,9 @@ impl Analyzer<'_> {
 
     /// Checks the complete structural path through which generic inference
     /// would collect evidence. Concrete leaves use normal const-call matching;
-    /// open leaves accept an actual type only below compatible constructors.
-    fn inference_pattern_accepts_type_shape(
+    /// compatible constructors are still walked so readonly coercions and
+    /// nested shapes are checked consistently after substitutions.
+    pub(super) fn inference_pattern_accepts_type_shape(
         &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
@@ -75,9 +76,6 @@ impl Analyzer<'_> {
         let pattern_kind = self.active_ty_kind(pattern);
         if matches!(pattern_kind, TyKind::GenericParam(_)) {
             return true;
-        }
-        if !self.type_contains_generic(pattern) {
-            return self.const_function_types_match(pattern, actual);
         }
         match (pattern_kind, self.active_ty_kind(actual)) {
             (TyKind::Tuple(patterns), TyKind::Tuple(actuals)) => {
@@ -395,7 +393,7 @@ impl Analyzer<'_> {
                             self.inference_pattern_accepts_type_shape(*pattern, actual)
                         })
             }
-            _ => false,
+            _ => self.const_function_types_match(pattern, actual),
         }
     }
 
