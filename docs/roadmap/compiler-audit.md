@@ -5378,6 +5378,17 @@ acceptance item only when its phase-wide evidence is complete.
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       owner Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check.
+- [x] Batch 861 validates the complete structural shape before generic
+      inference commits evidence. Recursive nominal, tuple, closure, pointer,
+      array-length, callable, trait, projection, and associated-binding
+      mismatches now reject the candidate transactionally, including when an
+      outer layout constructor matches but a nested constructor does not. The
+      direct and nested `Box`/`Other` layout regressions now report the
+      uninferred `U` instead of exposing `Packet[bool]` as evidence. The
+      `nia-const-check` owner suite (53 tests), driver associated-type suite (36
+      tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
+      owner Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
