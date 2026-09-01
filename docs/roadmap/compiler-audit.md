@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 816 completed entries in this ledger.
+- Latest implementation batch: 817 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5072,6 +5072,16 @@ acceptance item only when its phase-wide evidence is complete.
       failed action, or resource-permit leak. This remains RLIMIT-based current
       host evidence; the read-only WSL cgroup and external-target runtime gates
       are not replaced.
+- [x] Batch 817 expands strict i686 lint coverage across the pure-Rust
+      workspace. `cargo clippy --workspace --all-targets --all-features
+      --target i686-unknown-linux-gnu -- -D warnings` passes when excluding
+      the LLVM C-wrapper and its `nia-driver`/`nia-build`/`nia-cli` dependency
+      chain (plus the direct `nia-llvm` wrapper). This covers the frontend,
+      semantic, query, layout, linker, loader, support, and maintenance Rust
+      owners without a new target-width warning. The excluded chain remains
+      separately compile-checked and targeted-Clippy-checked; whole-workspace
+      i686 Clippy is still environment-limited by the host's inability to run
+      the 32-bit LLVM configuration binary.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
