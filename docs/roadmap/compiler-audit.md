@@ -5400,6 +5400,17 @@ acceptance item only when its phase-wide evidence is complete.
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       owner Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check.
+- [x] Batch 863 makes omitted-generic const-call argument inference
+      transactional and revalidates every argument after the final
+      substitutions are known. A nested `Pair[T, Other[bool]]` parameter no
+      longer accepts `Pair[i32, Box[bool]]`, even when a later `marker: T`
+      argument could otherwise republish `T=i32`; the regression now reports
+      the argument constructor mismatch instead of silently accepting the
+      call. Readonly pointer coercions and existing unresolved-generic
+      diagnostics remain covered. The `nia-const-check` owner suite (55 tests),
+      driver associated-type suite (36 tests), and `nia-compiler-query` owner
+      suite (256 tests) pass with strict owner Clippy, formatting, diff checks,
+      and the workspace all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
