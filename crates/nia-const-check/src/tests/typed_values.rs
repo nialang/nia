@@ -1500,6 +1500,45 @@ const WORDS: [u32; 2] = STORAGE.words;
     );
 }
 
+#[test]
+fn const_execution_inference_preserves_generic_array_lengths_in_associated_bindings() {
+    let fixture = check_source(
+        r#"
+trait Slot {
+    type Item;
+}
+
+struct Store {}
+
+extend Store : Slot {
+    type Item = [u8; 4];
+}
+
+const fn inspect[N: usize](value: &Slot[Item = [u8; N]]) usize {
+    let _ = value;
+    7
+}
+
+const fn run() usize {
+    let store = Store {};
+    let value: &Slot[Item = [u8; 4]] = &store;
+    inspect(value)
+}
+
+const RESULT: usize = run();
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert_eq!(
+        const_value(&fixture, "RESULT"),
+        ConstValue::Int(IntConst::unsigned(7))
+    );
+}
+
 fn const_value(fixture: &CheckedFixture, name: &str) -> ConstValue {
     let def_id = fixture
         .defs
