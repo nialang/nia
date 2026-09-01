@@ -1753,6 +1753,59 @@ const RESULT: usize = run();
     );
 }
 
+#[test]
+fn const_inference_does_not_commit_prefix_of_mismatched_associated_binding() {
+    let fixture = check_source(
+        r#"
+trait Slot {
+    type Item;
+}
+
+struct Store {}
+struct Box[T] {
+    value: T,
+}
+struct Other[T] {
+    value: T,
+}
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+extend Store : Slot {
+    type Item = Pair[[u8; 4], Other[bool]];
+}
+
+const fn inspect[T, N: usize, M: usize](
+    value: &Slot[Item = Pair[[u8; N], Box[[u8; M]]]],
+    marker: T,
+) [u8; N] {
+    let _ = (value, marker);
+    [0u8, 0u8, 0u8, 0u8]
+}
+
+const fn run() [u8; 4] {
+    let store = Store {};
+    let value: &Slot[Item = Pair[[u8; 4], Other[bool]]] = &store;
+    inspect(value, 1i32)
+}
+
+const RESULT: [u8; 4] = run();
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("cannot infer const generic argument `N`")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
 fn const_value(fixture: &CheckedFixture, name: &str) -> ConstValue {
     let def_id = fixture
         .defs

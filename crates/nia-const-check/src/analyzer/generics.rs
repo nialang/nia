@@ -567,8 +567,7 @@ impl Analyzer<'_> {
                     .iter()
                     .zip(&actual_binding.trait_args)
                     .all(|(pattern, actual)| {
-                        self.type_contains_generic(*pattern)
-                            || self.const_function_types_match(*pattern, *actual)
+                        self.inference_pattern_accepts_type_shape(*pattern, *actual)
                     })
                 || !self.const_generic_args_allow_inference(
                     &pattern_binding.trait_const_args,
@@ -1880,8 +1879,7 @@ impl Analyzer<'_> {
                     &type_substitutions,
                     substitutions,
                 );
-                self.type_contains_generic(pattern)
-                    || self.const_function_types_match(pattern, *actual)
+                self.inference_pattern_accepts_type_shape(pattern, *actual)
             })
     }
 
