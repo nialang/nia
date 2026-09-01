@@ -5115,6 +5115,14 @@ acceptance item only when its phase-wide evidence is complete.
       non-Unix process, ELF, cache-lifetime, or test-platform warning was
       found. wasm execution and LLVM-backed target runtime remain separate
       unsupported gates in this host environment.
+- [x] Batch 822 makes AST expression identities structural for control-flow
+      forms. Blocks, conditionals, pattern conditionals, matches, nested
+      statements, patterns, and match-arm bodies now contribute source-
+      independent identity data instead of collapsing to one `control_expr`
+      marker; using selectors are encoded without source spans. The direct
+      `nia-ast` owner regression distinguishes conditional branches and match
+      expressions, while `nia-item-tree` and `nia-type-normalize` consumers
+      pass with strict all-target Clippy, formatting, and focused tests.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
