@@ -5663,6 +5663,12 @@ acceptance item only when its phase-wide evidence is complete.
       adapters, canonical ranges, custom-step termination, and u128 endpoints.
       The current real i686 executable sample therefore reaches 164 passing
       tests with no observed target runtime failure.
+- [x] Batch 889 closes the remaining small i686 executable fixtures in the
+      current runtime sample. The atomic facade test passes 1/1, and the
+      patterns matrix passes 4/4, covering atomic check/emit/run behavior,
+      tuple and nominal-pattern destructuring, const/runtime agreement, and
+      `Into`-based error propagation. The current real i686 sample now totals
+      169 passing executable tests with no observed target runtime failure.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
