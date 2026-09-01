@@ -5133,6 +5133,11 @@ acceptance item only when its phase-wide evidence is complete.
       capture names/values and parameter type shapes remain unchanged. The
       `nia-ast` owner regression distinguishes closures with different bodies;
       `nia-item-tree` tests, strict Clippy, formatting, and diff checks pass.
+- [x] Batch 825 closes static-statement identity mode conflation. Nested
+      constant, internal static, mutable static, and external static forms now
+      retain distinct storage/linkage tags alongside their type and initializer
+      identities. The direct `nia-ast` regression distinguishes const from
+      static storage, and owner formatting, diff, tests, and strict Clippy pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
