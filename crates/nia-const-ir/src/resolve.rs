@@ -205,6 +205,7 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             generic_args: generic_args
                 .into_iter()
                 .map(|arg| match arg {
+                    EarlyConstGenericArg::Infer(span) => Ok(ResolvedConstGenericArg::Infer(span)),
                     EarlyConstGenericArg::Type(arg) => {
                         resolve_type_arg(arg).map(ResolvedConstGenericArg::Type)
                     }
@@ -257,6 +258,7 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             generic_args: generic_args
                 .into_iter()
                 .map(|arg| match arg {
+                    EarlyConstGenericArg::Infer(span) => Ok(ResolvedConstGenericArg::Infer(span)),
                     EarlyConstGenericArg::Type(arg) => {
                         resolve_type_arg(arg).map(ResolvedConstGenericArg::Type)
                     }

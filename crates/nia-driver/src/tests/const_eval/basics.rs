@@ -749,8 +749,34 @@ fn main() i32 {
 }
 
 #[test]
+fn const_calls_infer_underscore_generic_slots() {
+    let root = temp_dir("const_calls_infer_underscore_generic_slots");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn choose[T, U](first: T, second: U) U {
+    let _ = first;
+    second
+}
+
+const result: bool = choose[i32, _](1, true);
+
+const fn count[T, N: usize](values: [T; N]) usize {
+    let _ = values;
+    N
+}
+
+const length: usize = count[_, _]([1i32, 2i32, 3i32]);
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_method_generics_cannot_shadow_extension_target_generics() {
-    let root = temp_dir("const_method_generics_do_not_overwrite_extension_target_generics");
+    let root = temp_dir("const_method_generics_cannot_shadow_extension_target_generics");
     write(
         &root.join("main.nia"),
         r#"
