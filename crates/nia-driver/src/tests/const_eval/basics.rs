@@ -783,6 +783,31 @@ const result: bool = Box[i32] { value: 1 }.convert[bool](true);
 }
 
 #[test]
+fn trait_method_generics_cannot_shadow_trait_generics() {
+    let root = temp_dir("trait_method_generics_cannot_shadow_trait_generics");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Carrier[T] {
+    fn convert[T](self, value: T) T;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains(
+                "method generic parameter cannot shadow enclosing generic parameter `T`"
+            )),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn imported_const_functions_and_methods_work_at_comptime_and_runtime() {
     let root = temp_dir("imported_const_functions_and_methods_work_at_comptime_and_runtime");
     write(
