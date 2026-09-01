@@ -5165,6 +5165,11 @@ acceptance item only when its phase-wide evidence is complete.
       instead of reusing revision zero after `u64::MAX`; the owner suite adds an
       explicit overflow regression and passes with strict Clippy, formatting,
       and diff checks.
+- [x] Batch 831 hardens source-table lookup for narrow pointer targets.
+      `SourceTable::path_for_id` now performs a checked `SourceId` to `usize`
+      conversion, so an ID that cannot address the target's vector cannot wrap
+      into an unrelated path. The owner suite adds a maximum-ID regression and
+      passes with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
