@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 857 completed entries in this ledger.
+- Latest implementation batch: 858 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5344,6 +5344,16 @@ acceptance item only when its phase-wide evidence is complete.
       regression now covers interleaved type/const inference; removing this
       propagation reproduces the expected-4/actual-2 mismatch. The
       `nia-const-check` owner suite (48 tests), driver associated-type suite (36
+      tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
+      owner Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check.
+- [x] Batch 858 aligns const-execution's structural type and const inference
+      walks for tuples and closure state. Const parameters nested in tuple
+      elements, closure captures, parameters, or returns are now visited, while
+      closure inference retains the same closure-identity and arity guards as
+      type inference. A tuple-only `[u8; N]` parameter regression previously
+      failed with an uninferred `N` and now evaluates successfully. The
+      `nia-const-check` owner suite (49 tests), driver associated-type suite (36
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       owner Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check.
