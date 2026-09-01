@@ -5617,6 +5617,15 @@ acceptance item only when its phase-wide evidence is complete.
       `memory.max` and `memory.swap.max`, so the required no-swap resource
       experiment cannot be created here. wasm32 remains compile/runtime
       blocked by the `llvm-sys` libc C-type surface documented in Batch 882.
+- [x] Batch 884 refreshes the wasm32 pure-Rust portability boundary. The
+      workspace `cargo check --workspace --all-targets --all-features --target
+      wasm32-unknown-unknown` and strict `cargo clippy -D warnings` both pass
+      when excluding the LLVM C-wrapper chain (`nia-llvm`,
+      `nia-codegen-llvm`, `nia-driver`, `nia-build`, and `nia-cli`). Frontend,
+      semantic, query, layout, linker, loader, support, and maintenance crates
+      therefore remain wasm32-clean on the current toolchain; the only failed
+      full-target attempt is the known `llvm-sys` binding/libc surface, not a
+      Rust source warning or error in the pure-Rust owners.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
