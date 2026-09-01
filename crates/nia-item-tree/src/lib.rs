@@ -5,9 +5,9 @@ use nia_ast::{
     Attribute, AttributeKind, BindingItem, ConditionExpr, ConditionExprKind, EnumItem, EnumVariant,
     ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, ExtendMethod, Field, FunctionItem,
     Item, ItemKind, Module, ModuleItem, Param, StructItem, TraitAssociatedType,
-    TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem, UsingItem, Visibility,
-    expr_decl_eq, option_type_ref_decl_eq, type_ref_decl_eq, type_refs_decl_eq,
-    where_clause_decl_eq,
+    TraitAssociatedValue, TraitItem, TraitMethod, TypeAliasItem, UnionItem, UsingGroupItem,
+    UsingItem, UsingName, UsingSelector, Visibility, expr_decl_eq, option_type_ref_decl_eq,
+    type_ref_decl_eq, type_refs_decl_eq, where_clause_decl_eq,
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -577,7 +577,57 @@ fn const_signature_item(item: &ItemTreeNode) -> Option<ItemTreeNode> {
 }
 
 fn using_decl_eq(lhs: &UsingItem, rhs: &UsingItem) -> bool {
-    lhs == rhs
+    lhs.host.len() == rhs.host.len()
+        && lhs
+            .host
+            .iter()
+            .zip(rhs.host.iter())
+            .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+        && using_selector_decl_eq(&lhs.selector, &rhs.selector)
+}
+
+fn using_selector_decl_eq(lhs: &UsingSelector, rhs: &UsingSelector) -> bool {
+    match (lhs, rhs) {
+        (UsingSelector::Single(lhs), UsingSelector::Single(rhs)) => using_name_decl_eq(lhs, rhs),
+        (UsingSelector::Group(lhs), UsingSelector::Group(rhs)) => {
+            lhs.len() == rhs.len()
+                && lhs
+                    .iter()
+                    .zip(rhs.iter())
+                    .all(|(lhs, rhs)| using_group_item_decl_eq(lhs, rhs))
+        }
+        (UsingSelector::Wildcard { .. }, UsingSelector::Wildcard { .. })
+        | (UsingSelector::SelfName, UsingSelector::SelfName) => true,
+        _ => false,
+    }
+}
+
+fn using_group_item_decl_eq(lhs: &UsingGroupItem, rhs: &UsingGroupItem) -> bool {
+    match (lhs, rhs) {
+        (UsingGroupItem::Name(lhs), UsingGroupItem::Name(rhs)) => using_name_decl_eq(lhs, rhs),
+        (
+            UsingGroupItem::Nested {
+                host: lhs_host,
+                selector: lhs_selector,
+            },
+            UsingGroupItem::Nested {
+                host: rhs_host,
+                selector: rhs_selector,
+            },
+        ) => {
+            lhs_host.len() == rhs_host.len()
+                && lhs_host
+                    .iter()
+                    .zip(rhs_host.iter())
+                    .all(|(lhs, rhs)| lhs.kind == rhs.kind)
+                && using_selector_decl_eq(lhs_selector, rhs_selector)
+        }
+        _ => false,
+    }
+}
+
+fn using_name_decl_eq(lhs: &UsingName, rhs: &UsingName) -> bool {
+    lhs.name == rhs.name && lhs.alias == rhs.alias
 }
 
 fn struct_decl_eq(lhs: &StructItem, rhs: &StructItem) -> bool {
@@ -1028,6 +1078,22 @@ fn selected() i32 { 2 }
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
+    }
+
+    #[test]
+    fn using_spans_and_source_revision_do_not_change_declaration_shape() {
+        let before_tree = parse_versioned_item_tree(
+            "using math::{add, sub as minus, Operator::*};",
+            SourceRevision::INITIAL,
+        );
+        let after_tree = parse_versioned_item_tree(
+            "\n\nusing math::{ add, sub as minus, Operator::* };",
+            SourceRevision(1),
+        );
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
+        assert!(before_tree.definition_eq(&after_tree));
     }
 
     #[test]
