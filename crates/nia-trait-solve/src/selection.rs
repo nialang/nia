@@ -763,6 +763,9 @@ impl TraitSolver<'_> {
         substitutions: &mut SymbolMap<InternedTyId>,
         const_substitutions: &mut SymbolMap<ConstGenericArg>,
     ) -> bool {
+        // A const parameter's declared type may mention a type parameter matched
+        // earlier in the same impl header. Compare the instantiated argument
+        // types so mixed type/const headers are checked in one environment.
         let pattern_ty =
             self.substitute_ty_with_consts(pattern.ty, substitutions, const_substitutions);
         let actual_ty =
@@ -770,16 +773,34 @@ impl TraitSolver<'_> {
         if !self.types_equivalent(pattern_ty, actual_ty) {
             return false;
         }
+        let actual = ConstGenericArg {
+            ty: actual_ty,
+            value: actual.value.clone(),
+        };
         match &pattern.value {
             ConstGenericValue::GenericParam(name) => {
                 if let Some(existing) = const_substitutions.get(name).cloned() {
-                    self.const_generic_args_equivalent(&existing, actual)
+                    let existing = ConstGenericArg {
+                        ty: self.substitute_ty_with_consts(
+                            existing.ty,
+                            substitutions,
+                            const_substitutions,
+                        ),
+                        ..existing
+                    };
+                    self.const_generic_args_equivalent(&existing, &actual)
                 } else {
-                    const_substitutions.insert(*name, actual.clone());
+                    const_substitutions.insert(*name, actual);
                     true
                 }
             }
-            _ => self.const_generic_args_equivalent(pattern, actual),
+            _ => {
+                let pattern = ConstGenericArg {
+                    ty: pattern_ty,
+                    value: pattern.value.clone(),
+                };
+                self.const_generic_args_equivalent(&pattern, &actual)
+            }
         }
     }
 
