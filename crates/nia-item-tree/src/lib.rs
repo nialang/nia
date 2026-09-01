@@ -769,7 +769,11 @@ fn enum_variants_decl_eq(lhs: &[EnumVariant], rhs: &[EnumVariant]) -> bool {
         && lhs.iter().zip(rhs.iter()).all(|(lhs, rhs)| {
             lhs.name == rhs.name
                 && enum_variant_payload_decl_eq(&lhs.payload, &rhs.payload)
-                && lhs.value == rhs.value
+                && match (&lhs.value, &rhs.value) {
+                    (Some(lhs), Some(rhs)) => expr_decl_eq(lhs, rhs),
+                    (None, None) => true,
+                    _ => false,
+                }
         })
 }
 
@@ -1108,6 +1112,21 @@ fn selected() i32 { 2 }
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
         assert!(before_tree.definition_eq(&after_tree));
+    }
+
+    #[test]
+    fn enum_discriminant_spans_and_revision_do_not_change_declaration_shape() {
+        let before_tree = parse_versioned_item_tree(
+            "enum Mode: u8 { Zero = 0, One = 1 + 0 }",
+            SourceRevision::INITIAL,
+        );
+        let after_tree = parse_versioned_item_tree(
+            "\n\nenum Mode: u8 { Zero = 0, One = 1 + 0 }",
+            SourceRevision(1),
+        );
+
+        assert_ne!(before_tree, after_tree);
+        assert!(before_tree.declaration_eq(&after_tree));
     }
 
     #[test]
