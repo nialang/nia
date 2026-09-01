@@ -30,7 +30,7 @@ pub(crate) fn read_entries<'a>(
         let start = usize::try_from(cursor.position()).ok()?;
         let end = start.checked_add(entry_len)?;
         let entry = cursor.get_ref().get(start..end)?;
-        cursor.set_position(end as u64);
+        cursor.set_position(u64::try_from(end).ok()?);
         entries.push(entry);
     }
     Some(entries)
