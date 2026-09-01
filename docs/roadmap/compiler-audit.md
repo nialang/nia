@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 813 completed entries in this ledger.
+- Latest implementation batch: 814 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5041,6 +5041,15 @@ acceptance item only when its phase-wide evidence is complete.
       recent test-support changes preserve the cross-cutting Rustdoc contract;
       phase-wide semantic acceptance and external-target runtime evidence
       remain separate requirements.
+- [x] Batch 814 refreshes repository structure and standard-library closure
+      evidence. `cargo run -p nia-maintain -- audit compatibility` succeeds;
+      the schema-v1 `audit std-build-host --print` report resolves 102 standard
+      library/runtime/build modules from the builtin, startup, and build roots;
+      and `report crate-boundaries` emits the complete 69-crate dependency
+      table without an audit error. These reports confirm stable compatibility
+      identities, source-closure reachability, and current ownership direction;
+      phase-wide semantic acceptance and external-target runtime evidence stay
+      separate gates.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
