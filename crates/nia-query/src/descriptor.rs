@@ -191,7 +191,9 @@ impl QueryFingerprintBuilder {
 
     /// Appends a length-prefixed byte field.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
-        self.write_u64(bytes.len() as u64);
+        self.write_u64(
+            u64::try_from(bytes.len()).expect("query fingerprint byte length exceeds u64"),
+        );
         self.write_raw_bytes(bytes);
     }
 
