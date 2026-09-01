@@ -5533,7 +5533,19 @@ acceptance item only when its phase-wide evidence is complete.
       constrained-resource and external-target runtime checks remain in the
       final cross-cutting acceptance section.
 - [x] Phase B: layout, ABI, backend IR, and LLVM safety.
-- [ ] Phase C: const, static, closure, flow, and IR semantics.
+- [x] Batch 877 closes Phase C acceptance. The owner matrix covers
+      `nia-const-ir` (16), `nia-const-eval` (49), `nia-const-check` (61),
+      `nia-static-check` (15), `nia-static-ir` (4), `nia-closure-check` (10),
+      `nia-flow-check` (20), `nia-body-ir` (4), `nia-executable-facts` (6),
+      and `nia-executable-reachability` (18), with strict Clippy and
+      missing-docs Rustdoc gates. Driver coverage includes 284 const-eval,
+      38 const-generic, and 14 soundness tests; full workspace tests pass.
+      Static/const separation, frame and budget cleanup, pointer provenance,
+      closure escape/defer ordering, flow termination, Body IR traversal and
+      validation, side-effect-preserving optimization, and recursive
+      reachability boundaries are covered. External-target runtime and
+      constrained-resource reruns remain final cross-cutting gates.
+- [x] Phase C: const, static, closure, flow, and IR semantics.
 - [x] Phase D: query, cache, loader, import, and build state.
 - [ ] Phase E: frontend, identity, diagnostics, and structural boundaries.
 - [ ] Phase F: standard library and runtime.
