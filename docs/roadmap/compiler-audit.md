@@ -5192,6 +5192,11 @@ acceptance item only when its phase-wide evidence is complete.
       when indexing vectors or minting `u32` handles, so malformed/foreign IDs
       cannot truncate into unrelated entries. Their owner suites and parser
       consumers pass with strict Clippy, formatting, and diff checks.
+- [x] Batch 836 hardens stable diagnostic bundle encoding at the format-width
+      boundary. Span offsets and sequence lengths now convert to the persisted
+      `u64` representation through checked conversions, returning `TooLarge`
+      rather than truncating on wider targets. The 19-test `nia-diagnostic`
+      owner suite passes with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
