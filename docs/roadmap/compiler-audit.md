@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 858 completed entries in this ledger.
+- Latest implementation batch: 859 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5357,6 +5357,16 @@ acceptance item only when its phase-wide evidence is complete.
       tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
       owner Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check.
+- [x] Batch 859 prevents const inference from descending through incompatible
+      array lengths. Concrete and evaluated lengths must agree before element
+      types contribute substitutions; layout-builtin operands are visited only
+      when the builtin identity also agrees, while an open pattern length may
+      still infer normally. A `[[u8; N]; 2]` versus `[[u8; 3]; 3]` regression
+      now rejects the nested `N=3` evidence instead of selecting an invalid
+      instance. The `nia-const-check` owner suite (50 tests), driver
+      associated-type suite (36 tests), and `nia-compiler-query` owner suite
+      (256 tests) pass with strict owner Clippy, formatting, diff checks, and
+      the workspace all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
