@@ -751,7 +751,12 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .zip(trait_const_args)
                 .all(|(pattern, actual)| {
-                    self.match_const_generic_arg_pattern(pattern, actual, &mut const_substitutions)
+                    self.match_const_generic_arg_pattern(
+                        pattern,
+                        actual,
+                        &substitutions,
+                        &mut const_substitutions,
+                    )
                 })
             {
                 continue;
