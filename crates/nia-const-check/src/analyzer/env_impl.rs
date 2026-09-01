@@ -1051,6 +1051,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 function_id.module_id,
                 signature.return_type,
                 &instantiation.type_substitutions,
+                &instantiation.const_substitutions,
             )
             .ok_or_else(|| ConstError {
                 span,
@@ -1500,24 +1501,16 @@ impl Analyzer<'_> {
                 span,
                 message: "selected const trait method body is unavailable".to_string(),
             })?;
-        let type_substitutions = callee
-            .target_instantiation
-            .type_substitutions
-            .into_iter()
-            .collect::<Vec<_>>();
-        let const_substitutions = callee
-            .target_instantiation
-            .const_substitutions
-            .into_iter()
-            .collect::<Vec<_>>();
+        let type_substitutions = callee.target_instantiation.type_substitutions;
+        let const_substitutions = callee.target_instantiation.const_substitutions;
         let mut output = nia_const_eval::eval_resolved_const_function_call(
             nia_const_eval::ResolvedConstCallInput {
                 span,
                 function_id,
                 function_module_id: function_id.module_id,
                 function: &function,
-                type_substitutions: type_substitutions.clone(),
-                const_substitutions,
+                type_substitutions: type_substitutions.clone().into_iter().collect(),
+                const_substitutions: const_substitutions.clone().into_iter().collect(),
                 args,
             },
             self,
@@ -1526,7 +1519,8 @@ impl Analyzer<'_> {
             .substitute_ty_into_current_module(
                 function_id.module_id,
                 signature.return_type,
-                &type_substitutions.into_iter().collect(),
+                &type_substitutions,
+                &const_substitutions,
             )
             .ok_or_else(|| ConstError {
                 span,
