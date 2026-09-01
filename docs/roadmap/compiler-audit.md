@@ -5457,7 +5457,7 @@ acceptance item only when its phase-wide evidence is complete.
       explicit definition diagnostic before body or const checking; unrelated
       method generics continue to instantiate normally. Dedicated driver
       regressions cover accepted distinct names plus rejected extension and
-      trait shadowing. The `nia-item-signatures` owner suite (12 tests), method
+      trait shadowing. The `nia-item-signatures` owner suite (13 tests), method
       generic driver regressions (3 tests), and `nia-compiler-query` owner suite
       (256 tests) pass with strict owner/driver Clippy, formatting, diff checks, and
       the workspace all-target/all-feature check.
