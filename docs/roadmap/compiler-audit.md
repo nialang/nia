@@ -5681,8 +5681,15 @@ acceptance item only when its phase-wide evidence is complete.
       i686 intrinsics run (8/8, in the same acceptance pass), this is genuine
       no-swap resource evidence rather than RLIMIT-only evidence.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
-- [ ] Final clean/incremental, workspace, integration, resource, and external
-      target evidence.
+- [x] Final clean/incremental, workspace, integration, and constrained-resource
+      evidence. Host workspace tests, strict Clippy, missing-docs Rustdoc,
+      maintenance checks, the schema-v5 clean/incremental baseline, and the
+      3-GiB/no-swap cgroup baseline are all current and green; selected i686
+      executable matrices provide external-target runtime coverage.
+- [ ] Final external-target evidence for every claimed LLVM-backed target.
+      i686 compilation and selected runtime samples pass, but a complete
+      wasm32 LLVM-backed build/runtime remains unavailable because the current
+      `llvm-sys`/libc binding surface does not compile for `wasm32-unknown-unknown`.
 
 ## 12. Roadmap Retirement
 
