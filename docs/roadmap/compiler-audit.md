@@ -5480,6 +5480,15 @@ acceptance item only when its phase-wide evidence is complete.
       workspace checks pass. Four unrelated pre-existing driver const-projection
       diagnostics remain tracked by the baseline and are not attributed to this
       batch.
+- [x] Batch 871 aligns const-call coercion and shape inference across arrays,
+      slices, and readonly pointers. String and array arguments can now satisfy
+      slice-pointer parameters, closed pointer/slice coercions preserve readonly
+      rules, and repeated generic parameters compare structurally so equivalent
+      `ConstExpr` and `ConstValue` array lengths do not conflict. Array-length
+      mismatches retain their stable dedicated diagnostic. The
+      `nia-const-check` owner suite (61 tests), driver lib suite (660 tests),
+      strict owner Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
