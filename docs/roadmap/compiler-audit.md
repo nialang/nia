@@ -5571,6 +5571,19 @@ acceptance item only when its phase-wide evidence is complete.
       matrices; non-host runtime execution remains explicitly outside this
       host's supported gate.
 - [x] Phase F: standard library and runtime.
+- [x] Batch 880 records the final host cross-cutting validation pass after the
+      Phase A-F acceptance batches. `cargo test --workspace --all-features`,
+      `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+      `RUSTDOCFLAGS='-D missing-docs' cargo doc --workspace --all-features
+      --no-deps`, `cargo maintain check`, and `git diff --check` all pass on a
+      clean worktree. A repository-wide review of TODO/FIXME markers,
+      `missing_docs` suppressions, and owner-test inventories found no new
+      cross-cutting documentation or user-input test gap beyond the already
+      documented schema-only owners and intentional ignored stress case. The
+      clean/incremental baseline and RLIMIT-based resource evidence remain
+      recorded in Batches 811-816; no-swap cgroup and external-target runtime
+      evidence are still unavailable in this WSL/LLVM environment and remain
+      accepted residual risks rather than completed gates.
 - [ ] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
