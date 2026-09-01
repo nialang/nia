@@ -5202,6 +5202,12 @@ acceptance item only when its phase-wide evidence is complete.
       rejects lengths that cannot fit its `u64` format field instead of
       silently truncating them. The 83-test `nia-query` owner suite passes with
       strict Clippy, formatting, and diff checks.
+- [x] Batch 838 hardens definition and trait-implementation identity hashing
+      at the persistence-width boundary. Variable-length lists, where-clause
+      counts, and identity text now convert to `u64` through checked paths,
+      preventing silent truncation on wider targets. `nia-defs`,
+      `nia-item-signatures`, and `nia-type-resolve` owner suites pass with
+      strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
