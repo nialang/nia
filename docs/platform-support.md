@@ -28,6 +28,11 @@ The repository is exercised in these environments:
 - experimental i686 workspace compilation and selected freestanding executable
   tests using the standard-library `int 0x80` startup/syscall facade.
 
+The i686 LLVM-backed matrix requires an LLVM installation whose headers include
+the target-width configuration (for the current LLVM 22 packages,
+`LLVM_SYS_221_PREFIX=/usr/lib/llvm22`). A distro prefix that exposes only the
+x86_64 `llvm-config` headers is not sufficient for 32-bit C-wrapper builds.
+
 Native object emission is limited by the targets built into the selected LLVM
 installation. The managed Linux workflows are architecture and regression
 guards; they do not establish a general Linux, host, or target compatibility
@@ -61,6 +66,10 @@ The project does not claim support for:
 - complete freestanding executable startup outside Linux x86_64 and experimental
   i686 coverage;
 - a complete bare-metal build workflow;
+- LLVM-backed wasm32 compilation or executable runtime support. The pure-Rust
+  frontend, semantic, query, and maintenance owners are checked for wasm32,
+  while the `llvm-sys` C API dependency is intentionally outside that target
+  boundary;
 - target-aware linker selection beyond the `NIA_LINKER` override; or
 - every valid LLVM installation layout.
 
