@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 852 completed entries in this ledger.
+- Latest implementation batch: 853 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5296,6 +5296,15 @@ acceptance item only when its phase-wide evidence is complete.
       comparing candidate signatures. `Box[T, N]::make` inference from
       `Box[i32, 3]` has a direct regression; the `nia-body-check` owner suite
       (280 tests) passes with strict Clippy, formatting, and diff checks.
+- [x] Batch 853 completes const-function return-type instantiation across type
+      and const parameters. Expression typing, runtime result validation, and
+      selected const trait methods now substitute the complete callee instance
+      before moving the return type into the caller module, so array lengths and
+      nominal const arguments cannot remain as unresolved parameters. A direct
+      `[u8; N]` return regression passes with the `nia-const-check` owner suite
+      (46 tests), `nia-static-check` (15 tests), `nia-compiler-query` (256
+      tests), strict owner Clippy, and the workspace all-target/all-feature
+      check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
