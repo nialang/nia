@@ -5521,7 +5521,18 @@ acceptance item only when its phase-wide evidence is complete.
       projection, trait-object, pattern, coercion, and diagnostic boundaries
       are covered, with no unresolved user-input recovery gap identified.
 - [x] Phase A: type, trait, and body soundness.
-- [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
+- [x] Batch 876 closes Phase B acceptance. The owner matrix covers
+      `nia-layout` (28), `nia-abi-check` (7), `nia-backend-ir` (23),
+      `nia-backend-lower` (128), `nia-function-ir` (17),
+      `nia-function-lower` (59), `nia-function-opt` (55), `nia-llvm` (95),
+      `nia-codegen-llvm` (333), `nia-mangle` (9), and `nia-linker` (32),
+      with strict Clippy and missing-docs Rustdoc gates. Existing i686
+      pointer-width compilation, malformed LLVM-boundary validation,
+      deterministic backend partitioning, ABI/codegen integration, and
+      clean/incremental cache evidence satisfy the phase requirements;
+      constrained-resource and external-target runtime checks remain in the
+      final cross-cutting acceptance section.
+- [x] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
 - [x] Phase D: query, cache, loader, import, and build state.
 - [ ] Phase E: frontend, identity, diagnostics, and structural boundaries.
