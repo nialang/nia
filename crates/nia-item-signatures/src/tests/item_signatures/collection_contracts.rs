@@ -96,6 +96,59 @@ a + b
 }
 
 #[test]
+fn rejects_method_generics_shadowing_enclosing_generics() {
+    let (module, errors) = parse_module(
+        r#"
+trait Carrier[T] {
+    fn convert[T](self, value: T) T;
+}
+
+struct Box[T] { value: T }
+
+extend[T] Box[T] {
+    fn convert[T](self, value: T) T { value }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let defs = collect_module_defs(module_id, &module);
+    assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+    let resolved = resolve_module_types(&module, &defs);
+    assert!(
+        resolved.diagnostics.is_empty(),
+        "{:?}",
+        resolved.diagnostics
+    );
+    let type_store = TypeStore::new();
+    let lowered = lower_module_types_with_context(
+        module_id,
+        &module,
+        &resolved,
+        TypeLoweringContext::empty(&type_store),
+    );
+    assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &lowered,
+        type_store: &type_store,
+        symbols: None,
+    });
+    let shadow_diagnostics = signatures
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("method generic parameter cannot shadow enclosing generic parameter")
+        })
+        .count();
+    assert_eq!(shadow_diagnostics, 2, "{:?}", signatures.diagnostics);
+}
+
+#[test]
 fn supertrait_associated_bindings_are_signature_type_roots() {
     let signatures = signatures_ok(
         r#"
