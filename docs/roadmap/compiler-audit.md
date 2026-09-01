@@ -5495,6 +5495,13 @@ acceptance item only when its phase-wide evidence is complete.
       linker, cache, and toolchain-relocation coverage, including the newly
       repaired const-call regressions. The final formatting and diff checks
       remain clean with no residual worktree changes.
+- [x] Batch 873 aligns ordinary body-check generic inference with its slice
+      coercion rules. A generic `&[T]` parameter now infers `T` from a
+      readonly pointer to an array or slice pointee, while mutable parameters
+      retain their readonly compatibility guard. The regression covers a
+      string literal pointer, and the `nia-body-check` owner suite (281 tests),
+      driver lib suite (660 tests), strict Clippy, formatting, diff checks, and
+      workspace all-target/all-feature check pass.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
