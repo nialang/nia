@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 818 completed entries in this ledger.
+- Latest implementation batch: 819 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5091,6 +5091,14 @@ acceptance item only when its phase-wide evidence is complete.
       dead-code or platform-import warnings. Unix process-group and Linux ELF
       behavior remains unchanged; non-Unix targets now compile their explicit
       no-op/unsupported paths.
+- [x] Batch 819 makes signature-cache file publication portable to targets
+      whose `std::fs::File` does not implement `Drop`. Staged writes now use a
+      lexical helper scope before atomic rename, and sparse-file tests rely on
+      scope exit rather than explicit `drop(file)`. Host `nia-compiler-query`
+      tests pass 256/256 with strict Clippy; i686 target checking succeeds for
+      the complete affected dependency chain; and wasm32 strict all-target
+      Clippy passes with `-D warnings`. Cache replacement, corruption
+      retirement, and publication behavior remain unchanged.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
