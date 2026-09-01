@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 859 completed entries in this ledger.
+- Latest implementation batch: 860 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5367,6 +5367,17 @@ acceptance item only when its phase-wide evidence is complete.
       associated-type suite (36 tests), and `nia-compiler-query` owner suite
       (256 tests) pass with strict owner Clippy, formatting, diff checks, and
       the workspace all-target/all-feature check.
+- [x] Batch 860 validates layout-builtin operands before accepting their array
+      lengths as structurally compatible. Type and const inference now probe
+      operand substitutions transactionally, instantiate the candidate, and
+      commit it only when the operand types still match; failed probes cannot
+      leak substitutions or expose array elements as evidence. A
+      `size[i32]`/`size[bool]` regression previously inferred `Packet[T]` from
+      the mismatched element and now leaves `T` correctly unresolved. The
+      `nia-const-check` owner suite (51 tests), driver associated-type suite (36
+      tests), and `nia-compiler-query` owner suite (256 tests) pass with strict
+      owner Clippy, formatting, diff checks, and the workspace
+      all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
