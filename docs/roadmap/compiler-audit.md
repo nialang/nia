@@ -5411,6 +5411,17 @@ acceptance item only when its phase-wide evidence is complete.
       driver associated-type suite (36 tests), and `nia-compiler-query` owner
       suite (256 tests) pass with strict owner Clippy, formatting, diff checks,
       and the workspace all-target/all-feature check.
+- [x] Batch 864 makes expected-return const-call inference transactional and
+      validates the return shape after parameter inference completes. A call
+      returning `Pair[T, Other[bool]]` can no longer satisfy an expected
+      `Pair[i32, Box[bool]]` merely by inferring the first component; the
+      nested-return regression now emits `const call return type does not match
+      expected type` instead of silently accepting the annotated const. Return
+      instantiation errors are surfaced during typed const analysis, while the
+      existing 56-test owner suite, driver associated-type suite (36 tests),
+      and `nia-compiler-query` owner suite (256 tests) pass with strict owner
+      Clippy, formatting, diff checks, and the workspace all-target/all-feature
+      check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
