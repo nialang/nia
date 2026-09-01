@@ -5510,7 +5510,17 @@ acceptance item only when its phase-wide evidence is complete.
       --all-features` passes across unit, documentation, CLI, filesystem,
       process, standard-library, linker, cache, and toolchain-relocation
       coverage; no integration or doc-test regression is observed.
-- [ ] Phase A: type, trait, and body soundness.
+- [x] Batch 875 closes Phase A acceptance. The owner matrix now covers
+      `nia-body-check` (284), `nia-trait-solve` (26),
+      `nia-program-signatures` (7), `nia-type-resolve` (8), `nia-type-lower`
+      (19), `nia-type-normalize` (10), `nia-value-resolve` (9), and
+      `nia-local-resolve` (17), all with strict Clippy and doc-test checks.
+      `nia-compiler-query` (256) supplies clean/incremental and cross-module
+      generic/trait evidence; the driver (660), LLVM codegen (333), and full
+      workspace all-feature suites pass as affected consumers. Constraint,
+      projection, trait-object, pattern, coercion, and diagnostic boundaries
+      are covered, with no unresolved user-input recovery gap identified.
+- [x] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
 - [x] Phase D: query, cache, loader, import, and build state.
