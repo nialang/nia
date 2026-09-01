@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 854 completed entries in this ledger.
+- Latest implementation batch: 855 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5316,6 +5316,15 @@ acceptance item only when its phase-wide evidence is complete.
       `nia-compiler-query` owner suite (256 tests) pass with strict owner
       Clippy, formatting, diff checks, and the workspace all-target/all-feature
       check.
+- [x] Batch 855 closes the remaining const-check generic-presence gap in
+      structural inference. `type_contains_generic` now recognizes unresolved
+      array-length parameters and generic const values nested in nominal, trait,
+      projection, and associated-type binding arguments, so pre-const-inference
+      matching cannot treat an open type as concrete. A const-execution
+      trait-object associated binding with `[u8; N]` has a direct evaluator
+      regression; the `nia-const-check` owner suite (47 tests), driver
+      associated-type suite (36 tests), and `nia-compiler-query` owner suite
+      (256 tests) pass with strict owner Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
