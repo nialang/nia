@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 819 completed entries in this ledger.
+- Latest implementation batch: 820 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5099,6 +5099,13 @@ acceptance item only when its phase-wide evidence is complete.
       the complete affected dependency chain; and wasm32 strict all-target
       Clippy passes with `-D warnings`. Cache replacement, corruption
       retirement, and publication behavior remain unchanged.
+- [x] Batch 820 extends the cache-lifetime portability fix to
+      `nia-loader-query`. Frontend-cache staged publication now closes its
+      writer through a lexical helper with explicit failure cleanup, and the
+      oversized-entry fixture no longer relies on `drop(File)`. The owner suite
+      passes 97/97 on the host; host and wasm32 strict all-target Clippy pass
+      with `-D warnings`; and the existing lock, replacement, corruption, and
+      bounded-entry behavior remains covered without production semantic change.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
