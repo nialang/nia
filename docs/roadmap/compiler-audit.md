@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 846 completed entries in this ledger.
+- Latest implementation batch: 847 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5254,6 +5254,14 @@ acceptance item only when its phase-wide evidence is complete.
       --all-features`, followed by strict workspace Clippy with `-D warnings`.
       This confirms the recent build, signature-cache, and frontend-cache
       boundary fixes remain compatible across the complete dependency graph.
+- [x] Batch 847 makes program-signature generic substitution use the canonical
+      arity-checked helper. Trait method, associated-const, supertrait, and
+      recursive trait-goal paths now reject missing or surplus type/const
+      arguments instead of silently leaving parameters unsubstituted; malformed
+      method/supertrait instances produce explicit internal diagnostics. The
+      `nia-program-signatures` owner suite (7 tests), `nia-body-check` consumer
+      suite (279 tests), and `nia-compiler-query` consumer suite (256 tests)
+      pass with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
