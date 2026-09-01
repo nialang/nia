@@ -874,16 +874,18 @@ fn write_stmt_identity(out: &mut String, stmt: &Stmt) {
             out.push('|');
             write_optional_expr_identity(out, item.value.as_ref());
             out.push('|');
-            out.push_str(if item.is_mutable() {
+            out.push_str(if item.is_const() {
+                "const"
+            } else if item.is_mutable() {
                 if item.is_extern() {
                     "mut_extern"
                 } else {
                     "mut"
                 }
             } else if item.is_extern() {
-                "extern"
+                "static_extern"
             } else {
-                "const"
+                "static"
             });
             out.push(')');
         }
@@ -1426,5 +1428,53 @@ mod tests {
         let left = closure(ExprKind::Bool(true));
         let right = closure(ExprKind::Bool(false));
         assert!(!expr_decl_eq(&left, &right));
+    }
+
+    #[test]
+    fn static_statement_identity_distinguishes_const_and_static_storage() {
+        let item = |kind| crate::BindingItem {
+            name: SymbolId::from_stable_hash(7),
+            ty: None,
+            value: None,
+            kind,
+            node_key: VersionedNodeKey::span(
+                SourceVersion {
+                    id: SourceId(1),
+                    revision: SourceRevision::INITIAL,
+                },
+                SyntaxKind::Item,
+                Span::default(),
+            ),
+        };
+        let block = |kind| {
+            expr(
+                ExprKind::Block(Block {
+                    span: Span::default(),
+                    stmts: vec![Stmt {
+                        span: Span::default(),
+                        node_key: VersionedNodeKey::span(
+                            SourceVersion {
+                                id: SourceId(1),
+                                revision: SourceRevision::INITIAL,
+                            },
+                            SyntaxKind::Stmt,
+                            Span::default(),
+                        ),
+                        attributes: Vec::new(),
+                        kind: StmtKind::Static(Box::new(item(kind))),
+                    }],
+                    tail: None,
+                }),
+                Span::default(),
+            )
+        };
+
+        assert!(!expr_decl_eq(
+            &block(crate::ItemBindingKind::Const),
+            &block(crate::ItemBindingKind::Static {
+                is_mutable: false,
+                is_extern: false,
+            },)
+        ));
     }
 }
