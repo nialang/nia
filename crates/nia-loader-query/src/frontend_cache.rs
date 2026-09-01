@@ -820,7 +820,7 @@ fn decode_dependency_manifest(encoded: &[u8]) -> Option<DecodedDependencyManifes
     let checksum = read_parts(&mut cursor)?;
     let mut payload = vec![0; payload_len];
     cursor.read_exact(&mut payload).ok()?;
-    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
     (dependency_manifest_checksum(&payload).parts() == checksum).then_some(())?;
     let mut payload_cursor = Cursor::new(payload.as_slice());
     let item_signature = read_parts(&mut payload_cursor)?;
@@ -881,7 +881,7 @@ fn decode_facade_facts(encoded: &[u8]) -> Option<DecodedFacadeFacts> {
     let checksum = read_parts(&mut cursor)?;
     let mut payload = vec![0; payload_len];
     cursor.read_exact(&mut payload).ok()?;
-    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
     (facade_facts_checksum(&payload).parts() == checksum).then_some(())?;
     Some(DecodedFacadeFacts {
         key,
@@ -934,7 +934,7 @@ fn decode_facade_facts_payload(payload: &[u8], symbols: &SymbolTable) -> Option<
         provider_source_paths.push(read_used_module_path(&mut cursor)?);
     }
     is_strictly_sorted(&provider_source_paths).then_some(())?;
-    (cursor.position() as usize == payload.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
     let facts = ModuleFacadeFacts::from_cache_parts(
         public_type_names,
         public_reexports,
@@ -995,7 +995,7 @@ fn decode_module_dependencies(encoded: &[u8]) -> Option<DecodedModuleDependencie
     let checksum = read_parts(&mut cursor)?;
     let mut payload = vec![0; payload_len];
     cursor.read_exact(&mut payload).ok()?;
-    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
     (module_dependencies_checksum(&payload).parts() == checksum).then_some(())?;
     Some(DecodedModuleDependencies {
         key,
@@ -1077,7 +1077,7 @@ fn decode_module_dependencies_payload(
     }
     let used_import_aliases = read_symbols(&mut cursor)?;
     is_strictly_sorted(&used_import_aliases).then_some(())?;
-    (cursor.position() as usize == payload.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
     let declarations = ModuleDeclarations {
         declarations,
         package_roots,
@@ -1140,7 +1140,7 @@ fn decode_public_surface_facts(encoded: &[u8]) -> Option<DecodedPublicSurfaceFac
     let checksum = read_parts(&mut cursor)?;
     let mut payload = vec![0; payload_len];
     cursor.read_exact(&mut payload).ok()?;
-    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
     (public_surface_facts_checksum(&payload).parts() == checksum).then_some(())?;
     Some(DecodedPublicSurfaceFacts {
         key,
@@ -1227,7 +1227,7 @@ fn decode_public_surface_facts_payload(
     for _ in 0..using_len {
         module_usings.push(read_module_using(&mut cursor, source_len, 0)?);
     }
-    (cursor.position() as usize == payload.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
     let facts = PublicSurfaceModuleFacts {
         defs,
         module_scope,
@@ -1482,7 +1482,7 @@ fn decode_provider_summary(encoded: &[u8]) -> Option<DecodedProviderSummary> {
     let checksum = read_parts(&mut cursor)?;
     let mut payload = vec![0; payload_len];
     cursor.read_exact(&mut payload).ok()?;
-    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(())?;
     (payload_checksum(&payload).parts() == checksum).then_some(())?;
     Some(DecodedProviderSummary {
         key,
@@ -1539,7 +1539,7 @@ fn decode_provider_summary_payload(
             associated_values: read_symbols(&mut cursor)?,
         });
     }
-    (cursor.position() as usize == payload.len()).then_some(())?;
+    (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
     let summary = ProviderSummary::from_providers(providers);
     install_symbol_dictionary(&dictionary, provider_summary_symbols(&summary), symbols)?;
     Some(summary)
