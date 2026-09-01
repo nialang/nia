@@ -270,7 +270,7 @@ fn decode_type_resolution(
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
         let value = read_type_name_resolution(&mut entry, modules)?;
-        if entry.position() as usize != entry.get_ref().len()
+        if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
             || node_type_names.insert(site, value).is_some()
         {
             return None;
@@ -281,7 +281,7 @@ fn decode_type_resolution(
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
         let value = read_global_def(&mut entry, modules)?;
-        if entry.position() as usize != entry.get_ref().len()
+        if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
             || node_qualified_type_names.insert(site, value).is_some()
         {
             return None;
@@ -294,7 +294,7 @@ fn decode_type_resolution(
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
         let text = read_string(&mut entry, encoded.len())?;
         let symbol = symbols.intern(&text).ok()?;
-        if entry.position() as usize != entry.get_ref().len()
+        if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
             || !seen_const_nodes.insert(site.clone())
         {
             return None;
@@ -307,7 +307,7 @@ fn decode_type_resolution(
             symbol,
         );
     }
-    if cursor.position() as usize != encoded.len() {
+    if usize::try_from(cursor.position()).ok()? != encoded.len() {
         return None;
     }
     Some(TypeResolution {
