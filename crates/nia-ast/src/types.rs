@@ -4,9 +4,10 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_identity_key};
 
 use crate::{
-    ArrayElements, AssignOp, BinaryOp, Block, BracketArg, Expr, ExprKind, FieldInit, IndexArg,
-    MatchArmBody, NominalPatternFields, Pattern, PatternKind, SliceRange, Stmt, StmtKind,
-    StringLiteral, UnaryOp, UsingGroupItem, UsingItem, UsingName, UsingSelector,
+    ArrayElements, AssignOp, Attribute, AttributeKind, BinaryOp, Block, BracketArg,
+    ConditionBinaryOp, ConditionExpr, ConditionExprKind, ConditionUnaryOp, Expr, ExprKind,
+    FieldInit, IndexArg, MatchArmBody, NominalPatternFields, Pattern, PatternKind, SliceRange,
+    Stmt, StmtKind, StringLiteral, UnaryOp, UsingGroupItem, UsingItem, UsingName, UsingSelector,
 };
 
 /// Kind of one source path segment.
@@ -840,6 +841,7 @@ fn write_block_identity(out: &mut String, block: &Block) {
 }
 
 fn write_stmt_identity(out: &mut String, stmt: &Stmt) {
+    write_attributes_identity(out, &stmt.attributes);
     match &stmt.kind {
         StmtKind::Binding(binding) => {
             out.push_str("binding(");
@@ -932,6 +934,63 @@ fn write_stmt_identity(out: &mut String, stmt: &Stmt) {
         }
         StmtKind::Break => out.push_str("break"),
         StmtKind::Continue => out.push_str("continue"),
+    }
+}
+
+fn write_attributes_identity(out: &mut String, attributes: &[Attribute]) {
+    if attributes.is_empty() {
+        out.push_str("attrs:none|");
+        return;
+    }
+    out.push_str("attrs:");
+    write_joined(out, attributes, |out, attribute| match &attribute.kind {
+        AttributeKind::If(condition) => {
+            out.push_str("if(");
+            write_condition_identity(out, condition);
+            out.push(')');
+        }
+        AttributeKind::Meta(meta) => {
+            out.push_str("meta(");
+            write_joined(out, &meta.path, |out, symbol| {
+                write_symbol_identity(out, *symbol)
+            });
+            out.push('|');
+            write_joined(out, &meta.args, write_expr_identity);
+            out.push(')');
+        }
+    });
+    out.push('|');
+}
+
+fn write_condition_identity(out: &mut String, condition: &ConditionExpr) {
+    match &condition.kind {
+        ConditionExprKind::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
+        ConditionExprKind::Integer(value) => write_tagged_text(out, "int", value),
+        ConditionExprKind::String(value) => write_tagged_text(out, "string", value),
+        ConditionExprKind::Ident(symbol) => write_tagged_symbol(out, "ident", *symbol),
+        ConditionExprKind::Unary { op, expr } => {
+            out.push_str("unary(");
+            out.push_str(match op {
+                ConditionUnaryOp::Not => "not",
+            });
+            out.push('|');
+            write_condition_identity(out, expr);
+            out.push(')');
+        }
+        ConditionExprKind::Binary { lhs, op, rhs } => {
+            out.push_str("binary(");
+            write_condition_identity(out, lhs);
+            out.push('|');
+            out.push_str(match op {
+                ConditionBinaryOp::Eq => "eq",
+                ConditionBinaryOp::Ne => "ne",
+                ConditionBinaryOp::And => "and",
+                ConditionBinaryOp::Or => "or",
+            });
+            out.push('|');
+            write_condition_identity(out, rhs);
+            out.push(')');
+        }
     }
 }
 
@@ -1475,6 +1534,44 @@ mod tests {
                 is_mutable: false,
                 is_extern: false,
             },)
+        ));
+    }
+
+    #[test]
+    fn statement_attributes_contribute_to_block_identity() {
+        let statement = |attributes| {
+            expr(
+                ExprKind::Block(Block {
+                    span: Span::default(),
+                    stmts: vec![Stmt {
+                        span: Span::default(),
+                        node_key: VersionedNodeKey::span(
+                            SourceVersion {
+                                id: SourceId(1),
+                                revision: SourceRevision::INITIAL,
+                            },
+                            SyntaxKind::Stmt,
+                            Span::default(),
+                        ),
+                        attributes,
+                        kind: StmtKind::Break,
+                    }],
+                    tail: None,
+                }),
+                Span::default(),
+            )
+        };
+        let conditional = Attribute {
+            span: Span::default(),
+            kind: AttributeKind::If(ConditionExpr {
+                span: Span::default(),
+                kind: ConditionExprKind::Bool(false),
+            }),
+        };
+
+        assert!(!expr_decl_eq(
+            &statement(Vec::new()),
+            &statement(vec![conditional])
         ));
     }
 }
