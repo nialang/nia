@@ -337,6 +337,7 @@ impl<'a> BodyChecker<'a> {
                             self.match_const_generic_arg_pattern(
                                 pattern,
                                 &actual,
+                                substitutions,
                                 const_substitutions,
                             )
                         })
@@ -397,6 +398,7 @@ impl<'a> BodyChecker<'a> {
                                 self.match_const_generic_arg_pattern(
                                     pattern,
                                     &actual,
+                                    substitutions,
                                     const_substitutions,
                                 )
                             },
@@ -443,6 +445,7 @@ impl<'a> BodyChecker<'a> {
                                 self.match_const_generic_arg_pattern(
                                     pattern,
                                     &actual,
+                                    substitutions,
                                     const_substitutions,
                                 )
                             },
@@ -497,6 +500,7 @@ impl<'a> BodyChecker<'a> {
                                 self.match_const_generic_arg_pattern(
                                     pattern,
                                     &actual,
+                                    substitutions,
                                     const_substitutions,
                                 )
                             },
@@ -547,16 +551,32 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         pattern: &nia_ty::ConstGenericArg,
         actual: &nia_ty::ConstGenericArg,
+        substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
-        if !self.types_equivalent_without_projection_resolution(pattern.ty, actual.ty) {
+        let pattern_ty =
+            self.substitute_generics_and_consts(pattern.ty, substitutions, const_substitutions);
+        let actual_ty =
+            self.substitute_generics_and_consts(actual.ty, substitutions, const_substitutions);
+        if !self.types_equivalent_without_projection_resolution(pattern_ty, actual_ty) {
             return false;
         }
         if let nia_ty::ConstGenericValue::GenericParam(name) = &pattern.value {
             if let Some(existing) = const_substitutions.get(name) {
-                return self.const_pattern_args_match(existing, actual);
+                return self.const_pattern_args_match_with_substitutions(
+                    existing,
+                    actual,
+                    substitutions,
+                    const_substitutions,
+                );
             }
-            const_substitutions.insert(*name, actual.clone());
+            const_substitutions.insert(
+                *name,
+                nia_ty::ConstGenericArg {
+                    ty: actual_ty,
+                    value: actual.value.clone(),
+                },
+            );
             return true;
         }
         self.const_pattern_values_match(&pattern.value, &actual.value)
@@ -582,6 +602,21 @@ impl<'a> BodyChecker<'a> {
         right: &nia_ty::ConstGenericArg,
     ) -> bool {
         self.types_equivalent_without_projection_resolution(left.ty, right.ty)
+            && self.const_pattern_values_match(&left.value, &right.value)
+    }
+
+    fn const_pattern_args_match_with_substitutions(
+        &mut self,
+        left: &nia_ty::ConstGenericArg,
+        right: &nia_ty::ConstGenericArg,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        let left_ty =
+            self.substitute_generics_and_consts(left.ty, substitutions, const_substitutions);
+        let right_ty =
+            self.substitute_generics_and_consts(right.ty, substitutions, const_substitutions);
+        self.types_equivalent_without_projection_resolution(left_ty, right_ty)
             && self.const_pattern_values_match(&left.value, &right.value)
     }
 
@@ -657,6 +692,7 @@ impl<'a> BodyChecker<'a> {
                     self.match_const_generic_arg_pattern(
                         pattern,
                         actual,
+                        &candidate_substitutions,
                         &mut candidate_const_substitutions,
                     )
                 })
