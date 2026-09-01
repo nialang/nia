@@ -5170,6 +5170,11 @@ acceptance item only when its phase-wide evidence is complete.
       conversion, so an ID that cannot address the target's vector cannot wrap
       into an unrelated path. The owner suite adds a maximum-ID regression and
       passes with strict Clippy, formatting, and diff checks.
+- [x] Batch 832 hardens syntax child-path construction against index narrowing.
+      Red-node traversal now checks each `usize` child index before encoding it
+      as the `u32` path component used by stable node identities, preventing
+      oversized sibling lists from silently colliding. The `nia-syntax` owner
+      suite passes with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
