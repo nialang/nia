@@ -5175,6 +5175,12 @@ acceptance item only when its phase-wide evidence is complete.
       as the `u32` path component used by stable node identities, preventing
       oversized sibling lists from silently colliding. The `nia-syntax` owner
       suite passes with strict Clippy, formatting, and diff checks.
+- [x] Batch 833 hardens partial-reparse offset adjustment against malformed
+      extremes. `nia-syntax` now uses saturating span shifts so custom token
+      streams with out-of-range positions cannot turn an otherwise recoverable
+      edit into an integer-overflow panic; valid edits retain identical offsets.
+      The owner suite adds boundary coverage and passes with strict Clippy,
+      formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
