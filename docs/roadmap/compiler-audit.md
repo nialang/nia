@@ -5451,6 +5451,16 @@ acceptance item only when its phase-wide evidence is complete.
       associated-type suite (36 tests), and `nia-compiler-query` owner suite
       (256 tests) pass with strict owner Clippy, formatting, diff checks, and
       the workspace all-target/all-feature check.
+- [x] Batch 868 rejects method generic parameters that shadow an enclosing
+      trait or extension-target generic. Name-keyed substitutions cannot safely
+      represent both scopes, so the item-signature collector now emits an
+      explicit definition diagnostic before body or const checking; unrelated
+      method generics continue to instantiate normally. Dedicated driver
+      regressions cover both accepted distinct names and rejected extension
+      shadowing. The `nia-item-signatures` owner suite (12 tests), const-method
+      driver regressions (2 tests), and `nia-compiler-query` owner suite (256
+      tests) pass with strict owner/driver Clippy, formatting, diff checks, and
+      the workspace all-target/all-feature check.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
