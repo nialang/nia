@@ -1254,6 +1254,22 @@ fn main() char {
 }
 
 #[test]
+fn infers_generic_element_from_byte_string_slice_pointer_coercion() {
+    let checked = pipeline(
+        r#"
+fn first[T](value: &[T]) T {
+    value[0]
+}
+
+fn main() u8 {
+    first(&b"nia")
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn infers_generic_element_from_mutable_array_slice_pointer() {
     let checked = pipeline(
         r#"
