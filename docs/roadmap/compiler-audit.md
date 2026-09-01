@@ -5584,6 +5584,17 @@ acceptance item only when its phase-wide evidence is complete.
       recorded in Batches 811-816; no-swap cgroup and external-target runtime
       evidence are still unavailable in this WSL/LLVM environment and remain
       accepted residual risks rather than completed gates.
+- [x] Batch 881 refreshes the representative clean/incremental build baseline
+      after the final host validation. `cargo maintain baseline build --nia
+      target/release/nia --resource-root lib --repetitions 1` emits a schema-v5
+      report with all 9 clean, warm, source-edit, module-map-edit,
+      corruption/recovery, and failed-action states accepted. The clean state
+      executes 4 actions in 49.66 seconds with a 1,309,683,712-byte peak RSS;
+      warm reuse, source/module invalidation, corruption retirement, recovery,
+      and failed-action cleanup counters all satisfy their contracts. This
+      refresh remains current-host evidence under the approximately 7.8-GiB
+      WSL limit and does not close the separately required no-swap cgroup or
+      external-target runtime gates.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
