@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 811 completed entries in this ledger.
+- Latest implementation batch: 812 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5024,6 +5024,15 @@ acceptance item only when its phase-wide evidence is complete.
       recovery, and failed-action counters all satisfy their contracts. This
       is current-host baseline evidence; the separate 3-GiB/no-swap matrix and
       external-target runtime acceptance remain open.
+- [x] Batch 812 refreshes bounded-process runtime evidence after the latest
+      workspace changes. Under `prlimit --as=3221225472` (a 3-GiB address-space
+      ceiling), `NIA_TEST_RESOURCE_TRACE=1 cargo test -p nia-cli --test
+      emit_exe_intrinsics --all-features` passes 8/8. Compiler child peaks
+      range from about 297 to 337 MiB RSS, with no timeout, failed command, or
+      resource-permit leak. The host cgroup remains approximately 7.8 GiB and
+      the cgroup hierarchy is read-only in this WSL environment, so this is
+      RLIMIT-based evidence only and does not replace the required 3-GiB
+      no-swap cgroup run.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
