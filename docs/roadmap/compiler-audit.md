@@ -5471,6 +5471,15 @@ acceptance item only when its phase-wide evidence is complete.
       tests), and const-eval basics suite (37 tests) pass; compiler-query,
       strict owner/driver Clippy, formatting, diff checks, and the workspace
       all-target/all-feature check are run for the batch.
+- [x] Batch 870 normalizes closed associated-type projections during const-call
+      parameter substitution. Explicit SIMD calls such as
+      `splat[boolx4](false)` now resolve `[V as Simd]::Lane` to `bool` without
+      normalizing open projections or ordinary generic paths. A dedicated
+      `nia-const-check` regression and the driver SIMD const/runtime test cover
+      the repaired boundary; the owner suite (61 tests), strict Clippy, and
+      workspace checks pass. Four unrelated pre-existing driver const-projection
+      diagnostics remain tracked by the baseline and are not attributed to this
+      batch.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
