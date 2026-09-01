@@ -78,6 +78,7 @@ impl Analyzer<'_> {
                     &mut const_substitutions,
                 )?;
             }
+            let mut argument_types = Vec::new();
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
                 let expected = self.const_expected_param_type(
                     signature_module_id,
@@ -107,14 +108,60 @@ impl Analyzer<'_> {
                     }
                     continue;
                 };
+                let mut candidate_substitutions = substitutions.clone();
+                let mut candidate_const_substitutions = const_substitutions.clone();
                 self.infer_generic_substitutions_from_tys(
                     span,
                     signature_module_id,
                     param.ty,
                     arg_ty,
-                    &mut substitutions,
-                    &mut const_substitutions,
+                    &mut candidate_substitutions,
+                    &mut candidate_const_substitutions,
                 )?;
+                let instantiated_expected = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        param.ty,
+                        &candidate_substitutions,
+                        &candidate_const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span: arg_expr.span(),
+                        message: "cannot resolve const call argument type".to_string(),
+                    })?;
+                argument_types.push((param.ty, arg_ty));
+                if self.inference_pattern_accepts_type_shape(instantiated_expected, arg_ty) {
+                    substitutions = candidate_substitutions;
+                    const_substitutions = candidate_const_substitutions;
+                }
+            }
+            for (index, (param_ty, arg_ty)) in argument_types.iter().enumerate() {
+                let expected = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        *param_ty,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "cannot resolve const call argument type".to_string(),
+                    })?;
+                if !self.inference_pattern_accepts_type_shape(expected, *arg_ty)
+                    && !self.type_contains_generic(expected)
+                {
+                    let arg_expr = &arg_exprs[index];
+                    return Err(ConstError {
+                        span: arg_expr.span(),
+                        message: match arg_expr.kind() {
+                            ResolvedConstExprKind::Match(_) => {
+                                "const match expression does not match expected type"
+                            }
+                            _ => "const call argument does not match expected type",
+                        }
+                        .to_string(),
+                    });
+                }
             }
             for generic in &signature.generic_params {
                 let inferred = match generic.kind {
