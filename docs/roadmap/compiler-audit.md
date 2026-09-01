@@ -289,7 +289,7 @@ ledger, and report the two dimensions together.
 
 Current snapshot (2026-09-01):
 
-- Latest implementation batch: 817 completed entries in this ledger.
+- Latest implementation batch: 818 completed entries in this ledger.
 - Fixed acceptance items: 1 of 8 completed (the seven unchecked entries at the
   end of this section).
 - The implementation ledger is evidence of covered batches; phase completion
@@ -5082,6 +5082,15 @@ acceptance item only when its phase-wide evidence is complete.
       separately compile-checked and targeted-Clippy-checked; whole-workspace
       i686 Clippy is still environment-limited by the host's inability to run
       the 32-bit LLVM configuration binary.
+- [x] Batch 818 closes a wasm32 portability boundary in maintenance and
+      linker infrastructure. `nia-maintain` now gates Unix process-group setup
+      and timeout cleanup, while `nia-linker` gates Linux-only ELF interpreter
+      parsing and its platform-specific test/imports. The affected crates pass
+      host tests (including linker 32 and maintain 43/2/3 test groups), and
+      wasm32 all-target checks plus strict `-D warnings` Clippy complete without
+      dead-code or platform-import warnings. Unix process-group and Linux ELF
+      behavior remains unchanged; non-Unix targets now compile their explicit
+      no-op/unsupported paths.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
