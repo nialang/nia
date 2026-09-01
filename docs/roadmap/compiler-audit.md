@@ -5654,6 +5654,15 @@ acceptance item only when its phase-wide evidence is complete.
       and clone/owned-copy behavior, and cross-module slice/memory intrinsics.
       Combined with Batches 883, 885, and 886, the current real i686 sample is
       149 passing executable tests; no target failure was observed.
+- [x] Batch 888 completes the current i686 container and iterator sample.
+      With `LLVM_SYS_221_PREFIX=/usr/lib/llvm22`, the standard hash-map matrix
+      passes 7/7 and iterator/range matrix passes 8/8. Hash coverage includes
+      initialization, churn/clone, reserve/tombstone compaction, formatting,
+      capacity operations, basic access, and wyhash vectors; iterator coverage
+      includes borrowed closures, `fold`/`for_each`/`position`/`try_fold`, owned
+      adapters, canonical ranges, custom-step termination, and u128 endpoints.
+      The current real i686 executable sample therefore reaches 164 passing
+      tests with no observed target runtime failure.
 - [x] Cross-cutting Rustdoc/comment completion and test-gap closure.
 - [ ] Final clean/incremental, workspace, integration, resource, and external
       target evidence.
