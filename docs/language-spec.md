@@ -2838,6 +2838,11 @@ count[_, _]([1, 2, 3, 4])
 This makes inference intent explicit and prevents generic declaration order
 from becoming an implicit call-site API.
 
+Method generic parameter names must not shadow a generic parameter declared by
+the enclosing trait or `extend` target. This keeps the two generic scopes
+distinct in signatures and diagnostics; choose a different name for the
+method parameter instead.
+
 ## 10. Methods
 
 Methods are declared in `extend` blocks. An `extend` block attaches associated
