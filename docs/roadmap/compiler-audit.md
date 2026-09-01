@@ -5225,6 +5225,12 @@ acceptance item only when its phase-wide evidence is complete.
       consumption checks, closing the remaining malformed-cache truncation
       paths. The 256-test `nia-compiler-query` owner suite passes with strict
       Clippy, formatting, and diff checks.
+- [x] Batch 842 hardens program-diagnostic bundle format boundaries. Source
+      lengths, source indexes, and sequence lengths now use checked conversion
+      to persisted `u64` fields, while final cursor validation uses checked
+      addition before accepting exact consumption. The 256-test
+      `nia-compiler-query` owner suite passes with strict Clippy, formatting,
+      and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
