@@ -170,7 +170,10 @@ mod tests {
     #[test]
     fn bundle_handles_are_compact_and_owner_scoped() {
         assert_eq!(std::mem::size_of::<DiagnosticBundleId>(), 8);
-        assert_eq!(std::mem::size_of::<DiagnosticBundle>(), 8);
+        assert_eq!(
+            std::mem::size_of::<DiagnosticBundle>(),
+            std::mem::size_of::<usize>(),
+        );
 
         let first = DiagnosticStore::new();
         let second = DiagnosticStore::new();
