@@ -256,6 +256,56 @@ impl Analyzer<'_> {
                     }
                 }
             }
+            for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
+                let expected = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        param.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span: arg_expr.span(),
+                        message: "cannot resolve const call argument type".to_string(),
+                    })?;
+                let Some(actual) = self.resolved_const_arg_runtime_type(arg_expr, Some(expected))
+                else {
+                    continue;
+                };
+                if !self.inference_pattern_accepts_type_shape(expected, actual) {
+                    return Err(ConstError {
+                        span: arg_expr.span(),
+                        message: match arg_expr.kind() {
+                            ResolvedConstExprKind::Match(_) => {
+                                "const match expression does not match expected type"
+                            }
+                            _ => "const call argument does not match expected type",
+                        }
+                        .to_string(),
+                    });
+                }
+            }
+            if let Some(expected) = expected_return
+                .and_then(|expected| self.type_for_module_or_none(expected, signature_module_id))
+            {
+                let instantiated_return = self
+                    .const_expected_param_type(
+                        signature_module_id,
+                        signature.return_type,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                    .ok_or_else(|| ConstError {
+                        span,
+                        message: "cannot resolve const call return type".to_string(),
+                    })?;
+                if !self.inference_pattern_accepts_type_shape(instantiated_return, expected) {
+                    return Err(ConstError {
+                        span,
+                        message: "const call return type does not match expected type".to_string(),
+                    });
+                }
+            }
         }
         Ok(ConstGenericInstantiation {
             type_substitutions: substitutions,

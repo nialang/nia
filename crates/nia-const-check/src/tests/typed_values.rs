@@ -1886,6 +1886,86 @@ const RESULT: Pair[i32, Box[bool]] = make();
     );
 }
 
+#[test]
+fn const_call_rejects_nested_parameter_mismatch_with_explicit_generics() {
+    let fixture = check_source(
+        r#"
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+struct Other[T] {
+    value: T,
+}
+
+struct Box[T] {
+    value: T,
+}
+
+const fn inspect[T](value: Pair[T, Other[bool]], marker: T) usize {
+    let _ = (value, marker);
+    7
+}
+
+const VALUE: Pair[i32, Box[bool]] = Pair[i32, Box[bool]] {
+    first: 1,
+    second: Box[bool] { value: true },
+};
+const RESULT: usize = inspect[i32](VALUE, 1i32);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const call argument does not match expected type")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn const_call_rejects_nested_return_mismatch_with_explicit_generics() {
+    let fixture = check_source(
+        r#"
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+struct Other[T] {
+    value: T,
+}
+
+struct Box[T] {
+    value: T,
+}
+
+const fn make[T]() Pair[T, Other[bool]] {
+    Pair[T, Other[bool]] {
+        first: 1i32,
+        second: Other[bool] { value: true },
+    }
+}
+
+const RESULT: Pair[i32, Box[bool]] = make[i32]();
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const call return type does not match expected type")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
 fn const_value(fixture: &CheckedFixture, name: &str) -> ConstValue {
     let def_id = fixture
         .defs
