@@ -5214,6 +5214,11 @@ acceptance item only when its phase-wide evidence is complete.
       positions from truncating into false cache acceptance. The 256-test
       `nia-compiler-query` owner suite passes with strict Clippy, formatting,
       and diff checks.
+- [x] Batch 840 aligns loader frontend-cache cursor boundary checks with the
+      signature-cache contract. All persisted frontend product decoders now
+      convert `Cursor::position()` to `usize` through checked paths before
+      accepting exact payload consumption. The 97-test `nia-loader-query`
+      owner suite passes with strict Clippy, formatting, and diff checks.
 - [ ] Phase A: type, trait, and body soundness.
 - [ ] Phase B: layout, ABI, backend IR, and LLVM safety.
 - [ ] Phase C: const, static, closure, flow, and IR semantics.
