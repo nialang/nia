@@ -1041,6 +1041,54 @@ const BITS: u32 = reinterpret[u32](1065353216);
 }
 
 #[test]
+fn const_call_instantiation_rejects_missing_value_arguments() {
+    let fixture = check_source(
+        r#"
+const fn choose[T](first: T, second: T) T {
+    let _ = second;
+    first
+}
+
+const RESULT: i32 = choose(1i32);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const function argument count mismatch: expected 2, got 1")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
+fn const_call_instantiation_rejects_extra_value_arguments() {
+    let fixture = check_source(
+        r#"
+const fn choose[T](first: T, second: T) T {
+    let _ = second;
+    first
+}
+
+const RESULT: i32 = choose(1i32, 2i32, 3i32);
+"#,
+    );
+
+    assert!(
+        fixture.checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("const function argument count mismatch: expected 2, got 3")
+        }),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn const_generic_inference_accepts_mutable_pointer_for_readonly_parameter() {
     let fixture = check_source(
         r#"
