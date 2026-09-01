@@ -149,6 +149,51 @@ impl Analyzer<'_> {
                     && self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
             }
             (
+                TyKind::Pointer {
+                    is_readonly: true,
+                    elem: pattern_elem,
+                },
+                TyKind::Array {
+                    elem: actual_elem, ..
+                },
+            ) => {
+                let TyKind::SlicePointee { elem: pattern_elem } = self.active_ty_kind(pattern_elem)
+                else {
+                    return false;
+                };
+                self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem)
+            }
+            (
+                TyKind::Slice {
+                    is_readonly: true,
+                    elem: pattern_elem,
+                },
+                TyKind::Array {
+                    elem: actual_elem, ..
+                },
+            ) => self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem),
+            (
+                TyKind::Slice {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            ) => {
+                if !readonly_pointer_accepts(pattern_readonly, actual_readonly) {
+                    return false;
+                }
+                match self.active_ty_kind(actual_elem) {
+                    TyKind::SlicePointee { elem: actual_elem }
+                    | TyKind::Array {
+                        elem: actual_elem, ..
+                    } => self.inference_pattern_accepts_type_shape(pattern_elem, actual_elem),
+                    _ => false,
+                }
+            }
+            (
                 TyKind::SlicePointee { elem: pattern_elem },
                 TyKind::SlicePointee { elem: actual_elem },
             )
@@ -758,7 +803,7 @@ impl Analyzer<'_> {
             TyKind::GenericParam(name) => {
                 let canonical = self.type_for_module(span, actual_ty, target_module_id)?;
                 if let Some(existing) = substitutions.get(&name) {
-                    if *existing != canonical {
+                    if !self.const_function_types_match(*existing, canonical) {
                         let name = self.symbol_name(name);
                         return Err(ConstError {
                             span,

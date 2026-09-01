@@ -1614,7 +1614,11 @@ fn bool_vector_splat_accepts_associated_lane_type() {
 const MASK: boolx4 = std::builtin::splat[boolx4](false);
 "#,
     );
-    assert!(fixture.checked.diagnostics.is_empty(), "{:?}", fixture.checked.diagnostics);
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
 }
 
 #[test]
