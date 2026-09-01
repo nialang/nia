@@ -55,7 +55,11 @@ impl SourceRevision {
 
     /// Returns the following source revision.
     pub const fn next(self) -> Self {
-        Self(self.0 + 1)
+        Self(
+            self.0
+                .checked_add(1)
+                .expect("source revision space exhausted"),
+        )
     }
 }
 
@@ -379,6 +383,12 @@ mod tests {
     #[test]
     fn source_revision_advances_monotonically() {
         assert_eq!(SourceRevision::INITIAL.next(), SourceRevision(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "source revision space exhausted")]
+    fn source_revision_overflow_is_rejected() {
+        SourceRevision(u64::MAX).next();
     }
 
     #[test]
