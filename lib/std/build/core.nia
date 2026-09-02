@@ -1,4 +1,5 @@
 pub(pkg) module handles;
+pub(pkg) module steps;
 
 using pkg::atomic;
 using pkg::builtin::atomic as atomicBuiltin;
@@ -13,6 +14,7 @@ using pkg::slice;
 using pkg::string;
 using pkg::build::error;
 using pkg::build::core::handles;
+using pkg::build::core::steps;
 using pkg::build::types;
 
 using error::Error;
@@ -1822,187 +1824,6 @@ extend Build {
         self.pendingStep.deinit(self.allocator).?;
         self.hasPendingStep = false;
         !()
-    }
-}
-
-extend AggregateStep {
-    fn init() AggregateStep {
-        Self { marker: 0 }
-    }
-}
-
-extend UncacheableStep {
-    fn init() UncacheableStep {
-        Self { description: string::String::init() }
-    }
-
-    fn initialize(&mut self, allocator: &mut mem::Allocator, description: &[char], index: usize) Error!() {
-        self.description = string::String::fromSlice(allocator, description).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-        !()
-    }
-
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        self.description.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
-    }
-}
-
-extend GeneratedFileStep {
-    fn init() GeneratedFileStep {
-        GeneratedFileStep {
-            output: string::String::init(),
-            contents: collections::ArrayList[u8]::init(),
-        }
-    }
-
-    fn initialize(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        output: BuildPathView,
-        contents: &[u8],
-        index: usize,
-    ) Error!() {
-        self.output = string::String::fromSlice(allocator, output.text()).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-        self.contents.appendSlice(allocator, contents).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-        !()
-    }
-
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.contents.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)));
-        rememberCleanupError(&mut firstError, self.output.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)));
-        cleanupResult(firstError)
-    }
-}
-
-extend ExecutableStep {
-    fn init(target: ExecutableHandle) ExecutableStep {
-        Self { target: target }
-    }
-}
-
-extend ObjectStep {
-    fn init(target: ObjectHandle) ObjectStep {
-        Self { target: target }
-    }
-}
-
-extend StaticArchiveStep {
-    fn init(target: StaticArchiveHandle) StaticArchiveStep {
-        Self { target: target }
-    }
-}
-
-extend RunOptions {
-    pub fn init(target: ExecutableHandle) RunOptions {
-        Self {
-            target: target,
-            arguments: null,
-        }
-    }
-
-    pub fn withArguments(self, arguments: &[&[char]]) RunOptions {
-        Self {
-            target: self.target,
-            arguments: ?arguments,
-        }
-    }
-}
-
-extend InstallExecutableStep {
-    fn init(target: ExecutableHandle) InstallExecutableStep {
-        Self {
-            target: target,
-            destination: string::String::init(),
-        }
-    }
-
-    fn initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
-        self.destination = string::String::fromSlice(
-            allocator,
-            destination.text(),
-        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-        !()
-    }
-
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        self.destination.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
-    }
-}
-
-extend InstallStaticArchiveStep {
-    fn init(target: StaticArchiveHandle) InstallStaticArchiveStep {
-        Self {
-            target: target,
-            destination: string::String::init(),
-        }
-    }
-
-    fn initialize(&mut self, allocator: &mut mem::Allocator, destination: BuildPathView, index: usize) Error!() {
-        self.destination = string::String::fromSlice(
-            allocator,
-            destination.text(),
-        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-        !()
-    }
-
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        self.destination.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
-    }
-}
-
-extend RunExecutableStep {
-    fn init(target: ExecutableHandle) RunExecutableStep {
-        RunExecutableStep {
-            target: target,
-            arguments: collections::ArrayList[string::String]::init(),
-        }
-    }
-
-    fn initialize(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        arguments: ?&[&[char]],
-        index: usize,
-    ) Error!() {
-        match arguments {
-            ?arguments => {
-                self.arguments.reserve(allocator, arguments.len()).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-                for &argument in arguments.iter() {
-                    self.arguments.appendAssumeCapacity(string::String::init());
-                    let argumentIndex = self.arguments.len() - 1usize;
-                    self.arguments.asMutSlice()[argumentIndex] = string::String::fromSlice(
-                        allocator,
-                        argument,
-                    ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
-                }
-            },
-            null => {},
-        }
-        !()
-    }
-
-    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut firstError: ?Error = null;
-        let mut elementError: ?Error = null;
-        let mut argumentIndex = self.arguments.len();
-        while argumentIndex != 0 {
-            argumentIndex -= 1;
-            rememberCleanupError(
-                &mut elementError,
-                self.arguments.asMutSlice()[argumentIndex]
-                    .deinit(allocator)
-                    .withBuildContext(Operation::Release, Subject::Step(index)),
-            );
-        }
-        if elementError is null {
-            rememberCleanupError(
-                &mut firstError,
-                self.arguments.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
-            );
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
-        cleanupResult(firstError)
     }
 }
 
