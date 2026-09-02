@@ -977,7 +977,10 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::QualifiedStructLiteral { target, fields } => {
-                if let Some((enum_id, variant_def)) = self.enum_variant_info(target) {
+                if let Some((enum_id, variant_def)) = self
+                    .enum_variant_info(target)
+                    .or_else(|| self.omitted_enum_variant_info(target, ty))
+                {
                     let variant = nia_ids::GlobalDefId {
                         module_id: enum_id.module_id,
                         def_id: variant_def,

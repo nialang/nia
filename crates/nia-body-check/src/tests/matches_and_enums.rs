@@ -86,6 +86,12 @@ fn make() Point {
         body.stmts.first().map(|stmt| &stmt.kind),
         Some(TypedStmtKind::Binding(_))
     ));
+    assert!(body.stmts.iter().any(|stmt| matches!(
+        &stmt.kind,
+        TypedStmtKind::Binding(binding)
+            if matches!(binding.value.as_ref().map(|value| &value.kind),
+                Some(TypedExprKind::EnumVariant { fields, .. }) if fields.len() == 1)
+    )));
 }
 
 #[test]
