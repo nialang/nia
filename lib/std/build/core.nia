@@ -1,6 +1,3 @@
-pub(pkg) module handles;
-pub(pkg) module steps;
-
 using pkg::atomic;
 using pkg::builtin::atomic as atomicBuiltin;
 using pkg::collections;
@@ -13,8 +10,8 @@ using pkg::os;
 using pkg::slice;
 using pkg::string;
 using pkg::build::error;
-using pkg::build::core::handles;
-using pkg::build::core::steps;
+using pkg::build::handles;
+using pkg::build::steps;
 using pkg::build::types;
 
 using error::Error;
