@@ -1,0 +1,58 @@
+// Lexical paths rooted in a build invocation.
+//
+// Build paths are relative to `.nia-build/`; package paths use the same
+// component rules but may opt into the empty path for a package root.
+
+using pkg::build::types::BuildPathView;
+
+extend BuildPathView {
+    pub fn init(path: &[char]) BuildPathView {
+        .{ path }
+    }
+
+    pub fn text(&self) &[char] {
+        self.path
+    }
+
+    pub(pkg) fn isValid(&self) bool {
+        isValidBuildPath(self.path)
+    }
+}
+
+pub(pkg) fn isValidPackagePath(path: &[char], allowEmpty: bool) bool {
+    if path.len() == 0 {
+        return allowEmpty;
+    }
+    isValidBuildPath(path)
+}
+
+pub(pkg) fn isValidBuildPath(text: &[char]) bool {
+    if text.len() == 0 or text[0] == '/' or text[text.len() - 1] == '/' {
+        return false;
+    }
+    let mut componentStart: usize = 0;
+    let mut index: usize = 0;
+    while index < text.len() {
+        if text[index] == '/' {
+            let componentLen = index - componentStart;
+            if componentLen == 0
+                or (componentLen == 1 and text[componentStart] == '.')
+                or (componentLen == 2
+                    and text[componentStart] == '.'
+                    and text[componentStart + 1] == '.')
+            {
+                return false;
+            }
+            componentStart = index + 1;
+        } else if text[index] == '\\' or text[index] == '\0' {
+            return false;
+        }
+        index += 1;
+    }
+    let componentLen = text.len() - componentStart;
+    componentLen != 0
+        and not (componentLen == 1 and text[componentStart] == '.')
+        and not (componentLen == 2
+            and text[componentStart] == '.'
+            and text[componentStart + 1] == '.')
+}
