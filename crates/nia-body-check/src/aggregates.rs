@@ -969,8 +969,12 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         target: &Expr,
         fields: &[nia_ast::FieldInit],
+        expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        if let Some((enum_id, variant_def)) = self.enum_variant_info(target) {
+        if let Some((enum_id, variant_def)) = self
+            .enum_variant_info(target)
+            .or_else(|| expected.and_then(|ty| self.omitted_enum_variant_info(target, ty)))
+        {
             let variant_id = GlobalDefId {
                 module_id: enum_id.module_id,
                 def_id: variant_def,

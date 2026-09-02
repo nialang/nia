@@ -104,7 +104,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_struct_literal(expr.span, explicit, fields)
             }
             ExprKind::QualifiedStructLiteral { target, fields } => {
-                self.check_qualified_struct_literal(expr, target, fields)
+                self.check_qualified_struct_literal(expr, target, fields, expected)
             }
             ExprKind::OmittedAggregateLiteral { fields } => {
                 let Some(expected) = expected else {
