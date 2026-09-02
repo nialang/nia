@@ -48,12 +48,40 @@ fn omitted_constructors_are_const_evaluable() {
 struct Point { x: usize, y: usize }
 enum Color { Red, Data(usize) }
 
+extend Point {
+    const fn init() Point { Point { x: 12usize, y: 13usize } }
+}
+
 const fn make_data() Color { .Data(8usize) }
+const fn make_local() Color {
+    let value: Color = .Data(9usize);
+    value
+}
+const fn make_initialized() Point {
+    let value: Point = .init();
+    value
+}
+const fn make_branch(flag: bool) Color {
+    if flag { .Red } else { .Data(10usize) }
+}
+const fn make_nested(flag: bool) Color {
+    if flag {
+        let value: Color = .Red;
+        value
+    } else {
+        .Data(11usize)
+    }
+}
 
 const point: Point = .{ x: 2usize, y: 3usize };
+const initialized: Point = .init();
 const red: Color = .Red;
 const data: Color = .Data(4usize);
 const generated: Color = make_data();
+const generated_local: Color = make_local();
+const generated_branch: Color = make_branch(true);
+const generated_nested: Color = make_nested(true);
+const generated_initialized: Point = make_initialized();
 const n: usize = point.x + point.y;
 
 fn main() i32 {
