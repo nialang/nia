@@ -51,6 +51,7 @@ pub(pkg) module commands;
 pub(pkg) module core;
 pub(pkg) module error;
 pub(pkg) module handles;
+pub(pkg) module paths;
 pub(pkg) module plan;
 pub(pkg) module steps;
 pub(pkg) module targets;
