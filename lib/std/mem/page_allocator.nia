@@ -75,7 +75,7 @@ extend PageAllocator : Allocator {
         if block.layout().isEmpty() {
             !()
         } else {
-            os::unmapPages(block.releasePtr(), block.releaseSize()).asPageAllocatorError()
+            !(os::unmapPages(block.releasePtr(), block.releaseSize()).?)
         }
     }
 }
@@ -87,17 +87,5 @@ extend os::Error : error::IntoError[types::Error] {
             os::Error::OutOfMemory => types::Error::OutOfMemory,
             _ => types::Error::System,
         }
-    }
-}
-
-extend os::Error {
-    fn asPageAllocatorError(self) types::Error {
-        self.into_error()
-    }
-}
-
-extend[T] os::Error!T {
-    fn asPageAllocatorError(self) types::Error!T {
-        self.cast_error()
     }
 }

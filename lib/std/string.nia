@@ -7,6 +7,7 @@
 pub(pkg) module hash;
 
 using pkg::collections;
+using pkg::error;
 using pkg::fmt;
 using pkg::io;
 using pkg::mem;
@@ -64,7 +65,7 @@ extend String {
             !value => value,
             error! => return TextError::InvalidUtf8(error)!,
         };
-        String::fromUtf8View(allocator, view).asTextError()
+        !(String::fromUtf8View(allocator, view).?)
     }
 
     pub fn fromUtf8View(allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!String {
@@ -80,7 +81,7 @@ extend String {
             !value => value,
             error! => return TextError::InvalidUtf8(error)!,
         };
-        self.appendUtf8View(allocator, view).asTextError()
+        !(self.appendUtf8View(allocator, view).?)
     }
 
     pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
@@ -358,7 +359,7 @@ extend TextFormatWriter {
     }
 
     fn appendTo(&mut self, out: &mut String) TextFormatError!() {
-        out.appendUtf8(self.allocator, self.bytes.asSlice()).asTextFormatError()
+        !(out.appendUtf8(self.allocator, self.bytes.asSlice()).?)
     }
 
     fn textError(&self, error: fmt::Error) TextFormatError {
@@ -392,21 +393,17 @@ extend TextFormatWriter : io::Writer {
     }
 }
 
-extend[T] mem::Error!T {
-    fn asTextError(self) TextError!T {
-        match self {
-            !value => !value,
-            error! => TextError::Allocation(error)!,
-        }
+extend mem::Error : error::IntoError[TextError] {
+    const fn into_error(self) TextError {
+        TextError::Allocation(self)
     }
 }
 
-extend[T] TextError!T {
-    fn asTextFormatError(self) TextFormatError!T {
+extend TextError : error::IntoError[TextFormatError] {
+    const fn into_error(self) TextFormatError {
         match self {
-            !value => !value,
-            TextError::InvalidUtf8(error)! => TextFormatError::InvalidUtf8(error)!,
-            TextError::Allocation(error)! => TextFormatError::Allocation(error)!,
+            TextError::InvalidUtf8(error) => TextFormatError::InvalidUtf8(error),
+            TextError::Allocation(error) => TextFormatError::Allocation(error),
         }
     }
 }

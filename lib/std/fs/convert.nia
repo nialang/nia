@@ -35,23 +35,23 @@ extend os::Error : error::IntoError[Error] {
     }
 }
 
-extend os::Error {
-    pub(pkg) fn as_fs_error(self) Error {
-        self.into_error()
-    }
-}
-
-extend[T] os::Error!T {
-    pub(pkg) fn as_fs_error(self) Error!T {
-        self.cast_error()
-    }
-}
-
 extend[T] Error!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
         match self {
             !value => !value,
             cause! => OperationError::System { operation: operation, cause: cause }!,
+        }
+    }
+}
+
+extend[T] os::Error!T {
+    pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
+        match self {
+            !value => !value,
+            cause! => OperationError::System {
+                operation: operation,
+                cause: cause.into_error(),
+            }!,
         }
     }
 }

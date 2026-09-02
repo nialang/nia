@@ -23,7 +23,7 @@ using types::{
 };
 
 pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
-    os::getcwd(buffer).as_fs_error()
+    !(os::getcwd(buffer).?)
 }
 
 const max_i64_as_u64: u64 = 9223372036854775807u64;
@@ -168,14 +168,14 @@ extend Dir {
         let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(Operation::OpenFile).?,
             path.ptr(),
-            options.osMode().as_fs_error().withOperation(Operation::OpenFile).?,
+            options.osMode().withOperation(Operation::OpenFile).?,
             false,
             false,
             false,
             false,
             0,
             true,
-        ).as_fs_error().withOperation(Operation::OpenFile).?;
+        ).withOperation(Operation::OpenFile).?;
         !File::fromOwnedDescriptor(handle)
     }
 
@@ -190,7 +190,7 @@ extend Dir {
             false,
             0,
             options.followSymlinks(),
-        ).as_fs_error().withOperation(Operation::OpenDir).?;
+        ).withOperation(Operation::OpenDir).?;
         !Dir::fromOwnedDescriptor(handle)
     }
 
@@ -198,14 +198,14 @@ extend Dir {
         let handle = os::openAtBeneath(
             self.borrowHandle().withOperation(Operation::CreateFile).?,
             path.ptr(),
-            options.osMode().as_fs_error().withOperation(Operation::CreateFile).?,
+            options.osMode().withOperation(Operation::CreateFile).?,
             false,
             true,
             options.truncate(),
             options.isExclusive(),
             options.permissions(),
             true,
-        ).as_fs_error().withOperation(Operation::CreateFile).?;
+        ).withOperation(Operation::CreateFile).?;
         !File::fromOwnedDescriptor(handle)
     }
 
@@ -233,7 +233,7 @@ extend Dir {
             parent.ptr(),
             name.ptr(),
             options.permissions(),
-        ).as_fs_error().withOperation(Operation::CreateDir)
+        ).withOperation(Operation::CreateDir)
     }
 
     pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!() {
@@ -270,7 +270,7 @@ extend Dir {
             parent.ptr(),
             name.ptr(),
             directory,
-        ).as_fs_error().withOperation(operation)
+        ).withOperation(operation)
     }
 
     pub fn renameNativeTo(
@@ -323,7 +323,7 @@ extend Dir {
             newDir.borrowHandle().withOperation(Operation::Rename).?,
             newParent.ptr(),
             newName.ptr(),
-        ).as_fs_error().withOperation(Operation::Rename)
+        ).withOperation(Operation::Rename)
     }
 
     pub fn nativeMetadata(&self, path: RelativeNativePathView, options: MetadataOptions) OperationError!Metadata {
@@ -331,7 +331,7 @@ extend Dir {
             self.borrowHandle().withOperation(Operation::Metadata).?,
             path.ptr(),
             options.followSymlinks(),
-        ).as_fs_error().withOperation(Operation::Metadata).?;
+        ).withOperation(Operation::Metadata).?;
         !metadata.as_fs_metadata()
     }
 
@@ -348,12 +348,12 @@ extend File {
         let handle = os::openAt(
             os::cwd(),
             native.ptr(),
-            options.osMode().as_fs_error().withOperation(Operation::OpenFile).?,
+            options.osMode().withOperation(Operation::OpenFile).?,
             false,
             false,
             false,
             0,
-        ).as_fs_error().withOperation(Operation::OpenFile).?;
+        ).withOperation(Operation::OpenFile).?;
         !File::fromOwnedDescriptor(handle)
     }
 
@@ -363,12 +363,12 @@ extend File {
         let handle = os::openAt(
             os::cwd(),
             native.ptr(),
-            options.osMode().as_fs_error().withOperation(Operation::CreateFile).?,
+            options.osMode().withOperation(Operation::CreateFile).?,
             true,
             options.truncate(),
             options.isExclusive(),
             options.permissions(),
-        ).as_fs_error().withOperation(Operation::CreateFile).?;
+        ).withOperation(Operation::CreateFile).?;
         !File::fromOwnedDescriptor(handle)
     }
 
@@ -376,15 +376,15 @@ extend File {
         if offset > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
-        self.borrowHandle().?.seek(offset as i64, os::SeekWhence::Start).as_fs_error()
+        !(self.borrowHandle().?.seek(offset as i64, os::SeekWhence::Start).?)
     }
 
     pub fn seekBy(&self, delta: i64) Error!u64 {
-        self.borrowHandle().?.seek(delta, os::SeekWhence::Current).as_fs_error()
+        !(self.borrowHandle().?.seek(delta, os::SeekWhence::Current).?)
     }
 
     pub fn seekFromEnd(&self, delta: i64) Error!u64 {
-        self.borrowHandle().?.seek(delta, os::SeekWhence::End).as_fs_error()
+        !(self.borrowHandle().?.seek(delta, os::SeekWhence::End).?)
     }
 
     pub fn len(&self) Error!u64 {
@@ -401,19 +401,19 @@ extend File {
         if len > max_i64_as_u64 {
             return Error::OutOfRange!;
         }
-        self.borrowHandle().?.truncate(len).as_fs_error()
+        !(self.borrowHandle().?.truncate(len).?)
     }
 
     pub fn setPermissions(&self, permissions: u32) Error!() {
-        self.borrowHandle().?.setPermissions(permissions).as_fs_error()
+        !(self.borrowHandle().?.setPermissions(permissions).?)
     }
 
     pub fn sync(&self) Error!() {
-        self.borrowHandle().?.sync().as_fs_error()
+        !(self.borrowHandle().?.sync().?)
     }
 
     pub fn syncData(&self) Error!() {
-        self.borrowHandle().?.syncData().as_fs_error()
+        !(self.borrowHandle().?.syncData().?)
     }
 
 }

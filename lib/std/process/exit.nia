@@ -26,7 +26,7 @@ extend debug::Error {
 
 extend[T] debug::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: debug::Error -> cause.into_error())
     }
 }
 
@@ -47,7 +47,7 @@ extend cstring::CStringBuildError {
 
 extend[T] cstring::CStringBuildError!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: cstring::CStringBuildError -> cause.into_error())
     }
 }
 
@@ -148,7 +148,7 @@ extend io::Error {
 
 extend[T] io::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: io::Error -> cause.into_error())
     }
 }
 
@@ -201,25 +201,25 @@ extend Error {
 
 extend[T] Error!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: Error -> cause.into_error())
     }
 }
 
 extend[T] fs::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: fs::Error -> cause.into_error())
     }
 }
 
 extend[T] fs::PathError!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: fs::PathError -> cause.into_error())
     }
 }
 
 extend[T] fs::OperationError!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: fs::OperationError -> cause.into_error())
     }
 }
 
@@ -243,7 +243,7 @@ extend fmt::Error {
 
 extend[T] fmt::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: fmt::Error -> cause.into_error())
     }
 }
 
@@ -266,7 +266,7 @@ extend io::BufferError {
 
 extend[T] io::BufferError!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: io::BufferError -> cause.into_error())
     }
 }
 
@@ -289,6 +289,6 @@ extend mem::Error {
 
 extend[T] mem::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: mem::Error -> cause.into_error())
     }
 }
