@@ -118,6 +118,9 @@ pub struct BodyProgramContext<'a> {
     pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
     /// Resolves extension methods by source name.
     pub extension_methods_named: Option<ExtensionMethodsNamed<'a>>,
+    /// Loads a checked default expression by field identity.
+    pub field_default_template:
+        Option<&'a dyn Fn(GlobalDefId) -> Option<Arc<nia_body_ir::TypedExpr>>>,
 }
 
 impl BodyProgramContext<'_> {
@@ -133,6 +136,7 @@ impl BodyProgramContext<'_> {
             visible_extensions: None,
             extension_method_by_id: None,
             extension_methods_named: None,
+            field_default_template: None,
         }
     }
 }

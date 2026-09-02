@@ -167,6 +167,7 @@ fn body_check_target_layout_error(target: &TargetConfig) -> BodyCheck {
         provider_demands_by_function: HashMap::new(),
         diagnostic_owners: vec![None],
         diagnostics: Arc::new(vec![diagnostic]),
+        field_default_templates: Arc::new(HashMap::new()),
     }
 }
 
@@ -450,6 +451,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             provider_demands_by_function: checker.provider_demands_by_function.borrow().clone(),
             diagnostic_owners: checker.diagnostic_owners,
             diagnostics: Arc::new(checker.diagnostics),
+            field_default_templates: Arc::new(checker.field_default_templates),
         }
     })
 }

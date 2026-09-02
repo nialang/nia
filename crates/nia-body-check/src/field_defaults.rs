@@ -13,13 +13,20 @@ impl BodyChecker<'_> {
     pub(super) fn lower_field_default_templates(&mut self) {
         let fields = self.field_default_sources.keys().copied().collect::<Vec<_>>();
         for field in fields {
-            let _ = self.local_field_default_template(field);
+            let _ = self.field_default_template(field);
         }
     }
 
-    fn local_field_default_template(&mut self, field: GlobalDefId) -> Option<TypedExpr> {
+    fn field_default_template(&mut self, field: GlobalDefId) -> Option<TypedExpr> {
         if let Some(template) = self.field_default_templates.get(&field) {
             return Some(template.clone());
+        }
+        if field.module_id != self.defs.module_id {
+            return self
+                .program
+                .field_default_template
+                .and_then(|load| load(field))
+                .map(|template| (*template).clone());
         }
         let source = self.field_default_sources.get(&field)?.clone();
         if !self.active_field_default_templates.insert(field) {
@@ -130,7 +137,7 @@ impl BodyChecker<'_> {
         if struct_id.module_id != self.defs.module_id {
             return None;
         }
-        let template = self.local_field_default_template(field)?;
+        let template = self.field_default_template(field)?;
         let (args, const_args) = match self.interner.get(aggregate_ty)?.clone() {
             nia_ty::TyKind::Nominal {
                 args, const_args, ..

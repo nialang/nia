@@ -1299,6 +1299,7 @@ fn final_executable_checked_modules(
                             checked_functions: state.checked_functions,
                             diagnostic_owners: state.diagnostic_owners,
                             diagnostics: state.diagnostics,
+                            field_default_templates: HashMap::new(),
                         }),
                         state.provider_demands,
                     ),

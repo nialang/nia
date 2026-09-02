@@ -66,6 +66,7 @@ pub(in crate::query) fn provide_executable_static_init(
                 checked_functions: HashSet::new(),
                 diagnostic_owners: Vec::new(),
                 diagnostics: Vec::new(),
+                field_default_templates: HashMap::new(),
             }),
         },
     )?;
