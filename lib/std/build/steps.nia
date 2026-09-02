@@ -8,6 +8,7 @@ using pkg::collections;
 using pkg::mem;
 using pkg::string;
 using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::build::commands;
 using pkg::build::error;
 using pkg::build::types;
 
@@ -15,6 +16,7 @@ using error::Error;
 using types::{
     AggregateStep,
     BuildPathView,
+    ExternalCommandOptions,
     ExecutableHandle,
     ExecutableStep,
     GeneratedFileStep,
@@ -26,6 +28,9 @@ using types::{
     RunOptions,
     StaticArchiveHandle,
     StaticArchiveStep,
+    Step,
+    StepKind,
+    StepPayload,
     UncacheableStep,
 };
 
@@ -185,6 +190,134 @@ extend RunExecutableStep {
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
+        cleanupResult(firstError)
+    }
+}
+
+extend Step {
+    pub(pkg) fn initSimple(index: usize, kind: StepKind, payload: StepPayload) Step {
+        .{ index, name: .init(), kind, payload }
+    }
+
+    pub(pkg) fn initAggregate(index: usize) Step {
+        .{ index, name: .init(), kind: .Aggregate, payload: .{ aggregate: .init() } }
+    }
+
+    pub(pkg) fn initGeneratedFile(index: usize) Step {
+        .{ index, name: .init(), kind: .GeneratedFile, payload: .{ generatedFile: .init() } }
+    }
+
+    pub(pkg) fn initUncacheable(index: usize) Step {
+        .{ index, name: .init(), kind: .Uncacheable, payload: .{ uncacheable: .init() } }
+    }
+
+    pub(pkg) fn initRunExecutable(
+        index: usize,
+        kind: StepKind,
+        target: ExecutableHandle,
+    ) Step {
+        .{ index, name: .init(), kind, payload: .{ runExecutable: .init(target) } }
+    }
+
+    pub(pkg) fn initInstallExecutable(index: usize, target: ExecutableHandle) Step {
+        .{ index, name: .init(), kind: .InstallExecutable, payload: .{ installExecutable: .init(target) } }
+    }
+
+    pub(pkg) fn initInstallStaticArchive(index: usize, target: StaticArchiveHandle) Step {
+        .{ index, name: .init(), kind: .InstallStaticArchive, payload: .{ installStaticArchive: .init(target) } }
+    }
+
+    pub(pkg) fn initExternalCommand(index: usize, options: ExternalCommandOptions) Step {
+        .{ index, name: .init(), kind: .ExternalCommand, payload: .{ externalCommand: .init(options) } }
+    }
+
+    pub(pkg) fn initializeGeneratedFile(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        output: BuildPathView,
+        contents: &[u8],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.payload.generatedFile.initialize(allocator, output, contents, self.index)
+    }
+
+    pub(pkg) fn initializeUncacheable(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        description: &[char],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.payload.uncacheable.initialize(allocator, description, self.index)
+    }
+
+    pub(pkg) fn initializeRunExecutable(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        arguments: ?&[&[char]],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.payload.runExecutable.initialize(allocator, arguments, self.index)
+    }
+
+    pub(pkg) fn initializeInstallExecutable(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        destination: BuildPathView,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.payload.installExecutable.initialize(allocator, destination, self.index)
+    }
+
+    pub(pkg) fn initializeInstallStaticArchive(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        destination: BuildPathView,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.payload.installStaticArchive.initialize(allocator, destination, self.index)
+    }
+
+    pub(pkg) fn initializeExternalCommand(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        options: ExternalCommandOptions,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        self.payload.externalCommand.initialize(allocator, options, self.index)
+    }
+
+    pub(pkg) fn initializeName(&mut self, allocator: &mut mem::Allocator, name: &[char]) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Step(self.index)).?;
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        if self.kind == StepKind::Uncacheable {
+            rememberCleanupError(&mut firstError, self.payload.uncacheable.deinit(allocator, self.index));
+        }
+        if self.kind == StepKind::GeneratedFile {
+            rememberCleanupError(&mut firstError, self.payload.generatedFile.deinit(allocator, self.index));
+        }
+        if self.kind == StepKind::RunExecutable or self.kind == StepKind::TestExecutable {
+            rememberCleanupError(&mut firstError, self.payload.runExecutable.deinit(allocator, self.index));
+        }
+        if self.kind == StepKind::InstallExecutable {
+            rememberCleanupError(&mut firstError, self.payload.installExecutable.deinit(allocator, self.index));
+        }
+        if self.kind == StepKind::InstallStaticArchive {
+            rememberCleanupError(&mut firstError, self.payload.installStaticArchive.deinit(allocator, self.index));
+        }
+        if self.kind == StepKind::ExternalCommand {
+            rememberCleanupError(&mut firstError, self.payload.externalCommand.deinit(allocator, self.index));
+        }
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Step(self.index)));
         cleanupResult(firstError)
     }
 }
