@@ -14,6 +14,7 @@ using types::{
     ExecutableHandle,
     ModuleHandle,
     ObjectHandle,
+    PackageHandle,
     StaticArchiveHandle,
     StepDependency,
     StepHandle,
@@ -82,6 +83,15 @@ extend StaticArchiveHandle {
 
 extend ModuleHandle {
     pub(pkg) fn init(ownerId: usize, index: usize) ModuleHandle {
+        .{ ownerId, index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize { self.ownerId }
+    pub(pkg) fn index(&self) usize { self.index }
+}
+
+extend PackageHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) PackageHandle {
         .{ ownerId, index }
     }
 

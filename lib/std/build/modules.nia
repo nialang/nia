@@ -1,0 +1,279 @@
+// Package and module descriptors retained by a build graph.
+//
+// Borrowed options are copied into owned package/module records. Generated
+// module roots stay build-relative and every import owns its name and path.
+
+using pkg::fs;
+using pkg::mem;
+using pkg::string;
+using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::build::error;
+using pkg::build::paths::isValidBuildPath;
+using pkg::build::types;
+
+using error::Error;
+using types::{
+    BuildPathView,
+    Module,
+    ModuleImport,
+    ModuleOptions,
+    ModuleSourceRoot,
+    OptimizationMode,
+    OwnedModuleImport,
+    Package,
+    PackageHandle,
+    PackageOptions,
+};
+
+extend ModuleOptions {
+    pub fn init(name: &[char], rootSource: fs::PathView) ModuleOptions {
+        .{
+            name,
+            sourceRoot: .Package,
+            package: null,
+            rootSource,
+            optimization: null,
+            imports: null,
+        }
+    }
+
+    pub fn fromPackage(
+        name: &[char],
+        package: PackageHandle,
+        rootSource: fs::PathView,
+    ) ModuleOptions {
+        .{
+            name,
+            sourceRoot: .Package,
+            package: ?package,
+            rootSource,
+            optimization: null,
+            imports: null,
+        }
+    }
+
+    pub fn fromBuild(name: &[char], rootSource: BuildPathView) ModuleOptions {
+        .{
+            name,
+            sourceRoot: .Build,
+            package: null,
+            rootSource: .init(rootSource.text()),
+            optimization: null,
+            imports: null,
+        }
+    }
+
+    pub fn withOptimization(self, optimization: OptimizationMode) ModuleOptions {
+        .{
+            name: self.name,
+            sourceRoot: self.sourceRoot,
+            package: self.package,
+            rootSource: self.rootSource,
+            optimization: ?optimization,
+            imports: self.imports,
+        }
+    }
+
+    pub fn withImports(self, imports: &[ModuleImport]) ModuleOptions {
+        .{
+            name: self.name,
+            sourceRoot: self.sourceRoot,
+            package: self.package,
+            rootSource: self.rootSource,
+            optimization: self.optimization,
+            imports: ?imports,
+        }
+    }
+}
+
+extend PackageOptions {
+    pub fn init(name: &[char], root: fs::PathView) PackageOptions {
+        .{ name, root }
+    }
+}
+
+extend Package {
+    pub(pkg) fn init(index: usize) Package {
+        .{ index, name: .init(), root: .init() }
+    }
+
+    pub(pkg) fn initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
+        self.name = string::String::fromSlice(allocator, options.name).withBuildContext(.Retain, .Package(self.index)).?;
+        self.root = fs::Path::fromView(allocator, options.root).withBuildContext(.Retain, .Package(self.index)).?;
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.root.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
+extend Module {
+    pub(pkg) fn init(
+        index: usize,
+        sourceRoot: ModuleSourceRoot,
+        package: PackageHandle,
+        optimization: OptimizationMode,
+    ) Module {
+        .{ index, name: .init(), sourceRoot, package, rootSource: .init(), optimization, imports: .init() }
+    }
+
+    pub(pkg) fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        rootSource: fs::PathView,
+        imports: ?&[ModuleImport],
+        ownerId: usize,
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Module(self.index)).?;
+        self.rootSource = fs::Path::fromView(allocator, rootSource).withBuildContext(.Retain, .Module(self.index)).?;
+        let items = if imports is ?values { values } else { &[] };
+        self.imports.reserve(allocator, items.len()).withBuildContext(.Retain, .Modules).?;
+        let mut index: usize = 0;
+        for &import in items.iter() {
+            self.imports.appendAssumeCapacity(.init(import, index, ownerId));
+            self.imports.asMutSlice()[index].initialize(allocator, import).?;
+            index += 1;
+        }
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        let mut elementError: ?Error = null;
+        let mut index = self.imports.len();
+        while index != 0 {
+            index -= 1;
+            rememberCleanupError(&mut elementError, self.imports.asMutSlice()[index].deinit(allocator));
+        }
+        if elementError is null {
+            rememberCleanupError(&mut firstError, self.imports.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
+extend ModuleImport {
+    pub fn init(name: &[char], path: fs::PathView) ModuleImport {
+        .{
+            name,
+            sourceRoot: .Package,
+            package: null,
+            path,
+        }
+    }
+
+    pub fn fromPackage(
+        name: &[char],
+        package: PackageHandle,
+        path: fs::PathView,
+    ) ModuleImport {
+        .{
+            name,
+            sourceRoot: .Package,
+            package: ?package,
+            path,
+        }
+    }
+
+    pub fn fromBuild(name: &[char], path: BuildPathView) ModuleImport {
+        .{
+            name,
+            sourceRoot: .Build,
+            package: null,
+            path: .init(path.text()),
+        }
+    }
+}
+
+extend OwnedModuleImport {
+    pub(pkg) fn init(
+        import: ModuleImport,
+        index: usize,
+        ownerId: usize,
+    ) OwnedModuleImport {
+        .{
+            index,
+            name: .init(),
+            sourceRoot: import.sourceRoot,
+            package: if import.package is ?package { package } else { .init(ownerId, 0) },
+            path: .init(),
+        }
+    }
+
+    pub(pkg) fn initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
+        self.name = string::String::fromSlice(allocator, import.name).withBuildContext(.Retain, .ModuleImport(self.index)).?;
+        self.path = fs::Path::fromView(allocator, import.path).withBuildContext(.Retain, .ModuleImport(self.index)).?;
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.path.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
+pub(pkg) fn validateModuleImports(imports: ?&[ModuleImport]) Error!() {
+    if imports is ?items {
+        let mut index: usize = 0;
+        for &import in items.iter() {
+            if not isValidModuleImportName(import.name) {
+                return Error::Invalid {
+                    operation: .Validate,
+                    subject: .ModuleImport(index),
+                }!;
+            }
+            if import.sourceRoot == ModuleSourceRoot::Build
+                and not isValidBuildPath(import.path.text())
+            {
+                return Error::Invalid {
+                    operation: .Validate,
+                    subject: .ModuleImport(index),
+                }!;
+            }
+            let mut oldIndex: usize = 0;
+            while oldIndex < index {
+                if items[oldIndex].name.equals(import.name) {
+                    return Error::Invalid {
+                        operation: .Validate,
+                        subject: .ModuleImport(index),
+                    }!;
+                }
+                oldIndex += 1;
+            }
+            index += 1;
+        }
+    }
+    !()
+}
+
+fn isValidModuleImportName(name: &[char]) bool {
+    if name.len() == 0 {
+        return false;
+    }
+    if name.equals(&"entry") or name.equals(&"pkg") {
+        return false;
+    }
+    for &ch in name.iter() {
+        let code = ch as u32;
+        let valid = (code >= 48 and code <= 57)
+            or (code >= 65 and code <= 90)
+            or (code >= 97 and code <= 122)
+            or code == 95
+            or code == 45;
+        if not valid {
+            return false;
+        }
+    }
+    true
+}
