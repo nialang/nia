@@ -62,7 +62,7 @@ extend Child {
         match self.takeStdin() {
             ?pipe => {
                 let mut owned = pipe;
-                owned.close().asProcessCloseError(StdStream::Stdin)
+                owned.close().withCloseContext(StdStream::Stdin)
             },
             null => {
                 !()
@@ -74,7 +74,7 @@ extend Child {
         match self.takeStdout() {
             ?pipe => {
                 let mut owned = pipe;
-                owned.close().asProcessCloseError(StdStream::Stdout)
+                owned.close().withCloseContext(StdStream::Stdout)
             },
             null => {
                 !()
@@ -86,7 +86,7 @@ extend Child {
         match self.takeStderr() {
             ?pipe => {
                 let mut owned = pipe;
-                owned.close().asProcessCloseError(StdStream::Stderr)
+                owned.close().withCloseContext(StdStream::Stderr)
             },
             null => {
                 !()
@@ -111,7 +111,7 @@ extend Child {
         }
         let pid = self.state.pid();
         self.closeStdin().?;
-        let status = os::wait(self.state.osPid()).asProcessWaitError().?;
+        let status = os::wait(self.state.osPid()).withWaitContext().?;
         self.state = ChildState::exited(pid, status);
         self.closePipes().?;
         !status
@@ -125,7 +125,7 @@ extend Child {
             null => {},
         }
         let pid = self.state.pid();
-        let status = os::tryWait(self.state.osPid()).asProcessTryWaitError().?;
+        let status = os::tryWait(self.state.osPid()).withTryWaitContext().?;
         match status {
             ?value => {
                 self.state = ChildState::exited(pid, value);
@@ -166,7 +166,7 @@ extend Child {
             },
             null => {},
         }
-        os::killWith(self.state.osPid(), signal as i32).asProcessKillError().?;
+        os::killWith(self.state.osPid(), signal as i32).withKillContext().?;
         self.wait()
     }
 }
@@ -261,7 +261,7 @@ extend ProcessId {
 }
 
 extend[T] io::Error!T {
-    fn asProcessCloseError(self, stream: StdStream) Error!T {
+    fn withCloseContext(self, stream: StdStream) Error!T {
         match self {
             !value => !value,
             cause! => Error::Close { stream: stream, cause: cause }!,
@@ -270,7 +270,7 @@ extend[T] io::Error!T {
 }
 
 extend[T] os::Error!T {
-    fn asProcessWaitError(self) Error!T {
+    fn withWaitContext(self) Error!T {
         match self {
             !value => !value,
             cause! => Error::Wait(SystemError::fromOs(cause))!,
@@ -279,7 +279,7 @@ extend[T] os::Error!T {
 }
 
 extend[T] os::Error!T {
-    fn asProcessTryWaitError(self) Error!T {
+    fn withTryWaitContext(self) Error!T {
         match self {
             !value => !value,
             cause! => Error::TryWait(SystemError::fromOs(cause))!,
@@ -288,7 +288,7 @@ extend[T] os::Error!T {
 }
 
 extend[T] os::Error!T {
-    fn asProcessKillError(self) Error!T {
+    fn withKillContext(self) Error!T {
         match self {
             !value => !value,
             cause! => Error::Kill(SystemError::fromOs(cause))!,

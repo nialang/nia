@@ -203,9 +203,9 @@ extend Command {
         };
 
         let mut options = os::SpawnOptions::init();
-        options.setStdin(self.stdin.asOsStdio()).asCommandSpawnSetupError().?;
-        options.setStdout(self.stdout.asOsStdio()).asCommandSpawnSetupError().?;
-        options.setStderr(self.stderr.asOsStdio()).asCommandSpawnSetupError().?;
+        options.setStdin(self.stdin.asOsStdio()).withSpawnSetupContext().?;
+        options.setStdout(self.stdout.asOsStdio()).withSpawnSetupContext().?;
+        options.setStderr(self.stderr.asOsStdio()).withSpawnSetupContext().?;
         match self.cwd {
             ?cwd => {
                 appendPath(allocator, &mut storage.cwdBytes, cwd).?;
@@ -523,7 +523,7 @@ fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
 }
 
 extend[T] os::Error!T {
-    fn asCommandSpawnSetupError(self) Error!T {
+    fn withSpawnSetupContext(self) Error!T {
         match self {
             !value => !value,
             cause! => Error::SpawnSetup(SystemError::fromOs(cause))!,

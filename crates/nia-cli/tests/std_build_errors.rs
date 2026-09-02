@@ -208,14 +208,14 @@ fn systemFailure() fs::OperationError!() {
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let path = match pathFailure().asBuildError(
+    let path = match pathFailure().withBuildContext(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
         !ok => { _ = ok; return process::exit(1)!; },
         cause! => cause,
     };
-    let system = match systemFailure().asBuildError(
+    let system = match systemFailure().withBuildContext(
         build::ErrorOperation::Publish,
         build::ErrorSubject::BuildPlan,
     ) {
