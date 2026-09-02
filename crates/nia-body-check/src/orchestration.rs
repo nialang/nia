@@ -330,6 +330,12 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
         inferred_closures: HashMap::new(),
+        field_default_sources: HashMap::new(),
+        field_default_templates: HashMap::new(),
+        active_field_default_templates: HashSet::new(),
+        current_field_default_owner: None,
+        next_instantiated_local_id: u32::try_from(input.locals.locals.len())
+            .unwrap_or(u32::MAX),
         generic_instantiations: Vec::new(),
         function_facts: HashMap::new(),
         function_bodies: HashMap::new(),
@@ -378,6 +384,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     }
     match checker.product {
         BodyCheckProduct::Full | BodyCheckProduct::BodyOnly => {
+            checker.lower_field_default_templates();
             time_body_stage(timing, "body_check.lower_checked", module_id, || {
                 checker.lower_checked_module(input.active_item_tree, timing, module_id);
             });

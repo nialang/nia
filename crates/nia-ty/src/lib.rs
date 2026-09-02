@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 mod substitution;
 
-pub use substitution::{array_len_from_const_arg, substitute_ty};
+pub use substitution::{array_len_from_const_arg, substitute_ty, substitute_ty_with_closures};
 
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
 
