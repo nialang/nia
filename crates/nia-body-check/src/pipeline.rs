@@ -59,6 +59,11 @@ impl<'a> BodyChecker<'a> {
         self.node_pattern_values = facts.node_pattern_values;
         self.node_resolved_calls = facts.node_resolved_calls;
         self.node_function_references = facts.node_function_references;
+        if self.field_default_templates.is_empty() {
+            let active_item_tree = self.active_item_tree.clone();
+            self.check_field_default_declarations(&active_item_tree);
+            self.lower_field_default_templates();
+        }
     }
 
     pub(super) fn load_type_facts(&mut self, module_id: ModuleId, facts: &SemanticFacts) {
@@ -337,6 +342,16 @@ impl<'a> BodyChecker<'a> {
                                 .collect::<HashMap<_, _>>()
                         })
                         .unwrap_or_default();
+                    let field_defs = def_id
+                        .and_then(|def_id| self.signatures.structs.get(&def_id))
+                        .map(|signature| {
+                            signature
+                                .fields
+                                .iter()
+                                .map(|field| (field.name, field.def_id))
+                                .collect::<HashMap<_, _>>()
+                        })
+                        .unwrap_or_default();
                     for field in &item_struct.fields {
                         let Some(default) = &field.default else {
                             continue;
@@ -349,7 +364,14 @@ impl<'a> BodyChecker<'a> {
                             ));
                         }
                         let expected = field_tys.get(&field.name).copied();
+                        let field_def_id = field_defs.get(&field.name).copied();
+                        let previous_owner = self.current_field_default_owner;
+                        self.current_field_default_owner = def_id.map(|def_id| GlobalDefId {
+                            module_id: self.defs.module_id,
+                            def_id,
+                        });
                         let actual = self.check_expr_with_expected(default, expected);
+                        self.current_field_default_owner = previous_owner;
                         if let Some(expected) = expected {
                             self.expect_expr_type(
                                 default,
@@ -357,6 +379,18 @@ impl<'a> BodyChecker<'a> {
                                 actual,
                                 "struct field default value",
                             );
+                            if let Some(field_def_id) = field_def_id {
+                                self.field_default_sources.insert(
+                                    GlobalDefId {
+                                        module_id: self.defs.module_id,
+                                        def_id: field_def_id,
+                                    },
+                                    crate::FieldDefaultSource {
+                                        value: default.clone(),
+                                        ty: expected,
+                                    },
+                                );
+                            }
                         }
                     }
                 }

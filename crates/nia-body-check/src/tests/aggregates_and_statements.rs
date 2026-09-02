@@ -85,6 +85,105 @@ fn main() i32 {
 }
 
 #[test]
+fn gives_each_default_block_expansion_fresh_local_identities() {
+    let checked = pipeline(
+        r#"
+struct Config {
+    value: i32 = { let base = 40; base + 2 },
+}
+
+fn main() i32 {
+    let first = Config {};
+    let second = Config {};
+    first.value + second.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let body = checked
+        .check
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let ids = body
+        .stmts
+        .iter()
+        .filter_map(|stmt| match &stmt.kind {
+            nia_body_ir::TypedStmtKind::Binding(binding) => binding.value.as_ref(),
+            _ => None,
+        })
+        .filter_map(|expr| match &expr.kind {
+            nia_body_ir::TypedExprKind::StructLiteral { fields, .. } => fields.first(),
+            _ => None,
+        })
+        .filter_map(|field| match &field.value.kind {
+            nia_body_ir::TypedExprKind::Block(block) => block.locals.first().map(|local| local.id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+}
+
+#[test]
+fn instantiates_one_generic_default_template_with_distinct_types() {
+    let checked = pipeline(
+        r#"
+struct Holder[T] {
+    value: ?T = null,
+}
+
+fn main() {
+    let ints = Holder[i32] {};
+    let bools = Holder[bool] {};
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let body = checked
+        .check
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let default_types = body
+        .stmts
+        .iter()
+        .filter_map(|stmt| match &stmt.kind {
+            nia_body_ir::TypedStmtKind::Binding(binding) => binding.value.as_ref(),
+            _ => None,
+        })
+        .filter_map(|expr| match &expr.kind {
+            nia_body_ir::TypedExprKind::StructLiteral { fields, .. } => {
+                fields.first().map(|field| field.value.ty)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(default_types.len(), 2);
+    let optional_elements = default_types
+        .into_iter()
+        .map(|ty| match checked.type_store.get(ty) {
+            Some(nia_ty::TyKind::Optional { elem }) => *elem,
+            other => panic!("expected optional default type, got {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        checked.type_store.get(optional_elements[0]),
+        Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+    ));
+    assert!(matches!(
+        checked.type_store.get(optional_elements[1]),
+        Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+    ));
+}
+
+#[test]
 fn still_rejects_omitted_required_struct_fields() {
     let checked = pipeline(
         r#"
