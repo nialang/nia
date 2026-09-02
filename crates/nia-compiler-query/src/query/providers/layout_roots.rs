@@ -420,6 +420,7 @@ mod tests {
                     def_id: nia_defs::DefId(2),
                     name: SymbolId::from_stable_hash(nia_symbol::stable_hash("values")),
                     ty: field_ty,
+                    has_default: false,
                     span: nia_span::Span::default(),
                 }],
                 is_tuple: false,
