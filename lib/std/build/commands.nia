@@ -9,6 +9,7 @@ using pkg::mem;
 using pkg::string;
 using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
 using pkg::build::error;
+using pkg::build::paths::{isValidBuildPath, isValidPackagePath};
 using pkg::build::types;
 
 using error::Error;
@@ -17,7 +18,9 @@ using types::{
     BuildPathView,
     CommandArgument,
     CommandArgumentKind,
+    CommandCachePolicy,
     CommandEnvironmentInput,
+    CommandEnvironmentPolicy,
     ExecutableHandle,
     ExternalCommandOptions,
     ExternalCommandStep,
@@ -59,6 +62,137 @@ extend CommandArgument {
         .{ kind: .StaticArchiveInput, payload: .{ staticArchive }, package: .init(0, 0) }
     }
 }
+
+pub(pkg) fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() {
+    if arguments is ?values {
+        for &value in values.iter() {
+            if runArgumentContainsNul(value) {
+                return Error::Invalid {
+                    operation: .Validate,
+                    subject: .Step(index),
+                }!;
+            }
+        }
+    }
+    !()
+}
+
+pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usize) Error!() {
+    if options.program.len() == 0
+        or runArgumentContainsNul(options.program)
+        or not isValidPackagePath(options.workingDirectory.text(), true)
+    {
+        return invalidStep(index);
+    }
+    match options.resourceClass {
+        .Conservative => {},
+        .Cpu => {},
+        .Io => {},
+        _ => return invalidStep(index),
+    }
+    match options.environmentPolicy {
+        .Inherit => {},
+        .Clear => {},
+        _ => return invalidStep(index),
+    }
+    match options.cachePolicy {
+        .Uncacheable => {},
+        .DeclaredInputs => {
+            if options.environmentPolicy != CommandEnvironmentPolicy::Clear {
+                return invalidStep(index);
+            }
+        },
+        _ => return invalidStep(index),
+    }
+    if options.environment is ?environment {
+        let mut environmentIndex: usize = 0;
+        while environmentIndex < environment.len() {
+            let input = environment[environmentIndex];
+            if environmentNameInvalid(input.name)
+                or runArgumentContainsNul(input.value)
+            {
+                return invalidStep(index);
+            }
+            let mut priorIndex: usize = 0;
+            while priorIndex < environmentIndex {
+                if environment[priorIndex].name.equals(input.name) {
+                    return invalidStep(index);
+                }
+                priorIndex += 1;
+            }
+            environmentIndex += 1;
+        }
+    }
+    let mut hasOutput = false;
+    if options.arguments is ?arguments {
+        for &argument in arguments.iter() {
+            if argument.kind == CommandArgumentKind::ArtifactInput
+                or argument.kind == CommandArgumentKind::ObjectInput
+                or argument.kind == CommandArgumentKind::StaticArchiveInput
+            {
+                continue;
+            }
+            let value = argument.payload.value;
+            if runArgumentContainsNul(value) {
+                return invalidStep(index);
+            }
+            if argument.kind == CommandArgumentKind::PackageInput
+                and not isValidPackagePath(value, false)
+            {
+                return invalidStep(index);
+            }
+            if argument.kind == CommandArgumentKind::BuildInput
+                and not isValidBuildPath(value)
+            {
+                return invalidStep(index);
+            }
+            if argument.kind == CommandArgumentKind::BuildOutput {
+                if not isValidBuildPath(value) {
+                    return invalidStep(index);
+                }
+                hasOutput = true;
+            } else if not (argument.kind == CommandArgumentKind::Literal
+                or argument.kind == CommandArgumentKind::PackageInput
+                or argument.kind == CommandArgumentKind::BuildInput)
+            {
+                return invalidStep(index);
+            }
+        }
+    }
+    if options.cachePolicy == CommandCachePolicy::DeclaredInputs and not hasOutput {
+        return invalidStep(index);
+    }
+    !()
+}
+
+fn invalidStep(index: usize) Error!() {
+    Error::Invalid {
+        operation: .Validate,
+        subject: .Step(index),
+    }!
+}
+
+fn runArgumentContainsNul(text: &[char]) bool {
+    for &ch in text.iter() {
+        if ch == '\0' {
+            return true;
+        }
+    }
+    false
+}
+
+fn environmentNameInvalid(text: &[char]) bool {
+    if text.len() == 0 {
+        return true;
+    }
+    for &ch in text.iter() {
+        if ch == '\0' or ch == '=' {
+            return true;
+        }
+    }
+    false
+}
+
 
 extend ExternalCommandOptions {
     // Search commands inherit the process environment and are uncacheable by
