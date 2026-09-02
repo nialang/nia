@@ -696,6 +696,61 @@ fn make() () {
 }
 
 #[test]
+fn parses_omitted_aggregate_and_member_constructors() {
+    let (module, errors) = parse_module(
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum Color {
+    Red,
+    Data(i32),
+}
+
+fn make(point: Point, color: Color) Point {
+    let a: Point = .{ x: 1, y: 2 };
+    let b: Color = .Red;
+    let c: Color = .Data(3);
+    _ = point;
+    _ = color;
+    _ = b;
+    _ = c;
+    a
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(aggregate) = &body.stmts[0].kind else {
+        panic!("expected omitted aggregate binding");
+    };
+    assert!(matches!(
+        aggregate.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::OmittedAggregateLiteral { fields }) if fields.len() == 2
+    ));
+    let StmtKind::Binding(unit) = &body.stmts[1].kind else {
+        panic!("expected omitted unit variant binding");
+    };
+    assert!(matches!(
+        unit.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::OmittedMember { name }) if *name == sym("Red")
+    ));
+    let StmtKind::Binding(payload) = &body.stmts[2].kind else {
+        panic!("expected omitted payload variant binding");
+    };
+    assert!(matches!(
+        payload.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::Call { callee, args })
+            if args.len() == 1 && matches!(callee.kind, ExprKind::OmittedMember { name } if name == sym("Data"))
+    ));
+}
+
+#[test]
 fn rejects_removed_at_prefixed_builtin_call_syntax() {
     let (_, errors) = parse_module(
         r#"

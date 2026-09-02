@@ -545,6 +545,12 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(&field.value);
                 }
             }
+            ExprKind::OmittedAggregateLiteral { fields } => {
+                for field in fields {
+                    self.resolve_expr(&field.value);
+                }
+            }
+            ExprKind::OmittedMember { .. } => {}
             ExprKind::Unary { expr, .. }
             | ExprKind::OptionalSome { expr }
             | ExprKind::ErrorOk { expr }

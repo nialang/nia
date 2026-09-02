@@ -467,6 +467,16 @@ pub enum ExprKind {
         /// Field initializers.
         fields: Vec<FieldInit>,
     },
+    /// Struct literal whose nominal type is supplied by expected-type context.
+    OmittedAggregateLiteral {
+        /// Field initializers.
+        fields: Vec<FieldInit>,
+    },
+    /// Enum variant or associated item whose nominal owner is omitted.
+    OmittedMember {
+        /// Unqualified member name.
+        name: SymbolId,
+    },
     /// Unary operation.
     Unary {
         /// Unary operator.

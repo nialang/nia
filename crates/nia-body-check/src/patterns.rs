@@ -374,7 +374,9 @@ impl<'a> BodyChecker<'a> {
                 constructor,
                 fields,
             } => {
-                if self.enum_variant_info(constructor).is_some() {
+                if self.enum_variant_info(constructor).is_some()
+                    || self.omitted_enum_variant_info(constructor, target_ty).is_some()
+                {
                     self.check_enum_variant_pattern(
                         pattern.span,
                         constructor,
@@ -653,7 +655,10 @@ impl<'a> BodyChecker<'a> {
         coverage: Option<&mut PatternCoverage>,
         context: &str,
     ) {
-        let Some((enum_id, variant_def)) = self.enum_variant_info(variant_expr) else {
+        let Some((enum_id, variant_def)) = self
+            .enum_variant_info(variant_expr)
+            .or_else(|| self.omitted_enum_variant_info(variant_expr, target_ty))
+        else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 variant_expr.span,
@@ -994,7 +999,9 @@ impl<'a> BodyChecker<'a> {
             self.expect_expr_type(pattern, target_ty, pattern_ty, context);
         }
         if let Some(expected_enum) = enum_id
-            && let Some((variant_enum, variant_id)) = self.enum_variant_info(pattern)
+            && let Some((variant_enum, variant_id)) = self
+                .enum_variant_info(pattern)
+                .or_else(|| self.omitted_enum_variant_info(pattern, target_ty))
             && variant_enum == expected_enum
         {
             if let Some(previous) = covered_enum_variants.insert(variant_id, pattern.span) {

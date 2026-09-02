@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 use nia_ast::{ExprKind, ItemKind};
-use nia_body_ir::TypedExprKind;
+use nia_body_ir::{TypedExprKind, TypedStmtKind};
 use nia_ids::GlobalDefId;
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
@@ -46,6 +46,63 @@ fn sum(event: Event) i32 {
         })
         .count();
     assert_eq!(payload_variants, 2, "{:#?}", checked.ir.function_bodies);
+}
+
+#[test]
+fn checks_omitted_struct_and_enum_constructors_from_expected_types() {
+    let checked = pipeline(
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum Color {
+    Red,
+    Data(i32),
+}
+
+fn make() Point {
+    let point: Point = .{ x: 1, y: 2 };
+    let red: Color = .Red;
+    let data: Color = .Data(3);
+    _ = red;
+    _ = data;
+    point
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .find(|body| body.tail.is_some())
+        .expect("make body");
+    assert!(matches!(
+        body.stmts.first().map(|stmt| &stmt.kind),
+        Some(TypedStmtKind::Binding(_))
+    ));
+}
+
+#[test]
+fn checks_omitted_enum_patterns_and_exhaustiveness() {
+    let checked = pipeline(
+        r#"
+enum Color {
+    Red,
+    Data(i32),
+}
+
+fn score(color: Color) i32 {
+    match color {
+        .Red => 0,
+        .Data(value) => value,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]
