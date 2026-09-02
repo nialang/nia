@@ -23,6 +23,8 @@ pub struct EarlyConstLowerInputs<'a> {
     pub omitted_aggregate_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
     /// Variant identities assigned to omitted enum members.
     pub omitted_members: Option<&'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>>,
+    /// Owner types assigned to omitted associated-function callees.
+    pub omitted_associated_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
 }
 
 impl<'a> EarlyConstLowerInputs<'a> {
@@ -53,6 +55,15 @@ impl<'a> EarlyConstLowerInputs<'a> {
         self.omitted_members = Some(members);
         self
     }
+
+    /// Adds owner types for omitted associated-function callees.
+    pub fn with_omitted_associated_types(
+        mut self,
+        associated_types: &'a HashMap<VersionedNodeKey, InternedTyId>,
+    ) -> Self {
+        self.omitted_associated_types = Some(associated_types);
+        self
+    }
 }
 
 /// Required semantic inputs for producing resolved const IR.
@@ -70,6 +81,8 @@ pub struct ResolvedConstLowerInputs<'a> {
     pub omitted_aggregate_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
     /// Variant identities assigned to omitted enum members.
     pub omitted_members: Option<&'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>>,
+    /// Owner types assigned to omitted associated-function callees.
+    pub omitted_associated_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
 }
 
 impl<'a> ResolvedConstLowerInputs<'a> {
@@ -80,6 +93,7 @@ impl<'a> ResolvedConstLowerInputs<'a> {
             symbols: None,
             omitted_aggregate_types: None,
             omitted_members: None,
+            omitted_associated_types: None,
         }
     }
 
@@ -99,6 +113,15 @@ impl<'a> ResolvedConstLowerInputs<'a> {
         self.omitted_members = Some(members);
         self
     }
+
+    /// Adds owner types for omitted associated-function callees.
+    pub fn with_omitted_associated_types(
+        mut self,
+        associated_types: &'a HashMap<VersionedNodeKey, InternedTyId>,
+    ) -> Self {
+        self.omitted_associated_types = Some(associated_types);
+        self
+    }
 }
 
 pub(super) trait ConstLowerContext {
@@ -113,6 +136,8 @@ pub(super) trait ConstLowerContext {
     fn probe_omitted_aggregate_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
 
     fn probe_omitted_member(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId>;
+
+    fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
 
     fn resolve_name(
         &self,
@@ -202,6 +227,10 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
         self.omitted_members.and_then(|map| map.get(key).copied())
     }
 
+    fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.omitted_associated_types.and_then(|map| map.get(key).copied())
+    }
+
     fn resolve_name(
         &self,
         key: &VersionedNodeKey,
@@ -284,6 +313,10 @@ impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
 
     fn probe_omitted_member(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
         self.omitted_members.and_then(|map| map.get(key).copied())
+    }
+
+    fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.omitted_associated_types.and_then(|map| map.get(key).copied())
     }
 
     fn resolve_name(

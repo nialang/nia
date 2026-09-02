@@ -435,6 +435,28 @@ fn lower_call_with_context(
         ),
         _ => (callee, Vec::new()),
     };
+    if let nia_ast::ExprKind::OmittedMember { name } = &callee.kind
+        && let Some(target_ty) = context.probe_omitted_associated_type(&callee.node_key)
+    {
+        return Ok(EarlyConstExprKind::Call {
+            callee: Box::new(EarlyConstExpr {
+                span: callee.span,
+                kind: EarlyConstExprKind::AssociatedFunction {
+                    target: EarlyConstAssociatedTarget::Type(EarlyConstTypeArg {
+                        span: callee.span,
+                        ty_span: callee.span,
+                        ty: Some(target_ty),
+                    }),
+                    name: *name,
+                },
+            }),
+            generic_args,
+            args: args
+                .iter()
+                .map(|arg| lower_expr_internal(arg, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        });
+    }
     if let Some(def_id) = context.probe_type_prefix(&callee.node_key) {
         let fields = args
             .iter()
