@@ -210,7 +210,13 @@ impl ConstModuleLowerer<'_> {
             .signatures
             .functions
             .get(&def_id)
-            .map(|signature| signature.return_type);
+            .map(|signature| signature.return_type)
+            .or_else(|| {
+                function
+                    .return_type
+                    .as_ref()
+                    .and_then(|ty| self.input.semantic_uses.node_type_use(&ty.node_key))
+            });
         let (aggregate_types, omitted_members) = function
             .body
             .as_ref()
