@@ -37,13 +37,10 @@ The current core language keeps these systems outside the language surface:
 
 - garbage collection;
 - exceptions;
-- algebraic data types. Enums are C-style named integer sets, and a variant
-  cannot declare payload fields today. Payload-carrying variants are planned;
-  their design is deliberately still open, because Nia's recursive optional,
-  error-union, and nominal-struct patterns already cover much of what tagged
-  variants provide elsewhere, and the eventual form must fit Nia's explicit
-  layout, ABI, and exhaustiveness contracts rather than adopt another language's
-  enum model;
+- general algebraic data types. Nia provides nominal enums, including tuple and
+  named payload variants, but does not provide a general structural algebraic
+  data type system. Enum layout, ABI, and exhaustiveness remain explicit and
+  are fixed by each declaration;
 - an ownership and lifetime borrow checker. Nia does not track aliasing or
   infer lifetimes, and it has no RAII destructor protocol. It does perform the
   flow-sensitive checks needed to reject clearly invalid programs, including
