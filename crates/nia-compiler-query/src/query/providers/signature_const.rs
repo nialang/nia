@@ -196,6 +196,7 @@ pub(super) fn provide_signature_const_module(
             active_item_tree: &active_item_tree,
             defs: &defs,
             signatures: &signatures,
+            type_store: &db.context().type_store,
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,

@@ -5,6 +5,7 @@ use std::{
 
 use crate::{ConstModuleInput, ConstModuleLowering};
 use nia_ast::Expr;
+use nia_ast_walk::Visitor;
 use nia_const_ir::{
     ResolvedConstEnum, ResolvedConstEnumVariant, ResolvedConstExpr, ResolvedConstExprKind,
     ResolvedConstLocalInitializer, ResolvedConstModule,
@@ -17,6 +18,7 @@ use nia_local_resolve::LocalKind;
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
+use nia_ty::TyKind;
 
 /// Lowers active module const expressions into identity-resolved const IR.
 ///
@@ -41,7 +43,149 @@ struct ConstModuleLowerer<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+struct AggregateDefaultCollector<'lowerer, 'input, 'maps> {
+    lowerer: &'lowerer ConstModuleLowerer<'input>,
+    aggregate_types: &'maps HashMap<VersionedNodeKey, InternedTyId>,
+    defaults: HashMap<VersionedNodeKey, Vec<nia_ast::FieldInit>>,
+}
+
+impl<'ast> Visitor<'ast> for AggregateDefaultCollector<'_, '_, '_> {
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        let explicit = match &expr.kind {
+            nia_ast::ExprKind::TypedStructLiteral { fields, .. }
+            | nia_ast::ExprKind::QualifiedStructLiteral { fields, .. }
+            | nia_ast::ExprKind::OmittedAggregateLiteral { fields } => Some(fields.as_slice()),
+            _ => None,
+        };
+        if let Some(explicit) = explicit
+            && let Some(def_id) = self
+                .lowerer
+                .aggregate_def_for_expr(expr, self.aggregate_types)
+        {
+            let defaults = self.lowerer.default_fields_for(def_id, explicit);
+            if !defaults.is_empty() {
+                self.defaults.insert(expr.node_key.clone(), defaults);
+            }
+        }
+        nia_ast_walk::walk_expr(self, expr);
+    }
+}
+
 impl ConstModuleLowerer<'_> {
+    fn collect_aggregate_defaults(
+        &self,
+        expr: &Expr,
+        aggregate_types: &HashMap<VersionedNodeKey, InternedTyId>,
+    ) -> HashMap<VersionedNodeKey, Vec<nia_ast::FieldInit>> {
+        let mut collector = AggregateDefaultCollector {
+            lowerer: self,
+            aggregate_types,
+            defaults: HashMap::new(),
+        };
+        collector.visit_expr(expr);
+        collector.defaults
+    }
+
+    fn collect_aggregate_defaults_in_block(
+        &self,
+        block: &nia_ast::Block,
+        aggregate_types: &HashMap<VersionedNodeKey, InternedTyId>,
+    ) -> HashMap<VersionedNodeKey, Vec<nia_ast::FieldInit>> {
+        let mut collector = AggregateDefaultCollector {
+            lowerer: self,
+            aggregate_types,
+            defaults: HashMap::new(),
+        };
+        collector.visit_block(block);
+        collector.defaults
+    }
+
+    fn aggregate_def_for_expr(
+        &self,
+        expr: &Expr,
+        aggregate_types: &HashMap<VersionedNodeKey, InternedTyId>,
+    ) -> Option<GlobalDefId> {
+        match &expr.kind {
+            nia_ast::ExprKind::TypedStructLiteral { ty, .. } => self
+                .input
+                .semantic_uses
+                .node_type_prefix(&ty.node_key)
+                .or_else(|| {
+                    let ty = self.input.semantic_uses.node_type_use(&ty.node_key)?;
+                    match self.input.type_store.get(ty)? {
+                        TyKind::Nominal { def_id, .. } => Some(*def_id),
+                        _ => None,
+                    }
+                }),
+            nia_ast::ExprKind::QualifiedStructLiteral { target, .. } => {
+                self.input.semantic_uses.node_type_prefix(&target.node_key)
+            }
+            nia_ast::ExprKind::OmittedAggregateLiteral { .. } => {
+                let ty = aggregate_types.get(&expr.node_key)?;
+                match self.input.type_store.get(*ty)? {
+                    TyKind::Nominal { def_id, .. } => Some(*def_id),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn default_fields_for(
+        &self,
+        def_id: GlobalDefId,
+        explicit: &[nia_ast::FieldInit],
+    ) -> Vec<nia_ast::FieldInit> {
+        if def_id.module_id != self.input.defs.module_id {
+            return Vec::new();
+        }
+        let Some(item_struct) = self.input.active_item_tree.items.iter().find_map(|item| {
+            let ItemTreeNodeKind::Struct(item_struct) = &item.kind else {
+                return None;
+            };
+            (self.input.defs.def_nodes.get(&item.node_key) == Some(def_id.def_id))
+                .then_some(item_struct)
+        }) else {
+            return Vec::new();
+        };
+        if item_struct.is_tuple || item_struct.is_extern {
+            return Vec::new();
+        }
+        let mut inserted_default = false;
+        let mut expanded = Vec::with_capacity(item_struct.fields.len());
+        for declared in &item_struct.fields {
+            let matching = explicit
+                .iter()
+                .filter(|field| field.name == declared.name)
+                .cloned()
+                .collect::<Vec<_>>();
+            if matching.is_empty() {
+                if let Some(default) = &declared.default {
+                    inserted_default = true;
+                    expanded.push(nia_ast::FieldInit {
+                        span: declared.span,
+                        name: declared.name,
+                        value: default.clone(),
+                    });
+                }
+            } else {
+                expanded.extend(matching);
+            }
+        }
+        expanded.extend(
+            explicit
+                .iter()
+                .filter(|field| {
+                    !item_struct
+                        .fields
+                        .iter()
+                        .any(|declared| declared.name == field.name)
+                })
+                .cloned(),
+        );
+        inserted_default.then_some(expanded).unwrap_or_default()
+    }
+
     fn lower_module(&mut self) {
         for item in &self.input.active_item_tree.items {
             match &item.kind {
@@ -203,8 +347,7 @@ impl ConstModuleLowerer<'_> {
         let Some(def_id) = self.def_id_for_node(&function.node_key, function.span, kind) else {
             return;
         };
-        let function_locals = self.function_locals(function);
-        let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
+        let mut function_locals = self.function_locals(function);
         let expected_type = self
             .input
             .signatures
@@ -241,10 +384,20 @@ impl ConstModuleLowerer<'_> {
                 &local_types,
             );
         }
+        let aggregate_defaults = function.body.as_ref().map_or_else(HashMap::new, |body| {
+            self.collect_aggregate_defaults_in_block(body, &aggregate_types)
+        });
+        for fields in aggregate_defaults.values() {
+            for field in fields {
+                self.collect_expr_locals(&field.value, &mut function_locals);
+            }
+        }
+        let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
             .with_symbols(self.input.symbols)
             .with_omitted_constructor_maps(&aggregate_types, &omitted_members)
-            .with_omitted_associated_types(&omitted_associated_types);
+            .with_omitted_associated_types(&omitted_associated_types)
+            .with_aggregate_default_fields(&aggregate_defaults);
         match nia_const_ir::lower_function_resolved_with_context(function.span, function, &context)
         {
             Ok(function) => {
@@ -269,17 +422,24 @@ impl ConstModuleLowerer<'_> {
         expected_type: Option<InternedTyId>,
         expected_ref: Option<&nia_ast::TypeRef>,
     ) -> Option<ResolvedConstExpr> {
-        let mut allowed_locals = HashSet::new();
-        self.collect_expr_locals(expr, &mut allowed_locals);
-        let semantic_uses = self.semantic_uses_with_allowed_locals(&allowed_locals);
         let (aggregate_types, omitted_members) =
             self.omitted_constructor_maps(expr, expected_type, expected_ref);
         let omitted_associated_types =
             self.omitted_associated_maps(expr, expected_type, expected_ref);
+        let aggregate_defaults = self.collect_aggregate_defaults(expr, &aggregate_types);
+        let mut allowed_locals = HashSet::new();
+        self.collect_expr_locals(expr, &mut allowed_locals);
+        for fields in aggregate_defaults.values() {
+            for field in fields {
+                self.collect_expr_locals(&field.value, &mut allowed_locals);
+            }
+        }
+        let semantic_uses = self.semantic_uses_with_allowed_locals(&allowed_locals);
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
             .with_symbols(self.input.symbols)
             .with_omitted_constructor_maps(&aggregate_types, &omitted_members)
-            .with_omitted_associated_types(&omitted_associated_types);
+            .with_omitted_associated_types(&omitted_associated_types)
+            .with_aggregate_default_fields(&aggregate_defaults);
         match nia_const_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {
@@ -638,10 +798,7 @@ impl ConstModuleLowerer<'_> {
         HashMap::from([(callee.node_key.clone(), expected_type)])
     }
 
-    fn enum_def_for_type_ref(
-        &self,
-        type_ref: Option<&nia_ast::TypeRef>,
-    ) -> Option<GlobalDefId> {
+    fn enum_def_for_type_ref(&self, type_ref: Option<&nia_ast::TypeRef>) -> Option<GlobalDefId> {
         let type_ref = type_ref?;
         self.input
             .semantic_uses
