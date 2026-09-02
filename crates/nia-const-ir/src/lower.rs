@@ -118,18 +118,12 @@ fn lower_expr_internal(
         },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => EarlyConstExprKind::StructLiteral {
             ty: lower_type_arg(ty, context)?,
-            fields: fields
-                .iter()
-                .map(|field| lower_field_init_with_context(field, context))
-                .collect::<Result<Vec<_>, _>>()?,
+            fields: lower_aggregate_fields(expr, fields, context)?,
         },
         nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
             EarlyConstExprKind::EnumStructLiteral {
                 variant: Box::new(lower_expr_internal(target, context)?),
-                fields: fields
-                    .iter()
-                    .map(|field| lower_field_init_with_context(field, context))
-                    .collect::<Result<Vec<_>, _>>()?,
+                fields: lower_aggregate_fields(expr, fields, context)?,
             }
         }
         nia_ast::ExprKind::OmittedAggregateLiteral { fields } => {
@@ -145,10 +139,7 @@ fn lower_expr_internal(
                     ty_span: expr.span,
                     ty: Some(ty),
                 },
-                fields: fields
-                    .iter()
-                    .map(|field| lower_field_init_with_context(field, context))
-                    .collect::<Result<Vec<_>, _>>()?,
+                fields: lower_aggregate_fields(expr, fields, context)?,
             }
         }
         nia_ast::ExprKind::OmittedMember { name } => {
@@ -232,6 +223,19 @@ fn lower_expr_internal(
         span: expr.span,
         kind,
     })
+}
+
+fn lower_aggregate_fields(
+    expr: &nia_ast::Expr,
+    fields: &[nia_ast::FieldInit],
+    context: &dyn ConstLowerContext,
+) -> Result<Vec<EarlyConstFieldInit>, ConstLowerError> {
+    context
+        .probe_aggregate_default_fields(&expr.node_key)
+        .unwrap_or(fields)
+        .iter()
+        .map(|field| lower_field_init_with_context(field, context))
+        .collect()
 }
 
 /// Lowers directly to resolved IR and fails if any required semantic identity

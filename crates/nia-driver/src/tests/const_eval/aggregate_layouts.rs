@@ -1046,6 +1046,38 @@ fn main() i32 {
 }
 
 #[test]
+fn struct_field_defaults_are_const_evaluable() {
+    let root = temp_dir("struct_field_defaults_are_const_evaluable");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Config {
+    required: usize,
+    port: usize = 8080usize,
+    workers: usize = { let base = 2usize; base + 2usize },
+}
+
+const fn make(required: usize) Config {
+    let value: Config = .{ required };
+    value
+}
+
+const contextual: Config = .{ required: 3usize };
+const overridden: Config = Config { required: 5usize, port: 9000usize };
+const generated: Config = make(7usize);
+const n: usize = contextual.required + contextual.port + contextual.workers
+    + overridden.required + overridden.port + overridden.workers
+    + generated.required + generated.port + generated.workers;
+
+fn main() i32 { n as i32 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_struct_field_array_length_accepts_imported_repeat_count() {
     let root = temp_dir("imported_struct_field_array_length_accepts_imported_repeat_count");
     write(

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::resolve::unresolved_error;
 use crate::{ConstLowerError, ConstNameResolution};
+use nia_ast::FieldInit;
 use nia_ids::{InternedTyId, LocalId};
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
@@ -83,6 +84,8 @@ pub struct ResolvedConstLowerInputs<'a> {
     pub omitted_members: Option<&'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>>,
     /// Owner types assigned to omitted associated-function callees.
     pub omitted_associated_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
+    /// Default field initializers appended to aggregate literals.
+    pub aggregate_default_fields: Option<&'a HashMap<VersionedNodeKey, Vec<FieldInit>>>,
 }
 
 impl<'a> ResolvedConstLowerInputs<'a> {
@@ -94,6 +97,7 @@ impl<'a> ResolvedConstLowerInputs<'a> {
             omitted_aggregate_types: None,
             omitted_members: None,
             omitted_associated_types: None,
+            aggregate_default_fields: None,
         }
     }
 
@@ -122,6 +126,15 @@ impl<'a> ResolvedConstLowerInputs<'a> {
         self.omitted_associated_types = Some(associated_types);
         self
     }
+
+    /// Adds declaration defaults for aggregate literals.
+    pub fn with_aggregate_default_fields(
+        mut self,
+        defaults: &'a HashMap<VersionedNodeKey, Vec<FieldInit>>,
+    ) -> Self {
+        self.aggregate_default_fields = Some(defaults);
+        self
+    }
 }
 
 pub(super) trait ConstLowerContext {
@@ -138,6 +151,8 @@ pub(super) trait ConstLowerContext {
     fn probe_omitted_member(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId>;
 
     fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
+
+    fn probe_aggregate_default_fields(&self, key: &VersionedNodeKey) -> Option<&[FieldInit]>;
 
     fn resolve_name(
         &self,
@@ -228,7 +243,12 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
     }
 
     fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
-        self.omitted_associated_types.and_then(|map| map.get(key).copied())
+        self.omitted_associated_types
+            .and_then(|map| map.get(key).copied())
+    }
+
+    fn probe_aggregate_default_fields(&self, _key: &VersionedNodeKey) -> Option<&[FieldInit]> {
+        None
     }
 
     fn resolve_name(
@@ -316,7 +336,13 @@ impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
     }
 
     fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
-        self.omitted_associated_types.and_then(|map| map.get(key).copied())
+        self.omitted_associated_types
+            .and_then(|map| map.get(key).copied())
+    }
+
+    fn probe_aggregate_default_fields(&self, key: &VersionedNodeKey) -> Option<&[FieldInit]> {
+        self.aggregate_default_fields
+            .and_then(|defaults| defaults.get(key).map(Vec::as_slice))
     }
 
     fn resolve_name(

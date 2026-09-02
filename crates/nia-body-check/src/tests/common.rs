@@ -350,6 +350,7 @@ fn pipeline_with_options_and_trait_impls(
         active_item_tree: &active_item_tree,
         defs: &defs,
         signatures: &signatures,
+        type_store: &type_store,
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
