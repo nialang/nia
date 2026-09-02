@@ -249,20 +249,15 @@ extend DirIterator : Iterator {
             !value => value,
             error! => return ?(error!),
         };
-        let entry = match self.reader.next(handle) {
+        match self.reader.next(handle) {
             ?result => {
-                result.?
+                match result {
+                    !value => ?(!value.as_fs_dir_entry()),
+                    err! => ?(err.into_error()!),
+                }
             },
             null => {
-                return null;
-            },
-        };
-        match entry {
-            !value => {
-                ?(!value.as_fs_dir_entry())
-            },
-            err! => {
-                ?(err!)
+                null
             },
         }
     }
