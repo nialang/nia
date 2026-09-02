@@ -59,38 +59,29 @@ extend Child {
     }
 
     pub fn closeStdin(&mut self) Error!() {
-        match self.takeStdin() {
-            ?pipe => {
-                let mut owned = pipe;
-                owned.close().withCloseContext(StdStream::Stdin)
-            },
-            null => {
-                !()
-            },
+        if self.takeStdin() is ?pipe {
+            let mut owned = pipe;
+            owned.close().withCloseContext(StdStream::Stdin)
+        } else {
+            !()
         }
     }
 
     pub fn closeStdout(&mut self) Error!() {
-        match self.takeStdout() {
-            ?pipe => {
-                let mut owned = pipe;
-                owned.close().withCloseContext(StdStream::Stdout)
-            },
-            null => {
-                !()
-            },
+        if self.takeStdout() is ?pipe {
+            let mut owned = pipe;
+            owned.close().withCloseContext(StdStream::Stdout)
+        } else {
+            !()
         }
     }
 
     pub fn closeStderr(&mut self) Error!() {
-        match self.takeStderr() {
-            ?pipe => {
-                let mut owned = pipe;
-                owned.close().withCloseContext(StdStream::Stderr)
-            },
-            null => {
-                !()
-            },
+        if self.takeStderr() is ?pipe {
+            let mut owned = pipe;
+            owned.close().withCloseContext(StdStream::Stderr)
+        } else {
+            !()
         }
     }
 

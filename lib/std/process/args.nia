@@ -132,15 +132,11 @@ extend ArgsIter : Iterator {
     type Item = Arg;
 
     pub fn next(&mut self) ?Arg {
-        let value = match self.args.get(self.index) {
-            ?value => {
-                value
-            },
-            null => {
-                return null;
-            },
-        };
-        self.index += 1;
-        ?value
+        if self.args.get(self.index) is ?value {
+            self.index += 1;
+            ?value
+        } else {
+            null
+        }
     }
 }
