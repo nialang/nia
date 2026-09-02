@@ -40,6 +40,33 @@ fn main() i32 {
 }
 
 #[test]
+fn omitted_constructors_are_const_evaluable() {
+    let root = temp_dir("omitted_constructors_are_const_evaluable");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point { x: usize, y: usize }
+enum Color { Red, Data(usize) }
+
+const fn make_data() Color { .Data(8usize) }
+
+const point: Point = .{ x: 2usize, y: 3usize };
+const red: Color = .Red;
+const data: Color = .Data(4usize);
+const generated: Color = make_data();
+const n: usize = point.x + point.y;
+
+fn main() i32 {
+    n as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_match_nominal_struct_fields_have_typed_values() {
     let root = temp_dir("const_match_nominal_struct_fields_have_typed_values");
     write(

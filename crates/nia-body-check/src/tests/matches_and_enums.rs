@@ -109,9 +109,50 @@ fn score(color: Color) i32 {
         .Data(value) => value,
     }
 }
+
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_omitted_constructors_without_usable_expected_types() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32 }
+enum Color { Red, Data(i32) }
+
+fn missing() {
+    let value = .Red;
+    let point = .{ x: 1 };
+}
+
+fn wrong_type() i32 {
+    let value: i32 = .Red;
+    let point: Point = .Unknown;
+    value
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        summaries.iter().any(|summary| {
+            summary.contains("omitted constructor requires an expected nominal type")
+        }),
+        "{:#?}",
+        checked.diagnostics
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains("omitted member requires a call or enum expected type")),
+        "{:#?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
