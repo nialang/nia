@@ -687,6 +687,9 @@ impl Parser {
     }
 
     fn parse_primary_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        if let Some(expr) = self.parse_omitted_constructor() {
+            return Some(expr);
+        }
         if !stops.contains(&TokenKind::LBrace)
             && let Some(expr) = self.parse_qualified_struct_literal()
         {
@@ -772,6 +775,32 @@ impl Parser {
                 None
             }
         }
+    }
+
+    pub(super) fn parse_omitted_constructor(&mut self) -> Option<Expr> {
+        let checkpoint = self.checkpoint();
+        let errors_len = self.errors.len();
+        let dot = self.eat(TokenKind::Dot)?;
+        if self.eat(TokenKind::LBrace).is_some() {
+            let fields = self.parse_struct_literal_fields()?;
+            let end = self
+                .expect(TokenKind::RBrace, "expected `}` after omitted aggregate literal")?
+                .end;
+            return Some(self.make_expr(
+                Span::new(dot.span.start, end),
+                ExprKind::OmittedAggregateLiteral { fields },
+            ));
+        }
+        let Some(name) = self.expect_name(TokenKind::Ident, "expected name after omitted `.`")
+        else {
+            self.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        Some(self.make_expr(
+            Span::new(dot.span.start, self.previous_end()),
+            ExprKind::OmittedMember { name },
+        ))
     }
 
     fn parse_qualified_struct_literal(&mut self) -> Option<Expr> {

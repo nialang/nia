@@ -106,6 +106,45 @@ impl<'a> BodyChecker<'a> {
             ExprKind::QualifiedStructLiteral { target, fields } => {
                 self.check_qualified_struct_literal(expr, target, fields)
             }
+            ExprKind::OmittedAggregateLiteral { fields } => {
+                let Some(expected) = expected else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        "omitted constructor requires an expected nominal type",
+                    ));
+                    return self.error();
+                };
+                self.check_struct_literal(expr.span, expected, fields)
+            }
+            ExprKind::OmittedMember { name } => {
+                if let Some(expected) = expected
+                    && let Some((enum_id, variant_def)) =
+                        self.omitted_enum_variant_info(expr, expected)
+                {
+                    let variant_id = GlobalDefId {
+                        module_id: enum_id.module_id,
+                        def_id: variant_def,
+                    };
+                    if let Some((_, variant)) = self.resolved_enum_variant(variant_id)
+                        && !matches!(variant.payload, nia_item_signatures::EnumVariantPayloadSignature::Unit)
+                    {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TYPE_CHECK,
+                            expr.span,
+                            format!("enum variant `{}` requires a payload", self.symbol_name(*name)),
+                        ));
+                    }
+                    expected
+                } else {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    "omitted member requires a call or enum expected type",
+                ));
+                self.error()
+                }
+            }
             ExprKind::Unary { op, expr: inner } => {
                 let expected_ref_target = self
                     .expected_ref_target_from_expected(*op, expected)

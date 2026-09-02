@@ -389,6 +389,12 @@ impl ConstModuleLowerer<'_> {
                     self.collect_expr_locals(&field.value, out);
                 }
             }
+            nia_ast::ExprKind::OmittedAggregateLiteral { fields } => {
+                for field in fields {
+                    self.collect_expr_locals(&field.value, out);
+                }
+            }
+            nia_ast::ExprKind::OmittedMember { .. } => {}
             nia_ast::ExprKind::Unary { expr, .. }
             | nia_ast::ExprKind::OptionalSome { expr }
             | nia_ast::ExprKind::ErrorOk { expr }

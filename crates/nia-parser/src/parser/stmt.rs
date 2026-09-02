@@ -592,7 +592,9 @@ impl Parser {
         let checkpoint = self.checkpoint();
         let errors_len = self.errors.len();
         let (constructor, is_qualified) =
-            if let Some(constructor) = self.parse_qualified_value_path() {
+            if let Some(constructor) = self.parse_omitted_constructor() {
+                (constructor, true)
+            } else if let Some(constructor) = self.parse_qualified_value_path() {
                 (constructor, true)
             } else {
                 self.rewind(checkpoint);

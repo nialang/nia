@@ -838,6 +838,55 @@ impl<'a> BodyChecker<'a> {
         Some(self.enum_ty(enum_id))
     }
 
+    pub(crate) fn check_omitted_enum_variant_call(
+        &mut self,
+        expr: &Expr,
+        name: &SymbolId,
+        args: &[Expr],
+        expected: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let enum_id = self.enum_global_def_id(expected)?;
+        let variant_def = self
+            .enum_variant_scope(enum_id)?
+            .into_iter()
+            .find(|(variant_name, _)| variant_name == name)
+            .map(|(_, def_id)| def_id)?;
+        let variant_id = GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id: variant_def,
+        };
+        let (_, variant) = self.resolved_enum_variant(variant_id)?;
+        match &variant.payload {
+            EnumVariantPayloadSignature::Tuple(fields) => {
+                self.check_enum_tuple_payload(expr.span, &variant, fields, args);
+            }
+            EnumVariantPayloadSignature::Unit => {
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    format!("enum variant `{}` expects no payload", self.symbol_name(*name)),
+                ));
+            }
+            EnumVariantPayloadSignature::Named(_) => {
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    expr.span,
+                    format!(
+                        "enum variant `{}` expects a named payload literal",
+                        self.symbol_name(*name)
+                    ),
+                ));
+            }
+        }
+        Some(expected)
+    }
+
     /// Type-checks a positional struct constructor while preserving nominal identity.
     ///
     /// Tuple structs share storage and field identities with named structs, but their
@@ -1086,6 +1135,23 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .find(|(variant_name, _)| variant_name == name)
             .map(|(_, def_id)| *def_id)?;
+        Some((enum_id, variant_id))
+    }
+
+    pub(crate) fn omitted_enum_variant_info(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+    ) -> Option<(GlobalDefId, DefId)> {
+        let ExprKind::OmittedMember { name } = &expr.kind else {
+            return None;
+        };
+        let enum_id = self.enum_global_def_id(expected)?;
+        let variant_id = self
+            .enum_variant_scope(enum_id)?
+            .into_iter()
+            .find(|(variant_name, _)| variant_name == name)
+            .map(|(_, def_id)| def_id)?;
         Some((enum_id, variant_id))
     }
 

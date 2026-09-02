@@ -460,6 +460,12 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(&field.value);
             }
         }
+        ExprKind::OmittedAggregateLiteral { fields } => {
+            for field in fields {
+                visitor.visit_expr(&field.value);
+            }
+        }
+        ExprKind::OmittedMember { .. } => {}
         ExprKind::Unary { expr, .. }
         | ExprKind::OptionalSome { expr }
         | ExprKind::ErrorOk { expr }

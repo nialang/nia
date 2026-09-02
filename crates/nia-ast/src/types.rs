@@ -725,6 +725,16 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_fields_identity(out, "struct", fields);
             out.push(')');
         }
+        ExprKind::OmittedAggregateLiteral { fields } => {
+            out.push_str("omitted_struct(");
+            write_fields_identity(out, "struct", fields);
+            out.push(')');
+        }
+        ExprKind::OmittedMember { name } => {
+            out.push_str("omitted_member(");
+            write_symbol_identity(out, *name);
+            out.push(')');
+        }
         ExprKind::Unary { op, expr } => {
             out.push_str("unary(");
             out.push_str(unary_op_identity(*op));

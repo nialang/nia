@@ -460,6 +460,7 @@ impl<'a> BodyChecker<'a> {
             } => {
                 let variant_id = self
                     .enum_variant_info(constructor)
+                    .or_else(|| self.omitted_enum_variant_info(constructor, target_ty))
                     .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
                         module_id: enum_id.module_id,
                         def_id,
@@ -588,7 +589,14 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         target_ty: nia_ids::InternedTyId,
     ) -> TypedPatternKind {
-        if let Some(variant) = self.qualified_enum_variant(expr)
+        if let Some(variant) = self
+            .qualified_enum_variant(expr)
+            .or_else(|| self.omitted_enum_variant_info(expr, target_ty).map(|(enum_id, def_id)| {
+                nia_ids::GlobalDefId {
+                    module_id: enum_id.module_id,
+                    def_id,
+                }
+            }))
             && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
             && let Some(signature) = self.resolved_enum_signature(enum_id)
         {
@@ -834,6 +842,18 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.lower_ident_expr(expr)
             }
+            ExprKind::OmittedMember { .. } => {
+                let Some((enum_id, variant_def)) = self.omitted_enum_variant_info(expr, ty) else {
+                    return self.error_expr(expr.span);
+                };
+                TypedExprKind::EnumVariant {
+                    variant: nia_ids::GlobalDefId {
+                        module_id: enum_id.module_id,
+                        def_id: variant_def,
+                    },
+                    fields: Vec::new(),
+                }
+            }
             ExprKind::Qualified { .. } if self.builtin_value(expr).is_some() => {
                 match self.builtin_value(expr) {
                     Some(BuiltinValue::Int(value)) => {
@@ -904,7 +924,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, ty),
             },
-            ExprKind::TypedStructLiteral { fields, .. } => {
+            ExprKind::TypedStructLiteral { fields, .. }
+            | ExprKind::OmittedAggregateLiteral { fields } => {
                 let Some(def_id) = self.nominal_global_def(ty) else {
                     return TypedExpr {
                         span: expr.span,
@@ -1244,7 +1265,10 @@ impl<'a> BodyChecker<'a> {
                             })
                             .collect(),
                     }
-                } else if let Some((enum_id, variant_def)) = self.enum_variant_info(callee) {
+                } else if let Some((enum_id, variant_def)) = self
+                    .enum_variant_info(callee)
+                    .or_else(|| self.omitted_enum_variant_info(callee, ty))
+                {
                     TypedExprKind::EnumVariant {
                         variant: nia_ids::GlobalDefId {
                             module_id: enum_id.module_id,

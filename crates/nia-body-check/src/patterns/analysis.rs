@@ -117,7 +117,9 @@ impl BodyChecker<'_> {
                 fields,
             } => self.analysis_nominal_pattern(constructor, fields, target_ty),
             nia_ast::PatternKind::Expr(expr) => {
-                if let Some((enum_id, variant_def)) = self.enum_variant_info(expr)
+                if let Some((enum_id, variant_def)) = self
+                    .enum_variant_info(expr)
+                    .or_else(|| self.omitted_enum_variant_info(expr, target_ty))
                     && self.enum_global_def_id(target_ty) == Some(enum_id)
                     && let Some((_, variant)) = self.resolved_enum_variant(GlobalDefId {
                         module_id: enum_id.module_id,
@@ -200,7 +202,10 @@ impl BodyChecker<'_> {
         // algorithm compares constructor fields positionally, so omitted
         // fields must become typed wildcards before usefulness/exhaustiveness
         // is queried.
-        if let Some((enum_id, variant_def)) = self.enum_variant_info(constructor) {
+        if let Some((enum_id, variant_def)) = self
+            .enum_variant_info(constructor)
+            .or_else(|| self.omitted_enum_variant_info(constructor, target_ty))
+        {
             if self.enum_global_def_id(target_ty) != Some(enum_id) {
                 return AnalysisPattern::Opaque;
             }

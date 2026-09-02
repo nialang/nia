@@ -597,6 +597,13 @@ impl FlowChecker<'_> {
                 }
                 Flow { falls_through }
             }
+            ExprKind::OmittedAggregateLiteral { fields } => {
+                let mut falls_through = true;
+                for field in fields {
+                    falls_through &= self.check_expr_flow(&field.value).falls_through;
+                }
+                Flow { falls_through }
+            }
             ExprKind::Unary { expr, .. }
             | ExprKind::OptionalSome { expr }
             | ExprKind::ErrorOk { expr }
@@ -675,7 +682,8 @@ impl FlowChecker<'_> {
             | ExprKind::Underscore
             | ExprKind::TypeTarget { .. }
             | ExprKind::TraitTarget { .. }
-            | ExprKind::Qualified { .. } => Flow {
+            | ExprKind::Qualified { .. }
+            | ExprKind::OmittedMember { .. } => Flow {
                 falls_through: true,
             },
         }
