@@ -617,18 +617,18 @@ extend FileHandle {
 
     pub(pkg) fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
         let platform_whence = whence.asPlatformSeekWhence().?;
-        self.platform().seek(
+        !(self.platform().seek(
             offset,
             platform_whence,
-        ).?
+        ).?)
     }
 
     pub(pkg) fn truncate(&self, len: u64) Error!() {
-        self.platform().truncate(len).?
+        !(self.platform().truncate(len).?)
     }
 
     pub(pkg) fn setPermissions(&self, permissions: u32) Error!() {
-        self.platform().set_permissions(permissions).?
+        !(self.platform().set_permissions(permissions).?)
     }
 
     pub(pkg) fn sync(&self) Error!() {
@@ -636,7 +636,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn syncData(&self) Error!() {
-        self.platform().sync_data().?
+        !(self.platform().sync_data().?)
     }
 
     pub(pkg) fn metadata(&self) Error!FileMetadata {
