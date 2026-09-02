@@ -1,0 +1,383 @@
+// Build artifacts, target triples, and their declaration options.
+//
+// Public options are borrowed descriptors. The owned target records retain
+// names and archive relationships until the build plan has been encoded.
+
+using pkg::mem;
+using pkg::string;
+using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::build::error;
+using pkg::build::types;
+
+using error::Error;
+using error::ErrorSubject as Subject;
+using types::{
+    ExecutableOptions,
+    ExecutableTarget,
+    ModuleHandle,
+    ObjectOptions,
+    ObjectTarget,
+    StaticArchiveHandle,
+    StaticArchiveOptions,
+    StaticArchiveTarget,
+    TargetRole,
+    TargetStorage,
+    TargetView,
+};
+
+extend ExecutableTarget {
+    pub(pkg) fn init(
+        index: usize,
+        rootModule: ModuleHandle,
+        targetRole: TargetRole,
+    ) ExecutableTarget {
+        .{ index, name: .init(), rootModule, outputName: .init(), targetRole, staticArchives: .init() }
+    }
+
+    pub(pkg) fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        outputName: &[char],
+        staticArchives: ?&[StaticArchiveHandle],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Executable(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(.Retain, .Executable(self.index)).?;
+        if staticArchives is ?archives {
+            self.staticArchives.reserve(
+                allocator,
+                archives.len(),
+            ).withBuildContext(.Retain, .Executable(self.index)).?;
+            for &archive in archives.iter() {
+                self.staticArchives.appendAssumeCapacity(archive);
+            }
+        }
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.staticArchives.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
+extend ObjectTarget {
+    pub(pkg) fn init(
+        index: usize,
+        rootModule: ModuleHandle,
+        targetRole: TargetRole,
+    ) ObjectTarget {
+        .{ index, name: .init(), rootModule, outputName: .init(), targetRole }
+    }
+
+    pub(pkg) fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        outputName: &[char],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Object(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(.Retain, .Object(self.index)).?;
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
+extend StaticArchiveTarget {
+    pub(pkg) fn init(
+        index: usize,
+        rootModule: ModuleHandle,
+        targetRole: TargetRole,
+    ) StaticArchiveTarget {
+        .{ index, name: .init(), rootModule, outputName: .init(), targetRole }
+    }
+
+    pub(pkg) fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        name: &[char],
+        outputName: &[char],
+    ) Error!() {
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .StaticArchive(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(.Retain, .StaticArchive(self.index)).?;
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
+        cleanupResult(firstError)
+    }
+}
+
+extend TargetView {
+    pub fn init(
+        arch: &[char],
+        vendor: &[char],
+        os: &[char],
+        env: &[char],
+        abi: &[char],
+        endian: &[char],
+        pointerWidth: u32,
+    ) TargetView {
+        .{ arch, vendor, os, env, abi, endian, pointerWidth }
+    }
+
+    pub fn arch(&self) &[char] {
+        self.arch
+    }
+
+    pub fn vendor(&self) &[char] {
+        self.vendor
+    }
+
+    pub fn os(&self) &[char] {
+        self.os
+    }
+
+    pub fn env(&self) &[char] {
+        self.env
+    }
+
+    pub fn abi(&self) &[char] {
+        self.abi
+    }
+
+    pub fn endian(&self) &[char] {
+        self.endian
+    }
+
+    pub fn pointerWidth(&self) u32 {
+        self.pointerWidth
+    }
+
+    pub fn equals(&self, other: TargetView) bool {
+        self.arch.equals(other.arch)
+            and self.vendor.equals(other.vendor)
+            and self.os.equals(other.os)
+            and self.env.equals(other.env)
+            and self.abi.equals(other.abi)
+            and self.endian.equals(other.endian)
+            and self.pointerWidth == other.pointerWidth
+    }
+}
+
+extend TargetStorage {
+    pub(pkg) fn init(pointerWidth: u32) TargetStorage {
+        .{
+            arch: .init(),
+            vendor: .init(),
+            os: .init(),
+            env: .init(),
+            abi: .init(),
+            endian: .init(),
+            pointerWidth,
+        }
+    }
+
+    pub(pkg) fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        target: TargetView,
+        subject: Subject,
+    ) Error!() {
+        self.arch = string::String::fromSlice(allocator, target.arch).withBuildContext(.Retain, subject).?;
+        self.vendor = string::String::fromSlice(allocator, target.vendor).withBuildContext(.Retain, subject).?;
+        self.os = string::String::fromSlice(allocator, target.os).withBuildContext(.Retain, subject).?;
+        self.env = string::String::fromSlice(allocator, target.env).withBuildContext(.Retain, subject).?;
+        self.abi = string::String::fromSlice(allocator, target.abi).withBuildContext(.Retain, subject).?;
+        self.endian = string::String::fromSlice(allocator, target.endian).withBuildContext(.Retain, subject).?;
+        !()
+    }
+
+    pub(pkg) fn view(&self) TargetView {
+        .init(
+            self.arch.text(),
+            self.vendor.text(),
+            self.os.text(),
+            self.env.text(),
+            self.abi.text(),
+            self.endian.text(),
+            self.pointerWidth,
+        )
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(&mut firstError, self.endian.deinit(allocator).withBuildContext(.Release, subject));
+        rememberCleanupError(&mut firstError, self.abi.deinit(allocator).withBuildContext(.Release, subject));
+        rememberCleanupError(&mut firstError, self.env.deinit(allocator).withBuildContext(.Release, subject));
+        rememberCleanupError(&mut firstError, self.os.deinit(allocator).withBuildContext(.Release, subject));
+        rememberCleanupError(&mut firstError, self.vendor.deinit(allocator).withBuildContext(.Release, subject));
+        rememberCleanupError(&mut firstError, self.arch.deinit(allocator).withBuildContext(.Release, subject));
+        cleanupResult(firstError)
+    }
+}
+
+extend ExecutableOptions {
+    // Artifact target is the default. `forHost` is reserved for tools that must
+    // execute during this build; arbitrary target construction is not exposed.
+    pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
+        .{
+            name,
+            rootModule,
+            outputName: null,
+            targetRole: .Artifact,
+            staticArchives: null,
+        }
+    }
+
+    pub fn withOutputName(self, outputName: &[char]) ExecutableOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: ?outputName,
+            targetRole: self.targetRole,
+            staticArchives: self.staticArchives,
+        }
+    }
+
+    pub fn forHost(self) ExecutableOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            targetRole: .Host,
+            staticArchives: self.staticArchives,
+        }
+    }
+
+    pub fn withStaticArchives(self, staticArchives: &[StaticArchiveHandle]) ExecutableOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            targetRole: self.targetRole,
+            staticArchives: ?staticArchives,
+        }
+    }
+}
+
+extend ObjectOptions {
+    pub fn init(name: &[char], rootModule: ModuleHandle) ObjectOptions {
+        .{
+            name,
+            rootModule,
+            outputName: null,
+            targetRole: .Artifact,
+        }
+    }
+
+    pub fn withOutputName(self, outputName: &[char]) ObjectOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: ?outputName,
+            targetRole: self.targetRole,
+        }
+    }
+
+    pub fn forHost(self) ObjectOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            targetRole: .Host,
+        }
+    }
+}
+
+extend StaticArchiveOptions {
+    pub fn init(name: &[char], rootModule: ModuleHandle) StaticArchiveOptions {
+        .{
+            name,
+            rootModule,
+            outputName: null,
+            targetRole: .Artifact,
+        }
+    }
+
+    pub fn withOutputName(self, outputName: &[char]) StaticArchiveOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: ?outputName,
+            targetRole: self.targetRole,
+        }
+    }
+
+    pub fn forHost(self) StaticArchiveOptions {
+        .{
+            name: self.name,
+            rootModule: self.rootModule,
+            outputName: self.outputName,
+            targetRole: .Host,
+        }
+    }
+}
+
+pub(pkg) fn executableOutputName(options: ExecutableOptions) &[char] {
+    if options.outputName is ?name {
+        name
+    } else {
+        options.name
+    }
+}
+
+pub(pkg) fn objectOutputName(options: ObjectOptions) &[char] {
+    if options.outputName is ?name {
+        name
+    } else {
+        options.name
+    }
+}
+
+pub(pkg) fn staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
+    if options.outputName is ?name {
+        name
+    } else {
+        options.name
+    }
+}
+
+pub(pkg) fn isValidStableName(name: &[char]) bool {
+    if name.len() == 0 {
+        return false;
+    }
+    for &ch in name.iter() {
+        let code = ch as u32;
+        let valid = (code >= 48 and code <= 57)
+            or (code >= 65 and code <= 90)
+            or (code >= 97 and code <= 122)
+            or code == 45
+            or code == 46
+            or code == 95;
+        if not valid {
+            return false;
+        }
+    }
+    true
+}
+
+pub(pkg) fn isValidOutputName(name: &[char]) bool {
+    if name.len() == 0 {
+        return false;
+    }
+    for &ch in name.iter() {
+        let code = ch as u32;
+        if code == 0 or code == 47 or code == 92 {
+            return false;
+        }
+    }
+    true
+}
