@@ -868,6 +868,7 @@ extern struct Header[N: usize] {
                         elem: append.intern(TyKind::GenericParam(type_name)),
                         len: ArrayLenTy::GenericParam(const_name),
                     }),
+                    has_default: false,
                     span: Span::default(),
                 }],
                 is_tuple: false,

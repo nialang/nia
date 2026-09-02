@@ -590,6 +590,8 @@ pub struct FieldSignature {
     pub name: SymbolId,
     /// Lowered field type.
     pub ty: InternedTyId,
+    /// Whether an ordinary struct field has a declaration default.
+    pub has_default: bool,
     /// Source span.
     pub span: Span,
 }
