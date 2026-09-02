@@ -31,6 +31,28 @@ fn main() u64 {
 }
 
 #[test]
+fn codegens_struct_field_defaults_and_explicit_overrides() {
+    let root = temp_dir("struct_field_defaults_codegen");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Config {
+    required: i32,
+    port: i32 = 8080,
+    workers: i32 = { let base = 2; base + 2 },
+}
+
+fn main() i32 {
+    let explicit = Config { required: 1, port: 9000 };
+    let contextual: Config = .{ required: 2 };
+    explicit.port + explicit.workers + contextual.port + contextual.workers
+}
+"#,
+    );
+    let _program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+}
+
+#[test]
 fn error_union_structural_extend_supports_conversion_methods() {
     let root = temp_dir("error_union_structural_extend_supports_conversion_methods");
     write(

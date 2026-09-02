@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, generic_inst_base};
-use nia_ast::{Expr, ExprKind};
+use nia_ast::{Expr, ExprKind, FieldInit};
 use nia_const_check::{ConstKey, ConstValueType};
 use nia_const_eval::{ConstCommonEnv, ConstError, ConstValue, ResolvedConstEnv};
 use nia_const_ir::{
@@ -16,6 +16,7 @@ use nia_item_signatures::{
     EnumSignature, EnumVariantPayloadSignature, EnumVariantSignature, StructSignature,
     UnionSignature,
 };
+use nia_item_tree::ItemTreeNodeKind;
 use nia_local_resolve::LocalKind;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
@@ -44,6 +45,61 @@ pub(super) struct ResolvedEnumSignature {
 }
 
 impl<'a> BodyChecker<'a> {
+    /// Expands omitted ordinary-struct fields using declaration defaults.
+    /// Defaults are kept in the active local AST so the existing signature
+    /// and backend products remain layout-only metadata.
+    pub(crate) fn struct_literal_fields_with_defaults(
+        &mut self,
+        def_id: GlobalDefId,
+        fields: &[FieldInit],
+    ) -> Vec<FieldInit> {
+        let Some((_item_node, item_struct)) = self.active_item_tree.items.iter().find_map(|item| {
+            let ItemTreeNodeKind::Struct(item_struct) = &item.kind else {
+                return None;
+            };
+            let Some(found) = self.defs.def_nodes.get(&item.node_key) else {
+                return None;
+            };
+            (found == def_id.def_id && def_id.module_id == self.defs.module_id)
+                .then_some((item, item_struct))
+        }) else {
+            return fields.to_vec();
+        };
+        if item_struct.is_tuple || item_struct.is_extern {
+            return fields.to_vec();
+        }
+        let mut expanded = Vec::with_capacity(item_struct.fields.len());
+        for declared in &item_struct.fields {
+            let matching = fields
+                .iter()
+                .filter(|field| field.name == declared.name)
+                .cloned()
+                .collect::<Vec<_>>();
+            if matching.is_empty() {
+                let Some(default) = &declared.default else {
+                    continue;
+                };
+                expanded.push(FieldInit {
+                    span: declared.span,
+                    name: declared.name,
+                    value: default.clone(),
+                });
+            } else {
+                expanded.extend(matching);
+            }
+        }
+        for explicit in fields {
+            if !item_struct
+                .fields
+                .iter()
+                .any(|declared| declared.name == explicit.name)
+            {
+                expanded.push(explicit.clone());
+            }
+        }
+        expanded
+    }
+
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
         let ExprKind::ArrayLiteral { elems } = &expr.kind else {
             return self.check_expr(expr);
@@ -299,6 +355,7 @@ impl<'a> BodyChecker<'a> {
             return aggregate_ty;
         }
         let signature_fields = resolved.signature.fields.clone();
+        let expanded_fields = self.struct_literal_fields_with_defaults(def_id, fields);
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
         let field_tys: HashMap<SymbolId, InternedTyId> = signature_fields
@@ -315,12 +372,12 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         let field_set = check_required_field_set(
-            fields
+            expanded_fields
                 .iter()
                 .map(|field| NamedField::new(field.span, field.name)),
             signature_fields.iter().map(|field| field.name),
         );
-        for field in fields {
+        for field in &expanded_fields {
             if let Some(expected) = field_tys.get(&field.name).copied() {
                 let actual = self.check_expr_with_expected(&field.value, Some(expected));
                 self.expect_expr_type(&field.value, expected, actual, "struct literal field");

@@ -44,6 +44,112 @@ fn main() i32 {
 }
 
 #[test]
+fn fills_omitted_struct_fields_from_declaration_defaults() {
+    let checked = pipeline(
+        r#"
+struct Config {
+    required: i32,
+    port: i32 = 8080,
+    workers: i32 = { let base = 2; base + 2 },
+}
+
+fn main() i32 {
+    let explicit = Config { required: 1, port: 9000 };
+    let contextual: Config = .{ required: 2 };
+    explicit.port + explicit.workers + contextual.port + contextual.workers
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let body = checked
+        .check
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let struct_field_counts = body
+        .stmts
+        .iter()
+        .filter_map(|stmt| match &stmt.kind {
+            nia_body_ir::TypedStmtKind::Binding(binding) => binding.value.as_ref(),
+            _ => None,
+        })
+        .filter_map(|expr| match &expr.kind {
+            nia_body_ir::TypedExprKind::StructLiteral { fields, .. } => Some(fields.len()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(struct_field_counts, [3, 3]);
+}
+
+#[test]
+fn still_rejects_omitted_required_struct_fields() {
+    let checked = pipeline(
+        r#"
+struct Config {
+    required: i32,
+    optional: i32 = 1,
+}
+
+fn main() i32 {
+    let bad = Config {};
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic.summary.contains("missing struct field `required`")
+    }));
+}
+
+#[test]
+fn checks_unused_struct_field_defaults_at_the_declaration() {
+    let checked = pipeline(
+        r#"
+struct Bad {
+    value: bool = 1,
+}
+
+fn main() {}
+"#,
+    );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .summary
+            .contains("struct field default value")
+    }));
+}
+
+#[test]
+fn rejects_defaults_outside_ordinary_structs() {
+    let checked = pipeline(
+        r#"
+extern struct External { value: i32 = 1 }
+union Storage { value: i32 = 1 }
+enum Event { Data { value: i32 = 1 } }
+
+fn main() {}
+"#,
+    );
+    for expected in [
+        "extern struct fields cannot have default values",
+        "union fields cannot have default values",
+        "enum payload fields cannot have default values",
+    ] {
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains(expected)),
+            "missing `{expected}` in {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
 fn checks_struct_field_access() {
     let checked = pipeline(
         r#"

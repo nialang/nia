@@ -173,9 +173,17 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(value);
                 }
             }
+            ItemTreeNodeKind::Struct(item_struct) => {
+                self.resolve_where_clause(&item_struct.where_clause);
+                for field in &item_struct.fields {
+                    self.resolve_type(&field.ty);
+                    if let Some(default) = &field.default {
+                        self.resolve_expr(default);
+                    }
+                }
+            }
             ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
-            | ItemTreeNodeKind::Struct(_)
             | ItemTreeNodeKind::Union(_)
             | ItemTreeNodeKind::TypeAlias(_) => {}
         }
