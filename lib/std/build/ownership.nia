@@ -1,0 +1,28 @@
+// Build ownership identity.
+//
+// Every live Build receives a process-wide owner ID. Handles carry that ID so
+// the graph can reject values borrowed from a different Build instance.
+
+using pkg::atomic;
+using pkg::builtin::atomic as atomicBuiltin;
+
+static mut nextBuildOwnerId: usize = 1;
+static mut buildOwnerIdExhausted: usize = 0;
+
+pub(pkg) fn allocateBuildOwnerId() ?usize {
+    if atomicBuiltin::atomic_load[usize](&buildOwnerIdExhausted, atomic::SeqCst) != 0 {
+        return null;
+    }
+    let ownerId = atomicBuiltin::atomic_rmw[usize](
+        &mut nextBuildOwnerId,
+        atomic::Add,
+        1,
+        atomic::Monotonic,
+    );
+    if ownerId == 0 or ownerId == usize::MAX {
+        atomicBuiltin::atomic_store[usize](&mut buildOwnerIdExhausted, 1, atomic::SeqCst);
+        null
+    } else {
+        ?ownerId
+    }
+}
