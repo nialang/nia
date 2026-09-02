@@ -116,11 +116,12 @@ This keeps defaults equivalent to expressions copied into the construction site
 without introducing field initialization order or recursive initialization
 rules.
 
-The checker must preserve the existing aggregate evaluation rules. The proposal
-should settle one deterministic order before implementation; the recommended
-rule is declaration order after explicit and default values have been associated
-with their fields. Diagnostics must identify the field whose default expression
-failed to type-check or evaluate.
+Struct literals evaluate field expressions in declaration order after explicit
+and default values have been associated with their fields. Source order still
+controls field-name association and diagnostics, but does not create a second
+evaluation-order rule. This makes a default expression behave exactly like the
+expression written for that field in a fully expanded literal. Diagnostics must
+identify the field whose default expression failed to type-check or evaluate.
 
 ## Type checking and generics
 
@@ -154,11 +155,14 @@ silently merge them.
 
 ## Visibility and API evolution
 
-A field with a default is still subject to ordinary field visibility. A caller
-cannot use a private field merely because that field has a default. Public
-construction from outside a module therefore requires all non-default fields to
-be visible and initialized, while defaulted private fields remain an
-implementation detail of constructors defined in the owning module.
+A field with a default is still subject to ordinary field visibility. A default
+does not grant construction access to a private field, and omitting such a field
+does not bypass the visibility check. Public construction from outside a module
+therefore requires the same visibility permissions as an otherwise fully
+explicit literal; code that needs to hide representation should expose an
+associated constructor such as `.default()` instead. Nia currently has no
+field-level visibility syntax, so this rule becomes relevant when that facility
+is introduced and does not add a new visibility mechanism here.
 
 Adding a default to an existing public field can make previously rejected
 partial literals compile, and changing or removing a default can break them.
@@ -218,16 +222,23 @@ initialization, lazy defaults, memoization, or a new configuration inheritance
 system. It also does not make a field optional for pattern matching or alter
 whether a struct can be constructed across a visibility boundary.
 
-## Open questions for review
+## Resolved design points
 
-* Should default expressions be evaluated strictly in declaration order, or in
-  the source order of the final literal after elaboration? The proposal
-  recommends declaration order for deterministic side effects.
+The initial proposal deliberately fixes the following points:
+
+* Default expressions are evaluated in struct declaration order. They are not
+  evaluated at type declaration time and are not cached.
+* A default never bypasses field visibility. Inaccessible fields must be handled
+  by an associated constructor in the owning module.
+* `.{}` is valid when an expected nominal struct type is available, including
+  when every field is supplied by a default. Without an expected type, `.{}` is
+  still rejected by the omitted-constructors proposal.
+
+The remaining review questions are narrower implementation and API questions:
+
 * Should a future lint flag a public type whose `default()` result differs from
   its field-default expansion, or should libraries be required to choose one
   mechanism?
 * Should default expressions be permitted on generic fields whose constraints
   are only satisfied at some instantiations, or must all constraints be proven
   by the struct declaration itself?
-* Should `.{}` be accepted only when at least one field is explicitly written,
-  reserving an all-default construction for the more visible `Type {}` form?
