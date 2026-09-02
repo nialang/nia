@@ -35,11 +35,13 @@ impl<'a> BodyChecker<'a> {
             checked_functions,
             diagnostic_owners,
             diagnostics,
+            field_default_templates,
         } = prechecked;
         self.global_inits = ir.global_inits;
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
+        self.field_default_templates = field_default_templates;
         self.load_type_facts(module_id, &facts);
         let facts = facts.into_builder();
         self.generic_instantiations = facts.generic_instantiations;

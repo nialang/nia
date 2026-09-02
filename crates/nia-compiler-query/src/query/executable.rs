@@ -261,6 +261,7 @@ impl ExecutableFactModuleState {
             checked_functions,
             diagnostic_owners,
             diagnostics,
+            ..
         } = body_check;
         let owned_provider_demands = provider_demands_by_function
             .values()
@@ -324,6 +325,7 @@ impl ExecutableFactModuleState {
             checked_functions,
             diagnostic_owners,
             diagnostics,
+            ..
         } = body_check;
         let mut ir = Arc::unwrap_or_clone(ir);
         let facts = Arc::unwrap_or_clone(facts);

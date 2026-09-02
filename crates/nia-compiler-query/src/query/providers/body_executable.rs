@@ -883,6 +883,16 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             .map(|methods| methods.methods.clone())
             .unwrap_or_default()
     };
+    let program_field_default_template = |field: GlobalDefId| {
+        capture_query_failure(&query_failure, db.get(BodyCheckQuery(field.module_id)))
+            .and_then(|body| {
+                body.semantic
+                    .field_default_templates
+                    .get(&field)
+                    .cloned()
+                    .map(Arc::new)
+            })
+    };
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return capture_query_failure(
@@ -1313,6 +1323,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         visible_extensions: Some(&program_visible_extensions),
                         extension_method_by_id: Some(&program_extension_method_by_id),
                         extension_methods_named: Some(&program_extension_methods_named),
+                        field_default_template: Some(&program_field_default_template),
                     },
                     program_signatures,
                     function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
