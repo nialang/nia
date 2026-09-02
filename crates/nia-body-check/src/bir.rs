@@ -958,6 +958,7 @@ impl<'a> BodyChecker<'a> {
                         })),
                     }
                 } else {
+                    let fields = self.struct_literal_fields_with_defaults(def_id, fields);
                     TypedExprKind::StructLiteral {
                         def_id,
                         fields: fields
@@ -1016,6 +1017,7 @@ impl<'a> BodyChecker<'a> {
                             kind: TypedExprKind::Error,
                         };
                     };
+                    let fields = self.struct_literal_fields_with_defaults(def_id, fields);
                     TypedExprKind::StructLiteral {
                         def_id,
                         fields: fields

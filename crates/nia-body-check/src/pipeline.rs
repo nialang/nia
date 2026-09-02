@@ -274,6 +274,7 @@ impl<'a> BodyChecker<'a> {
         timing: bool,
         module_id: ModuleId,
     ) {
+        self.check_field_default_declarations(active_item_tree);
         if self.body_filter.includes_module_bindings() {
             time_body_stage(timing, "body_check.bindings", module_id, || {
                 for item in &active_item_tree.items {
@@ -314,6 +315,82 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             });
+        }
+    }
+
+    fn check_field_default_declarations(&mut self, active_item_tree: &ActiveModuleItemTree) {
+        for item in &active_item_tree.items {
+            match &item.kind {
+                ItemTreeNodeKind::Struct(item_struct) => {
+                    let def_id = self.def_id_for_node(
+                        &item.node_key,
+                        item.span,
+                        DefKind::Struct,
+                    );
+                    let field_tys = def_id
+                        .and_then(|def_id| self.signatures.structs.get(&def_id))
+                        .map(|signature| {
+                            signature
+                                .fields
+                                .iter()
+                                .map(|field| (field.name, field.ty))
+                                .collect::<HashMap<_, _>>()
+                        })
+                        .unwrap_or_default();
+                    for field in &item_struct.fields {
+                        let Some(default) = &field.default else {
+                            continue;
+                        };
+                        if item_struct.is_extern {
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_CHECK,
+                                field.span,
+                                "extern struct fields cannot have default values",
+                            ));
+                        }
+                        let expected = field_tys.get(&field.name).copied();
+                        let actual = self.check_expr_with_expected(default, expected);
+                        if let Some(expected) = expected {
+                            self.expect_expr_type(
+                                default,
+                                expected,
+                                actual,
+                                "struct field default value",
+                            );
+                        }
+                    }
+                }
+                ItemTreeNodeKind::Union(item_union) => {
+                    for field in &item_union.fields {
+                        if let Some(default) = &field.default {
+                            self.check_expr(default);
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_CHECK,
+                                field.span,
+                                "union fields cannot have default values",
+                            ));
+                        }
+                    }
+                }
+                ItemTreeNodeKind::Enum(item_enum) => {
+                    for variant in &item_enum.variants {
+                        let nia_ast::EnumVariantPayload::Named(fields) = &variant.payload else {
+                            continue;
+                        };
+                        for field in fields {
+                            if let Some(default) = &field.default {
+                                self.check_expr(default);
+                                self.diagnostics.push(Diagnostic::user_error_at(
+                                    codes::TYPE_CHECK,
+                                    field.span,
+                                    "enum payload fields cannot have default values",
+                                ));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
