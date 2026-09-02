@@ -89,7 +89,6 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         def_id: DefId(11),
         name: value_name,
         ty: generic,
-        has_default: true,
         span,
     };
     let signatures = ItemSignatures {

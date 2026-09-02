@@ -24,7 +24,6 @@ fn compute_test_const(
         active_item_tree: &active_item_tree,
         defs,
         signatures,
-        type_store,
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,

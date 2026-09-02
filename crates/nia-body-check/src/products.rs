@@ -20,8 +20,6 @@ pub struct BodyCheck {
     pub diagnostic_owners: Vec<Option<GlobalDefId>>,
     /// Diagnostics emitted by body checking.
     pub diagnostics: Arc<Vec<Diagnostic>>,
-    /// Checked default expressions keyed by their field definition identity.
-    pub field_default_templates: Arc<HashMap<GlobalDefId, nia_body_ir::TypedExpr>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +48,4 @@ pub struct PrecheckedBodyCheck {
     pub diagnostic_owners: Vec<Option<GlobalDefId>>,
     /// Previously emitted diagnostics.
     pub diagnostics: Vec<Diagnostic>,
-    /// Previously produced checked field-default templates.
-    pub field_default_templates: HashMap<GlobalDefId, nia_body_ir::TypedExpr>,
 }

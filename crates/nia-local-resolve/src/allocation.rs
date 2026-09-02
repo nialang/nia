@@ -52,15 +52,9 @@ impl LocalDefinitionAllocator {
                     self.allocate_expr(value);
                 }
             }
-            ItemTreeNodeKind::Struct(item_struct) => {
-                for field in &item_struct.fields {
-                    if let Some(default) = &field.default {
-                        self.allocate_expr(default);
-                    }
-                }
-            }
             ItemTreeNodeKind::Module(_)
             | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::Struct(_)
             | ItemTreeNodeKind::Union(_)
             | ItemTreeNodeKind::TypeAlias(_) => {}
         }

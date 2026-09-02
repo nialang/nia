@@ -767,7 +767,6 @@ pub(crate) fn write_fields(
         write_u64(encoded, field.def_id.0);
         graph.write_symbol(encoded, field.name)?;
         write_type_index(encoded, graph.intern(field.ty)?);
-        write_bool(encoded, field.has_default);
         write_span(encoded, field.span);
     }
     Ok(())
@@ -788,7 +787,6 @@ pub(crate) fn read_fields(
             def_id: DefId(read_u64(cursor)?),
             name: read_symbol(cursor, symbols)?,
             ty: read_type_index(cursor, types)?,
-            has_default: read_bool(cursor)?,
             span: read_span(cursor, source_len)?,
         };
         if !ids.insert(field.def_id) || !names.insert(field.name) {

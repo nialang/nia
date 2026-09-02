@@ -205,7 +205,6 @@ impl<'a> SignatureCollector<'a> {
                 def_id: field_id,
                 name: field.name,
                 ty: self.ty_for_type(&field.ty),
-                has_default: field.default.is_some(),
                 span: field.span,
             });
         }
@@ -243,7 +242,6 @@ impl<'a> SignatureCollector<'a> {
                 def_id: field_id,
                 name: field.name,
                 ty: self.ty_for_type(&field.ty),
-                has_default: false,
                 span: field.span,
             });
         }
@@ -494,7 +492,6 @@ impl<'a> SignatureCollector<'a> {
                                 def_id,
                                 name: field.name,
                                 ty: self.ty_for_type(&field.ty),
-                                has_default: false,
                                 span: field.span,
                             })
                         })

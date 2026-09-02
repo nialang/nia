@@ -35,13 +35,11 @@ impl<'a> BodyChecker<'a> {
             checked_functions,
             diagnostic_owners,
             diagnostics,
-            field_default_templates,
         } = prechecked;
         self.global_inits = ir.global_inits;
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
-        self.field_default_templates = field_default_templates;
         self.load_type_facts(module_id, &facts);
         let facts = facts.into_builder();
         self.generic_instantiations = facts.generic_instantiations;
@@ -61,11 +59,6 @@ impl<'a> BodyChecker<'a> {
         self.node_pattern_values = facts.node_pattern_values;
         self.node_resolved_calls = facts.node_resolved_calls;
         self.node_function_references = facts.node_function_references;
-        if self.field_default_templates.is_empty() {
-            let active_item_tree = self.active_item_tree.clone();
-            self.check_field_default_declarations(&active_item_tree);
-            self.lower_field_default_templates();
-        }
     }
 
     pub(super) fn load_type_facts(&mut self, module_id: ModuleId, facts: &SemanticFacts) {
@@ -281,7 +274,6 @@ impl<'a> BodyChecker<'a> {
         timing: bool,
         module_id: ModuleId,
     ) {
-        self.check_field_default_declarations(active_item_tree);
         if self.body_filter.includes_module_bindings() {
             time_body_stage(timing, "body_check.bindings", module_id, || {
                 for item in &active_item_tree.items {
@@ -322,111 +314,6 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             });
-        }
-    }
-
-    fn check_field_default_declarations(&mut self, active_item_tree: &ActiveModuleItemTree) {
-        for item in &active_item_tree.items {
-            match &item.kind {
-                ItemTreeNodeKind::Struct(item_struct) => {
-                    let def_id = self.def_id_for_node(
-                        &item.node_key,
-                        item.span,
-                        DefKind::Struct,
-                    );
-                    let field_tys = def_id
-                        .and_then(|def_id| self.signatures.structs.get(&def_id))
-                        .map(|signature| {
-                            signature
-                                .fields
-                                .iter()
-                                .map(|field| (field.name, field.ty))
-                                .collect::<HashMap<_, _>>()
-                        })
-                        .unwrap_or_default();
-                    let field_defs = def_id
-                        .and_then(|def_id| self.signatures.structs.get(&def_id))
-                        .map(|signature| {
-                            signature
-                                .fields
-                                .iter()
-                                .map(|field| (field.name, field.def_id))
-                                .collect::<HashMap<_, _>>()
-                        })
-                        .unwrap_or_default();
-                    for field in &item_struct.fields {
-                        let Some(default) = &field.default else {
-                            continue;
-                        };
-                        if item_struct.is_extern {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::TYPE_CHECK,
-                                field.span,
-                                "extern struct fields cannot have default values",
-                            ));
-                        }
-                        let expected = field_tys.get(&field.name).copied();
-                        let field_def_id = field_defs.get(&field.name).copied();
-                        let previous_owner = self.current_field_default_owner;
-                        self.current_field_default_owner = def_id.map(|def_id| GlobalDefId {
-                            module_id: self.defs.module_id,
-                            def_id,
-                        });
-                        let actual = self.check_expr_with_expected(default, expected);
-                        self.current_field_default_owner = previous_owner;
-                        if let Some(expected) = expected {
-                            self.expect_expr_type(
-                                default,
-                                expected,
-                                actual,
-                                "struct field default value",
-                            );
-                            if let Some(field_def_id) = field_def_id {
-                                self.field_default_sources.insert(
-                                    GlobalDefId {
-                                        module_id: self.defs.module_id,
-                                        def_id: field_def_id,
-                                    },
-                                    crate::FieldDefaultSource {
-                                        value: default.clone(),
-                                        ty: expected,
-                                    },
-                                );
-                            }
-                        }
-                    }
-                }
-                ItemTreeNodeKind::Union(item_union) => {
-                    for field in &item_union.fields {
-                        if let Some(default) = &field.default {
-                            self.check_expr(default);
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::TYPE_CHECK,
-                                field.span,
-                                "union fields cannot have default values",
-                            ));
-                        }
-                    }
-                }
-                ItemTreeNodeKind::Enum(item_enum) => {
-                    for variant in &item_enum.variants {
-                        let nia_ast::EnumVariantPayload::Named(fields) = &variant.payload else {
-                            continue;
-                        };
-                        for field in fields {
-                            if let Some(default) = &field.default {
-                                self.check_expr(default);
-                                self.diagnostics.push(Diagnostic::user_error_at(
-                                    codes::TYPE_CHECK,
-                                    field.span,
-                                    "enum payload fields cannot have default values",
-                                ));
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
         }
     }
 

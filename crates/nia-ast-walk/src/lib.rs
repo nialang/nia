@@ -112,9 +112,6 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             walk_where_clause(visitor, &item_struct.where_clause);
             for field in &item_struct.fields {
                 visitor.visit_type(&field.ty);
-                if let Some(default) = &field.default {
-                    visitor.visit_expr(default);
-                }
             }
         }
         ItemKind::Union(item_union) => {
@@ -122,9 +119,6 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             walk_where_clause(visitor, &item_union.where_clause);
             for field in &item_union.fields {
                 visitor.visit_type(&field.ty);
-                if let Some(default) = &field.default {
-                    visitor.visit_expr(default);
-                }
             }
         }
         ItemKind::Trait(item_trait) => {
@@ -177,9 +171,6 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
                     nia_ast::EnumVariantPayload::Named(fields) => {
                         for field in fields {
                             visitor.visit_type(&field.ty);
-                            if let Some(default) = &field.default {
-                                visitor.visit_expr(default);
-                            }
                         }
                     }
                 }

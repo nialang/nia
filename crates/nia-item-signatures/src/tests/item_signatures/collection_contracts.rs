@@ -96,27 +96,6 @@ a + b
 }
 
 #[test]
-fn records_struct_field_default_shape_without_storing_the_expression() {
-    let signatures = signatures_ok(
-        r#"
-struct Config {
-    required: i32,
-    optional: i32 = { let base = 20; base + 22 },
-}
-"#,
-    );
-
-    let config = signatures
-        .structs
-        .values()
-        .next()
-        .expect("Config signature");
-    assert_eq!(config.fields.len(), 2);
-    assert!(!config.fields[0].has_default);
-    assert!(config.fields[1].has_default);
-}
-
-#[test]
 fn rejects_method_generics_shadowing_enclosing_generics() {
     let (module, errors) = parse_module(
         r#"
