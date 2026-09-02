@@ -15,6 +15,16 @@ using pkg::build::handles;
 using pkg::build::modules::validateModuleImports;
 using pkg::build::ownership::allocateBuildOwnerId;
 using pkg::build::paths::{isValidBuildPath, isValidPackagePath};
+using pkg::build::queries::{
+    findEmitObjectStep as findEmitObjectStepRecord,
+    findEmitStaticArchiveStep as findEmitStaticArchiveStepRecord,
+    findEmitStep as findEmitStepRecord,
+    findExecutable as findExecutableRecord,
+    findModule as findModuleRecord,
+    findObject as findObjectRecord,
+    findStaticArchive as findStaticArchiveRecord,
+    findStep as findStepRecord,
+};
 using pkg::build::steps;
 using pkg::build::targets::{
     executableOutputName,
@@ -1454,84 +1464,35 @@ extend Build {
     }
 
     fn findStep(&self, name: &[char]) ?Step {
-        for &step in self.steps.iter() {
-            if step.name.equals(name) {
-                return ?step;
-            }
-        }
-        null
+        findStepRecord(self.steps.asSlice(), name)
     }
 
     fn findExecutable(&self, name: &[char]) ?ExecutableTarget {
-        for &target in self.executables.iter() {
-            if target.name.equals(name) {
-                return ?target;
-            }
-        }
-        null
+        findExecutableRecord(self.executables.asSlice(), name)
     }
 
     fn findObject(&self, name: &[char]) ?ObjectTarget {
-        for &target in self.objects.iter() {
-            if target.name.equals(name) {
-                return ?target;
-            }
-        }
-        null
+        findObjectRecord(self.objects.asSlice(), name)
     }
 
     fn findStaticArchive(&self, name: &[char]) ?StaticArchiveTarget {
-        for &target in self.staticArchives.iter() {
-            if target.name.equals(name) {
-                return ?target;
-            }
-        }
-        null
+        findStaticArchiveRecord(self.staticArchives.asSlice(), name)
     }
 
     fn findModule(&self, name: &[char]) ?Module {
-        for &moduleRecord in self.modules.iter() {
-            if moduleRecord.name.equals(name) {
-                return ?moduleRecord;
-            }
-        }
-        null
+        findModuleRecord(self.modules.asSlice(), name)
     }
 
     fn findEmitStep(&self, target: ExecutableHandle) ?StepHandle {
-        for &step in self.steps.iter() {
-            if step.kind == StepKind::EmitExecutable
-                and step.payload.executable.target.ownerId() == target.ownerId()
-                and step.payload.executable.target.index() == target.index()
-            {
-                return ?StepHandle::init(self.ownerId, step.index);
-            }
-        }
-        null
+        findEmitStepRecord(self.ownerId, self.steps.asSlice(), target)
     }
 
     fn findEmitObjectStep(&self, target: ObjectHandle) ?StepHandle {
-        for &step in self.steps.iter() {
-            if step.kind == StepKind::EmitObject
-                and step.payload.object.target.ownerId() == target.ownerId()
-                and step.payload.object.target.index() == target.index()
-            {
-                return ?StepHandle::init(self.ownerId, step.index);
-            }
-        }
-        null
+        findEmitObjectStepRecord(self.ownerId, self.steps.asSlice(), target)
     }
 
     fn findEmitStaticArchiveStep(&self, target: StaticArchiveHandle) ?StepHandle {
-        for &step in self.steps.iter() {
-            if step.kind == StepKind::EmitStaticArchive
-                and step.payload.staticArchive.target.ownerId() == target.ownerId()
-                and step.payload.staticArchive.target.index() == target.index()
-            {
-                return ?StepHandle::init(self.ownerId, step.index);
-            }
-        }
-        null
+        findEmitStaticArchiveStepRecord(self.ownerId, self.steps.asSlice(), target)
     }
 
     fn rollbackLastStep(&mut self) Error!() {

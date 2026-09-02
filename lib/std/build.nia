@@ -56,6 +56,7 @@ pub(pkg) module modules;
 pub(pkg) module ownership;
 pub(pkg) module paths;
 pub(pkg) module plan;
+pub(pkg) module queries;
 pub(pkg) module steps;
 pub(pkg) module targets;
 pub(pkg) module types;
