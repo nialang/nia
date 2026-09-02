@@ -7,6 +7,7 @@
 using pkg::collections;
 using pkg::mem;
 using pkg::string;
+using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
 using pkg::build::error;
 using pkg::build::types;
 
@@ -186,16 +187,4 @@ extend RunExecutableStep {
         }
         cleanupResult(firstError)
     }
-}
-
-fn rememberCleanupError(firstError: &mut ?Error, result: Error!()) () {
-    if result is err! {
-        if firstError.* is null {
-            firstError.* = ?err;
-        }
-    }
-}
-
-fn cleanupResult(firstError: ?Error) Error!() {
-    if firstError is ?err { err! } else { !() }
 }
