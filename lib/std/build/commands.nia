@@ -1,0 +1,349 @@
+// External-command descriptors and their owned build-graph records.
+//
+// Public descriptors borrow caller data. ExternalCommandStep retains the
+// complete command declaration so Build can validate and encode it after the
+// build script returns.
+
+using pkg::fs;
+using pkg::mem;
+using pkg::string;
+using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::build::error;
+using pkg::build::types;
+
+using error::Error;
+using types::{
+    ActionResourceClass,
+    BuildPathView,
+    CommandArgument,
+    CommandArgumentKind,
+    CommandEnvironmentInput,
+    ExecutableHandle,
+    ExternalCommandOptions,
+    ExternalCommandStep,
+    ObjectHandle,
+    OwnedCommandArgument,
+    OwnedCommandEnvironmentInput,
+    PackageHandle,
+    StaticArchiveHandle,
+};
+
+extend CommandArgument {
+    // Each constructor records the logical root used for dependency validation
+    // and cache identity. Literal values intentionally declare no file input.
+    pub fn literal(value: &[char]) CommandArgument {
+        .{ kind: .Literal, payload: .{ value }, package: .init(0, 0) }
+    }
+
+    pub fn packageInput(package: PackageHandle, path: fs::PathView) CommandArgument {
+        .{ kind: .PackageInput, payload: .{ value: path.text() }, package }
+    }
+
+    pub fn buildInput(path: BuildPathView) CommandArgument {
+        .{ kind: .BuildInput, payload: .{ value: path.text() }, package: .init(0, 0) }
+    }
+
+    pub fn buildOutput(path: BuildPathView) CommandArgument {
+        .{ kind: .BuildOutput, payload: .{ value: path.text() }, package: .init(0, 0) }
+    }
+
+    pub fn artifactInput(artifact: ExecutableHandle) CommandArgument {
+        .{ kind: .ArtifactInput, payload: .{ artifact }, package: .init(0, 0) }
+    }
+
+    pub fn objectInput(object: ObjectHandle) CommandArgument {
+        .{ kind: .ObjectInput, payload: .{ object }, package: .init(0, 0) }
+    }
+
+    pub fn staticArchiveInput(staticArchive: StaticArchiveHandle) CommandArgument {
+        .{ kind: .StaticArchiveInput, payload: .{ staticArchive }, package: .init(0, 0) }
+    }
+}
+
+extend ExternalCommandOptions {
+    // Search commands inherit the process environment and are uncacheable by
+    // default. Persistent reuse requires `withClearedEnvironment`, explicit
+    // typed inputs/outputs, and `withDeclaredInputCache`.
+    pub fn search(program: &[char]) ExternalCommandOptions {
+        .{
+            program,
+            arguments: null,
+            workingDirectory: .init(&""),
+            resourceClass: .Conservative,
+            environmentPolicy: .Inherit,
+            cachePolicy: .Uncacheable,
+            environment: null,
+        }
+    }
+
+    pub fn withArguments(self, arguments: &[CommandArgument]) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: ?arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withPackageWorkingDirectory(self, workingDirectory: fs::PathView) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withResourceClass(self, resourceClass: ActionResourceClass) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withEnvironment(self, environment: &[CommandEnvironmentInput]) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: self.cachePolicy,
+            environment: ?environment,
+        }
+    }
+
+    pub fn withClearedEnvironment(self) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: .Clear,
+            cachePolicy: self.cachePolicy,
+            environment: self.environment,
+        }
+    }
+
+    pub fn withDeclaredInputCache(self) ExternalCommandOptions {
+        .{
+            program: self.program,
+            arguments: self.arguments,
+            workingDirectory: self.workingDirectory,
+            resourceClass: self.resourceClass,
+            environmentPolicy: self.environmentPolicy,
+            cachePolicy: .DeclaredInputs,
+            environment: self.environment,
+        }
+    }
+}
+
+extend CommandEnvironmentInput {
+    pub fn init(name: &[char], value: &[char]) CommandEnvironmentInput {
+        .{ name, value }
+    }
+}
+
+extend OwnedCommandArgument {
+    fn init(argument: CommandArgument) OwnedCommandArgument {
+        if argument.kind == CommandArgumentKind::ArtifactInput {
+            return Self {
+                kind: argument.kind,
+                payload: .{ artifact: argument.payload.artifact },
+                package: argument.package,
+            };
+        }
+        if argument.kind == CommandArgumentKind::ObjectInput {
+            return Self {
+                kind: argument.kind,
+                payload: .{ object: argument.payload.object },
+                package: argument.package,
+            };
+        }
+        if argument.kind == CommandArgumentKind::StaticArchiveInput {
+            return Self {
+                kind: argument.kind,
+                payload: .{ staticArchive: argument.payload.staticArchive },
+                package: argument.package,
+            };
+        }
+        .{
+            kind: argument.kind,
+            payload: .{ value: .init() },
+            package: argument.package,
+        }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        value: &[char],
+        index: usize,
+    ) Error!() {
+        self.payload.value = string::String::fromSlice(
+            allocator,
+            value,
+        ).withBuildContext(.Retain, .Step(index)).?;
+        !()
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+        if self.kind == CommandArgumentKind::ArtifactInput
+            or self.kind == CommandArgumentKind::ObjectInput
+            or self.kind == CommandArgumentKind::StaticArchiveInput
+        {
+            return !();
+        }
+        self.payload.value.deinit(allocator).withBuildContext(.Release, .Step(index))
+    }
+}
+
+extend OwnedCommandEnvironmentInput {
+    fn init() OwnedCommandEnvironmentInput {
+        .{ name: .init(), value: .init() }
+    }
+
+    fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        input: CommandEnvironmentInput,
+        index: usize,
+    ) Error!() {
+        self.name = string::String::fromSlice(
+            allocator,
+            input.name,
+        ).withBuildContext(.Retain, .Step(index)).?;
+        self.value = string::String::fromSlice(
+            allocator,
+            input.value,
+        ).withBuildContext(.Retain, .Step(index)).?;
+        !()
+    }
+
+    fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+        let mut firstError: ?Error = null;
+        rememberCleanupError(
+            &mut firstError,
+            self.value.deinit(allocator).withBuildContext(.Release, .Step(index)),
+        );
+        rememberCleanupError(
+            &mut firstError,
+            self.name.deinit(allocator).withBuildContext(.Release, .Step(index)),
+        );
+        cleanupResult(firstError)
+    }
+}
+
+extend ExternalCommandStep {
+    pub(pkg) fn init(options: ExternalCommandOptions) ExternalCommandStep {
+        .{
+            program: .init(),
+            arguments: .init(),
+            workingDirectory: .init(),
+            resourceClass: options.resourceClass,
+            environmentPolicy: options.environmentPolicy,
+            cachePolicy: options.cachePolicy,
+            environment: .init(),
+        }
+    }
+
+    pub(pkg) fn initialize(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        options: ExternalCommandOptions,
+        index: usize,
+    ) Error!() {
+        self.program = string::String::fromSlice(
+            allocator,
+            options.program,
+        ).withBuildContext(.Retain, .Step(index)).?;
+        self.workingDirectory = fs::Path::fromView(
+            allocator,
+            options.workingDirectory,
+        ).withBuildContext(.Retain, .Step(index)).?;
+        if options.arguments is ?arguments {
+            self.arguments.reserve(allocator, arguments.len()).withBuildContext(.Retain, .Step(index)).?;
+            for &argument in arguments.iter() {
+                self.arguments.appendAssumeCapacity(.init(argument));
+                if argument.kind != CommandArgumentKind::ArtifactInput
+                    and argument.kind != CommandArgumentKind::ObjectInput
+                    and argument.kind != CommandArgumentKind::StaticArchiveInput
+                {
+                    let argumentIndex = self.arguments.len() - 1usize;
+                    self.arguments.asMutSlice()[argumentIndex].initialize(
+                        allocator,
+                        argument.payload.value,
+                        index,
+                    ).?;
+                }
+            }
+        }
+        if options.environment is ?environment {
+            self.environment.reserve(allocator, environment.len()).withBuildContext(.Retain, .Step(index)).?;
+            for &input in environment.iter() {
+                self.environment.appendAssumeCapacity(.init());
+                let inputIndex = self.environment.len() - 1usize;
+                self.environment.asMutSlice()[inputIndex].initialize(allocator, input, index).?;
+            }
+        }
+        !()
+    }
+
+    pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
+        let mut firstError: ?Error = null;
+        let mut elementError: ?Error = null;
+        let mut environmentIndex = self.environment.len();
+        while environmentIndex != 0 {
+            environmentIndex -= 1;
+            rememberCleanupError(
+                &mut elementError,
+                self.environment.asMutSlice()[environmentIndex].deinit(allocator, index),
+            );
+        }
+        if elementError is null {
+            rememberCleanupError(
+                &mut firstError,
+                self.environment.deinit(allocator).withBuildContext(.Release, .Step(index)),
+            );
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        elementError = null;
+        let mut argumentIndex = self.arguments.len();
+        while argumentIndex != 0 {
+            argumentIndex -= 1;
+            rememberCleanupError(
+                &mut elementError,
+                self.arguments.asMutSlice()[argumentIndex].deinit(allocator, index),
+            );
+        }
+        if elementError is null {
+            rememberCleanupError(
+                &mut firstError,
+                self.arguments.deinit(allocator).withBuildContext(.Release, .Step(index)),
+            );
+        } else {
+            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+        }
+        rememberCleanupError(
+            &mut firstError,
+            self.workingDirectory.deinit(allocator).withBuildContext(.Release, .Step(index)),
+        );
+        rememberCleanupError(
+            &mut firstError,
+            self.program.deinit(allocator).withBuildContext(.Release, .Step(index)),
+        );
+        cleanupResult(firstError)
+    }
+}
