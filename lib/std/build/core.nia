@@ -1,3 +1,5 @@
+pub(pkg) module handles;
+
 using pkg::atomic;
 using pkg::builtin::atomic as atomicBuiltin;
 using pkg::collections;
@@ -10,6 +12,7 @@ using pkg::os;
 using pkg::slice;
 using pkg::string;
 using pkg::build::error;
+using pkg::build::core::handles;
 using pkg::build::types;
 
 using error::Error;
@@ -1819,100 +1822,6 @@ extend Build {
         self.pendingStep.deinit(self.allocator).?;
         self.hasPendingStep = false;
         !()
-    }
-}
-
-extend BuildInitAttempt {
-    fn init(build: Build) BuildInitAttempt {
-        Self { build: build, primary: null, active: true }
-    }
-
-    pub fn finish(&mut self) Error!Build {
-        if not self.active {
-            return Error::Internal(Operation::Initialize)!;
-        }
-        match self.primary {
-            ?primary => {
-                match self.build.deinit() {
-                    !ok => {
-                        _ = ok;
-                        self.active = false;
-                        primary!
-                    },
-                    cleanup! => cleanup!,
-                }
-            },
-            null => {
-                self.active = false;
-                !self.build
-            },
-        }
-    }
-}
-
-extend StepHandle {
-    fn init(ownerId: usize, index: usize) StepHandle {
-        Self { ownerId: ownerId, index: index }
-    }
-
-    fn ownerId(&self) usize {
-        self.ownerId
-    }
-
-    fn index(&self) usize {
-        self.index
-    }
-}
-
-extend ExecutableHandle {
-    fn init(ownerId: usize, index: usize) ExecutableHandle {
-        Self { ownerId: ownerId, index: index }
-    }
-
-    fn ownerId(&self) usize {
-        self.ownerId
-    }
-
-    fn index(&self) usize {
-        self.index
-    }
-}
-
-extend ObjectHandle {
-    fn init(ownerId: usize, index: usize) ObjectHandle {
-        Self { ownerId: ownerId, index: index }
-    }
-
-    fn ownerId(&self) usize { self.ownerId }
-    fn index(&self) usize { self.index }
-}
-
-extend StaticArchiveHandle {
-    fn init(ownerId: usize, index: usize) StaticArchiveHandle {
-        Self { ownerId: ownerId, index: index }
-    }
-
-    fn ownerId(&self) usize { self.ownerId }
-    fn index(&self) usize { self.index }
-}
-
-extend ModuleHandle {
-    fn init(ownerId: usize, index: usize) ModuleHandle {
-        Self { ownerId: ownerId, index: index }
-    }
-
-    fn ownerId(&self) usize {
-        self.ownerId
-    }
-
-    fn index(&self) usize {
-        self.index
-    }
-}
-
-extend StepDependency {
-    pub fn init(step: StepHandle, dependency: StepHandle) StepDependency {
-        Self { step: step, dependency: dependency }
     }
 }
 

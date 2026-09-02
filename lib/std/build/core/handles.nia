@@ -1,0 +1,96 @@
+// Build-local capabilities and initialization handoff.
+//
+// Handles pair a dense index with the owning Build identity. They are runtime
+// capabilities only and must not enter serialized plans or persistent keys.
+
+using pkg::build::error;
+using pkg::build::types;
+
+using error::Error;
+using error::ErrorOperation as Operation;
+using types::{
+    Build,
+    BuildInitAttempt,
+    ExecutableHandle,
+    ModuleHandle,
+    ObjectHandle,
+    StaticArchiveHandle,
+    StepDependency,
+    StepHandle,
+};
+
+extend BuildInitAttempt {
+    pub(pkg) fn init(build: Build) BuildInitAttempt {
+        .{ build, primary: null, active: true }
+    }
+
+    pub fn finish(&mut self) Error!Build {
+        if not self.active {
+            return Error::Internal(Operation::Initialize)!;
+        }
+        if self.primary is ?primary {
+            match self.build.deinit() {
+                !ok => {
+                    _ = ok;
+                    self.active = false;
+                    primary!
+                },
+                cleanup! => cleanup!,
+            }
+        } else {
+            self.active = false;
+            !self.build
+        }
+    }
+}
+
+extend StepHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) StepHandle {
+        .{ ownerId, index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize { self.ownerId }
+    pub(pkg) fn index(&self) usize { self.index }
+}
+
+extend ExecutableHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) ExecutableHandle {
+        .{ ownerId, index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize { self.ownerId }
+    pub(pkg) fn index(&self) usize { self.index }
+}
+
+extend ObjectHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) ObjectHandle {
+        .{ ownerId, index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize { self.ownerId }
+    pub(pkg) fn index(&self) usize { self.index }
+}
+
+extend StaticArchiveHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) StaticArchiveHandle {
+        .{ ownerId, index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize { self.ownerId }
+    pub(pkg) fn index(&self) usize { self.index }
+}
+
+extend ModuleHandle {
+    pub(pkg) fn init(ownerId: usize, index: usize) ModuleHandle {
+        .{ ownerId, index }
+    }
+
+    pub(pkg) fn ownerId(&self) usize { self.ownerId }
+    pub(pkg) fn index(&self) usize { self.index }
+}
+
+extend StepDependency {
+    pub fn init(step: StepHandle, dependency: StepHandle) StepDependency {
+        .{ step, dependency }
+    }
+}
