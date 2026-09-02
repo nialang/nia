@@ -1,0 +1,71 @@
+// Dependency-graph queries shared by Build plan validation.
+//
+// These helpers are deliberately free functions: they inspect retained graph
+// records but do not mutate Build state or own a second Build extension.
+
+using pkg::build::types;
+
+using types::{
+    CommandArgumentKind,
+    Step,
+    StepDependency,
+    StepHandle,
+    StepKind,
+};
+
+pub(pkg) fn hasDependency(
+    dependencies: &[StepDependency],
+    stepIndex: usize,
+    dependencyIndex: usize,
+) bool {
+    for &edge in dependencies.iter() {
+        if edge.step.index() == stepIndex
+            and edge.dependency.index() == dependencyIndex
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub(pkg) fn findGeneratedSourceProducer(
+    ownerId: usize,
+    steps: &[Step],
+    path: &[char],
+    consumerIndex: usize,
+) ?StepHandle {
+    let mut found: ?StepHandle = null;
+    let mut index: usize = 0;
+    for &step in steps.iter() {
+        if index == consumerIndex {
+            index += 1;
+            continue;
+        }
+        let matches = if step.kind == StepKind::GeneratedFile {
+            step.payload.generatedFile.output.text().equals(path)
+        } else if step.kind == StepKind::ExternalCommand {
+            let mut output = false;
+            for &argument in step.payload.externalCommand.arguments.iter() {
+                if argument.kind == CommandArgumentKind::BuildOutput
+                    and argument.payload.value.equals(path)
+                {
+                    output = true;
+                }
+            }
+            output
+        } else {
+            false
+        };
+        if matches {
+            match found {
+                ?old => {
+                    _ = old;
+                    return null;
+                },
+                null => found = ?StepHandle::init(ownerId, step.index),
+            }
+        }
+        index += 1;
+    }
+    found
+}

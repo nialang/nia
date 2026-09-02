@@ -10,6 +10,7 @@ using pkg::string;
 using pkg::build::error;
 using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
 using pkg::build::commands::{validateExternalCommand, validateRunArguments};
+using pkg::build::dependencies::{findGeneratedSourceProducer, hasDependency};
 using pkg::build::handles;
 using pkg::build::modules::validateModuleImports;
 using pkg::build::ownership::allocateBuildOwnerId;
@@ -1265,7 +1266,7 @@ extend Build {
                 index,
                 moduleIndex,
             ).?;
-            if not self.hasDependency(index, producer.index()) {
+            if not hasDependency(self.dependencies.asSlice(), index, producer.index()) {
                 count = match count.checked_add(1) {
                     ?value => value,
                     null => return Error::Invalid {
@@ -1282,7 +1283,7 @@ extend Build {
                     index,
                     moduleIndex,
                 ).?;
-                if not self.hasDependency(index, producer.index()) {
+                if not hasDependency(self.dependencies.asSlice(), index, producer.index()) {
                     count = match count.checked_add(1) {
                         ?value => value,
                         null => return Error::Invalid {
@@ -1332,61 +1333,13 @@ extend Build {
         consumerIndex: usize,
         moduleIndex: usize,
     ) Error!StepHandle {
-        match self.findGeneratedSourceProducer(path, consumerIndex) {
+        match findGeneratedSourceProducer(self.ownerId, self.steps.asSlice(), path, consumerIndex) {
             ?producer => !producer,
             null => Error::Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Module(moduleIndex),
             }!,
         }
-    }
-
-    fn hasDependency(&self, stepIndex: usize, dependencyIndex: usize) bool {
-        for &edge in self.dependencies.iter() {
-            if edge.step.index() == stepIndex
-                and edge.dependency.index() == dependencyIndex
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn findGeneratedSourceProducer(&self, path: &[char], consumerIndex: usize) ?StepHandle {
-        let mut found: ?StepHandle = null;
-        let mut index: usize = 0;
-        for &step in self.steps.iter() {
-            if index == consumerIndex {
-                index += 1;
-                continue;
-            }
-            let matches = if step.kind == StepKind::GeneratedFile {
-                step.payload.generatedFile.output.text().equals(path)
-            } else if step.kind == StepKind::ExternalCommand {
-                let mut output = false;
-                for &argument in step.payload.externalCommand.arguments.iter() {
-                    if argument.kind == CommandArgumentKind::BuildOutput
-                        and argument.payload.value.equals(path)
-                    {
-                        output = true;
-                    }
-                }
-                output
-            } else {
-                false
-            };
-            if matches {
-                match found {
-                    ?old => {
-                        _ = old;
-                        return null;
-                    },
-                    null => found = ?StepHandle::init(self.ownerId, step.index),
-                }
-            }
-            index += 1;
-        }
-        found
     }
 
     fn validateDependencyGraph(&mut self) Error!() {
