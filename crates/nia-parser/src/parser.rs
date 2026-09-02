@@ -283,6 +283,7 @@ impl Parser {
         &mut self,
         name: SymbolId,
         ty: TypeRef,
+        default: Option<Expr>,
         attributes: Vec<Attribute>,
         span: Span,
     ) -> Field {
@@ -290,6 +291,7 @@ impl Parser {
         Field {
             name,
             ty,
+            default,
             attributes,
             span,
             node_key,

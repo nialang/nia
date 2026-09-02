@@ -319,6 +319,7 @@ impl Parser {
                 fields.push(self.make_field(
                     field_name,
                     ty.clone(),
+                    None,
                     Vec::new(),
                     Span::new(start, ty.span.end),
                 ));
@@ -650,9 +651,15 @@ impl Parser {
             .map_or_else(|| self.peek().span.start, |attr| attr.span.start);
         let name = self.expect_name(TokenKind::Ident, "expected field name")?;
         self.expect(TokenKind::Colon, "expected `:` after field name")?;
-        let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])?;
+        let ty = self.parse_type_until(&[TokenKind::Eq, TokenKind::Comma, TokenKind::RBrace])?;
+        let default = if self.eat(TokenKind::Eq).is_some() {
+            Some(self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?)
+        } else {
+            None
+        };
         self.eat(TokenKind::Comma);
-        Some(self.make_field(name, ty.clone(), attributes, Span::new(start, ty.span.end)))
+        let end = default.as_ref().map_or(ty.span.end, |expr| expr.span.end);
+        Some(self.make_field(name, ty, default, attributes, Span::new(start, end)))
     }
 
     fn parse_enum(&mut self) -> Option<EnumItem> {
