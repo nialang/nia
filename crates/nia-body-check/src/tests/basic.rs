@@ -52,6 +52,28 @@ const fn callsRuntime() usize {
 }
 
 #[test]
+fn checks_omitted_associated_call_from_expected_result_type() {
+    let checked = pipeline(
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    fn init() Point { Point { x: 1, y: 2 } }
+}
+
+fn make() Point {
+    let point: Point = .init();
+    point
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn const_declaration_filter_accepts_slice_pointer_methods() {
     let checked = pipeline_const_declarations(
         r#"

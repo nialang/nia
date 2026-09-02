@@ -707,16 +707,19 @@ struct Point {
 enum Color {
     Red,
     Data(i32),
+    Resize { value: i32 },
 }
 
 fn make(point: Point, color: Color) Point {
     let a: Point = .{ x: 1, y: 2 };
     let b: Color = .Red;
     let c: Color = .Data(3);
+    let d: Color = .Resize { value: 4 };
     _ = point;
     _ = color;
     _ = b;
     _ = c;
+    _ = d;
     a
 }
 "#,
@@ -747,6 +750,14 @@ fn make(point: Point, color: Color) Point {
         payload.value.as_ref().map(|value| &value.kind),
         Some(ExprKind::Call { callee, args })
             if args.len() == 1 && matches!(callee.kind, ExprKind::OmittedMember { name } if name == sym("Data"))
+    ));
+    let StmtKind::Binding(named) = &body.stmts[3].kind else {
+        panic!("expected omitted named payload binding");
+    };
+    assert!(matches!(
+        named.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::QualifiedStructLiteral { target, fields })
+            if fields.len() == 1 && matches!(target.kind, ExprKind::OmittedMember { name } if name == sym("Resize"))
     ));
 }
 

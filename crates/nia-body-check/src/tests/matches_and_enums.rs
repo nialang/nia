@@ -60,14 +60,17 @@ struct Point {
 enum Color {
     Red,
     Data(i32),
+    Resize { value: i32 },
 }
 
 fn make() Point {
     let point: Point = .{ x: 1, y: 2 };
     let red: Color = .Red;
     let data: Color = .Data(3);
+    let resize: Color = .Resize { value: 4 };
     _ = red;
     _ = data;
+    _ = resize;
     point
 }
 "#,

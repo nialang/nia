@@ -688,6 +688,22 @@ impl Parser {
 
     fn parse_primary_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         if let Some(expr) = self.parse_omitted_constructor() {
+            if matches!(expr.kind, ExprKind::OmittedMember { .. })
+                && self.at(TokenKind::LBrace)
+            {
+                self.expect(TokenKind::LBrace, "expected `{` before omitted named payload")?;
+                let fields = self.parse_struct_literal_fields()?;
+                let end = self
+                    .expect(TokenKind::RBrace, "expected `}` after omitted named payload")?
+                    .end;
+                return Some(self.make_expr(
+                    Span::new(expr.span.start, end),
+                    ExprKind::QualifiedStructLiteral {
+                        target: Box::new(expr),
+                        fields,
+                    },
+                ));
+            }
             return Some(expr);
         }
         if !stops.contains(&TokenKind::LBrace)
