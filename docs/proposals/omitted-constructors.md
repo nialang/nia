@@ -1,6 +1,12 @@
 # Omitted Constructors
 
-Status: proposal
+Status: implemented
+
+The implementation is complete across parsing, expected-type elaboration,
+payload variants, associated calls, pattern analysis, const evaluation, and
+end-to-end tests. This proposal is retained temporarily as the implementation
+record and is ready for retirement after the behavior has moved into the
+normative language specification.
 
 This proposal introduces a leading `.` spelling for constructors and associated
 functions whose nominal owner is known from context. It is intentionally an
