@@ -135,7 +135,7 @@ extend Error : error::IntoError[process::ExitCode] {
 }
 
 extend[T] fmt::Error!T {
-    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+    pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
             cause! => Error::Failure {
@@ -148,7 +148,7 @@ extend[T] fmt::Error!T {
 }
 
 extend[T] fs::Error!T {
-    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+    pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
             cause! => Error::Failure {
@@ -161,7 +161,7 @@ extend[T] fs::Error!T {
 }
 
 extend[T] fs::OperationError!T {
-    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+    pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
             cause! => Error::Failure {
@@ -174,7 +174,7 @@ extend[T] fs::OperationError!T {
 }
 
 extend[T] process::Error!T {
-    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+    pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
             cause! => Error::Failure {
@@ -187,7 +187,7 @@ extend[T] process::Error!T {
 }
 
 extend[T] mem::Error!T {
-    pub fn asBuildError(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
+    pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
             cause! => Error::Failure {

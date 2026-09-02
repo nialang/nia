@@ -105,11 +105,11 @@ extend BuildPaths {
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.toolchainResourceRoot.deinit(allocator).asBuildError(Operation::Release, Subject::ToolchainResourceRoot));
-        rememberCleanupError(&mut firstError, self.toolchainExecutable.deinit(allocator).asBuildError(Operation::Release, Subject::ToolchainExecutable));
-        rememberCleanupError(&mut firstError, self.cacheDir.deinit(allocator).asBuildError(Operation::Release, Subject::CacheDir));
-        rememberCleanupError(&mut firstError, self.buildDir.deinit(allocator).asBuildError(Operation::Release, Subject::BuildDir));
-        rememberCleanupError(&mut firstError, self.packageRoot.deinit(allocator).asBuildError(Operation::Release, Subject::PackageRoot));
+        rememberCleanupError(&mut firstError, self.toolchainResourceRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainResourceRoot));
+        rememberCleanupError(&mut firstError, self.toolchainExecutable.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainExecutable));
+        rememberCleanupError(&mut firstError, self.cacheDir.deinit(allocator).withBuildContext(Operation::Release, Subject::CacheDir));
+        rememberCleanupError(&mut firstError, self.buildDir.deinit(allocator).withBuildContext(Operation::Release, Subject::BuildDir));
+        rememberCleanupError(&mut firstError, self.packageRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::PackageRoot));
         cleanupResult(firstError)
     }
 }
@@ -222,15 +222,15 @@ extend Build {
         artifactTarget: TargetView,
         requestedStep: ?&[char],
     ) Error!() {
-        self.paths.packageRoot = fs::Path::fromView(self.allocator, packageRoot).asBuildError(Operation::Retain, Subject::PackageRoot).?;
-        self.paths.buildDir = fs::Path::fromView(self.allocator, buildDir).asBuildError(Operation::Retain, Subject::BuildDir).?;
-        self.paths.cacheDir = fs::Path::fromView(self.allocator, cacheDir).asBuildError(Operation::Retain, Subject::CacheDir).?;
-        self.paths.toolchainExecutable = fs::Path::fromView(self.allocator, toolchainExecutable).asBuildError(Operation::Retain, Subject::ToolchainExecutable).?;
-        self.paths.toolchainResourceRoot = fs::Path::fromView(self.allocator, toolchainResourceRoot).asBuildError(Operation::Retain, Subject::ToolchainResourceRoot).?;
+        self.paths.packageRoot = fs::Path::fromView(self.allocator, packageRoot).withBuildContext(Operation::Retain, Subject::PackageRoot).?;
+        self.paths.buildDir = fs::Path::fromView(self.allocator, buildDir).withBuildContext(Operation::Retain, Subject::BuildDir).?;
+        self.paths.cacheDir = fs::Path::fromView(self.allocator, cacheDir).withBuildContext(Operation::Retain, Subject::CacheDir).?;
+        self.paths.toolchainExecutable = fs::Path::fromView(self.allocator, toolchainExecutable).withBuildContext(Operation::Retain, Subject::ToolchainExecutable).?;
+        self.paths.toolchainResourceRoot = fs::Path::fromView(self.allocator, toolchainResourceRoot).withBuildContext(Operation::Retain, Subject::ToolchainResourceRoot).?;
         self.hostTarget.initialize(self.allocator, hostTarget, Subject::HostTarget).?;
         self.artifactTarget.initialize(self.allocator, artifactTarget, Subject::ArtifactTarget).?;
         if requestedStep is ?step {
-            self.requestedStep = string::String::fromSlice(self.allocator, step).asBuildError(
+            self.requestedStep = string::String::fromSlice(self.allocator, step).withBuildContext(
                 Operation::Retain,
                 Subject::RequestedStep,
             ).?;
@@ -241,9 +241,9 @@ extend Build {
 
     pub fn deinit(&mut self) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan));
+        rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
+        rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
+        rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));
         rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
         rememberCleanupError(&mut firstError, self.cleanupPendingModule());
         rememberCleanupError(&mut firstError, self.cleanupPendingObject());
@@ -257,11 +257,11 @@ extend Build {
             rememberCleanupError(&mut elementError, self.steps.asMutSlice()[index].deinit(self.allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).asBuildError(Operation::Release, Subject::Steps));
+            rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Steps));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
-        rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).asBuildError(Operation::Release, Subject::Dependencies));
+        rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
         elementError = null;
         index = self.packages.len();
         while index != 0 {
@@ -269,7 +269,7 @@ extend Build {
             rememberCleanupError(&mut elementError, self.packages.asMutSlice()[index].deinit(self.allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.packages.deinit(self.allocator).asBuildError(Operation::Release, Subject::Packages));
+            rememberCleanupError(&mut firstError, self.packages.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Packages));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
@@ -280,7 +280,7 @@ extend Build {
             rememberCleanupError(&mut elementError, self.executables.asMutSlice()[index].deinit(self.allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).asBuildError(Operation::Release, Subject::Executables));
+            rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Executables));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
@@ -291,7 +291,7 @@ extend Build {
             rememberCleanupError(&mut elementError, self.objects.asMutSlice()[index].deinit(self.allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.objects.deinit(self.allocator).asBuildError(Operation::Release, Subject::Objects));
+            rememberCleanupError(&mut firstError, self.objects.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Objects));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
@@ -302,7 +302,7 @@ extend Build {
             rememberCleanupError(&mut elementError, self.staticArchives.asMutSlice()[index].deinit(self.allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.staticArchives.deinit(self.allocator).asBuildError(Operation::Release, Subject::StaticArchives));
+            rememberCleanupError(&mut firstError, self.staticArchives.deinit(self.allocator).withBuildContext(Operation::Release, Subject::StaticArchives));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
@@ -313,7 +313,7 @@ extend Build {
             rememberCleanupError(&mut elementError, self.modules.asMutSlice()[index].deinit(self.allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).asBuildError(Operation::Release, Subject::Modules));
+            rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Modules));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
@@ -321,7 +321,7 @@ extend Build {
         rememberCleanupError(&mut firstError, self.hostTarget.deinit(self.allocator, Subject::HostTarget));
         rememberCleanupError(
             &mut firstError,
-            self.requestedStep.deinit(self.allocator).asBuildError(
+            self.requestedStep.deinit(self.allocator).withBuildContext(
                 Operation::Release,
                 Subject::RequestedStep,
             ),
@@ -366,7 +366,7 @@ extend Build {
                 }!;
             }
         }
-        self.packages.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Packages).?;
+        self.packages.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Packages).?;
         self.pendingPackage = Package::init(handle.index());
         self.hasPendingPackage = true;
         match self.pendingPackage.initialize(self.allocator, options) {
@@ -474,7 +474,7 @@ extend Build {
         self.dependencies.reserve(
             self.allocator,
             archiveCount,
-        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         let mut archiveIndex: usize = 0;
         while archiveIndex < archiveCount {
             let archive = self.executables.asSlice()[target.index()]
@@ -712,7 +712,7 @@ extend Build {
         self.dependencies.reserve(
             self.allocator,
             artifactInputCount,
-        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         self.prepareExternalCommandStep(name, options).?;
         match self.pendingStep.initializeExternalCommand(self.allocator, name, options) {
             !ok => _ = ok,
@@ -798,7 +798,7 @@ extend Build {
         self.dependencies.push(
             self.allocator,
             StepDependency::init(step, dependency),
-        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         self.planValidated = false;
         !()
     }
@@ -861,7 +861,7 @@ extend Build {
             ?optimization => optimization,
             null => self.defaultOptimization,
         };
-        self.modules.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Modules).?;
+        self.modules.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Modules).?;
         self.pendingModule = Module::init(
             handle.index(),
             options.sourceRoot,
@@ -977,7 +977,7 @@ extend Build {
             },
             null => {},
         }
-        self.executables.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Executables).?;
+        self.executables.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Executables).?;
         self.pendingExecutable = ExecutableTarget::init(
             handle.index(),
             options.rootModule,
@@ -1060,7 +1060,7 @@ extend Build {
             },
             null => {},
         }
-        self.objects.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Objects).?;
+        self.objects.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Objects).?;
         self.pendingObject = ObjectTarget::init(
             handle.index(),
             options.rootModule,
@@ -1138,7 +1138,7 @@ extend Build {
             },
             null => {},
         }
-        self.staticArchives.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::StaticArchives).?;
+        self.staticArchives.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::StaticArchives).?;
         self.pendingStaticArchive = StaticArchiveTarget::init(
             handle.index(),
             options.rootModule,
@@ -1230,7 +1230,7 @@ extend Build {
         self.dependencies.reserve(
             self.allocator,
             missingCount,
-        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         index = 0;
         while index < self.steps.len() {
             self.addGeneratedDependenciesForStep(index).?;
@@ -1418,10 +1418,10 @@ extend Build {
         self.validationIndegree = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
-        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         let mut index: usize = 0;
         while index < self.steps.len() {
-            self.validationIndegree.push(self.allocator, 0).asBuildError(Operation::Retain, Subject::Dependencies).?;
+            self.validationIndegree.push(self.allocator, 0).withBuildContext(Operation::Retain, Subject::Dependencies).?;
             index += 1;
         }
         for &edge in self.dependencies.iter() {
@@ -1438,11 +1438,11 @@ extend Build {
         self.validationReady = collections::ArrayList[usize]::initCapacity(
             self.allocator,
             self.steps.len(),
-        ).asBuildError(Operation::Retain, Subject::Dependencies).?;
+        ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         index = 0;
         while index < self.validationIndegree.len() {
             if self.validationIndegree.asSlice()[index] == 0 {
-                self.validationReady.push(self.allocator, index).asBuildError(Operation::Retain, Subject::Dependencies).?;
+                self.validationReady.push(self.allocator, index).withBuildContext(Operation::Retain, Subject::Dependencies).?;
             }
             index += 1;
         }
@@ -1456,7 +1456,7 @@ extend Build {
                     let dependent = edge.step.index();
                     self.validationIndegree.asMutSlice()[dependent] -= 1;
                     if self.validationIndegree.asSlice()[dependent] == 0 {
-                        self.validationReady.push(self.allocator, dependent).asBuildError(Operation::Retain, Subject::Dependencies).?;
+                        self.validationReady.push(self.allocator, dependent).withBuildContext(Operation::Retain, Subject::Dependencies).?;
                     }
                 }
             }
@@ -1484,14 +1484,14 @@ extend Build {
         let mut firstError: ?Error = null;
         rememberCleanupError(
             &mut firstError,
-            self.validationReady.deinit(self.allocator).asBuildError(
+            self.validationReady.deinit(self.allocator).withBuildContext(
                 Operation::Release,
                 Subject::Dependencies,
             ),
         );
         rememberCleanupError(
             &mut firstError,
-            self.validationIndegree.deinit(self.allocator).asBuildError(
+            self.validationIndegree.deinit(self.allocator).withBuildContext(
                 Operation::Release,
                 Subject::Dependencies,
             ),
@@ -1505,8 +1505,8 @@ extend Build {
         stderr.print(
             &"build error: {}\n",
             &[&error],
-        ).asBuildError(Operation::Report, Subject::Diagnostic).?;
-        stderr.flush().asBuildError(Operation::Report, Subject::Diagnostic)
+        ).withBuildContext(Operation::Report, Subject::Diagnostic).?;
+        stderr.flush().withBuildContext(Operation::Report, Subject::Diagnostic)
     }
 
     fn findStep(&self, name: &[char]) ?Step {
@@ -1688,8 +1688,8 @@ extend Build {
     fn reportUnknownStep(&mut self, step: &[char]) Error!() {
         let mut buffer: [u8; 256] = [0; 256];
         let mut stderr = io::FileWriter::stderr(&mut buffer);
-        stderr.print(&"unknown build step `{}`\n", &[step]).asBuildError(Operation::Report, Subject::RequestedStep).?;
-        stderr.flush().asBuildError(Operation::Report, Subject::RequestedStep)
+        stderr.print(&"unknown build step `{}`\n", &[step]).withBuildContext(Operation::Report, Subject::RequestedStep).?;
+        stderr.flush().withBuildContext(Operation::Report, Subject::RequestedStep)
     }
 
     fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
@@ -1780,7 +1780,7 @@ extend Build {
             },
             null => {},
         }
-        self.steps.reserve(self.allocator, 1usize).asBuildError(Operation::Retain, Subject::Steps).?;
+        self.steps.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Steps).?;
         !()
     }
 
@@ -1928,12 +1928,12 @@ extend UncacheableStep {
     }
 
     fn initialize(&mut self, allocator: &mut mem::Allocator, description: &[char], index: usize) Error!() {
-        self.description = string::String::fromSlice(allocator, description).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        self.description = string::String::fromSlice(allocator, description).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        self.description.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+        self.description.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
     }
 }
 
@@ -1952,15 +1952,15 @@ extend GeneratedFileStep {
         contents: &[u8],
         index: usize,
     ) Error!() {
-        self.output = string::String::fromSlice(allocator, output.text()).asBuildError(Operation::Retain, Subject::Step(index)).?;
-        self.contents.appendSlice(allocator, contents).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        self.output = string::String::fromSlice(allocator, output.text()).withBuildContext(Operation::Retain, Subject::Step(index)).?;
+        self.contents.appendSlice(allocator, contents).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.contents.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)));
-        rememberCleanupError(&mut firstError, self.output.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)));
+        rememberCleanupError(&mut firstError, self.contents.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)));
+        rememberCleanupError(&mut firstError, self.output.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)));
         cleanupResult(firstError)
     }
 }
@@ -2011,12 +2011,12 @@ extend InstallExecutableStep {
         self.destination = string::String::fromSlice(
             allocator,
             destination.text(),
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        self.destination.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+        self.destination.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
     }
 }
 
@@ -2032,12 +2032,12 @@ extend InstallStaticArchiveStep {
         self.destination = string::String::fromSlice(
             allocator,
             destination.text(),
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        self.destination.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+        self.destination.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
     }
 }
 
@@ -2057,14 +2057,14 @@ extend RunExecutableStep {
     ) Error!() {
         match arguments {
             ?arguments => {
-                self.arguments.reserve(allocator, arguments.len()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                self.arguments.reserve(allocator, arguments.len()).withBuildContext(Operation::Retain, Subject::Step(index)).?;
                 for &argument in arguments.iter() {
                     self.arguments.appendAssumeCapacity(string::String::init());
                     let argumentIndex = self.arguments.len() - 1usize;
                     self.arguments.asMutSlice()[argumentIndex] = string::String::fromSlice(
                         allocator,
                         argument,
-                    ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                    ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
                 }
             },
             null => {},
@@ -2082,13 +2082,13 @@ extend RunExecutableStep {
                 &mut elementError,
                 self.arguments.asMutSlice()[argumentIndex]
                     .deinit(allocator)
-                    .asBuildError(Operation::Release, Subject::Step(index)),
+                    .withBuildContext(Operation::Release, Subject::Step(index)),
             );
         }
         if elementError is null {
             rememberCleanupError(
                 &mut firstError,
-                self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+                self.arguments.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
             );
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
@@ -2294,7 +2294,7 @@ extend OwnedCommandArgument {
         self.payload.value = string::String::fromSlice(
             allocator,
             value,
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         !()
     }
 
@@ -2305,7 +2305,7 @@ extend OwnedCommandArgument {
         {
             return !();
         }
-        self.payload.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index))
+        self.payload.value.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index))
     }
 }
 
@@ -2323,11 +2323,11 @@ extend OwnedCommandEnvironmentInput {
         self.name = string::String::fromSlice(
             allocator,
             input.name,
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         self.value = string::String::fromSlice(
             allocator,
             input.value,
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         !()
     }
 
@@ -2335,11 +2335,11 @@ extend OwnedCommandEnvironmentInput {
         let mut firstError: ?Error = null;
         rememberCleanupError(
             &mut firstError,
-            self.value.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            self.value.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
         );
         rememberCleanupError(
             &mut firstError,
-            self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
         );
         cleanupResult(firstError)
     }
@@ -2367,14 +2367,14 @@ extend ExternalCommandStep {
         self.program = string::String::fromSlice(
             allocator,
             options.program,
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         self.workingDirectory = fs::Path::fromView(
             allocator,
             options.workingDirectory,
-        ).asBuildError(Operation::Retain, Subject::Step(index)).?;
+        ).withBuildContext(Operation::Retain, Subject::Step(index)).?;
         match options.arguments {
             ?arguments => {
-                self.arguments.reserve(allocator, arguments.len()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                self.arguments.reserve(allocator, arguments.len()).withBuildContext(Operation::Retain, Subject::Step(index)).?;
                 for &argument in arguments.iter() {
                     self.arguments.appendAssumeCapacity(OwnedCommandArgument::init(argument));
                     if argument.kind != CommandArgumentKind::ArtifactInput
@@ -2394,7 +2394,7 @@ extend ExternalCommandStep {
         }
         match options.environment {
             ?environment => {
-                self.environment.reserve(allocator, environment.len()).asBuildError(Operation::Retain, Subject::Step(index)).?;
+                self.environment.reserve(allocator, environment.len()).withBuildContext(Operation::Retain, Subject::Step(index)).?;
                 for &input in environment.iter() {
                     self.environment.appendAssumeCapacity(OwnedCommandEnvironmentInput::init());
                     let inputIndex = self.environment.len() - 1usize;
@@ -2420,7 +2420,7 @@ extend ExternalCommandStep {
         if elementError is null {
             rememberCleanupError(
                 &mut firstError,
-                self.environment.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+                self.environment.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
             );
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
@@ -2437,18 +2437,18 @@ extend ExternalCommandStep {
         if elementError is null {
             rememberCleanupError(
                 &mut firstError,
-                self.arguments.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+                self.arguments.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
             );
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
         rememberCleanupError(
             &mut firstError,
-            self.workingDirectory.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            self.workingDirectory.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
         );
         rememberCleanupError(
             &mut firstError,
-            self.program.deinit(allocator).asBuildError(Operation::Release, Subject::Step(index)),
+            self.program.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(index)),
         );
         cleanupResult(firstError)
     }
@@ -2538,7 +2538,7 @@ extend Step {
         output: BuildPathView,
         contents: &[u8],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.generatedFile.initialize(allocator, output, contents, self.index)
     }
 
@@ -2548,7 +2548,7 @@ extend Step {
         name: &[char],
         description: &[char],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.uncacheable.initialize(allocator, description, self.index)
     }
 
@@ -2558,7 +2558,7 @@ extend Step {
         name: &[char],
         arguments: ?&[&[char]],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.runExecutable.initialize(allocator, arguments, self.index)
     }
 
@@ -2568,7 +2568,7 @@ extend Step {
         name: &[char],
         destination: BuildPathView,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.installExecutable.initialize(allocator, destination, self.index)
     }
 
@@ -2578,7 +2578,7 @@ extend Step {
         name: &[char],
         destination: BuildPathView,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.installStaticArchive.initialize(allocator, destination, self.index)
     }
 
@@ -2588,12 +2588,12 @@ extend Step {
         name: &[char],
         options: ExternalCommandOptions,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         self.payload.externalCommand.initialize(allocator, options, self.index)
     }
 
     fn initializeName(&mut self, allocator: &mut mem::Allocator, name: &[char]) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Step(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Step(self.index)).?;
         !()
     }
 
@@ -2617,7 +2617,7 @@ extend Step {
         if self.kind == StepKind::ExternalCommand {
             rememberCleanupError(&mut firstError, self.payload.externalCommand.deinit(allocator, self.index));
         }
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Step(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::Step(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -2873,15 +2873,15 @@ extend Package {
     }
 
     fn initialize(&mut self, allocator: &mut mem::Allocator, options: PackageOptions) Error!() {
-        self.name = string::String::fromSlice(allocator, options.name).asBuildError(Operation::Retain, Subject::Package(self.index)).?;
-        self.root = fs::Path::fromView(allocator, options.root).asBuildError(Operation::Retain, Subject::Package(self.index)).?;
+        self.name = string::String::fromSlice(allocator, options.name).withBuildContext(Operation::Retain, Subject::Package(self.index)).?;
+        self.root = fs::Path::fromView(allocator, options.root).withBuildContext(Operation::Retain, Subject::Package(self.index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.root.deinit(allocator).asBuildError(Operation::Release, Subject::Package(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Package(self.index)));
+        rememberCleanupError(&mut firstError, self.root.deinit(allocator).withBuildContext(Operation::Release, Subject::Package(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::Package(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -2912,10 +2912,10 @@ extend Module {
         imports: ?&[ModuleImport],
         ownerId: usize,
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Module(self.index)).?;
-        self.rootSource = fs::Path::fromView(allocator, rootSource).asBuildError(Operation::Retain, Subject::Module(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Module(self.index)).?;
+        self.rootSource = fs::Path::fromView(allocator, rootSource).withBuildContext(Operation::Retain, Subject::Module(self.index)).?;
         let items = if imports is ?values { values } else { &[] };
-        self.imports.reserve(allocator, items.len()).asBuildError(Operation::Retain, Subject::Modules).?;
+        self.imports.reserve(allocator, items.len()).withBuildContext(Operation::Retain, Subject::Modules).?;
         let mut index: usize = 0;
         for &import in items.iter() {
             self.imports.appendAssumeCapacity(OwnedModuleImport::init(import, index, ownerId));
@@ -2934,12 +2934,12 @@ extend Module {
             rememberCleanupError(&mut elementError, self.imports.asMutSlice()[index].deinit(allocator));
         }
         if elementError is null {
-            rememberCleanupError(&mut firstError, self.imports.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
+            rememberCleanupError(&mut firstError, self.imports.deinit(allocator).withBuildContext(Operation::Release, Subject::Module(self.index)));
         } else {
             rememberCleanupError(&mut firstError, cleanupResult(elementError));
         }
-        rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Module(self.index)));
+        rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).withBuildContext(Operation::Release, Subject::Module(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::Module(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -2996,15 +2996,15 @@ extend OwnedModuleImport {
     }
 
     fn initialize(&mut self, allocator: &mut mem::Allocator, import: ModuleImport) Error!() {
-        self.name = string::String::fromSlice(allocator, import.name).asBuildError(Operation::Retain, Subject::ModuleImport(self.index)).?;
-        self.path = fs::Path::fromView(allocator, import.path).asBuildError(Operation::Retain, Subject::ModuleImport(self.index)).?;
+        self.name = string::String::fromSlice(allocator, import.name).withBuildContext(Operation::Retain, Subject::ModuleImport(self.index)).?;
+        self.path = fs::Path::fromView(allocator, import.path).withBuildContext(Operation::Retain, Subject::ModuleImport(self.index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.path.deinit(allocator).asBuildError(Operation::Release, Subject::ModuleImport(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::ModuleImport(self.index)));
+        rememberCleanupError(&mut firstError, self.path.deinit(allocator).withBuildContext(Operation::Release, Subject::ModuleImport(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::ModuleImport(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -3032,14 +3032,14 @@ extend ExecutableTarget {
         outputName: &[char],
         staticArchives: ?&[StaticArchiveHandle],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Executable(self.index)).?;
-        self.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Executable(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Executable(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(Operation::Retain, Subject::Executable(self.index)).?;
         match staticArchives {
             ?archives => {
                 self.staticArchives.reserve(
                     allocator,
                     archives.len(),
-                ).asBuildError(Operation::Retain, Subject::Executable(self.index)).?;
+                ).withBuildContext(Operation::Retain, Subject::Executable(self.index)).?;
                 for &archive in archives.iter() {
                     self.staticArchives.appendAssumeCapacity(archive);
                 }
@@ -3051,9 +3051,9 @@ extend ExecutableTarget {
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.staticArchives.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
-        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Executable(self.index)));
+        rememberCleanupError(&mut firstError, self.staticArchives.deinit(allocator).withBuildContext(Operation::Release, Subject::Executable(self.index)));
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(Operation::Release, Subject::Executable(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::Executable(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -3079,15 +3079,15 @@ extend ObjectTarget {
         name: &[char],
         outputName: &[char],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::Object(self.index)).?;
-        self.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::Object(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::Object(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(Operation::Retain, Subject::Object(self.index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::Object(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::Object(self.index)));
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(Operation::Release, Subject::Object(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::Object(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -3113,15 +3113,15 @@ extend StaticArchiveTarget {
         name: &[char],
         outputName: &[char],
     ) Error!() {
-        self.name = string::String::fromSlice(allocator, name).asBuildError(Operation::Retain, Subject::StaticArchive(self.index)).?;
-        self.outputName = string::String::fromSlice(allocator, outputName).asBuildError(Operation::Retain, Subject::StaticArchive(self.index)).?;
+        self.name = string::String::fromSlice(allocator, name).withBuildContext(Operation::Retain, Subject::StaticArchive(self.index)).?;
+        self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(Operation::Retain, Subject::StaticArchive(self.index)).?;
         !()
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).asBuildError(Operation::Release, Subject::StaticArchive(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).asBuildError(Operation::Release, Subject::StaticArchive(self.index)));
+        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(Operation::Release, Subject::StaticArchive(self.index)));
+        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(Operation::Release, Subject::StaticArchive(self.index)));
         cleanupResult(firstError)
     }
 }
@@ -3205,12 +3205,12 @@ extend TargetStorage {
         target: TargetView,
         subject: Subject,
     ) Error!() {
-        self.arch = string::String::fromSlice(allocator, target.arch).asBuildError(Operation::Retain, subject).?;
-        self.vendor = string::String::fromSlice(allocator, target.vendor).asBuildError(Operation::Retain, subject).?;
-        self.os = string::String::fromSlice(allocator, target.os).asBuildError(Operation::Retain, subject).?;
-        self.env = string::String::fromSlice(allocator, target.env).asBuildError(Operation::Retain, subject).?;
-        self.abi = string::String::fromSlice(allocator, target.abi).asBuildError(Operation::Retain, subject).?;
-        self.endian = string::String::fromSlice(allocator, target.endian).asBuildError(Operation::Retain, subject).?;
+        self.arch = string::String::fromSlice(allocator, target.arch).withBuildContext(Operation::Retain, subject).?;
+        self.vendor = string::String::fromSlice(allocator, target.vendor).withBuildContext(Operation::Retain, subject).?;
+        self.os = string::String::fromSlice(allocator, target.os).withBuildContext(Operation::Retain, subject).?;
+        self.env = string::String::fromSlice(allocator, target.env).withBuildContext(Operation::Retain, subject).?;
+        self.abi = string::String::fromSlice(allocator, target.abi).withBuildContext(Operation::Retain, subject).?;
+        self.endian = string::String::fromSlice(allocator, target.endian).withBuildContext(Operation::Retain, subject).?;
         !()
     }
 
@@ -3228,12 +3228,12 @@ extend TargetStorage {
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
         let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError(Operation::Release, subject));
-        rememberCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError(Operation::Release, subject));
-        rememberCleanupError(&mut firstError, self.env.deinit(allocator).asBuildError(Operation::Release, subject));
-        rememberCleanupError(&mut firstError, self.os.deinit(allocator).asBuildError(Operation::Release, subject));
-        rememberCleanupError(&mut firstError, self.vendor.deinit(allocator).asBuildError(Operation::Release, subject));
-        rememberCleanupError(&mut firstError, self.arch.deinit(allocator).asBuildError(Operation::Release, subject));
+        rememberCleanupError(&mut firstError, self.endian.deinit(allocator).withBuildContext(Operation::Release, subject));
+        rememberCleanupError(&mut firstError, self.abi.deinit(allocator).withBuildContext(Operation::Release, subject));
+        rememberCleanupError(&mut firstError, self.env.deinit(allocator).withBuildContext(Operation::Release, subject));
+        rememberCleanupError(&mut firstError, self.os.deinit(allocator).withBuildContext(Operation::Release, subject));
+        rememberCleanupError(&mut firstError, self.vendor.deinit(allocator).withBuildContext(Operation::Release, subject));
+        rememberCleanupError(&mut firstError, self.arch.deinit(allocator).withBuildContext(Operation::Release, subject));
         cleanupResult(firstError)
     }
 }

@@ -59,7 +59,7 @@ extend PlanEncoder {
         if value.len() > maxPlanBytes - self.bytes.len() {
             return invalidPlan();
         }
-        self.bytes.appendSlice(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
+        self.bytes.appendSlice(self.allocator, value).withBuildContext(Operation::Encode, Subject::BuildPlan)
     }
 
     fn writeBlob(&mut self, value: &[u8]) Error!() {
@@ -74,7 +74,7 @@ extend PlanEncoder {
         if self.bytes.len() == maxPlanBytes {
             return invalidPlan();
         }
-        self.bytes.push(self.allocator, value).asBuildError(Operation::Encode, Subject::BuildPlan)
+        self.bytes.push(self.allocator, value).withBuildContext(Operation::Encode, Subject::BuildPlan)
     }
 
     fn writeU32(&mut self, value: u32) Error!() {
@@ -582,7 +582,7 @@ fn targetForRole(
 
 extend Build {
     fn cleanupPlanEncoding(&mut self) Error!() {
-        self.planEncoding.deinit(self.allocator).asBuildError(Operation::Release, Subject::BuildPlan)
+        self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan)
     }
 
     pub fn writePlanDraft(&mut self, path: fs::PathView) Error!() {
@@ -598,25 +598,25 @@ extend Build {
             primary! => return primary!,
         }
 
-        let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).asBuildError(Operation::Publish, Subject::BuildPlan).?;
+        let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).withBuildContext(Operation::Publish, Subject::BuildPlan).?;
         let mut primary: ?Error = null;
         let mut buffer: [u8; 4096] = [0; 4096];
-        let mut writer = match file.writer(&mut buffer).asBuildError(Operation::Publish, Subject::BuildPlan) {
+        let mut writer = match file.writer(&mut buffer).withBuildContext(Operation::Publish, Subject::BuildPlan) {
             !value => value,
             error! => {
-                _ = file.close().asBuildError(Operation::Release, Subject::BuildPlan);
+                _ = file.close().withBuildContext(Operation::Release, Subject::BuildPlan);
                 return error!;
             },
         };
         rememberPrimary(
             &mut primary,
-            writer.writeAll(self.planEncoding.asSlice()).asBuildError(Operation::Publish, Subject::BuildPlan),
+            writer.writeAll(self.planEncoding.asSlice()).withBuildContext(Operation::Publish, Subject::BuildPlan),
         );
-        rememberPrimary(&mut primary, writer.flush().asBuildError(Operation::Publish, Subject::BuildPlan));
-        rememberPrimary(&mut primary, file.sync().asBuildError(Operation::Publish, Subject::BuildPlan));
+        rememberPrimary(&mut primary, writer.flush().withBuildContext(Operation::Publish, Subject::BuildPlan));
+        rememberPrimary(&mut primary, file.sync().withBuildContext(Operation::Publish, Subject::BuildPlan));
         // File::close consumes its handle before the syscall, even when the
         // syscall reports an error, so this close is attempted exactly once.
-        rememberPrimary(&mut primary, file.close().asBuildError(Operation::Release, Subject::BuildPlan));
+        rememberPrimary(&mut primary, file.close().withBuildContext(Operation::Release, Subject::BuildPlan));
         match primary {
             ?error => return error!,
             null => {},

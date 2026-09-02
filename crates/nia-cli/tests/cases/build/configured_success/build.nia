@@ -155,10 +155,10 @@ pub fn build(b: &mut build::Build) build::Error!() {
 
     let mut buffer: [u8; 1024] = [0; 1024];
     let mut stdout = io::FileWriter::stdout(&mut buffer[..]);
-    stdout.print(&"root={}\n", &[b.packageRoot().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    stdout.print(&"build={}\n", &[b.buildDir().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    stdout.print(&"cache={}\n", &[b.cacheDir().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    stdout.print(&"toolchain={}\n", &[b.toolchainExecutable().text()]).asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
-    stdout.flush().asBuildError(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.print(&"root={}\n", &[b.packageRoot().text()]).withBuildContext(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.print(&"build={}\n", &[b.buildDir().text()]).withBuildContext(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.print(&"cache={}\n", &[b.cacheDir().text()]).withBuildContext(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.print(&"toolchain={}\n", &[b.toolchainExecutable().text()]).withBuildContext(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
+    stdout.flush().withBuildContext(build::ErrorOperation::Report, build::ErrorSubject::Diagnostic).?;
     !()
 }

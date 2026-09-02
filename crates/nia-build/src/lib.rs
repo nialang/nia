@@ -691,7 +691,7 @@ extend[T] build::Error!T {
             error! => {
                 let mut buffer: [u8; 1024] = [0; 1024];
                 let mut stderr = io::FileWriter::stderr(&mut buffer[..]);
-                match stderr.print(&"build error: {}\n", &[&error]).asBuildError(
+                match stderr.print(&"build error: {}\n", &[&error]).withBuildContext(
                     build::ErrorOperation::Report,
                     build::ErrorSubject::Diagnostic,
                 ) {
@@ -702,7 +702,7 @@ extend[T] build::Error!T {
                         return reportError.asExitCode()!;
                     },
                 }
-                match stderr.flush().asBuildError(
+                match stderr.flush().withBuildContext(
                     build::ErrorOperation::Report,
                     build::ErrorSubject::Diagnostic,
                 ) {
@@ -762,12 +762,12 @@ extend TargetText {
         subject: build::ErrorSubject,
     ) build::Error!() {
         let mut firstError: ?build::Error = null;
-        rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
-        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).asBuildError(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.endian.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.abi.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.env.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.os.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.vendor.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
+        rememberTargetCleanupError(&mut firstError, self.arch.deinit(allocator).withBuildContext(build::ErrorOperation::Release, subject));
         if firstError is ?error {
             return error!;
         }
@@ -970,14 +970,14 @@ pub fn main(init: process::Init) process::ExitCode!() {
     defer allocator.deinit().ok().exit().?;
 
     let mut configPathStorage = fs::Path::init();
-    defer configPathStorage.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    defer configPathStorage.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
     let configPath = configPathArg(init, &mut allocator, &mut configPathStorage).reportAndExit(init).?;
-    let mut configFile = fs::File::open(configPath, fs::OpenOptions::readOnly()).asBuildError(
+    let mut configFile = fs::File::open(configPath, fs::OpenOptions::readOnly()).withBuildContext(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
-    defer configFile.close().asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
-    let configLen64 = configFile.len().asBuildError(
+    defer configFile.close().withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    let configLen64 = configFile.len().withBuildContext(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
@@ -988,17 +988,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
         }.asExitCode()!;
     }
     let configLen = configLen64 as usize;
-    let mut configBytes = allocator.allocSlice[u8](configLen).asBuildError(
+    let mut configBytes = allocator.allocSlice[u8](configLen).withBuildContext(
         build::ErrorOperation::Retain,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
-    defer configBytes.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
+    defer configBytes.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RunnerConfiguration).reportAndExit(init).?;
     let mut readBuffer: [u8; 4096] = [0; 4096];
-    let mut configReader = configFile.reader(&mut readBuffer).asBuildError(
+    let mut configReader = configFile.reader(&mut readBuffer).withBuildContext(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
-    configReader.readExact(configBytes.asMutSlice()).asBuildError(
+    configReader.readExact(configBytes.asMutSlice()).withBuildContext(
         build::ErrorOperation::Initialize,
         build::ErrorSubject::RunnerConfiguration,
     ).reportAndExit(init).?;
@@ -1030,15 +1030,15 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut config = ConfigCursor::init(payload);
 
     let mut packageRootPath = fs::Path::init();
-    defer packageRootPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
+    defer packageRootPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
     let mut buildDirPath = fs::Path::init();
-    defer buildDirPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildDir).reportAndExit(init).?;
+    defer buildDirPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::BuildDir).reportAndExit(init).?;
     let mut cacheDirPath = fs::Path::init();
-    defer cacheDirPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::CacheDir).reportAndExit(init).?;
+    defer cacheDirPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::CacheDir).reportAndExit(init).?;
     let mut toolchainPath = fs::Path::init();
-    defer toolchainPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
+    defer toolchainPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::ToolchainExecutable).reportAndExit(init).?;
     let mut resourceRootPath = fs::Path::init();
-    defer resourceRootPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
+    defer resourceRootPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::ToolchainResourceRoot).reportAndExit(init).?;
 
     let packageRoot = readPath(&mut config, &mut allocator, &mut packageRootPath, build::ErrorSubject::PackageRoot).reportAndExit(init).?;
     let buildDir = readPath(&mut config, &mut allocator, &mut buildDirPath, build::ErrorSubject::BuildDir).reportAndExit(init).?;
@@ -1054,10 +1054,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let defaultOptimization = readOptimization(&mut config).reportAndExit(init).?;
     let planSchemaVersion = config.u32().reportAndExit(init).?;
     let mut planDraftPath = fs::Path::init();
-    defer planDraftPath.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
+    defer planDraftPath.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let mut requestedStepText = string::String::init();
-    defer requestedStepText.deinit(&mut allocator).asBuildError(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
+    defer requestedStepText.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
     let requestedStep: ?&[char] = match config.byte().reportAndExit(init).? {
         0 => null,
         1 => ?readText(
