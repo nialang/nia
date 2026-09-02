@@ -132,6 +132,37 @@ fn lower_expr_internal(
                     .collect::<Result<Vec<_>, _>>()?,
             }
         }
+        nia_ast::ExprKind::OmittedAggregateLiteral { fields } => {
+            let Some(ty) = context.probe_omitted_aggregate_type(&expr.node_key) else {
+                return Err(ConstLowerError {
+                    span: expr.span,
+                    message: "unsupported const expression".to_string(),
+                });
+            };
+            EarlyConstExprKind::StructLiteral {
+                ty: EarlyConstTypeArg {
+                    span: expr.span,
+                    ty_span: expr.span,
+                    ty: Some(ty),
+                },
+                fields: fields
+                    .iter()
+                    .map(|field| lower_field_init_with_context(field, context))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
+        nia_ast::ExprKind::OmittedMember { name } => {
+            let Some(variant_id) = context.probe_omitted_member(&expr.node_key) else {
+                return Err(ConstLowerError {
+                    span: expr.span,
+                    message: "unsupported const expression".to_string(),
+                });
+            };
+            EarlyConstExprKind::Ident(EarlyConstName::resolved(
+                *name,
+                ConstNameResolution::Global(variant_id),
+            ))
+        }
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => EarlyConstExprKind::Unary {
             op: lower_unary_op(*op),

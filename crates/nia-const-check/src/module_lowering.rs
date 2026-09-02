@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use crate::{ConstModuleInput, ConstModuleLowering};
 use nia_ast::Expr;
@@ -152,7 +155,15 @@ impl ConstModuleLowerer<'_> {
             }
             return;
         };
-        if let Some(value) = self.lower_expr(value) {
+        let expected_type = self
+            .input
+            .signatures
+            .consts
+            .get(&def_id)
+            .and_then(|signature| signature.explicit_type);
+        if let Some(value) =
+            self.lower_expr_with_expected(value, expected_type, binding.ty.as_ref())
+        {
             self.module
                 .insert_global_initializer(self.global_def_id(def_id), value);
         }
@@ -171,7 +182,15 @@ impl ConstModuleLowerer<'_> {
         let Some(value) = value else {
             return;
         };
-        if let Some(value) = self.lower_expr(value) {
+        let expected_type = self
+            .input
+            .signatures
+            .consts
+            .get(&def_id)
+            .and_then(|signature| signature.explicit_type);
+        if let Some(value) =
+            self.lower_expr_with_expected(value, expected_type, binding.ty.as_ref())
+        {
             self.module
                 .insert_deferred_global_initializer(self.global_def_id(def_id), value);
         }
@@ -186,8 +205,27 @@ impl ConstModuleLowerer<'_> {
         };
         let function_locals = self.function_locals(function);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
+        let expected_type = self
+            .input
+            .signatures
+            .functions
+            .get(&def_id)
+            .map(|signature| signature.return_type);
+        let (aggregate_types, omitted_members) = function
+            .body
+            .as_ref()
+            .and_then(|body| body.tail.as_deref())
+            .map(|tail| {
+                self.omitted_constructor_maps(
+                    tail,
+                    expected_type,
+                    function.return_type.as_ref(),
+                )
+            })
+            .unwrap_or_default();
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
-            .with_symbols(self.input.symbols);
+            .with_symbols(self.input.symbols)
+            .with_omitted_constructor_maps(&aggregate_types, &omitted_members);
         match nia_const_ir::lower_function_resolved_with_context(function.span, function, &context)
         {
             Ok(function) => {
@@ -203,11 +241,23 @@ impl ConstModuleLowerer<'_> {
     }
 
     fn lower_expr(&mut self, expr: &Expr) -> Option<ResolvedConstExpr> {
+        self.lower_expr_with_expected(expr, None, None)
+    }
+
+    fn lower_expr_with_expected(
+        &mut self,
+        expr: &Expr,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+    ) -> Option<ResolvedConstExpr> {
         let mut allowed_locals = HashSet::new();
         self.collect_expr_locals(expr, &mut allowed_locals);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&allowed_locals);
+        let (aggregate_types, omitted_members) =
+            self.omitted_constructor_maps(expr, expected_type, expected_ref);
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
-            .with_symbols(self.input.symbols);
+            .with_symbols(self.input.symbols)
+            .with_omitted_constructor_maps(&aggregate_types, &omitted_members);
         match nia_const_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {
@@ -219,6 +269,67 @@ impl ConstModuleLowerer<'_> {
                 None
             }
         }
+    }
+
+    fn omitted_constructor_maps(
+        &self,
+        expr: &Expr,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+    ) -> (
+        HashMap<VersionedNodeKey, InternedTyId>,
+        HashMap<VersionedNodeKey, GlobalDefId>,
+    ) {
+        let mut aggregate_types = HashMap::new();
+        let mut omitted_members = HashMap::new();
+        if let (Some(expected_type), nia_ast::ExprKind::OmittedAggregateLiteral { .. }) =
+            (expected_type, &expr.kind)
+        {
+            aggregate_types.insert(expr.node_key.clone(), expected_type);
+        }
+        let enum_id =
+            expected_ref.and_then(|ty| {
+                self.input
+                    .semantic_uses
+                    .node_type_prefix(&ty.node_key)
+                    .or_else(|| match &ty.kind {
+                        nia_ast::TypeKind::Path { segments } if segments.len() == 1 => {
+                            let nia_ast::PathSegmentKind::Name(name) = segments[0].kind else {
+                                return None;
+                            };
+                            self.input.defs.module_scope.types.get(&name).map(|def_id| {
+                                GlobalDefId {
+                                    module_id: self.input.defs.module_id,
+                                    def_id,
+                                }
+                            })
+                        }
+                        _ => None,
+                    })
+            });
+        let variant_for = |name: &nia_symbol::SymbolId| {
+            let enum_id = enum_id?;
+            let scope = self.input.defs.scopes.enum_members.get(&enum_id.def_id)?;
+            let def_id = scope.variants.get(name)?;
+            Some(GlobalDefId {
+                module_id: enum_id.module_id,
+                def_id,
+            })
+        };
+        let mut record_member = |member: &Expr| {
+            if let nia_ast::ExprKind::OmittedMember { name } = &member.kind
+                && let Some(variant_id) = variant_for(name)
+            {
+                omitted_members.insert(member.node_key.clone(), variant_id);
+            }
+        };
+        match &expr.kind {
+            nia_ast::ExprKind::OmittedMember { .. } => record_member(expr),
+            nia_ast::ExprKind::Call { callee, .. } => record_member(callee),
+            nia_ast::ExprKind::QualifiedStructLiteral { target, .. } => record_member(target),
+            _ => {}
+        }
+        (aggregate_types, omitted_members)
     }
 
     fn semantic_uses_with_allowed_locals(

@@ -7,6 +7,7 @@ use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_text_from_optional_resolver};
 use nia_symbol_table::SymbolTable;
+use std::collections::HashMap;
 
 /// Optional semantic inputs for early lowering.
 ///
@@ -18,6 +19,10 @@ pub struct EarlyConstLowerInputs<'a> {
     pub semantic_uses: Option<&'a SemanticUseTable>,
     /// Optional symbol table for synthesized diagnostic names.
     pub symbols: Option<&'a SymbolTable>,
+    /// Type identities assigned to omitted aggregate constructors.
+    pub omitted_aggregate_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
+    /// Variant identities assigned to omitted enum members.
+    pub omitted_members: Option<&'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>>,
 }
 
 impl<'a> EarlyConstLowerInputs<'a> {
@@ -37,6 +42,17 @@ impl<'a> EarlyConstLowerInputs<'a> {
         self.symbols = Some(symbols);
         self
     }
+
+    /// Adds semantic identities for omitted constructors.
+    pub fn with_omitted_constructor_maps(
+        mut self,
+        aggregate_types: &'a HashMap<VersionedNodeKey, InternedTyId>,
+        members: &'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>,
+    ) -> Self {
+        self.omitted_aggregate_types = Some(aggregate_types);
+        self.omitted_members = Some(members);
+        self
+    }
 }
 
 /// Required semantic inputs for producing resolved const IR.
@@ -50,6 +66,10 @@ pub struct ResolvedConstLowerInputs<'a> {
     pub semantic_uses: &'a SemanticUseTable,
     /// Optional symbol table for synthesized names.
     pub symbols: Option<&'a SymbolTable>,
+    /// Type identities assigned to omitted aggregate constructors.
+    pub omitted_aggregate_types: Option<&'a HashMap<VersionedNodeKey, InternedTyId>>,
+    /// Variant identities assigned to omitted enum members.
+    pub omitted_members: Option<&'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>>,
 }
 
 impl<'a> ResolvedConstLowerInputs<'a> {
@@ -58,12 +78,25 @@ impl<'a> ResolvedConstLowerInputs<'a> {
         Self {
             semantic_uses,
             symbols: None,
+            omitted_aggregate_types: None,
+            omitted_members: None,
         }
     }
 
     /// Adds a symbol table for synthesized names.
     pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
         self.symbols = Some(symbols);
+        self
+    }
+
+    /// Adds semantic identities for omitted constructors.
+    pub fn with_omitted_constructor_maps(
+        mut self,
+        aggregate_types: &'a HashMap<VersionedNodeKey, InternedTyId>,
+        members: &'a HashMap<VersionedNodeKey, nia_ids::GlobalDefId>,
+    ) -> Self {
+        self.omitted_aggregate_types = Some(aggregate_types);
+        self.omitted_members = Some(members);
         self
     }
 }
@@ -76,6 +109,10 @@ pub(super) trait ConstLowerContext {
     fn probe_type_id(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
 
     fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId>;
+
+    fn probe_omitted_aggregate_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId>;
+
+    fn probe_omitted_member(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId>;
 
     fn resolve_name(
         &self,
@@ -156,6 +193,15 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
             .and_then(|semantic_uses| semantic_uses.node_type_prefix(key))
     }
 
+    fn probe_omitted_aggregate_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.omitted_aggregate_types
+            .and_then(|map| map.get(key).copied())
+    }
+
+    fn probe_omitted_member(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
+        self.omitted_members.and_then(|map| map.get(key).copied())
+    }
+
     fn resolve_name(
         &self,
         key: &VersionedNodeKey,
@@ -229,6 +275,15 @@ impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
 
     fn probe_type_prefix(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
         self.semantic_uses.node_type_prefix(key)
+    }
+
+    fn probe_omitted_aggregate_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.omitted_aggregate_types
+            .and_then(|map| map.get(key).copied())
+    }
+
+    fn probe_omitted_member(&self, key: &VersionedNodeKey) -> Option<nia_ids::GlobalDefId> {
+        self.omitted_members.and_then(|map| map.get(key).copied())
     }
 
     fn resolve_name(
