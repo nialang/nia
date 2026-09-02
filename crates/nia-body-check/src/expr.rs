@@ -101,7 +101,7 @@ impl<'a> BodyChecker<'a> {
             },
             ExprKind::TypedStructLiteral { ty, fields } => {
                 let explicit = self.ty_for_type(ty);
-                self.check_struct_literal(expr, explicit, fields)
+                self.check_struct_literal(expr.span, explicit, fields)
             }
             ExprKind::QualifiedStructLiteral { target, fields } => {
                 self.check_qualified_struct_literal(expr, target, fields, expected)
@@ -115,7 +115,7 @@ impl<'a> BodyChecker<'a> {
                     ));
                     return self.error();
                 };
-                self.check_struct_literal(expr, expected, fields)
+                self.check_struct_literal(expr.span, expected, fields)
             }
             ExprKind::OmittedMember { name } => {
                 if let Some(expected) = expected
@@ -455,7 +455,7 @@ impl<'a> BodyChecker<'a> {
         body: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        let Some(owner) = self.current_def_id.or(self.current_field_default_owner) else {
+        let Some(owner) = self.current_def_id else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,

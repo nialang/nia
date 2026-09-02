@@ -249,11 +249,10 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn check_struct_literal(
         &mut self,
-        expr: &Expr,
+        span: Span,
         aggregate_ty: InternedTyId,
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
-        let span = expr.span;
         let (def_id, args, const_args) = match self.expect_ty_kind(aggregate_ty) {
             TyKind::Nominal {
                 def_id,
@@ -318,11 +317,7 @@ impl<'a> BodyChecker<'a> {
         let field_set = check_required_field_set(
             fields
                 .iter()
-                .map(|field| NamedField::new(field.span, field.name))
-                .chain(signature_fields.iter().filter_map(|field| {
-                    (field.has_default && !fields.iter().any(|actual| actual.name == field.name))
-                        .then(|| NamedField::new(field.span, field.name))
-                })),
+                .map(|field| NamedField::new(field.span, field.name)),
             signature_fields.iter().map(|field| field.name),
         );
         for field in fields {
@@ -1010,7 +1005,7 @@ impl<'a> BodyChecker<'a> {
                 args,
                 const_args,
             });
-            return self.check_struct_literal(expr, ty, fields);
+            return self.check_struct_literal(expr.span, ty, fields);
         }
         for field in fields {
             self.check_expr(&field.value);

@@ -223,32 +223,6 @@ struct Header {
 }
 
 #[test]
-fn parses_struct_field_default_expressions() {
-    let (module, errors) = parse_module(
-        r#"
-struct Config {
-    port: u16 = 8080,
-    workers: u32 = { let base = 2u32; base + 2u32 },
-    required: bool,
-}
-"#,
-    );
-    assert!(errors.is_empty(), "{errors:?}");
-    let ItemKind::Struct(item_struct) = &module.items[0].kind else {
-        panic!("expected struct");
-    };
-    assert!(matches!(
-        item_struct.fields[0].default.as_ref().map(|expr| &expr.kind),
-        Some(ExprKind::Integer(_))
-    ));
-    assert!(matches!(
-        item_struct.fields[1].default.as_ref().map(|expr| &expr.kind),
-        Some(ExprKind::Block(_))
-    ));
-    assert!(item_struct.fields[2].default.is_none());
-}
-
-#[test]
 fn rejects_bare_at_item_attribute_without_brackets() {
     let (_, errors) = parse_module(
         r#"

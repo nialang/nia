@@ -814,9 +814,6 @@ impl<'a> ValueResolver<'a> {
                 walk_where_clause(self, &item_struct.where_clause);
                 for field in &item_struct.fields {
                     self.visit_type(&field.ty);
-                    if let Some(default) = &field.default {
-                        self.visit_expr(default);
-                    }
                 }
             }
             ItemTreeNodeKind::Union(item_union) => {

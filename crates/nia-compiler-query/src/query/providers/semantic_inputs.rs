@@ -484,15 +484,9 @@ impl AssociatedConstProjectionCollector<'_> {
                     }
                 }
             }
-            nia_item_tree::ItemTreeNodeKind::Struct(item_struct) => {
-                for field in &item_struct.fields {
-                    if let Some(default) = &field.default {
-                        nia_ast_walk::Visitor::visit_expr(self, default);
-                    }
-                }
-            }
             nia_item_tree::ItemTreeNodeKind::Module(_)
             | nia_item_tree::ItemTreeNodeKind::Using(_)
+            | nia_item_tree::ItemTreeNodeKind::Struct(_)
             | nia_item_tree::ItemTreeNodeKind::Union(_)
             | nia_item_tree::ItemTreeNodeKind::Enum(_)
             | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}

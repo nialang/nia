@@ -1,4 +1,4 @@
-use nia_ids::{ClosureId, InternedTyId};
+use nia_ids::InternedTyId;
 use nia_symbol::SymbolId;
 
 use crate::{
@@ -21,42 +21,7 @@ pub fn substitute_ty(
     const_arg: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
     self_ty: Option<InternedTyId>,
 ) -> InternedTyId {
-    substitute_ty_with_closures(
-        store,
-        append,
-        ty,
-        type_arg,
-        const_arg,
-        self_ty,
-        &|closure_id| closure_id,
-    )
-}
-
-/// Recursively substitutes type arguments and rehomes closure identities.
-///
-/// Typed expression templates use this form when one source closure is copied
-/// into another function owner. Ordinary type substitution should use
-/// [`substitute_ty`].
-pub fn substitute_ty_with_closures(
-    store: &TypeStore,
-    append: &TypeStoreAppend,
-    ty: InternedTyId,
-    type_arg: &impl Fn(&SymbolId) -> Option<InternedTyId>,
-    const_arg: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
-    self_ty: Option<InternedTyId>,
-    closure_map: &impl Fn(ClosureId) -> ClosureId,
-) -> InternedTyId {
-    let substitute = |ty| {
-        substitute_ty_with_closures(
-            store,
-            append,
-            ty,
-            type_arg,
-            const_arg,
-            self_ty,
-            closure_map,
-        )
-    };
+    let substitute = |ty| substitute_ty(store, append, ty, type_arg, const_arg, self_ty);
     let substitute_const_arg = |arg: &ConstGenericArg| {
         let mut substituted = match &arg.value {
             ConstGenericValue::GenericParam(name) => const_arg(name).unwrap_or_else(|| arg.clone()),
@@ -155,7 +120,7 @@ pub fn substitute_ty_with_closures(
             params,
             return_type,
         }) => append.intern(TyKind::ClosureState {
-            closure_id: closure_map(*closure_id),
+            closure_id: *closure_id,
             captures: captures.iter().copied().map(substitute).collect(),
             params: params.iter().copied().map(substitute).collect(),
             return_type: substitute(*return_type),

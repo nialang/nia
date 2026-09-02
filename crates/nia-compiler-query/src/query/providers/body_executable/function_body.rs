@@ -82,7 +82,6 @@ pub(in crate::query) fn provide_executable_function_body(
                 checked_functions: functions.clone(),
                 diagnostic_owners: Vec::new(),
                 diagnostics: Vec::new(),
-                field_default_templates: HashMap::new(),
             }),
         },
     )?;

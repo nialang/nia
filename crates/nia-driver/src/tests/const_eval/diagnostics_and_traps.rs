@@ -1868,38 +1868,6 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn const_construction_rejects_runtime_only_field_defaults() {
-    let root = temp_dir("const_construction_rejects_runtime_only_field_defaults");
-    write(
-        &root.join("main.nia"),
-        r#"
-fn runtimePort() usize { 8080usize }
-
-struct Config {
-    port: usize = runtimePort(),
-}
-
-const invalid: Config = Config {};
-
-fn main() i32 {
-    let runtime = Config {};
-    runtime.port as i32
-}
-"#,
-    );
-
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const expression can only call `const fn`")),
-        "{:?}",
-        program.diagnostics
-    );
-}
-
-#[test]
 fn unused_const_function_rejects_runtime_into_error_witness() {
     let root = temp_dir("unused_const_function_rejects_runtime_into_error_witness");
     write(

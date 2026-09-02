@@ -73,7 +73,6 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         active_item_tree: &active_item_tree,
         defs: &defs,
         signatures: &signatures,
-        type_store: &type_store,
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,

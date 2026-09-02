@@ -672,10 +672,6 @@ fn fields_decl_eq(lhs: &[Field], rhs: &[Field]) -> bool {
 fn field_decl_eq(lhs: &Field, rhs: &Field) -> bool {
     lhs.name == rhs.name
         && type_ref_decl_eq(&lhs.ty, &rhs.ty)
-        && lhs.default.as_ref().zip(rhs.default.as_ref()).map_or(
-            lhs.default.is_none() && rhs.default.is_none(),
-            |(lhs, rhs)| expr_decl_eq(lhs, rhs),
-        )
         && item_attributes_declaration_eq(&lhs.attributes, &rhs.attributes)
 }
 
@@ -989,20 +985,6 @@ fn selected() i32 { 2 }
 
         assert_ne!(before_tree, after_tree);
         assert!(before_tree.declaration_eq(&after_tree));
-    }
-
-    #[test]
-    fn struct_field_default_changes_declaration_shape() {
-        let (before, before_errors) = parse_module("pub struct Config { workers: u32 = 2 }");
-        let (after, after_errors) = parse_module("pub struct Config { workers: u32 = 4 }");
-        assert!(before_errors.is_empty(), "{before_errors:?}");
-        assert!(after_errors.is_empty(), "{after_errors:?}");
-
-        let before_tree = lower_module_items(&before);
-        let after_tree = lower_module_items(&after);
-
-        assert!(!before_tree.declaration_eq(&after_tree));
-        assert!(before_tree.definition_eq(&after_tree));
     }
 
     #[test]

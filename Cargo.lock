@@ -420,7 +420,6 @@ name = "nia-const-check"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
- "nia-ast-walk",
  "nia-const-eval",
  "nia-const-ir",
  "nia-defs",

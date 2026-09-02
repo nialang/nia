@@ -223,8 +223,6 @@ pub struct ConstModuleInput<'a> {
     pub defs: &'a DefCollection,
     /// Item and function signatures.
     pub signatures: &'a ItemSignatures,
-    /// Shared interned type store used to inspect contextual aggregate types.
-    pub type_store: &'a nia_ty::TypeStore,
     /// Resolved value identities.
     pub values: &'a ValueResolution,
     /// Resolved local identities.

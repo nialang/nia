@@ -645,7 +645,7 @@ impl<'a> BodyChecker<'a> {
         self.lower_expr_with_ty(expr, None)
     }
 
-    pub(crate) fn lower_expr_with_ty(
+    fn lower_expr_with_ty(
         &mut self,
         expr: &Expr,
         forced_ty: Option<nia_ids::InternedTyId>,
@@ -960,7 +960,19 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     TypedExprKind::StructLiteral {
                         def_id,
-                        fields: self.lower_struct_literal_fields(expr, def_id, ty, fields),
+                        fields: fields
+                            .iter()
+                            .map(|field| {
+                                let field_def = self.field_def_for_aggregate_ty(ty, &field.name);
+                                let field_ty = self.field_ty_for_aggregate_ty(ty, &field.name);
+                                TypedFieldInit {
+                                    field: field_def,
+                                    name: self.symbol_name(field.name),
+                                    value: self.lower_expr_with_ty(&field.value, field_ty),
+                                    span: field.span,
+                                }
+                            })
+                            .collect(),
                     }
                 }
             }
@@ -1006,7 +1018,18 @@ impl<'a> BodyChecker<'a> {
                     };
                     TypedExprKind::StructLiteral {
                         def_id,
-                        fields: self.lower_struct_literal_fields(expr, def_id, ty, fields),
+                        fields: fields
+                            .iter()
+                            .map(|field| {
+                                let field_ty = self.field_ty_for_aggregate_ty(ty, &field.name);
+                                TypedFieldInit {
+                                    field: self.field_def_for_aggregate_ty(ty, &field.name),
+                                    name: self.symbol_name(field.name),
+                                    value: self.lower_expr_with_ty(&field.value, field_ty),
+                                    span: field.span,
+                                }
+                            })
+                            .collect(),
                     }
                 }
             }

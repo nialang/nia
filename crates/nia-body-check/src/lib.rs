@@ -21,7 +21,6 @@ mod calls;
 mod expr;
 mod extension_lookup;
 mod filter;
-mod field_defaults;
 mod helpers;
 mod inference;
 mod inputs;
@@ -185,11 +184,6 @@ struct BodyChecker<'a> {
     node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     inferred_closures: HashMap<VersionedNodeKey, inference::InferredClosureSignature>,
-    field_default_sources: HashMap<GlobalDefId, FieldDefaultSource>,
-    field_default_templates: HashMap<GlobalDefId, nia_body_ir::TypedExpr>,
-    active_field_default_templates: HashSet<GlobalDefId>,
-    current_field_default_owner: Option<GlobalDefId>,
-    next_instantiated_local_id: u32,
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,
@@ -221,12 +215,6 @@ struct BodyChecker<'a> {
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
     profile: nia_timing::TimingAccumulator,
-}
-
-#[derive(Debug, Clone)]
-struct FieldDefaultSource {
-    value: Expr,
-    ty: InternedTyId,
 }
 
 struct CheckedStaticInitVisitor<'checker, 'context> {

@@ -348,8 +348,6 @@ pub struct Field {
     pub name: SymbolId,
     /// Field type syntax.
     pub ty: TypeRef,
-    /// Optional expression used when a struct literal omits this field.
-    pub default: Option<Expr>,
     /// Field attributes.
     pub attributes: Vec<Attribute>,
     /// Source span.
