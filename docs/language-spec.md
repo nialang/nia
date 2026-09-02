@@ -1063,10 +1063,17 @@ only in nominal aggregate patterns; tuple and slice rest patterns are not part o
 the language. Struct patterns use the nominal constructor (`Point { ... }`), not
 an anonymous `{ ... }` pattern.
 
-An enum variant carries no payload, so a variant pattern is its qualified path
-alone, such as `Color::Red`. Payload-carrying variants and their corresponding
-`Variant { field }` patterns are planned but not yet implemented; a variant that
-declares payload fields is currently rejected when the enum is declared.
+Enum variants may carry tuple or named payloads. Their patterns use the same
+payload shape as construction, and the enum owner may be omitted when the
+scrutinee supplies an expected enum type:
+
+```nia
+match color {
+    .Red => 0,
+    .Data(value) => value,
+    .Resize { width, height } => width + height,
+}
+```
 
 ### 4.6 Structs
 
@@ -1091,6 +1098,16 @@ construction, and is rejected when a value is expected. A field whose value is
 the same-name local may use shorthand: `Point { x, y }` means
 `Point { x: x, y: y }`. Inside an `extend` block, `Self { ... }` names the
 extended type.
+
+When an expected nominal type is already available, the owner may be omitted:
+
+```nia
+let mut p: Point = .{ x: 10, y: 20 };
+```
+
+The omitted form is contextual only. A bare `.{ ... }` without an expected
+nominal type is rejected, and fields are checked exactly as in an explicit
+`Point { ... }` literal.
 
 ```nia
 fn sum(point: Point) i32 {
@@ -1595,7 +1612,8 @@ Type aliases do not create new nominal types.
 
 ### 5.5 Enums
 
-Nia enums are C-style named integer sets. They are not algebraic data types.
+Nia enums define named variants. Variants may be unit-like or carry tuple/named
+payloads; unit-like enums may also specify a backing integer type.
 
 ```nia
 enum Color: u8 {
@@ -1619,6 +1637,11 @@ Enum variants are accessed through the enum namespace:
 ```nia
 let mut c = Color::Black;
 ```
+
+In an expression whose expected type is an enum, the owner may be omitted:
+`let mut c: Color = .Black;`. Tuple and named payload variants use the same
+form, such as `let event: Event = .Data(42);` and
+`let event: Event = .Resize { width: 1, height: 2 };`.
 
 If no explicit value is written, variant values start at `0` and increase by
 one. Explicit integer values are allowed:
