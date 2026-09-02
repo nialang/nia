@@ -46,6 +46,7 @@
 // `fs::File::close` consumes its descriptor before attempting the OS close; a
 // caller must not retry it after an error unless it owns a fresh descriptor.
 
+pub(pkg) module cleanup;
 pub(pkg) module core;
 pub(pkg) module error;
 pub(pkg) module handles;

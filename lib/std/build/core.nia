@@ -10,6 +10,7 @@ using pkg::os;
 using pkg::slice;
 using pkg::string;
 using pkg::build::error;
+using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
 using pkg::build::handles;
 using pkg::build::steps;
 using pkg::build::types;
@@ -3210,25 +3211,4 @@ fn isValidModuleImportName(name: &[char]) bool {
         }
     }
     true
-}
-
-fn rememberCleanupError(firstError: &mut ?Error, result: Error!()) () {
-    match result {
-        !ok => {
-            _ = ok;
-        },
-        err! => {
-            if firstError.* is null {
-                firstError.* = ?err;
-            }
-        },
-    }
-}
-
-fn cleanupResult(firstError: ?Error) Error!() {
-    if firstError is ?err {
-        err!
-    } else {
-        !()
-    }
 }
