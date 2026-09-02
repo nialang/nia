@@ -1,0 +1,112 @@
+// Read-only lookups over retained build records.
+//
+// Build keeps the receiver methods as a small compatibility surface, while
+// the record scans live here so query policy is independent from mutation.
+
+using pkg::build::types;
+
+using types::{
+    ExecutableHandle,
+    ExecutableTarget,
+    Module,
+    ObjectHandle,
+    ObjectTarget,
+    StaticArchiveHandle,
+    StaticArchiveTarget,
+    Step,
+    StepHandle,
+    StepKind,
+};
+
+pub(pkg) fn findStep(steps: &[Step], name: &[char]) ?Step {
+    for &step in steps.iter() {
+        if step.name.equals(name) {
+            return ?step;
+        }
+    }
+    null
+}
+
+pub(pkg) fn findExecutable(targets: &[ExecutableTarget], name: &[char]) ?ExecutableTarget {
+    for &target in targets.iter() {
+        if target.name.equals(name) {
+            return ?target;
+        }
+    }
+    null
+}
+
+pub(pkg) fn findObject(targets: &[ObjectTarget], name: &[char]) ?ObjectTarget {
+    for &target in targets.iter() {
+        if target.name.equals(name) {
+            return ?target;
+        }
+    }
+    null
+}
+
+pub(pkg) fn findStaticArchive(targets: &[StaticArchiveTarget], name: &[char]) ?StaticArchiveTarget {
+    for &target in targets.iter() {
+        if target.name.equals(name) {
+            return ?target;
+        }
+    }
+    null
+}
+
+pub(pkg) fn findModule(modules: &[Module], name: &[char]) ?Module {
+    for &moduleRecord in modules.iter() {
+        if moduleRecord.name.equals(name) {
+            return ?moduleRecord;
+        }
+    }
+    null
+}
+
+pub(pkg) fn findEmitStep(
+    ownerId: usize,
+    steps: &[Step],
+    target: ExecutableHandle,
+) ?StepHandle {
+    for &step in steps.iter() {
+        if step.kind == StepKind::EmitExecutable
+            and step.payload.executable.target.ownerId() == target.ownerId()
+            and step.payload.executable.target.index() == target.index()
+        {
+            return ?StepHandle::init(ownerId, step.index);
+        }
+    }
+    null
+}
+
+pub(pkg) fn findEmitObjectStep(
+    ownerId: usize,
+    steps: &[Step],
+    target: ObjectHandle,
+) ?StepHandle {
+    for &step in steps.iter() {
+        if step.kind == StepKind::EmitObject
+            and step.payload.object.target.ownerId() == target.ownerId()
+            and step.payload.object.target.index() == target.index()
+        {
+            return ?StepHandle::init(ownerId, step.index);
+        }
+    }
+    null
+}
+
+pub(pkg) fn findEmitStaticArchiveStep(
+    ownerId: usize,
+    steps: &[Step],
+    target: StaticArchiveHandle,
+) ?StepHandle {
+    for &step in steps.iter() {
+        if step.kind == StepKind::EmitStaticArchive
+            and step.payload.staticArchive.target.ownerId() == target.ownerId()
+            and step.payload.staticArchive.target.index() == target.index()
+        {
+            return ?StepHandle::init(ownerId, step.index);
+        }
+    }
+    null
+}
