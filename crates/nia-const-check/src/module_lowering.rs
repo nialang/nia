@@ -220,6 +220,16 @@ impl ConstModuleLowerer<'_> {
         let mut aggregate_types = HashMap::new();
         let mut omitted_members = HashMap::new();
         let mut omitted_associated_types = HashMap::new();
+        let mut local_types = HashMap::new();
+        for param in &function.params {
+            if let (Some(local_id), Some(type_ref)) = (
+                self.input.semantic_uses.node_local_def(&param.node_key),
+                param.ty.as_ref(),
+            ) && let Some(ty) = self.input.semantic_uses.node_type_use(&type_ref.node_key)
+            {
+                local_types.insert(local_id, (ty, type_ref.clone()));
+            }
+        }
         if let Some(body) = function.body.as_ref() {
             self.collect_function_omitted_maps(
                 body,
@@ -228,6 +238,7 @@ impl ConstModuleLowerer<'_> {
                 &mut aggregate_types,
                 &mut omitted_members,
                 &mut omitted_associated_types,
+                &local_types,
             );
         }
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
@@ -351,6 +362,7 @@ impl ConstModuleLowerer<'_> {
         aggregate_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
         omitted_members: &mut HashMap<VersionedNodeKey, GlobalDefId>,
         omitted_associated_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
+        local_types: &HashMap<LocalId, (InternedTyId, nia_ast::TypeRef)>,
     ) {
         if let Some(tail) = block.tail.as_deref() {
             self.collect_expr_omitted_maps(
@@ -360,6 +372,7 @@ impl ConstModuleLowerer<'_> {
                 aggregate_types,
                 omitted_members,
                 omitted_associated_types,
+                local_types,
             );
         }
         for stmt in &block.stmts {
@@ -377,6 +390,7 @@ impl ConstModuleLowerer<'_> {
                             aggregate_types,
                             omitted_members,
                             omitted_associated_types,
+                            local_types,
                         );
                     }
                 }
@@ -388,6 +402,7 @@ impl ConstModuleLowerer<'_> {
                         aggregate_types,
                         omitted_members,
                         omitted_associated_types,
+                        local_types,
                     );
                 }
                 nia_ast::StmtKind::ForIn(for_in) => self.collect_function_omitted_maps(
@@ -397,6 +412,7 @@ impl ConstModuleLowerer<'_> {
                     aggregate_types,
                     omitted_members,
                     omitted_associated_types,
+                    local_types,
                 ),
                 nia_ast::StmtKind::While(while_stmt) => self.collect_function_omitted_maps(
                     &while_stmt.body,
@@ -405,6 +421,7 @@ impl ConstModuleLowerer<'_> {
                     aggregate_types,
                     omitted_members,
                     omitted_associated_types,
+                    local_types,
                 ),
                 nia_ast::StmtKind::Loop(loop_stmt) => self.collect_function_omitted_maps(
                     &loop_stmt.body,
@@ -413,6 +430,7 @@ impl ConstModuleLowerer<'_> {
                     aggregate_types,
                     omitted_members,
                     omitted_associated_types,
+                    local_types,
                 ),
                 nia_ast::StmtKind::Expr(expr) => self.collect_expr_omitted_maps(
                     expr,
@@ -421,6 +439,7 @@ impl ConstModuleLowerer<'_> {
                     aggregate_types,
                     omitted_members,
                     omitted_associated_types,
+                    local_types,
                 ),
                 _ => {}
             }
@@ -435,6 +454,7 @@ impl ConstModuleLowerer<'_> {
         aggregate_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
         omitted_members: &mut HashMap<VersionedNodeKey, GlobalDefId>,
         omitted_associated_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
+        local_types: &HashMap<LocalId, (InternedTyId, nia_ast::TypeRef)>,
     ) {
         let (aggregates, members) =
             self.omitted_constructor_maps(expr, expected_type, expected_ref);
@@ -455,6 +475,7 @@ impl ConstModuleLowerer<'_> {
                     aggregate_types,
                     omitted_members,
                     omitted_associated_types,
+                    local_types,
                 );
                 if let Some(else_branch) = else_branch.as_deref() {
                     self.collect_expr_omitted_maps(
@@ -464,6 +485,7 @@ impl ConstModuleLowerer<'_> {
                         aggregate_types,
                         omitted_members,
                         omitted_associated_types,
+                        local_types,
                     );
                 }
             }
@@ -474,9 +496,32 @@ impl ConstModuleLowerer<'_> {
                 aggregate_types,
                 omitted_members,
                 omitted_associated_types,
+                local_types,
             ),
             nia_ast::ExprKind::Match(matched) => {
+                let target_hint = match &matched.target.kind {
+                    nia_ast::ExprKind::Ident(_) => self
+                        .input
+                        .semantic_uses
+                        .node_value_use(&matched.target.node_key)
+                        .and_then(|use_| match use_ {
+                            SemanticValueUse::Local(local_id) => local_types.get(&local_id),
+                            SemanticValueUse::Global(_) => None,
+                        }),
+                    _ => None,
+                };
                 for arm in &matched.arms {
+                    for pattern in &arm.patterns {
+                        self.collect_pattern_omitted_maps(
+                            pattern,
+                            target_hint.map(|(ty, _)| *ty),
+                            target_hint.map(|(_, type_ref)| type_ref),
+                            aggregate_types,
+                            omitted_members,
+                            omitted_associated_types,
+                            local_types,
+                        );
+                    }
                     match &arm.body {
                         nia_ast::MatchArmBody::Expr(body) => self.collect_expr_omitted_maps(
                             body,
@@ -485,6 +530,7 @@ impl ConstModuleLowerer<'_> {
                             aggregate_types,
                             omitted_members,
                             omitted_associated_types,
+                            local_types,
                         ),
                         nia_ast::MatchArmBody::Block(body) => self.collect_function_omitted_maps(
                             body,
@@ -493,6 +539,7 @@ impl ConstModuleLowerer<'_> {
                             aggregate_types,
                             omitted_members,
                             omitted_associated_types,
+                            local_types,
                         ),
                         nia_ast::MatchArmBody::Stmt(stmt) => {
                             if let nia_ast::StmtKind::Expr(body) = &stmt.kind {
@@ -503,10 +550,67 @@ impl ConstModuleLowerer<'_> {
                                     aggregate_types,
                                     omitted_members,
                                     omitted_associated_types,
+                                    local_types,
                                 );
                             }
                         }
                     }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_pattern_omitted_maps(
+        &self,
+        pattern: &nia_ast::Pattern,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+        aggregate_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
+        omitted_members: &mut HashMap<VersionedNodeKey, GlobalDefId>,
+        omitted_associated_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
+        local_types: &HashMap<LocalId, (InternedTyId, nia_ast::TypeRef)>,
+    ) {
+        match &pattern.kind {
+            nia_ast::PatternKind::Expr(expr) => self.collect_expr_omitted_maps(
+                expr,
+                expected_type,
+                expected_ref,
+                aggregate_types,
+                omitted_members,
+                omitted_associated_types,
+                local_types,
+            ),
+            nia_ast::PatternKind::Nominal { constructor, .. } => {
+                let (aggregates, members) =
+                    self.omitted_constructor_maps(constructor, expected_type, expected_ref);
+                aggregate_types.extend(aggregates);
+                omitted_members.extend(members);
+            }
+            nia_ast::PatternKind::Pointer(inner)
+            | nia_ast::PatternKind::MutPointer(inner)
+            | nia_ast::PatternKind::OptionalSome(inner)
+            | nia_ast::PatternKind::ErrorOk(inner)
+            | nia_ast::PatternKind::ErrorErr(inner) => self.collect_pattern_omitted_maps(
+                inner,
+                expected_type,
+                expected_ref,
+                aggregate_types,
+                omitted_members,
+                omitted_associated_types,
+                local_types,
+            ),
+            nia_ast::PatternKind::Tuple(items) => {
+                for item in items {
+                    self.collect_pattern_omitted_maps(
+                        item,
+                        None,
+                        None,
+                        aggregate_types,
+                        omitted_members,
+                        omitted_associated_types,
+                        local_types,
+                    );
                 }
             }
             _ => {}

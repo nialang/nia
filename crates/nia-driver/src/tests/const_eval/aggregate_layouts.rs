@@ -95,6 +95,34 @@ fn main() i32 {
 }
 
 #[test]
+fn omitted_patterns_are_const_evaluable() {
+    let root = temp_dir("omitted_patterns_are_const_evaluable");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Color { Red, Data(usize), Resize { value: usize } }
+
+const fn score(color: Color) usize {
+    match color {
+        .Red => 1usize,
+        .Data(value) => value,
+        .Resize { value } => value,
+    }
+}
+
+const n: usize = score(Color::Data(7usize));
+
+fn main() i32 {
+    n as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_match_nominal_struct_fields_have_typed_values() {
     let root = temp_dir("const_match_nominal_struct_fields_have_typed_values");
     write(
