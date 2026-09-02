@@ -1,4 +1,5 @@
 using pkg::collections;
+using pkg::error;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
@@ -391,7 +392,7 @@ fn appendText(
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
-    bytes.reserve(allocator, byteLen).asProcessAllocationError().?;
+    bytes.reserve(allocator, byteLen).?;
     for &ch in text {
         bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
     }
@@ -455,7 +456,7 @@ fn appendEnvironmentEntry(
         ?value => value,
         null => return Error::Allocation(mem::Error::OutOfMemory)!,
     };
-    bytes.reserve(allocator, needed).asProcessAllocationError().?;
+    bytes.reserve(allocator, needed).?;
     for &ch in entry.name() {
         bytes.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
     }
@@ -476,13 +477,13 @@ fn appendCStringPointers(
     // before taking any pointers into it.
     let mut start: usize = 0;
     while start < bytes.len() {
-        pointers.push(allocator, &bytes[start]).asProcessAllocationError().?;
+    pointers.push(allocator, &bytes[start]).?;
         while bytes[start] != 0 {
             start += 1;
         }
         start += 1;
     }
-    pointers.push(allocator, 0usize as &u8).asProcessAllocationError().?;
+    pointers.push(allocator, 0usize as &u8).?;
     !()
 }
 
@@ -530,11 +531,8 @@ extend[T] os::Error!T {
     }
 }
 
-extend[T] mem::Error!T {
-    fn asProcessAllocationError(self) Error!T {
-        match self {
-            !value => !value,
-            cause! => Error::Allocation(cause)!,
-        }
+extend mem::Error : error::IntoError[Error] {
+    const fn into_error(self) Error {
+        Error::Allocation(self)
     }
 }

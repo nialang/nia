@@ -1,3 +1,4 @@
+using pkg::error;
 using pkg::hash;
 using pkg::iter::range;
 using pkg::mem;
@@ -105,7 +106,7 @@ where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
     }
 
     pub fn tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
-        let seed = raw::randomSeed().asHashMapInitError().?;
+        let seed = raw::randomSeed().?;
         !HashMapWithContext[K, V, DefaultHashMapContext]::initSeed(seed)
     }
 
@@ -141,7 +142,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
-        let seed = raw::randomSeed().asHashMapInitError().?;
+        let seed = raw::randomSeed().?;
         !HashMapWithContext[K, V, C]::initContextSeed(context, seed)
     }
 
@@ -818,11 +819,8 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 }
 
-extend[T] os::Error!T {
-    fn asHashMapInitError(self) HashMapInitError!T {
-        match self {
-            !value => !value,
-            cause! => HashMapInitError::fromOs(cause)!,
-        }
+extend os::Error : error::IntoError[HashMapInitError] {
+    const fn into_error(self) HashMapInitError {
+        HashMapInitError::fromOs(self)
     }
 }

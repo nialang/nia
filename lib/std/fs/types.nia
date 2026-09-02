@@ -182,7 +182,7 @@ extend Dir {
 
     pub fn close(&mut self) Error!() {
         let handle = self.takeHandle().?;
-        handle.close().as_fs_error()
+        !(handle.close().?)
     }
 }
 
@@ -206,7 +206,7 @@ extend File {
 
     pub fn close(&mut self) Error!() {
         let handle = self.takeHandle().?;
-        handle.close().as_fs_error()
+        !(handle.close().?)
     }
 }
 
@@ -251,7 +251,7 @@ extend DirIterator : Iterator {
         };
         let entry = match self.reader.next(handle) {
             ?result => {
-                result.as_fs_error()
+                result.?
             },
             null => {
                 return null;

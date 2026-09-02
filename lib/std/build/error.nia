@@ -124,7 +124,7 @@ extend ErrorCause {
 
 extend[T] Error!T {
     pub fn exit(self) process::ExitCode!T {
-        self.cast_error()
+        self.mapError(&\cause: Error -> cause.into_error())
     }
 }
 

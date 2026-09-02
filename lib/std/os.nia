@@ -146,7 +146,7 @@ pub(pkg) fn pageSize() usize {
 }
 
 pub(pkg) fn pageAlignedLen(len: usize) Error!usize {
-    platform::page_aligned_len(len).asOsError()
+    !(platform::page_aligned_len(len).?)
 }
 
 pub(pkg) fn cwd() FileHandle {
@@ -154,7 +154,7 @@ pub(pkg) fn cwd() FileHandle {
 }
 
 pub(pkg) fn getcwd(buffer: &mut [u8]) Error!&[u8] {
-    platform::getcwd(buffer).asOsError()
+    !(platform::getcwd(buffer).?)
 }
 
 pub(pkg) fn openAt(
@@ -211,16 +211,16 @@ pub(pkg) fn createDirAtBeneath(
     name: &u8,
     permissions: u32,
 ) Error!() {
-    platform::create_dir_at_beneath(
+    !(platform::create_dir_at_beneath(
         dir.platform(),
         parent,
         name,
         permissions,
-    ).asOsError()
+    ).?)
 }
 
 pub(pkg) fn deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: bool) Error!() {
-    platform::delete_at_beneath(dir.platform(), parent, name, directory).asOsError()
+    !(platform::delete_at_beneath(dir.platform(), parent, name, directory).?)
 }
 
 pub(pkg) fn renameAtBeneath(
@@ -231,14 +231,14 @@ pub(pkg) fn renameAtBeneath(
     new_parent: &u8,
     new_name: &u8,
 ) Error!() {
-    platform::rename_at_beneath(
+    !(platform::rename_at_beneath(
         old_dir.platform(),
         old_parent,
         old_name,
         new_dir.platform(),
         new_parent,
         new_name,
-    ).asOsError()
+    ).?)
 }
 
 pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {
@@ -251,15 +251,15 @@ pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) 
 }
 
 pub(pkg) fn mapPages(len: usize, align: usize) Error!platform::MappedPages {
-    platform::map_pages(len, align).asOsError()
+    !(platform::map_pages(len, align).?)
 }
 
 pub(pkg) fn unmapPages(ptr: &mut u8, len: usize) Error!() {
-    platform::unmap_pages(ptr, len).asOsError()
+    !(platform::unmap_pages(ptr, len).?)
 }
 
 pub(pkg) fn random(bytes: &mut [u8]) Error!() {
-    platform::random(bytes).asOsError()
+    !(platform::random(bytes).?)
 }
 
 pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
@@ -284,7 +284,7 @@ pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
 }
 
 pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
-    platform::kill_with(pid.platform(), signal).asOsError()
+    !(platform::kill_with(pid.platform(), signal).?)
 }
 
 pub(pkg) fn exit(code: i32) () {
@@ -323,23 +323,17 @@ extend platform::Errno : error::IntoError[Error] {
     }
 }
 
-extend platform::Errno {
-    const fn asOsError(self) Error {
-        self.into_error()
-    }
-}
-
 extend platform::SpawnError : error::IntoError[SpawnError] {
     const fn into_error(self) SpawnError {
         match self {
-            platform::SpawnError::Setup(cause) => SpawnError::Setup(cause.asOsError()),
-            platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.asOsError()),
-            platform::SpawnError::Cwd(cause) => SpawnError::Cwd(cause.asOsError()),
-            platform::SpawnError::Exec(cause) => SpawnError::Exec(cause.asOsError()),
+            platform::SpawnError::Setup(cause) => SpawnError::Setup(cause.into_error()),
+            platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.into_error()),
+            platform::SpawnError::Cwd(cause) => SpawnError::Cwd(cause.into_error()),
+            platform::SpawnError::Exec(cause) => SpawnError::Exec(cause.into_error()),
             platform::SpawnError::Reap { stage, primary, cause, pid } => SpawnError::Reap {
                 stage: stage.asSpawnStage(),
-                primary: primary.asOsError(),
-                cause: cause.asOsError(),
+                primary: primary.into_error(),
+                cause: cause.into_error(),
                 pid: ProcessId::fromPlatform(pid),
             },
         }
@@ -358,31 +352,13 @@ extend platform::SpawnStage {
     }
 }
 
-extend platform::SpawnError {
-    fn asSpawnError(self) SpawnError {
-        self.into_error()
-    }
-}
-
-extend[T] platform::SpawnError!T {
-    fn asSpawnError(self) SpawnError!T {
-        self.cast_error()
-    }
-}
-
-extend[T] platform::Errno!T {
-    fn asOsError(self) Error!T {
-        self.cast_error()
-    }
-}
-
 extend SpawnAttempt {
     fn fromPlatform(platform: platform::SpawnAttempt) SpawnAttempt {
         Self { platform: platform }
     }
 
     pub(pkg) fn finish(&mut self) SpawnError!SpawnResult {
-        let result = self.platform.finish().asSpawnError().?;
+        let result = self.platform.finish().?;
         !SpawnResult::fromPlatform(result)
     }
 }
@@ -620,7 +596,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn writeSome(&self, bytes: &[u8]) Error!usize {
-        let n = self.platform().write_some(bytes).asOsError().?;
+        let n = self.platform().write_some(bytes).?;
         if n > bytes.len() {
             return Error::Invalid!;
         }
@@ -628,7 +604,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn readSome(&self, bytes: &mut [u8]) Error!usize {
-        let n = self.platform().read_some(bytes).asOsError().?;
+        let n = self.platform().read_some(bytes).?;
         if n > bytes.len() {
             return Error::Invalid!;
         }
@@ -636,7 +612,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn close(&self) Error!() {
-        self.platform().close().asOsError()
+        !(self.platform().close().?)
     }
 
     pub(pkg) fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
@@ -644,23 +620,23 @@ extend FileHandle {
         self.platform().seek(
             offset,
             platform_whence,
-        ).asOsError()
+        ).?
     }
 
     pub(pkg) fn truncate(&self, len: u64) Error!() {
-        self.platform().truncate(len).asOsError()
+        self.platform().truncate(len).?
     }
 
     pub(pkg) fn setPermissions(&self, permissions: u32) Error!() {
-        self.platform().set_permissions(permissions).asOsError()
+        self.platform().set_permissions(permissions).?
     }
 
     pub(pkg) fn sync(&self) Error!() {
-        self.platform().sync().asOsError()
+        !(self.platform().sync().?)
     }
 
     pub(pkg) fn syncData(&self) Error!() {
-        self.platform().sync_data().asOsError()
+        self.platform().sync_data().?
     }
 
     pub(pkg) fn metadata(&self) Error!FileMetadata {
@@ -669,7 +645,7 @@ extend FileHandle {
     }
 
     fn readDirEntries(&self, buffer: &mut [u8]) Error!usize {
-        let n = self.platform().read_dir_entries(buffer).asOsError().?;
+        let n = self.platform().read_dir_entries(buffer).?;
         if n > buffer.len() {
             return Error::Invalid!;
         }

@@ -63,17 +63,31 @@ extend os::Error : error::IntoError[SystemError] {
     }
 }
 
-extend os::Error {
-    pub(pkg) fn asIoError(self) Error {
-        Error::System(self.into_error())
-    }
-}
-
-extend[T] os::Error!T {
-    pub(pkg) fn asIoError(self) Error!T {
+extend os::Error : error::IntoError[Error] {
+    const fn into_error(self) Error {
         match self {
-            !value => !value,
-            cause! => cause.asIoError()!,
+            os::Error::PermissionDenied => Error::System(SystemError::PermissionDenied),
+            os::Error::NotFound => Error::System(SystemError::NotFound),
+            os::Error::Interrupted => Error::System(SystemError::Interrupted),
+            os::Error::Io => Error::System(SystemError::Io),
+            os::Error::BadFd => Error::System(SystemError::BadFd),
+            os::Error::Again => Error::System(SystemError::Again),
+            os::Error::OutOfMemory => Error::System(SystemError::OutOfMemory),
+            os::Error::Access => Error::System(SystemError::Access),
+            os::Error::Fault => Error::System(SystemError::Fault),
+            os::Error::Busy => Error::System(SystemError::Busy),
+            os::Error::AlreadyExists => Error::System(SystemError::AlreadyExists),
+            os::Error::CrossDevice => Error::System(SystemError::CrossDevice),
+            os::Error::NotDir => Error::System(SystemError::NotDir),
+            os::Error::IsDir => Error::System(SystemError::IsDir),
+            os::Error::Invalid => Error::System(SystemError::Invalid),
+            os::Error::NoSpace => Error::System(SystemError::NoSpace),
+            os::Error::ReadOnly => Error::System(SystemError::ReadOnly),
+            os::Error::BrokenPipe => Error::System(SystemError::BrokenPipe),
+            os::Error::OutOfRange => Error::System(SystemError::OutOfRange),
+            os::Error::TooLong => Error::System(SystemError::TooLong),
+            os::Error::NotEmpty => Error::System(SystemError::NotEmpty),
+            _ => Error::System(SystemError::System),
         }
     }
 }

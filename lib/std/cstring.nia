@@ -16,6 +16,12 @@ pub enum CStringBuildError {
     Allocation(mem::Error),
 }
 
+extend mem::Error : error::IntoError[CStringBuildError] {
+    const fn into_error(self) CStringBuildError {
+        CStringBuildError::Allocation(self)
+    }
+}
+
 pub struct CStringView {
     ptr: &u8,
     len: usize,
@@ -27,7 +33,7 @@ pub struct CString {
 
 extend CString {
     pub fn init(allocator: &mut mem::Allocator) CStringBuildError!CString {
-        let mut bytes = collections::ArrayList[u8]::initCapacity(allocator, 1).asCStringBuildError().?;
+        let mut bytes = collections::ArrayList[u8]::initCapacity(allocator, 1).?;
         bytes.appendAssumeCapacity(0);
         !CString { bytes: bytes }
     }
@@ -42,7 +48,7 @@ extend CString {
             ?value => value,
             null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
-        let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).asCStringBuildError().?;
+        let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         output.appendSliceAssumeCapacity(bytes);
         output.appendAssumeCapacity(0);
         !CString { bytes: output }
@@ -67,7 +73,7 @@ extend CString {
             ?value => value,
             null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
-        let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).asCStringBuildError().?;
+        let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         for &ch in text {
             output.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
         }
@@ -216,14 +222,5 @@ where T: parse::FromRadix[&[u8]]
 
     fn fromRadix(input: CStringView, radix: u32) [T as parse::FromRadix[CStringView]]::Error!T {
         input.bytes().parseRadix[T](radix)
-    }
-}
-
-extend[T] mem::Error!T {
-    fn asCStringBuildError(self) CStringBuildError!T {
-        match self {
-            !value => !value,
-            error! => CStringBuildError::Allocation(error)!,
-        }
     }
 }

@@ -70,7 +70,7 @@ extend FileWriter {
     }
 
     fn write_direct(&mut self, bytes: &[u8]) fs::Error!usize {
-        let n = self.file.handle().?.writeSome(bytes).as_fs_error().?;
+            let n = self.file.handle().?.writeSome(bytes).?;
         if n > bytes.len() {
             return fs::Error::Io!;
         }
@@ -163,7 +163,7 @@ extend FileReader {
     }
 
     fn read_direct(&mut self, bytes: &mut [u8]) fs::Error!usize {
-        let n = self.file.handle().?.readSome(bytes).as_fs_error().?;
+        let n = self.file.handle().?.readSome(bytes).?;
         if n > bytes.len() {
             return fs::Error::Io!;
         }

@@ -31,18 +31,3 @@ extend[Value, Source, Target] Source!Value {
         }
     }
 }
-
-extend[T, Source, Target] Source!T
-where Source: IntoError[Target]
-{
-    pub fn cast_error(self) Target!T {
-        match self {
-            !ok => {
-                !ok
-            },
-            error! => {
-                error.into_error()!
-            },
-        }
-    }
-}
