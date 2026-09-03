@@ -1,4 +1,5 @@
 using pkg::io;
+using pkg::optional;
 using pkg::unicode;
 
 pub enum Error: i32 {
@@ -116,15 +117,7 @@ extend FormatSpec {
     }
 
     pub fn hasPrecision(&self) bool {
-        match self.precision {
-            ?precision => {
-                _ = precision;
-                true
-            },
-            null => {
-                false
-            },
-        }
+        self.precision.isPresent()
     }
 
     pub fn fill(&self) char {

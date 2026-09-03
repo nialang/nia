@@ -5,6 +5,8 @@
 // only for the active call; contextual domain information remains explicit.
 // `cleanupAfter` combines an already-produced result with eagerly evaluated
 // cleanup while keeping the operation failure primary.
+// `map` transforms only a success payload, while `andThen` continues with a
+// callback that returns another value in the same error union.
 
 pub module cleanup;
 
@@ -14,6 +16,44 @@ pub using cleanup::CleanupAccumulator;
 
 pub trait IntoError[Target] {
     const fn intoError(self) Target;
+}
+
+extend[Value, Source] Source!Value {
+    // Expose the active case when a boolean must be composed. Use an if-pattern
+    // when the branch immediately consumes the success or error payload.
+    pub fn isSuccess(&self) bool {
+        let result = self.*;
+        if result is !_ { true } else { false }
+    }
+
+    pub fn isError(&self) bool {
+        let result = self.*;
+        if result is _! { true } else { false }
+    }
+
+    // Transform a successful payload without touching the error path.
+    pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) Source!Mapped {
+        match self {
+            !value => {
+                !mapper(value)
+            },
+            error! => {
+                error!
+            },
+        }
+    }
+
+    // Continue a successful operation while preserving the original error.
+    pub fn andThen[Mapped](self, next: &Fn(Value) Source!Mapped) Source!Mapped {
+        match self {
+            !value => {
+                next(value)
+            },
+            error! => {
+                error!
+            },
+        }
+    }
 }
 
 extend[Value, Source, Target] Source!Value {

@@ -3,6 +3,7 @@ using pkg::os::linux::stat;
 using pkg::os::linux::types;
 using pkg::error;
 using pkg::math;
+using pkg::optional;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
@@ -389,10 +390,7 @@ pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
 }
 
 pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
-    match parseDirent(buffer, offset) {
-        ?parsed => ?parsed.recordEnd,
-        null => null,
-    }
+    parseDirent(buffer, offset).map(&\parsed -> parsed.recordEnd)
 }
 
 fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {

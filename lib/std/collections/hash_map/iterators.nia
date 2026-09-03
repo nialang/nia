@@ -3,6 +3,7 @@ using pkg::collections::hash_map::entries;
 using pkg::collections::hash_map::map;
 using pkg::collections::hash_map::raw;
 using pkg::collections::hash_map::types;
+using pkg::optional;
 
 using context::DefaultHashMapContext;
 using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef};
@@ -190,14 +191,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = &K;
 
     pub fn next(&mut self) ?&K {
-        match self.iter.next() {
-            ?entry => {
-                ?entry.key()
-            },
-            null => {
-                null
-            },
-        }
+        self.iter.next().map(&\entry -> entry.key())
     }
 }
 
@@ -219,14 +213,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = &V;
 
     pub fn next(&mut self) ?&V {
-        match self.iter.next() {
-            ?entry => {
-                ?entry.value()
-            },
-            null => {
-                null
-            },
-        }
+        self.iter.next().map(&\entry -> entry.value())
     }
 }
 
