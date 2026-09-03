@@ -146,8 +146,9 @@ extend Runner {
     }
 
     // Run every selected case and report each result to a caller-owned
-    // callback. The callback is borrowed for the duration of this call.
-    pub fn runWith(self, reporter: &fn(CaseResult) ()) RunSummary {
+    // callback. A mutable callable view lets reporters accumulate output or
+    // counters in explicitly borrowed state without requiring allocation.
+    pub fn runWith(self, reporter: &mut Fn(CaseResult) ()) RunSummary {
         let mut summary = RunSummary::init();
         let mut index: usize = 0;
         while index < self.cases.len() {
