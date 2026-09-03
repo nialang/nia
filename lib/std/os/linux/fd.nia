@@ -29,7 +29,7 @@ extend FileDescriptor {
         let ptr = bytes.ptr();
         let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
-            ret.syscall_error()!
+            ret.syscallError()!
         } else {
             let amount = ret as usize;
             if amount > bytes.len() {
@@ -43,7 +43,7 @@ extend FileDescriptor {
         let ptr = bytes.ptrMut();
         let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
-            ret.syscall_error()!
+            ret.syscallError()!
         } else {
             let amount = ret as usize;
             if amount > bytes.len() {
@@ -55,7 +55,7 @@ extend FileDescriptor {
 
     pub fn close(&self) Errno!() {
         let ret = syscall::syscall1(syscall::close, self.fd as usize);
-        ret.syscall_success()
+        ret.syscallSuccess()
     }
 
     pub fn seek(&self, offset: i64, whence: SeekWhence) Errno!u64 {
@@ -66,7 +66,7 @@ extend FileDescriptor {
             whence as usize,
         );
         if ret < 0 {
-            ret.syscall_error()!
+            ret.syscallError()!
         } else {
             !(ret as u64)
         }
@@ -74,22 +74,22 @@ extend FileDescriptor {
 
     pub fn truncate(&self, len: u64) Errno!() {
         let ret = syscall::syscall2(syscall::ftruncate, self.fd as usize, len as usize);
-        ret.syscall_success()
+        ret.syscallSuccess()
     }
 
     pub fn set_permissions(&self, permissions: u32) Errno!() {
         let ret = syscall::syscall2(syscall::fchmod, self.fd as usize, permissions as usize);
-        ret.syscall_success()
+        ret.syscallSuccess()
     }
 
     pub fn sync(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fsync, self.fd as usize);
-        ret.syscall_success()
+        ret.syscallSuccess()
     }
 
     pub fn sync_data(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fdatasync, self.fd as usize);
-        ret.syscall_success()
+        ret.syscallSuccess()
     }
 
     pub fn metadata(&self) Errno!FileMetadata {
@@ -107,7 +107,7 @@ extend FileDescriptor {
             buffer.len(),
         );
         if ret < 0 {
-            ret.syscall_error()!
+            ret.syscallError()!
         } else {
             let amount = ret as usize;
             if amount > buffer.len() {
@@ -119,7 +119,7 @@ extend FileDescriptor {
 }
 
 pub fn cwd() FileDescriptor {
-    FileDescriptor::init(types::at_fdcwd)
+    FileDescriptor::init(types::atFdCwd)
 }
 
 pub fn pipe_close_on_exec() Errno!Pipe {
@@ -127,11 +127,11 @@ pub fn pipe_close_on_exec() Errno!Pipe {
     let ret = syscall::syscall2(
         syscall::pipe2,
         &mut fds[0] as usize,
-        types::close_on_exec as usize,
+        types::closeOnExec as usize,
     );
-    ret.syscall_success().?;
-    let read = FileDescriptor::from_kernel(fds[0]).?;
-    let write = FileDescriptor::from_kernel(fds[1]).?;
+    ret.syscallSuccess().?;
+    let read = FileDescriptor::fromKernel(fds[0]).?;
+    let write = FileDescriptor::fromKernel(fds[1]).?;
     !Pipe::init(read, write)
 }
 
@@ -145,7 +145,7 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
         buffer.len(),
     );
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else {
         let mut len = ret as usize;
         if len == 0usize or len > buffer.len() {
@@ -170,13 +170,13 @@ pub fn open_at(
 ) Errno!FileDescriptor {
     let mut flags = mode as i32;
     if create {
-        flags = flags + types::open_create;
+        flags = flags + types::openCreate;
     }
     if exclusive {
-        flags = flags + types::open_exclusive;
+        flags = flags + types::openExclusive;
     }
     if truncate {
-        flags = flags + types::open_truncate;
+        flags = flags + types::openTruncate;
     }
 
     let ret = syscall::syscall4(
@@ -187,9 +187,9 @@ pub fn open_at(
         permissions as usize,
     );
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else {
-        !FileDescriptor::from_syscall(ret).?
+        !FileDescriptor::fromSyscall(ret).?
     }
 }
 
@@ -207,24 +207,24 @@ pub fn open_at_beneath(
 ) Errno!FileDescriptor {
     let mut flags = mode as i32;
     if directory {
-        flags = flags + types::open_directory;
+        flags = flags + types::openDirectory;
     }
     if create {
-        flags = flags + types::open_create;
+        flags = flags + types::openCreate;
     }
     if exclusive {
-        flags = flags + types::open_exclusive;
+        flags = flags + types::openExclusive;
     }
     if truncate {
-        flags = flags + types::open_truncate;
+        flags = flags + types::openTruncate;
     }
     if not follow_symlinks {
-        flags = flags + types::open_no_follow;
+        flags = flags + types::openNoFollow;
     }
     let how = OpenHow {
         flags: flags as u64,
         mode: permissions as u64,
-        resolve: types::resolve_beneath | types::resolve_no_magiclinks,
+        resolve: types::resolveBeneath | types::resolveNoMagicLinks,
     };
     let ret = syscall::syscall4(
         syscall::openat2,
@@ -234,9 +234,9 @@ pub fn open_at_beneath(
         std::builtin::size[OpenHow](),
     );
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else {
-        !FileDescriptor::from_syscall(ret).?
+        !FileDescriptor::fromSyscall(ret).?
     }
 }
 
@@ -247,7 +247,7 @@ pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() 
         path as usize,
         permissions as usize,
     );
-    ret.syscall_success()
+    ret.syscallSuccess()
 }
 
 pub fn create_dir_at_beneath(
@@ -268,12 +268,12 @@ pub fn create_dir_at_beneath(
         true,
     ).?;
     let result = create_dir_at(parent_handle, name, permissions);
-    result.close_after(parent_handle.close())
+    result.closeAfter(parent_handle.close())
 }
 
 pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
-    ret.syscall_success()
+    ret.syscallSuccess()
 }
 
 pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!() {
@@ -281,9 +281,9 @@ pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!() {
         syscall::unlinkat,
         dir.raw() as usize,
         path as usize,
-        types::at_removedir,
+        types::atRemoveDir,
     );
-    ret.syscall_success()
+    ret.syscallSuccess()
 }
 
 pub fn delete_at_beneath(
@@ -308,7 +308,7 @@ pub fn delete_at_beneath(
     } else {
         delete_file_at(parent_handle, name)
     };
-    result.close_after(parent_handle.close())
+    result.closeAfter(parent_handle.close())
 }
 
 pub fn rename_at(
@@ -324,7 +324,7 @@ pub fn rename_at(
         new_dir.raw() as usize,
         new_path as usize,
     );
-    ret.syscall_success()
+    ret.syscallSuccess()
 }
 
 pub fn rename_at_beneath(
@@ -372,8 +372,8 @@ pub fn rename_at_beneath(
         new_name,
     );
     result
-        .close_after(old_parent_handle.close())
-        .close_after(new_parent_handle.close())
+        .closeAfter(old_parent_handle.close())
+        .closeAfter(new_parent_handle.close())
 }
 
 pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {

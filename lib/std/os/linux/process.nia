@@ -59,7 +59,7 @@ fn spawn_with_resources(
     };
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
-        SpawnAttempt::failure(SpawnError::Setup(ret.syscall_error()))
+        SpawnAttempt::failure(SpawnError::Setup(ret.syscallError()))
     } else if ret == 0 {
         resources.error.close_read();
         match apply_stdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) {
@@ -81,7 +81,7 @@ fn spawn_with_resources(
             },
         }
         let exec_ret = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
-        report_spawn_error(&resources.error, SpawnStage::Exec, exec_ret.syscall_error());
+        report_spawn_error(&resources.error, SpawnStage::Exec, exec_ret.syscallError());
         exit(127);
         SpawnAttempt::failure(SpawnError::Setup(Errno::Io))
     } else {
@@ -89,7 +89,7 @@ fn spawn_with_resources(
         resources.stdout.close_write();
         resources.stderr.close_write();
         resources.error.close_write();
-        let pid = match ProcessId::from_syscall(ret) {
+        let pid = match ProcessId::fromSyscall(ret) {
             !pid => pid,
             error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
         };
@@ -127,7 +127,7 @@ fn failed_spawn_attempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
             SpawnAttempt::failure(error)
         },
         reap_error! => {
-            SpawnAttempt::reap_failure(error, pid, reap_error)
+            SpawnAttempt::reapFailure(error, pid, reap_error)
         },
     }
 }
@@ -189,7 +189,7 @@ fn read_spawn_error(fd: types::FileDescriptor) SpawnError! ?SpawnError {
         }
         read_len += amount;
     }
-    finish_spawn_error(fd, !(?SpawnError::from_stage(record.stage(), record.errno())))
+    finish_spawn_error(fd, !(?SpawnError::fromStage(record.stage(), record.errno())))
 }
 
 fn finish_spawn_error(
@@ -238,15 +238,15 @@ fn reap_spawn_failure(pid: ProcessId) Errno!() {
 
 extend SpawnAttempt {
     pub fn finish(&mut self) SpawnError!SpawnResult {
-        if self.pending_reap is ?pid {
-            if self.pending_reap_error is ?cause {
-                self.pending_reap_error = null;
+        if self.pendingReap is ?pid {
+            if self.pendingReapError is ?cause {
+                self.pendingReapError = null;
                 return self.reap_error(pid, cause)!;
             }
             match reap_spawn_failure(pid) {
                 !ok => {
                     _ = ok;
-                    self.pending_reap = null;
+                    self.pendingReap = null;
                 },
                 cause! => {
                     return self.reap_error(pid, cause)!;
@@ -335,7 +335,7 @@ fn apply_cwd(options: SpawnOptions) Errno!() {
     match options.cwd() {
         ?path => {
             let ret = syscall::syscall1(syscall::chdir, path as usize);
-            ret.syscall_success()
+            ret.syscallSuccess()
         },
         null => {
             !()
@@ -347,22 +347,22 @@ fn open_dev_null() Errno!types::FileDescriptor {
     let path = b"/dev/null\0";
     let ret = syscall::syscall4(
         syscall::openat,
-        types::at_fdcwd as usize,
+        types::atFdCwd as usize,
         &path[0] as usize,
         OpenMode::ReadWrite as i32 as usize,
         0usize,
     );
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else {
-        !types::FileDescriptor::from_syscall(ret).?
+        !types::FileDescriptor::fromSyscall(ret).?
     }
 }
 
 fn dup_to(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
     let ret = syscall::syscall2(syscall::dup2, from.raw() as usize, to.raw() as usize);
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else if ret != to.raw() as isize {
         Errno::Io!
     } else {
@@ -376,9 +376,9 @@ pub fn wait(pid: ProcessId) Errno!WaitStatus {
 
 pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
     let mut status: i32 = 0;
-    let ret = wait4(pid, &mut status, types::wait_no_hang);
+    let ret = wait4(pid, &mut status, types::waitNoHang);
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else if ret == 0 {
         !null
     } else if ret != pid.raw() as isize {
@@ -389,19 +389,19 @@ pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
 }
 
 pub fn kill(pid: ProcessId) Errno!() {
-    kill_with(pid, types::sigterm)
+    kill_with(pid, types::sigTerm)
 }
 
 pub fn kill_with(pid: ProcessId, signal: i32) Errno!() {
     let ret = syscall::syscall2(syscall::kill, pid.raw() as usize, signal as usize);
-    ret.syscall_success()
+    ret.syscallSuccess()
 }
 
 fn wait_with_options(pid: ProcessId, options: usize) Errno!WaitStatus {
     let mut status: i32 = 0;
     let ret = wait4(pid, &mut status, options);
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else if ret != pid.raw() as isize {
         Errno::Io!
     } else {
@@ -435,7 +435,7 @@ extend SpawnErrorRecord {
     }
 
     fn errno(&self) Errno {
-        Errno::from_code(self.code)
+        Errno::fromCode(self.code)
     }
 }
 

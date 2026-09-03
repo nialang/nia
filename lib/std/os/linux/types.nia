@@ -1,18 +1,18 @@
-pub const max_path_bytes: usize = 4096usize;
-pub const at_fdcwd: i32 = -100;
-pub const at_removedir: usize = 0x200usize;
-pub const open_create: i32 = 0o100;
-pub const open_exclusive: i32 = 0o200;
-pub const open_truncate: i32 = 0o1000;
-pub const open_directory: i32 = 0o200000;
-pub const open_no_follow: i32 = 0o400000;
-pub const open_path: i32 = 0x200000;
-pub const resolve_no_magiclinks: u64 = 0x02u64;
-pub const resolve_beneath: u64 = 0x08u64;
-pub const close_on_exec: i32 = 0o2000000;
-pub const wait_no_hang: usize = 1usize;
-pub const sigterm: i32 = 15;
-const max_syscall_errno: isize = 4095isize;
+pub const maxPathBytes: usize = 4096usize;
+pub const atFdCwd: i32 = -100;
+pub const atRemoveDir: usize = 0x200usize;
+pub const openCreate: i32 = 0o100;
+pub const openExclusive: i32 = 0o200;
+pub const openTruncate: i32 = 0o1000;
+pub const openDirectory: i32 = 0o200000;
+pub const openNoFollow: i32 = 0o400000;
+pub const openPath: i32 = 0x200000;
+pub const resolveNoMagicLinks: u64 = 0x02u64;
+pub const resolveBeneath: u64 = 0x08u64;
+pub const closeOnExec: i32 = 0o2000000;
+pub const waitNoHang: usize = 1usize;
+pub const sigTerm: i32 = 15;
+const maxSyscallErrno: isize = 4095isize;
 
 pub enum Errno: i32 {
     PermissionDenied = 1,
@@ -105,7 +105,7 @@ pub struct FileMetadata {
     nlink: u32,
     size: u64,
     mode: u32,
-    block_size: u32,
+    blockSize: u32,
     atime: ?Timestamp,
     mtime: Timestamp,
     ctime: Timestamp,
@@ -144,8 +144,8 @@ pub struct SpawnResult {
 pub struct SpawnAttempt {
     result: ?SpawnResult,
     error: ?SpawnError,
-    pending_reap: ?ProcessId,
-    pending_reap_error: ?Errno,
+    pendingReap: ?ProcessId,
+    pendingReapError: ?Errno,
 }
 
 pub struct SpawnOptions {
@@ -162,7 +162,7 @@ pub extern struct OpenHow {
 }
 
 extend Errno {
-    pub fn from_code(code: i32) Errno {
+    pub fn fromCode(code: i32) Errno {
         code as Errno
     }
 }
@@ -170,7 +170,7 @@ extend Errno {
 extend[T] Errno!T {
     // Cleanup errors are secondary to the operation that produced the value.
     // Once the operation succeeds, expose the first close failure instead.
-    pub fn close_after(self, close: Errno!()) Errno!T {
+    pub fn closeAfter(self, close: Errno!()) Errno!T {
         match self {
             !value => {
                 match close {
@@ -192,7 +192,7 @@ extend[T] Errno!T {
 }
 
 extend SpawnError {
-    pub fn from_stage(stage: SpawnStage, errno: Errno) SpawnError {
+    pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage {
             .Setup => SpawnError::Setup(errno),
             .Stdio => SpawnError::Stdio(errno),
@@ -225,15 +225,15 @@ extend SpawnError {
 
 extend SpawnAttempt {
     pub fn success(result: SpawnResult) SpawnAttempt {
-        Self { result: ?result, error: null, pending_reap: null, pending_reap_error: null }
+        Self { result: ?result, error: null, pendingReap: null, pendingReapError: null }
     }
 
     pub fn failure(error: SpawnError) SpawnAttempt {
-        Self { result: null, error: ?error, pending_reap: null, pending_reap_error: null }
+        Self { result: null, error: ?error, pendingReap: null, pendingReapError: null }
     }
 
-    pub fn reap_failure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
-        Self { result: null, error: ?error, pending_reap: ?pid, pending_reap_error: ?cause }
+    pub fn reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
+        Self { result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
     }
 }
 
@@ -242,14 +242,14 @@ extend FileDescriptor {
         Self { fd: fd }
     }
 
-    pub fn from_syscall(ret: isize) Errno!FileDescriptor {
+    pub fn fromSyscall(ret: isize) Errno!FileDescriptor {
         if ret < 0isize or ret > i32::MAX as isize {
             return Errno::Io!;
         }
         !FileDescriptor::init(ret as i32)
     }
 
-    pub fn from_kernel(fd: i32) Errno!FileDescriptor {
+    pub fn fromKernel(fd: i32) Errno!FileDescriptor {
         if fd < 0i32 {
             return Errno::Io!;
         }
@@ -292,7 +292,7 @@ extend ProcessId {
         Self { pid: pid }
     }
 
-    pub fn from_syscall(ret: isize) Errno!ProcessId {
+    pub fn fromSyscall(ret: isize) Errno!ProcessId {
         if ret <= 0isize or ret > i32::MAX as isize {
             return Errno::Io!;
         }
@@ -326,7 +326,7 @@ extend WaitStatus {
         (self.raw & 0xffi32) == 0x7fi32
     }
 
-    pub fn exit_code(&self) ?i32 {
+    pub fn exitCode(&self) ?i32 {
         if self.exited() {
             ?((self.raw >> 8u8) & 0xffi32)
         } else {
@@ -342,7 +342,7 @@ extend WaitStatus {
         }
     }
 
-    pub fn stop_signal(&self) ?i32 {
+    pub fn stopSignal(&self) ?i32 {
         if self.stopped() {
             ?((self.raw >> 8u8) & 0xffi32)
         } else {
@@ -404,19 +404,19 @@ extend SpawnOptions {
         self.cwd
     }
 
-    pub fn set_stdin(&mut self, behavior: StdIo) () {
+    pub fn setStdin(&mut self, behavior: StdIo) () {
         self.stdin = behavior;
     }
 
-    pub fn set_stdout(&mut self, behavior: StdIo) () {
+    pub fn setStdout(&mut self, behavior: StdIo) () {
         self.stdout = behavior;
     }
 
-    pub fn set_stderr(&mut self, behavior: StdIo) () {
+    pub fn setStderr(&mut self, behavior: StdIo) () {
         self.stderr = behavior;
     }
 
-    pub fn set_cwd(&mut self, path: &u8) () {
+    pub fn setCwd(&mut self, path: &u8) () {
         self.cwd = ?path;
     }
 }
@@ -456,7 +456,7 @@ extend FileMetadata {
         nlink: u32,
         size: u64,
         mode: u32,
-        block_size: u32,
+        blockSize: u32,
         atime: ?Timestamp,
         mtime: Timestamp,
         ctime: Timestamp,
@@ -467,7 +467,7 @@ extend FileMetadata {
             nlink: nlink,
             size: size,
             mode: mode,
-            block_size: block_size,
+            blockSize: blockSize,
             atime: atime,
             mtime: mtime,
             ctime: ctime,
@@ -494,8 +494,8 @@ extend FileMetadata {
         self.mode
     }
 
-    pub fn block_size(&self) u32 {
-        self.block_size
+    pub fn blockSize(&self) u32 {
+        self.blockSize
     }
 
     pub fn atime(&self) ?Timestamp {
@@ -512,9 +512,9 @@ extend FileMetadata {
 }
 
 extend isize {
-    pub fn syscall_success(self) Errno!() {
+    pub fn syscallSuccess(self) Errno!() {
         if self < 0isize {
-            self.syscall_error()!
+            self.syscallError()!
         } else if self != 0isize {
             Errno::Io!
         } else {
@@ -522,14 +522,14 @@ extend isize {
         }
     }
 
-    pub fn syscall_error(self) Errno {
+    pub fn syscallError(self) Errno {
         if self >= 0isize or self == isize::MIN {
             return Errno::Io;
         }
         let magnitude = 0isize - self;
-        if magnitude > max_syscall_errno {
+        if magnitude > maxSyscallErrno {
             return Errno::Io;
         }
-        Errno::from_code(magnitude as i32)
+        Errno::fromCode(magnitude as i32)
     }
 }

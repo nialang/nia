@@ -74,14 +74,14 @@ pub fn metadata_fd(fd: FileDescriptor) Errno!FileMetadata {
 }
 
 pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
-    let mut flags = types::open_path;
+    let mut flags = types::openPath;
     if not follow_symlinks {
-        flags = flags + types::open_no_follow;
+        flags = flags + types::openNoFollow;
     }
     let how = OpenHow {
         flags: flags as u64,
         mode: 0u64,
-        resolve: types::resolve_beneath | types::resolve_no_magiclinks,
+        resolve: types::resolveBeneath | types::resolveNoMagicLinks,
     };
     let ret = syscall::syscall4(
         syscall::openat2,
@@ -91,11 +91,11 @@ pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool
         std::builtin::size[OpenHow](),
     );
     if ret < 0 {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else {
-        let handle = FileDescriptor::from_syscall(ret).?;
+        let handle = FileDescriptor::fromSyscall(ret).?;
         let result = metadata_fd(handle);
-        result.close_after(handle.close())
+        result.closeAfter(handle.close())
     }
 }
 
@@ -111,7 +111,7 @@ fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileM
         mask as usize,
         &mut stx as usize,
     );
-    ret.syscall_success().?;
+    ret.syscallSuccess().?;
     stx.as_metadata()
 }
 
@@ -150,9 +150,9 @@ extend Statx {
         if (self.mask & statx_atime) == statx_atime {
             atime = ?self.atime.as_timestamp().?;
         }
-        let mut block_size = 1u32;
+        let mut blockSize = 1u32;
         if (self.mask & statx_blocks) == statx_blocks {
-            block_size = self.blksize;
+            blockSize = self.blksize;
         }
         !FileMetadata::init(
             self.kind(),
@@ -160,7 +160,7 @@ extend Statx {
             self.nlink,
             self.size,
             self.mode as u32,
-            block_size,
+            blockSize,
             atime,
             self.mtime.as_timestamp().?,
             self.ctime.as_timestamp().?,

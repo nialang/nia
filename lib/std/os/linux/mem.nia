@@ -41,7 +41,7 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
     // i686 mmap pointers may have the sign bit set; only the Linux errno
     // range denotes failure for a syscall result.
     if ret < 0isize and ret >= -4095isize {
-        ret.syscall_error()!
+        ret.syscallError()!
     } else if ret == 0isize {
         Errno::Io!
     } else {
@@ -51,7 +51,7 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
 
 fn raw_unmap_pages(ptr: &mut u8, len: usize) Errno!() {
     let ret = syscall::syscall3(syscall::munmap, ptr as usize, len, 0);
-    ret.syscall_success()
+    ret.syscallSuccess()
 }
 
 // A mapping remains owned until validation publishes MappedPages.
