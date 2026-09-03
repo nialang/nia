@@ -3,6 +3,7 @@ pub(pkg) module linux;
 @[if os == "linux"]
 using pkg::os::linux as platform;
 using pkg::error;
+using pkg::optional;
 
 pub(pkg) const maxPathBytes: usize = platform::maxPathBytes;
 
@@ -720,36 +721,15 @@ extend SpawnResult {
     }
 
     pub(pkg) fn stdin(&self) ?FileHandle {
-        match self.platform().stdin() {
-            ?handle => {
-                ?FileHandle::fromPlatform(handle)
-            },
-            null => {
-                null
-            },
-        }
+        self.platform().stdin().map(&\handle -> FileHandle::fromPlatform(handle))
     }
 
     pub(pkg) fn stdout(&self) ?FileHandle {
-        match self.platform().stdout() {
-            ?handle => {
-                ?FileHandle::fromPlatform(handle)
-            },
-            null => {
-                null
-            },
-        }
+        self.platform().stdout().map(&\handle -> FileHandle::fromPlatform(handle))
     }
 
     pub(pkg) fn stderr(&self) ?FileHandle {
-        match self.platform().stderr() {
-            ?handle => {
-                ?FileHandle::fromPlatform(handle)
-            },
-            null => {
-                null
-            },
-        }
+        self.platform().stderr().map(&\handle -> FileHandle::fromPlatform(handle))
     }
 }
 

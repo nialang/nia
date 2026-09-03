@@ -1,5 +1,6 @@
 using pkg::error;
 using pkg::fs::types;
+using pkg::optional;
 using pkg::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
@@ -37,31 +38,22 @@ extend os::Error : error::IntoError[Error] {
 
 extend[T] Error!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
-        match self {
-            !value => !value,
-            cause! => OperationError::System { operation: operation, cause: cause }!,
-        }
+        self.mapError(&\[operation] cause: Error -> .System { operation, cause })
     }
 }
 
 extend[T] os::Error!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
-        match self {
-            !value => !value,
-            cause! => OperationError::System {
-                operation: operation,
-                cause: cause.intoError(),
-            }!,
-        }
+        self.mapError(&\[operation] cause: os::Error -> .System {
+            operation,
+            cause: cause.intoError(),
+        })
     }
 }
 
 extend[T] PathError!T {
     pub(pkg) fn withOperation(self, operation: Operation) OperationError!T {
-        match self {
-            !value => !value,
-            cause! => OperationError::Path { operation: operation, cause: cause }!,
-        }
+        self.mapError(&\[operation] cause: PathError -> .Path { operation, cause })
     }
 }
 
@@ -88,14 +80,12 @@ extend os::Timestamp {
 
 extend os::FileMetadata {
     pub(pkg) fn asFsMetadata(&self) Metadata {
-        let mut accessed: ?Timestamp = null;
-        if self.accessed() is ?value {
-            accessed = ?value.asFsTimestamp();
-        }
-        let mut statusChanged: ?Timestamp = null;
-        if self.statusChanged() is ?value {
-            statusChanged = ?value.asFsTimestamp();
-        }
+        let accessed = self.accessed().map(
+            &\value: os::Timestamp -> value.asFsTimestamp(),
+        );
+        let statusChanged = self.statusChanged().map(
+            &\value: os::Timestamp -> value.asFsTimestamp(),
+        );
         Metadata::init(
             self.kind().asFsFileKind(),
             self.fileId(),

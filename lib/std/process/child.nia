@@ -1,5 +1,6 @@
 using pkg::io;
 using pkg::error;
+using pkg::optional;
 using pkg::os;
 using pkg::process::types;
 
@@ -22,18 +23,9 @@ extend Child {
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         Self {
             state: ChildState::running(ProcessId::fromRaw(result.pid().raw())),
-            stdin: match result.stdin() {
-                ?handle => ?ChildStdin::init(handle),
-                null => null,
-            },
-            stdout: match result.stdout() {
-                ?handle => ?ChildStdout::init(handle),
-                null => null,
-            },
-            stderr: match result.stderr() {
-                ?handle => ?ChildStderr::init(handle),
-                null => null,
-            },
+            stdin: result.stdin().map(&\handle -> ChildStdin::init(handle)),
+            stdout: result.stdout().map(&\handle -> ChildStdout::init(handle)),
+            stderr: result.stderr().map(&\handle -> ChildStderr::init(handle)),
         }
     }
 
@@ -224,36 +216,24 @@ extend ProcessId {
 
 extend[T] io::Error!T {
     fn withCloseContext(self, stream: StdStream) Error!T {
-        match self {
-            !value => !value,
-            cause! => Error::Close { stream: stream, cause: cause }!,
-        }
+        self.mapError(&\[stream] cause: io::Error -> .Close { stream, cause })
     }
 }
 
 extend[T] os::Error!T {
     fn withWaitContext(self) Error!T {
-        match self {
-            !value => !value,
-            cause! => Error::Wait(SystemError::fromOs(cause))!,
-        }
+        self.mapError(&\cause: os::Error -> .Wait(SystemError::fromOs(cause)))
     }
 }
 
 extend[T] os::Error!T {
     fn withTryWaitContext(self) Error!T {
-        match self {
-            !value => !value,
-            cause! => Error::TryWait(SystemError::fromOs(cause))!,
-        }
+        self.mapError(&\cause: os::Error -> .TryWait(SystemError::fromOs(cause)))
     }
 }
 
 extend[T] os::Error!T {
     fn withKillContext(self) Error!T {
-        match self {
-            !value => !value,
-            cause! => Error::Kill(SystemError::fromOs(cause))!,
-        }
+        self.mapError(&\cause: os::Error -> .Kill(SystemError::fromOs(cause)))
     }
 }

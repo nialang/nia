@@ -205,6 +205,70 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_error_map_and_then_transform_success_only() {
+    let root = temp_dir("emit_exe_std_error_map_and_then_transform_success_only");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::process;
+
+enum Failure: i32 {
+    Bad = 1,
+    _,
+}
+
+fn fallible(value: Failure!i32) Failure!i32 {
+    value.map(&\value: i32 -> value + 1).andThen(&\value: i32 -> {
+        if value == 3 { Failure::Bad! } else { !(value * 2) }
+    })
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let success = fallible(!20);
+    if not success.isSuccess() or success.isError() {
+        return process::exit(1)!;
+    }
+    match success {
+        !value => if value != 42 { return process::exit(1)!; },
+        error! => return process::exit(2)!,
+    }
+    let failure = fallible(Failure::Bad!);
+    if not failure.isError() or failure.isSuccess() {
+        return process::exit(3)!;
+    }
+    match failure {
+        Failure::Bad! => {},
+        !value => { _ = value; return process::exit(3)!; },
+        error! => { _ = error; return process::exit(4)!; },
+    }
+    !()
+}
+"#,
+    )
+    .expect("write error map/andThen source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit -- error map andThen");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted error map/andThen executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_into_error_is_const_propagation_protocol() {
     let root = temp_dir("emit_exe_std_into_error_is_const_propagation_protocol");
     let main = root.join("main.nia");

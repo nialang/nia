@@ -3,6 +3,7 @@ using pkg::math;
 using pkg::iter::range;
 using pkg::mem::allocator;
 using pkg::mem::types;
+using pkg::optional;
 using pkg::os;
 
 using allocator::Allocator;
@@ -173,9 +174,9 @@ extend GeneralPurposeAllocator {
     }
 
     pub fn isEmpty(&self) bool {
-        isNullSmallPage(self.smallPages)
-            and isNullLargeHeader(self.largeAllocations)
-            and isNullBlock(self.pendingFree)
+        self.smallPages.isNull()
+            and self.largeAllocations.isNull()
+            and self.pendingFree.isNull()
     }
 }
 
@@ -892,48 +893,11 @@ fn smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
     ptr as usize == block.ptr() as usize
 }
 
-fn isNullSmallPage(page: ?&mut SmallPage) bool {
-    match page {
-        ?item => {
-            _ = item;
-            false
-        },
-        null => {
-            true
-        },
-    }
-}
-
-fn isNullLargeHeader(header: ?&mut LargeHeader) bool {
-    match header {
-        ?item => {
-            _ = item;
-            false
-        },
-        null => {
-            true
-        },
-    }
-}
-
-fn isNullBlock(block: ?Block) bool {
-    match block {
-        ?value => {
-            _ = value;
-            false
-        },
-        null => {
-            true
-        },
-    }
-}
-
 fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
-    match headerAddr.checkedAdd(std::builtin::size[LargeHeader]()) {
-        ?value => ?(value as &mut u8),
-        null => null,
-    }
+    headerAddr
+        .checkedAdd(std::builtin::size[LargeHeader]())
+        .map(&\value -> value as &mut u8)
 }
 
 fn saturatingAdd(left: usize, right: usize) usize {

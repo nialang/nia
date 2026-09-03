@@ -919,7 +919,7 @@ from the current function on the empty path. For `Source!T`, `value.?` returns
 path is propagated directly when `Source` and `Target` are the same type.
 Otherwise the compiler requires one applicable
 `Source: std::error::IntoError[Target]` implementation and calls
-`into_error` only on the error path. Optional propagation requires an optional
+`intoError` only on the error path. Optional propagation requires an optional
 function return type and never uses `IntoError`.
 
 ```nia
@@ -933,7 +933,7 @@ fn read(value: i32!i32) i32!i32 {
 
 ```nia
 pub trait IntoError[Target] {
-    const fn into_error(self) Target;
+    const fn intoError(self) Target;
 }
 ```
 
@@ -949,15 +949,41 @@ to be an infallible error mapping; conversions that add values not present in
 the source, such as an operation name or path, remain explicit adapters.
 Diagnostics distinguish a missing direct implementation from a malformed
 `IntoError` protocol and from a rejected two-step chain. A protocol witness must
-provide a value receiver with exactly the `into_error(self) Target` shape; a
+provide a value receiver with exactly the `intoError(self) Target` shape; a
 source-to-intermediate and intermediate-to-target pair is still rejected rather
 than executed as multiple conversions.
 
 Automatic conversion is available during const evaluation only when the
-selected `into_error` witness is a `const fn`. Const evaluation performs that
+selected `intoError` witness is a `const fn`. Const evaluation performs that
 call only on the failure edge, just like runtime lowering; exact-type and
-optional propagation do not need a witness. A runtime-only `into_error`
+optional propagation do not need a witness. A runtime-only `intoError`
 implementation is rejected in const code rather than executed as a fallback.
+
+Optional callback operations live in `std::optional`. `map` transforms a
+present payload, while `andThen` continues with a callback that produces
+another optional:
+
+```nia
+using std::optional;
+
+let doubled = maybe.map(&\value: i32 -> value * 2);
+let positive = doubled.andThen(&\value: i32 -> {
+    if value > 0 { ?value } else { null }
+});
+```
+
+Both operations evaluate the receiver once and skip the borrowed callback for
+`null`. `isPresent` and `isNull` expose the two cases as booleans for predicate
+composition. When a branch needs the payload immediately, prefer the language
+pattern `if maybe is ?value` rather than querying and then matching again.
+
+Error unions provide matching success-side operations in `std::error`:
+`map` transforms `!value`, and `andThen` continues it with a callback returning
+another error union with the same error type. Both preserve an existing error
+without invoking the callback. Together with error-side `mapError` and
+`orElse`, these operations cover transformation and fallible continuation on
+both sides without implicit flattening or allocation. `isSuccess` and
+`isError` expose the active case when a composed boolean is required.
 
 Error unions also provide the explicit `mapError` extension:
 
