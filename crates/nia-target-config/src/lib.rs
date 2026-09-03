@@ -808,10 +808,10 @@ fn main() i32 {
     fn target_identity_selects_items_for_simulated_ilp32_big_endian_target() {
         let (module, errors) = nia_parser::parse_module(
             r#"
-@[if arch == "mips" and endian == "big" and pointer_width == 32]
+@[if arch == "mips" and endian == "big" and pointerWidth == 32]
 fn selected() i32 { 1 }
 
-@[if arch == "x86_64" or pointer_width == 64]
+@[if arch == "x86_64" or pointerWidth == 64]
 fn rejected() i32 { 2 }
 "#,
         );
@@ -858,7 +858,7 @@ fn visible() i32 { 2 }
     fn condition_type_mismatch_is_reported_as_target_diagnostic() {
         let (module, errors) = nia_parser::parse_module(
             r#"
-@[if pointer_width]
+@[if pointerWidth]
 fn invalid() i32 { 1 }
 "#,
         );

@@ -225,7 +225,7 @@ fn parses_conditional_item_and_statement_attributes() {
 fn selected() i32 { 1 }
 
 fn main() i32 {
-    @[if pointer_width == 64]
+    @[if pointerWidth == 64]
     let value = 1;
     @[if os == "linux"]
     _ = value;

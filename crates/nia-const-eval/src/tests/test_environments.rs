@@ -19,7 +19,7 @@ fn evaluates_struct_field_conditions() {
     let (module, errors) = nia_parser::parse_module(
         r#"
 fn main() bool {
-    config.target.os == "linux" and config.target.pointer_width == 64
+    config.target.os == "linux" and config.target.pointerWidth == 64
 }
 "#,
     );
@@ -225,7 +225,7 @@ impl EarlyConstEnv for ConfigEnv {
         }
         let mut target = BTreeMap::new();
         target.insert(sym("os"), ConstValue::String("linux".to_string()));
-        target.insert(sym("pointer_width"), ConstValue::Int(IntConst::signed(64)));
+        target.insert(sym("pointerWidth"), ConstValue::Int(IntConst::signed(64)));
         let mut builtin = BTreeMap::new();
         builtin.insert(sym("target"), ConstValue::Struct(target));
         Ok(ConstValue::Struct(builtin))

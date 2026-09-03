@@ -166,7 +166,7 @@ fn query_loader_loads_std_builtin_target_module() {
         matches!(
             &item.kind,
             ItemTreeNodeKind::Binding(binding)
-                if binding.is_const() && binding.name == sym("pointer_width")
+                if binding.is_const() && binding.name == sym("pointerWidth")
         )
     }));
 }

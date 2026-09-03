@@ -18,5 +18,5 @@ pub const abi: &[char];
 @[builtin("target.endian")]
 pub const endian: &[char];
 
-@[builtin("target.pointer_width")]
-pub const pointer_width: usize;
+@[builtin("target.pointerWidth")]
+pub const pointerWidth: usize;
