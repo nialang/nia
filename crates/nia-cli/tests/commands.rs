@@ -689,7 +689,7 @@ struct Point {
 fn load[T](ptr: &T) T
 where T: Sized
 {
-    std::builtin::atomic_load[T](ptr, 1usize)
+    std::builtin::atomicLoad[T](ptr, 1usize)
 }
 
 fn main() i32 {

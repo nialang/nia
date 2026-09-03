@@ -11,7 +11,7 @@ pub trait Deref {
 pub trait DerefMut : Deref {
     type Target;
 
-    fn deref_mut(&mut self) &mut [Self as DerefMut]::Target;
+    fn derefMut(&mut self) &mut [Self as DerefMut]::Target;
 }
 
 @[builtin("Index")]
@@ -25,7 +25,7 @@ pub trait Index[R] {
 pub trait IndexMut[R] : Index[R] {
     type Output;
 
-    fn index_mut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
+    fn indexMut(&mut self, index: R) &mut [Self as IndexMut[R]]::Output;
 }
 
 @[builtin("Slice")]
@@ -39,7 +39,7 @@ pub trait Slice[R] {
 pub trait SliceMut[R] : Slice[R] {
     type Output;
 
-    fn slice_mut(&mut self, range: R) [Self as SliceMut[R]]::Output;
+    fn sliceMut(&mut self, range: R) [Self as SliceMut[R]]::Output;
 }
 
 pub trait Len {

@@ -189,11 +189,11 @@ pub mod known {
     known_symbol!(DIV, "div");
     known_symbol!(REM, "rem");
     known_symbol!(NEG, "neg");
-    known_symbol!(LOGICAL_NOT, "logical_not");
-    known_symbol!(BIT_NOT, "bit_not");
-    known_symbol!(BIT_AND, "bit_and");
-    known_symbol!(BIT_OR, "bit_or");
-    known_symbol!(BIT_XOR, "bit_xor");
+    known_symbol!(LOGICAL_NOT, "logicalNot");
+    known_symbol!(BIT_NOT, "bitNot");
+    known_symbol!(BIT_AND, "bitAnd");
+    known_symbol!(BIT_OR, "bitOr");
+    known_symbol!(BIT_XOR, "bitXor");
     known_symbol!(SHL, "shl");
     known_symbol!(SHR, "shr");
     known_symbol!(EQ, "eq");
@@ -203,11 +203,11 @@ pub mod known {
     known_symbol!(GT, "gt");
     known_symbol!(GE, "ge");
     known_symbol!(DEREF, "deref");
-    known_symbol!(DEREF_MUT, "deref_mut");
+    known_symbol!(DEREF_MUT, "derefMut");
     known_symbol!(INDEX, "index");
-    known_symbol!(INDEX_MUT, "index_mut");
+    known_symbol!(INDEX_MUT, "indexMut");
     known_symbol!(SLICE, "slice");
-    known_symbol!(SLICE_MUT, "slice_mut");
+    known_symbol!(SLICE_MUT, "sliceMut");
     known_symbol!(PTR, "ptr");
     known_symbol!(PTR_MUT, "ptrMut");
     known_symbol!(LEN, "len");
@@ -235,7 +235,7 @@ pub mod known {
     known_symbol!(MEMCPY, "memcpy");
     known_symbol!(MEMMOVE, "memmove");
     known_symbol!(MEMSET, "memset");
-    known_symbol!(LOAD_UNALIGNED, "load_unaligned");
+    known_symbol!(LOAD_UNALIGNED, "loadUnaligned");
     known_symbol!(SPLAT, "splat");
     known_symbol!(EXTRACT, "extract");
     known_symbol!(INSERT, "insert");
@@ -243,11 +243,11 @@ pub mod known {
     known_symbol!(CTZ, "ctz");
     known_symbol!(CLZ, "clz");
     known_symbol!(POPCOUNT, "popcount");
-    known_symbol!(ATOMIC_LOAD, "atomic_load");
-    known_symbol!(ATOMIC_STORE, "atomic_store");
-    known_symbol!(ATOMIC_RMW, "atomic_rmw");
-    known_symbol!(CMPXCHG_STRONG, "cmpxchg_strong");
-    known_symbol!(CMPXCHG_WEAK, "cmpxchg_weak");
+    known_symbol!(ATOMIC_LOAD, "atomicLoad");
+    known_symbol!(ATOMIC_STORE, "atomicStore");
+    known_symbol!(ATOMIC_RMW, "atomicRmw");
+    known_symbol!(CMPXCHG_STRONG, "cmpxchgStrong");
+    known_symbol!(CMPXCHG_WEAK, "cmpxchgWeak");
     known_symbol!(FENCE, "fence");
     known_symbol!(EMBED, "embed");
     known_symbol!(CHAR_FROM_U32, "charFromU32");
@@ -349,11 +349,11 @@ pub mod known {
         (DIV, "div"),
         (REM, "rem"),
         (NEG, "neg"),
-        (LOGICAL_NOT, "logical_not"),
-        (BIT_NOT, "bit_not"),
-        (BIT_AND, "bit_and"),
-        (BIT_OR, "bit_or"),
-        (BIT_XOR, "bit_xor"),
+        (LOGICAL_NOT, "logicalNot"),
+        (BIT_NOT, "bitNot"),
+        (BIT_AND, "bitAnd"),
+        (BIT_OR, "bitOr"),
+        (BIT_XOR, "bitXor"),
         (SHL, "shl"),
         (SHR, "shr"),
         (EQ, "eq"),
@@ -363,11 +363,11 @@ pub mod known {
         (GT, "gt"),
         (GE, "ge"),
         (DEREF, "deref"),
-        (DEREF_MUT, "deref_mut"),
+        (DEREF_MUT, "derefMut"),
         (INDEX, "index"),
-        (INDEX_MUT, "index_mut"),
+        (INDEX_MUT, "indexMut"),
         (SLICE, "slice"),
-        (SLICE_MUT, "slice_mut"),
+        (SLICE_MUT, "sliceMut"),
         (PTR, "ptr"),
         (PTR_MUT, "ptrMut"),
         (LEN, "len"),
@@ -394,7 +394,7 @@ pub mod known {
         (MEMCPY, "memcpy"),
         (MEMMOVE, "memmove"),
         (MEMSET, "memset"),
-        (LOAD_UNALIGNED, "load_unaligned"),
+        (LOAD_UNALIGNED, "loadUnaligned"),
         (SPLAT, "splat"),
         (EXTRACT, "extract"),
         (INSERT, "insert"),
@@ -402,11 +402,11 @@ pub mod known {
         (CTZ, "ctz"),
         (CLZ, "clz"),
         (POPCOUNT, "popcount"),
-        (ATOMIC_LOAD, "atomic_load"),
-        (ATOMIC_STORE, "atomic_store"),
-        (ATOMIC_RMW, "atomic_rmw"),
-        (CMPXCHG_STRONG, "cmpxchg_strong"),
-        (CMPXCHG_WEAK, "cmpxchg_weak"),
+        (ATOMIC_LOAD, "atomicLoad"),
+        (ATOMIC_STORE, "atomicStore"),
+        (ATOMIC_RMW, "atomicRmw"),
+        (CMPXCHG_STRONG, "cmpxchgStrong"),
+        (CMPXCHG_WEAK, "cmpxchgWeak"),
         (FENCE, "fence"),
         (EMBED, "embed"),
         (CHAR_FROM_U32, "charFromU32"),

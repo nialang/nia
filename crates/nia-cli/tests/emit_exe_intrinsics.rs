@@ -518,7 +518,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
 
     let bytes: [u8; 10] = [99u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 100u8];
-    let vec = std::builtin::load_unaligned[u8x8](&bytes[1]);
+    let vec = std::builtin::loadUnaligned[u8x8](&bytes[1]);
     if std::builtin::extract(vec, 0usize) != 1u8 {
         return process::exit(1)!;
     }
