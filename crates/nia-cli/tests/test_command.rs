@@ -45,13 +45,7 @@ using std::test;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    match test::expectEqual(2, 2) {
-        !ok => _ = ok,
-        error! => {
-            _ = error;
-            return process::exit(1)!;
-        },
-    }
+    test::expectEqual(2, 2).?;
     !()
 }
 "#,

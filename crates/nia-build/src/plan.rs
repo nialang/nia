@@ -1815,6 +1815,37 @@ mod tests {
     }
 
     #[test]
+    fn freeze_rejects_cacheable_test_results() {
+        let mut value = draft(false);
+        value.actions.push(PlanAction {
+            key: action_key("test"),
+            kind: ActionKind::TestExecutable {
+                resource_class: ActionResourceClass::Cpu,
+                environment_policy: CommandEnvironmentPolicy::Clear,
+                cache_policy: CommandCachePolicy::DeclaredInputs,
+                program: CommandProgram::Search("test".to_string()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(
+                    LogicalPathRoot::Package(PackageKey::root()),
+                    "",
+                )
+                .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InvalidCommand {
+                reason: "test executable actions cannot be cached",
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn freeze_rejects_non_hermetic_or_outputless_cacheable_commands() {
         let output = LogicalPath::new(LogicalPathRoot::Build, "output.txt").unwrap();
         let cacheable = |environment_policy, outputs: Vec<LogicalPath>| PlanAction {
