@@ -224,11 +224,11 @@ extend DirEntry {
     }
 
     pub fn isDot(&self) bool {
-        self.name.len() == 1usize and self.name[0] == b'.'
+        self.name.len() == 1 and self.name[0] == b'.'
     }
 
     pub fn isDotDot(&self) bool {
-        self.name.len() == 2usize and self.name[0] == b'.' and self.name[1] == b'.'
+        self.name.len() == 2 and self.name[0] == b'.' and self.name[1] == b'.'
     }
 }
 

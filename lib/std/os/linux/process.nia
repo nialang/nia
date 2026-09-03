@@ -146,12 +146,12 @@ fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
 fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
     let mut record = SpawnErrorRecord::init(stage, errno);
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
-    let mut written = 0usize;
+    let mut written: usize = 0;
     // The parent treats EOF before a record as successful close-on-exec.
     while written < bytes.len() {
         match fd.writeSome(&bytes[written..]) {
             !amount => {
-                if amount == 0usize {
+                if amount == 0 {
                     return;
                 }
                 written += amount;
@@ -168,7 +168,7 @@ fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) (
 fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
     let mut record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
-    let mut readLen = 0usize;
+    let mut readLen: usize = 0;
     while readLen < bytes.len() {
         let amount = match fd.readSome(&mut bytes[readLen..]) {
             !amount => {
@@ -181,8 +181,8 @@ fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
                 return finishSpawnError(fd, SpawnError::Setup(error)!);
             },
         };
-        if amount == 0usize {
-            if readLen == 0usize {
+        if amount == 0 {
+            if readLen == 0 {
                 return finishSpawnError(fd, !null);
             }
             return finishSpawnError(fd, SpawnError::Setup(Errno::Io)!);
@@ -350,7 +350,7 @@ fn openDevNull() Errno!types::FileDescriptor {
         types::atFdCwd as usize,
         &path[0] as usize,
         OpenMode::ReadWrite as i32 as usize,
-        0usize,
+        0,
     );
     if ret < 0 {
         ret.syscallError()!
@@ -371,7 +371,7 @@ fn dupTo(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
 }
 
 pub fn wait(pid: ProcessId) Errno!WaitStatus {
-    waitWithOptions(pid, 0usize)
+    waitWithOptions(pid, 0)
 }
 
 pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
@@ -415,7 +415,7 @@ fn wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
         pid.raw() as usize,
         status as usize,
         options,
-        0usize,
+        0,
     );
     ret
 }

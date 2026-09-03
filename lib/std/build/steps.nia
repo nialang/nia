@@ -153,7 +153,7 @@ extend RunExecutableStep {
                 .withBuildContext(.Retain, .Step(index)).?;
             for &argument in values.iter() {
                 self.arguments.appendAssumeCapacity(.init());
-                let argumentIndex = self.arguments.len() - 1usize;
+                let argumentIndex = self.arguments.len() - 1;
                 self.arguments.asMutSlice()[argumentIndex] = string::String::fromSlice(
                     allocator,
                     argument,

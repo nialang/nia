@@ -4,7 +4,7 @@ using pkg::os::linux::types;
 
 using types::Errno;
 
-const nativePageSize: usize = 4096usize;
+const nativePageSize: usize = 4096;
 
 pub struct MappedPages {
     ptr: &mut u8,
@@ -27,22 +27,22 @@ extend MappedPages {
 }
 
 fn rawMapPages(len: usize) Errno!&mut u8 {
-    let protReadWrite = 3usize;
-    let privateAnonymous = 34usize;
+    let protReadWrite: usize = 3;
+    let privateAnonymous: usize = 34;
     let ret = syscall::syscall6(
         syscall::mmap,
         0,
         len,
         protReadWrite,
         privateAnonymous,
-        (-1isize) as usize,
+        (-1) as usize,
         0,
     );
     // i686 mmap pointers may have the sign bit set; only the Linux errno
     // range denotes failure for a syscall result.
-    if ret < 0isize and ret >= -4095isize {
+    if ret < 0 and ret >= -4095 {
         ret.syscallError()!
-    } else if ret == 0isize {
+    } else if ret == 0 {
         Errno::Io!
     } else {
         !((ret as usize) as &mut u8)
@@ -84,7 +84,7 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     }
 
     let alignedLen = pageAlignedLen(len).?;
-    let mut extra = 0usize;
+    let mut extra: usize = 0;
     if align > pageSize() {
         extra = align - pageSize();
     }

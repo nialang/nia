@@ -132,7 +132,7 @@ extend Build {
                 }!;
             }
         }
-        self.packages.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Packages).?;
+        self.packages.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Packages).?;
         self.pendingPackage = Package::init(handle.index());
         self.hasPendingPackage = true;
         match self.pendingPackage.initialize(self.allocator, options) {
@@ -617,13 +617,13 @@ extend Build {
             ?optimization => optimization,
             null => self.defaultOptimization,
         };
-        self.modules.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Modules).?;
+        self.modules.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Modules).?;
         self.pendingModule = Module::init(
             handle.index(),
             options.sourceRoot,
             match options.package {
                 ?package => package,
-                null => PackageHandle::init(self.ownerId, 0usize),
+                null => PackageHandle::init(self.ownerId, 0),
             },
             optimization,
         );
@@ -718,7 +718,7 @@ extend Build {
                 subject: .Executable(handle.index()),
             }!;
         }
-        self.executables.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Executables).?;
+        self.executables.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Executables).?;
         self.pendingExecutable = ExecutableTarget::init(
             handle.index(),
             options.rootModule,
@@ -789,7 +789,7 @@ extend Build {
                 subject: .Object(handle.index()),
             }!;
         }
-        self.objects.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Objects).?;
+        self.objects.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Objects).?;
         self.pendingObject = ObjectTarget::init(
             handle.index(),
             options.rootModule,
@@ -855,7 +855,7 @@ extend Build {
                 subject: .StaticArchive(handle.index()),
             }!;
         }
-        self.staticArchives.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::StaticArchives).?;
+        self.staticArchives.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::StaticArchives).?;
         self.pendingStaticArchive = StaticArchiveTarget::init(
             handle.index(),
             options.rootModule,
@@ -1334,7 +1334,7 @@ extend Build {
                 subject: .Step(self.steps.len()),
             }!;
         }
-        self.steps.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Steps).?;
+        self.steps.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Steps).?;
         !()
     }
 

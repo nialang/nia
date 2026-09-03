@@ -9,11 +9,11 @@ fn formatSignedSpec(
         return core::Error::InvalidTemplate!;
     }
     match spec.presentation() {
-        .Display => formatter.writeSignedRadixSpec(value, 10u128, false, spec),
-        .LowerHex => formatter.writeSignedRadixSpec(value, 16u128, false, spec),
-        .UpperHex => formatter.writeSignedRadixSpec(value, 16u128, true, spec),
-        .Binary => formatter.writeSignedRadixSpec(value, 2u128, false, spec),
-        .Octal => formatter.writeSignedRadixSpec(value, 8u128, false, spec),
+        .Display => formatter.writeSignedRadixSpec(value, 10, false, spec),
+        .LowerHex => formatter.writeSignedRadixSpec(value, 16, false, spec),
+        .UpperHex => formatter.writeSignedRadixSpec(value, 16, true, spec),
+        .Binary => formatter.writeSignedRadixSpec(value, 2, false, spec),
+        .Octal => formatter.writeSignedRadixSpec(value, 8, false, spec),
         _ => core::Error::InvalidTemplate!,
     }
 }
@@ -27,11 +27,11 @@ fn formatUnsignedSpec(
         return core::Error::InvalidTemplate!;
     }
     match spec.presentation() {
-        .Display => formatter.writeUnsignedRadixSpec(value, 10u128, false, spec),
-        .LowerHex => formatter.writeUnsignedRadixSpec(value, 16u128, false, spec),
-        .UpperHex => formatter.writeUnsignedRadixSpec(value, 16u128, true, spec),
-        .Binary => formatter.writeUnsignedRadixSpec(value, 2u128, false, spec),
-        .Octal => formatter.writeUnsignedRadixSpec(value, 8u128, false, spec),
+        .Display => formatter.writeUnsignedRadixSpec(value, 10, false, spec),
+        .LowerHex => formatter.writeUnsignedRadixSpec(value, 16, false, spec),
+        .UpperHex => formatter.writeUnsignedRadixSpec(value, 16, true, spec),
+        .Binary => formatter.writeUnsignedRadixSpec(value, 2, false, spec),
+        .Octal => formatter.writeUnsignedRadixSpec(value, 8, false, spec),
         _ => core::Error::InvalidTemplate!,
     }
 }
@@ -251,9 +251,9 @@ extend char : core::Format {
         if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
-        let contentWidth = formatter.precisionWidth(1usize, spec);
+        let contentWidth = formatter.precisionWidth(1, spec);
         formatter.writePaddingBefore(contentWidth, spec).?;
-        if contentWidth != 0usize {
+        if contentWidth != 0 {
             formatter.writeChar(self.*).?;
         }
         formatter.writePaddingAfter(contentWidth, spec)
@@ -262,10 +262,10 @@ extend char : core::Format {
 
 extend [char] : core::Format {
     fn format(&self, formatter: &mut core::Formatter) core::Error!() {
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < self.len() {
             formatter.writeChar(self[index]).?;
-            index += 1usize;
+            index += 1;
         }
         !()
     }
@@ -290,20 +290,20 @@ where T: Sized + core::Format
 {
     fn format(&self, formatter: &mut core::Formatter) core::Error!() {
         formatter.writeByte(b'[').?;
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < self.len() {
-            if index != 0usize {
+            if index != 0 {
                 formatter.writeText(&", ").?;
             }
             self[index].format(formatter).?;
-            index += 1usize;
+            index += 1;
         }
         formatter.writeByte(b']')
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         spec.validate().?;
-        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.hasPrecision() or spec.signPlus() or spec.alternate() {
+        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0 or spec.hasPrecision() or spec.signPlus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
         self.format(formatter)

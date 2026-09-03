@@ -408,7 +408,7 @@ extend ExternalCommandStep {
                     and argument.kind != CommandArgumentKind::ObjectInput
                     and argument.kind != CommandArgumentKind::StaticArchiveInput
                 {
-                    let argumentIndex = self.arguments.len() - 1usize;
+                    let argumentIndex = self.arguments.len() - 1;
                     self.arguments.asMutSlice()[argumentIndex].initialize(
                         allocator,
                         argument.payload.value,
@@ -421,7 +421,7 @@ extend ExternalCommandStep {
             self.environment.reserve(allocator, environment.len()).withBuildContext(.Retain, .Step(index)).?;
             for &input in environment.iter() {
                 self.environment.appendAssumeCapacity(.init());
-                let inputIndex = self.environment.len() - 1usize;
+                let inputIndex = self.environment.len() - 1;
                 self.environment.asMutSlice()[inputIndex].initialize(allocator, input, index).?;
             }
         }

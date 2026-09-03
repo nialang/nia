@@ -66,7 +66,7 @@ extend Build {
     ) BuildInitAttempt {
         let ownerId = match allocateBuildOwnerId() {
             ?value => value,
-            null => 0usize,
+            null => 0,
         };
         let build = Self {
             ownerId: ownerId,
@@ -82,38 +82,38 @@ extend Build {
             selectedStep: null,
             planValidated: false,
             steps: .init(),
-            pendingStep: Step::initAggregate(0usize),
+            pendingStep: Step::initAggregate(0),
             hasPendingStep: false,
             dependencies: .init(),
             packages: .init(),
-            pendingPackage: Package::init(0usize),
+            pendingPackage: Package::init(0),
             hasPendingPackage: false,
             modules: .init(),
             pendingModule: Module::init(
-                0usize,
+                0,
                 ModuleSourceRoot::Package,
-                PackageHandle::init(ownerId, 0usize),
+                PackageHandle::init(ownerId, 0),
                 defaultOptimization,
             ),
             hasPendingModule: false,
             executables: .init(),
             pendingExecutable: ExecutableTarget::init(
-                0usize,
-                ModuleHandle::init(ownerId, 0usize),
+                0,
+                ModuleHandle::init(ownerId, 0),
                 TargetRole::Artifact,
             ),
             hasPendingExecutable: false,
             objects: .init(),
             pendingObject: ObjectTarget::init(
-                0usize,
-                ModuleHandle::init(ownerId, 0usize),
+                0,
+                ModuleHandle::init(ownerId, 0),
                 TargetRole::Artifact,
             ),
             hasPendingObject: false,
             staticArchives: .init(),
             pendingStaticArchive: StaticArchiveTarget::init(
-                0usize,
-                ModuleHandle::init(ownerId, 0usize),
+                0,
+                ModuleHandle::init(ownerId, 0),
                 TargetRole::Artifact,
             ),
             hasPendingStaticArchive: false,
@@ -122,7 +122,7 @@ extend Build {
             planEncoding: .init(),
         };
         let mut attempt = BuildInitAttempt::init(build);
-        if ownerId == 0usize {
+        if ownerId == 0 {
             attempt.primary = ?Error::Internal(Operation::Initialize);
             return attempt;
         }

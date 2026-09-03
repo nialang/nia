@@ -417,7 +417,7 @@ extend platform::FileMetadata {
             ?self.inode(),
             ?self.nlink(),
             self.size(),
-            self.mode() & 0o7777u32,
+            self.mode() & 0o7777,
             self.blockSize(),
             accessed,
             self.mtime().asOsTimestamp(),

@@ -4,10 +4,10 @@ using pkg::slice;
 
 using traits::Hasher;
 
-const wyhashSecret0: u64 = 0xa0761d6478bd642fu64;
-const wyhashSecret1: u64 = 0xe7037ed1a0b428dbu64;
-const wyhashSecret2: u64 = 0x8ebc6af09c88c6e3u64;
-const wyhashSecret3: u64 = 0x589965cc75374cc3u64;
+const wyhashSecret0: u64 = 0xa0761d6478bd642f;
+const wyhashSecret1: u64 = 0xe7037ed1a0b428db;
+const wyhashSecret2: u64 = 0x8ebc6af09c88c6e3;
+const wyhashSecret3: u64 = 0x589965cc75374cc3;
 
 pub struct Wyhash {
     a: u64,
@@ -24,14 +24,14 @@ extend Wyhash {
     pub fn init(seed: u64) Wyhash {
         let state = seed ^ mix(seed ^ wyhashSecret0, wyhashSecret1);
         Self {
-            a: 0u64,
-            b: 0u64,
+            a: 0,
+            b: 0,
             state0: state,
             state1: state,
             state2: state,
-            totalLen: 0usize,
+            totalLen: 0,
             buf: [0; 48],
-            bufLen: 0usize,
+            bufLen: 0,
         }
     }
 
@@ -51,7 +51,7 @@ extend Wyhash {
             return;
         }
 
-        let mut index = 0usize;
+        let mut index: usize = 0;
         if self.bufLen > 0 {
             index = 48 - self.bufLen;
             _ = (&mut self.buf[self.bufLen..48]).copyFrom(&bytes[0..index]);
@@ -85,7 +85,7 @@ extend Wyhash {
         if self.totalLen <= 16 {
             copy.smallKey(&self.buf[0..self.bufLen]);
         } else {
-            let mut offset = 0usize;
+            let mut offset: usize = 0;
             let mut scratch: [u8; 16] = [0; 16];
             let mut input = &self.buf[0..self.bufLen];
             if self.bufLen < 16 {
@@ -112,13 +112,13 @@ extend Wyhash {
             state2: self.state2,
             totalLen: self.totalLen,
             buf: [0; 48],
-            bufLen: 0usize,
+            bufLen: 0,
         }
     }
 
     fn smallKey(&mut self, bytes: &[u8]) () {
-        self.a = 0u64;
-        self.b = 0u64;
+        self.a = 0;
+        self.b = 0;
         if bytes.len() >= 4 {
             let end = bytes.len() - 4;
             let quarter = (bytes.len() >> 3) << 2;
@@ -143,7 +143,7 @@ extend Wyhash {
 
     fn final1(&mut self, inputLb: &[u8], startPos: usize) () {
         let input = &inputLb[startPos..];
-        let mut i = 0usize;
+        let mut i: usize = 0;
         while i + 16 < input.len() {
             self.state0 = mix(read8(&input[i..]) ^ wyhashSecret1, read8(&input[i + 8..]) ^ self.state0);
             i += 16;

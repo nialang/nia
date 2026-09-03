@@ -45,7 +45,7 @@ extend PathView {
 }
 
 fn encodedPathByteLen(text: &[char]) PathError!usize {
-    let mut len = 0usize;
+    let mut len: usize = 0;
     for &ch in text {
         if ch.codepoint() == 0 {
             return PathError::ContainsNul!;
@@ -223,7 +223,7 @@ fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
         return !null;
     }
     let byteOffset = source - base;
-    if byteOffset % itemSize != 0usize {
+    if byteOffset % itemSize != 0 {
         return mem::Error::Invalid!;
     }
     !?(byteOffset / itemSize)

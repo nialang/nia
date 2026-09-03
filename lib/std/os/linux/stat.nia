@@ -5,29 +5,29 @@ using pkg::error;
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 using types::OpenHow;
 
-const atEmptyPath: usize = 0x1000usize;
-const statxType: u32 = 0x00000001u32;
-const statxMode: u32 = 0x00000002u32;
-const statxNlink: u32 = 0x00000004u32;
-const statxAtime: u32 = 0x00000020u32;
-const statxMtime: u32 = 0x00000040u32;
-const statxCtime: u32 = 0x00000080u32;
-const statxIno: u32 = 0x00000100u32;
-const statxSize: u32 = 0x00000200u32;
-const statxBlocks: u32 = 0x00000400u32;
+const atEmptyPath: usize = 0x1000;
+const statxType: u32 = 0x00000001;
+const statxMode: u32 = 0x00000002;
+const statxNlink: u32 = 0x00000004;
+const statxAtime: u32 = 0x00000020;
+const statxMtime: u32 = 0x00000040;
+const statxCtime: u32 = 0x00000080;
+const statxIno: u32 = 0x00000100;
+const statxSize: u32 = 0x00000200;
+const statxBlocks: u32 = 0x00000400;
 const statxRequestBasic: u32 =
     statxType | statxMode | statxNlink | statxAtime | statxMtime | statxCtime | statxIno | statxSize | statxBlocks;
 const statxRequiredBasic: u32 =
     statxType | statxMode | statxNlink | statxMtime | statxCtime | statxIno | statxSize;
-const sIfmt: u16 = 0o170000u16;
-const sIfifo: u16 = 0o010000u16;
-const sIfchr: u16 = 0o020000u16;
-const sIfdir: u16 = 0o040000u16;
-const sIfblk: u16 = 0o060000u16;
-const sIfreg: u16 = 0o100000u16;
-const sIflnk: u16 = 0o120000u16;
-const sIfsock: u16 = 0o140000u16;
-const nanosPerSecond: u32 = 1000000000u32;
+const sIfmt: u16 = 0o170000;
+const sIfifo: u16 = 0o010000;
+const sIfchr: u16 = 0o020000;
+const sIfdir: u16 = 0o040000;
+const sIfblk: u16 = 0o060000;
+const sIfreg: u16 = 0o100000;
+const sIflnk: u16 = 0o120000;
+const sIfsock: u16 = 0o140000;
+const nanosPerSecond: u32 = 1000000000;
 
 pub extern struct StatxTimestamp {
     sec: i64,
@@ -81,7 +81,7 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     }
     let how = OpenHow {
         flags: flags as u64,
-        mode: 0u64,
+        mode: 0,
         resolve: types::resolveBeneath | types::resolveNoMagicLinks,
     };
     let ret = syscall::syscall4(
@@ -151,7 +151,7 @@ extend Statx {
         if (self.mask & statxAtime) == statxAtime {
             atime = ?self.atime.asTimestamp().?;
         }
-        let mut blockSize = 1u32;
+        let mut blockSize: u32 = 1;
         if (self.mask & statxBlocks) == statxBlocks {
             blockSize = self.blksize;
         }

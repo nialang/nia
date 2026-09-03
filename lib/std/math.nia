@@ -68,8 +68,8 @@ extend u8 : CheckedMul[u8] {
     type Output = u8;
 
     fn checkedMul(self, rhs: u8) ?u8 {
-        if self == 0u8 or rhs == 0u8 {
-            ?0u8
+        if self == 0 or rhs == 0 {
+            ?0
         } else if self > u8::MAX / rhs {
             null
         } else {
@@ -82,7 +82,7 @@ extend u8 : CheckedDiv[u8] {
     type Output = u8;
 
     fn checkedDiv(self, rhs: u8) ?u8 {
-        if rhs == 0u8 {
+        if rhs == 0 {
             null
         } else {
             ?(self / rhs)
@@ -94,7 +94,7 @@ extend u8 : CheckedRem[u8] {
     type Output = u8;
 
     fn checkedRem(self, rhs: u8) ?u8 {
-        if rhs == 0u8 {
+        if rhs == 0 {
             null
         } else {
             ?(self % rhs)
@@ -130,8 +130,8 @@ extend u16 : CheckedMul[u16] {
     type Output = u16;
 
     fn checkedMul(self, rhs: u16) ?u16 {
-        if self == 0u16 or rhs == 0u16 {
-            ?0u16
+        if self == 0 or rhs == 0 {
+            ?0
         } else if self > u16::MAX / rhs {
             null
         } else {
@@ -144,7 +144,7 @@ extend u16 : CheckedDiv[u16] {
     type Output = u16;
 
     fn checkedDiv(self, rhs: u16) ?u16 {
-        if rhs == 0u16 {
+        if rhs == 0 {
             null
         } else {
             ?(self / rhs)
@@ -156,7 +156,7 @@ extend u16 : CheckedRem[u16] {
     type Output = u16;
 
     fn checkedRem(self, rhs: u16) ?u16 {
-        if rhs == 0u16 {
+        if rhs == 0 {
             null
         } else {
             ?(self % rhs)
@@ -192,8 +192,8 @@ extend u32 : CheckedMul[u32] {
     type Output = u32;
 
     fn checkedMul(self, rhs: u32) ?u32 {
-        if self == 0u32 or rhs == 0u32 {
-            ?0u32
+        if self == 0 or rhs == 0 {
+            ?0
         } else if self > u32::MAX / rhs {
             null
         } else {
@@ -206,7 +206,7 @@ extend u32 : CheckedDiv[u32] {
     type Output = u32;
 
     fn checkedDiv(self, rhs: u32) ?u32 {
-        if rhs == 0u32 {
+        if rhs == 0 {
             null
         } else {
             ?(self / rhs)
@@ -218,7 +218,7 @@ extend u32 : CheckedRem[u32] {
     type Output = u32;
 
     fn checkedRem(self, rhs: u32) ?u32 {
-        if rhs == 0u32 {
+        if rhs == 0 {
             null
         } else {
             ?(self % rhs)
@@ -254,8 +254,8 @@ extend u64 : CheckedMul[u64] {
     type Output = u64;
 
     fn checkedMul(self, rhs: u64) ?u64 {
-        if self == 0u64 or rhs == 0u64 {
-            ?0u64
+        if self == 0 or rhs == 0 {
+            ?0
         } else if self > u64::MAX / rhs {
             null
         } else {
@@ -268,7 +268,7 @@ extend u64 : CheckedDiv[u64] {
     type Output = u64;
 
     fn checkedDiv(self, rhs: u64) ?u64 {
-        if rhs == 0u64 {
+        if rhs == 0 {
             null
         } else {
             ?(self / rhs)
@@ -280,7 +280,7 @@ extend u64 : CheckedRem[u64] {
     type Output = u64;
 
     fn checkedRem(self, rhs: u64) ?u64 {
-        if rhs == 0u64 {
+        if rhs == 0 {
             null
         } else {
             ?(self % rhs)
@@ -316,8 +316,8 @@ extend u128 : CheckedMul[u128] {
     type Output = u128;
 
     fn checkedMul(self, rhs: u128) ?u128 {
-        if self == 0u128 or rhs == 0u128 {
-            ?0u128
+        if self == 0 or rhs == 0 {
+            ?0
         } else if self > u128::MAX / rhs {
             null
         } else {
@@ -330,7 +330,7 @@ extend u128 : CheckedDiv[u128] {
     type Output = u128;
 
     fn checkedDiv(self, rhs: u128) ?u128 {
-        if rhs == 0u128 {
+        if rhs == 0 {
             null
         } else {
             ?(self / rhs)
@@ -342,7 +342,7 @@ extend u128 : CheckedRem[u128] {
     type Output = u128;
 
     fn checkedRem(self, rhs: u128) ?u128 {
-        if rhs == 0u128 {
+        if rhs == 0 {
             null
         } else {
             ?(self % rhs)
@@ -378,8 +378,8 @@ extend usize : CheckedMul[usize] {
     type Output = usize;
 
     fn checkedMul(self, rhs: usize) ?usize {
-        if self == 0usize or rhs == 0usize {
-            ?0usize
+        if self == 0 or rhs == 0 {
+            ?0
         } else if self > usize::MAX / rhs {
             null
         } else {
@@ -392,7 +392,7 @@ extend usize : CheckedDiv[usize] {
     type Output = usize;
 
     fn checkedDiv(self, rhs: usize) ?usize {
-        if rhs == 0usize {
+        if rhs == 0 {
             null
         } else {
             ?(self / rhs)
@@ -404,7 +404,7 @@ extend usize : CheckedRem[usize] {
     type Output = usize;
 
     fn checkedRem(self, rhs: usize) ?usize {
-        if rhs == 0usize {
+        if rhs == 0 {
             null
         } else {
             ?(self % rhs)
@@ -416,9 +416,9 @@ extend i8 : CheckedAdd[i8] {
     type Output = i8;
 
     fn checkedAdd(self, rhs: i8) ?i8 {
-        if rhs > 0i8 and self > i8::MAX - rhs {
+        if rhs > 0 and self > i8::MAX - rhs {
             null
-        } else if rhs < 0i8 and self < i8::MIN - rhs {
+        } else if rhs < 0 and self < i8::MIN - rhs {
             null
         } else {
             ?(self + rhs)
@@ -430,9 +430,9 @@ extend i8 : CheckedSub[i8] {
     type Output = i8;
 
     fn checkedSub(self, rhs: i8) ?i8 {
-        if rhs > 0i8 and self < i8::MIN + rhs {
+        if rhs > 0 and self < i8::MIN + rhs {
             null
-        } else if rhs < 0i8 and self > i8::MAX + rhs {
+        } else if rhs < 0 and self > i8::MAX + rhs {
             null
         } else {
             ?(self - rhs)
@@ -444,13 +444,13 @@ extend i8 : CheckedMul[i8] {
     type Output = i8;
 
     fn checkedMul(self, rhs: i8) ?i8 {
-        if self == 0i8 or rhs == 0i8 {
-            ?0i8
-        } else if self > 0i8 and rhs > 0i8 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
             if self > i8::MAX / rhs { null } else { ?(self * rhs) }
-        } else if self > 0i8 and rhs < 0i8 {
+        } else if self > 0 and rhs < 0 {
             if rhs < i8::MIN / self { null } else { ?(self * rhs) }
-        } else if self < 0i8 and rhs > 0i8 {
+        } else if self < 0 and rhs > 0 {
             if self < i8::MIN / rhs { null } else { ?(self * rhs) }
         } else {
             if self < i8::MAX / rhs { null } else { ?(self * rhs) }
@@ -462,7 +462,7 @@ extend i8 : CheckedDiv[i8] {
     type Output = i8;
 
     fn checkedDiv(self, rhs: i8) ?i8 {
-        if rhs == 0i8 or (self == i8::MIN and rhs == -1i8) {
+        if rhs == 0 or (self == i8::MIN and rhs == -1) {
             null
         } else {
             ?(self / rhs)
@@ -474,7 +474,7 @@ extend i8 : CheckedRem[i8] {
     type Output = i8;
 
     fn checkedRem(self, rhs: i8) ?i8 {
-        if rhs == 0i8 or (self == i8::MIN and rhs == -1i8) {
+        if rhs == 0 or (self == i8::MIN and rhs == -1) {
             null
         } else {
             ?(self % rhs)
@@ -489,7 +489,7 @@ extend i8 : CheckedNeg {
         if self == i8::MIN {
             null
         } else {
-            ?(0i8 - self)
+            ?(0 - self)
         }
     }
 }
@@ -498,7 +498,7 @@ extend i8 : CheckedAbs {
     type Output = i8;
 
     fn checkedAbs(self) ?i8 {
-        if self < 0i8 {
+        if self < 0 {
             self.checkedNeg()
         } else {
             ?self
@@ -510,9 +510,9 @@ extend i16 : CheckedAdd[i16] {
     type Output = i16;
 
     fn checkedAdd(self, rhs: i16) ?i16 {
-        if rhs > 0i16 and self > i16::MAX - rhs {
+        if rhs > 0 and self > i16::MAX - rhs {
             null
-        } else if rhs < 0i16 and self < i16::MIN - rhs {
+        } else if rhs < 0 and self < i16::MIN - rhs {
             null
         } else {
             ?(self + rhs)
@@ -524,9 +524,9 @@ extend i16 : CheckedSub[i16] {
     type Output = i16;
 
     fn checkedSub(self, rhs: i16) ?i16 {
-        if rhs > 0i16 and self < i16::MIN + rhs {
+        if rhs > 0 and self < i16::MIN + rhs {
             null
-        } else if rhs < 0i16 and self > i16::MAX + rhs {
+        } else if rhs < 0 and self > i16::MAX + rhs {
             null
         } else {
             ?(self - rhs)
@@ -538,13 +538,13 @@ extend i16 : CheckedMul[i16] {
     type Output = i16;
 
     fn checkedMul(self, rhs: i16) ?i16 {
-        if self == 0i16 or rhs == 0i16 {
-            ?0i16
-        } else if self > 0i16 and rhs > 0i16 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
             if self > i16::MAX / rhs { null } else { ?(self * rhs) }
-        } else if self > 0i16 and rhs < 0i16 {
+        } else if self > 0 and rhs < 0 {
             if rhs < i16::MIN / self { null } else { ?(self * rhs) }
-        } else if self < 0i16 and rhs > 0i16 {
+        } else if self < 0 and rhs > 0 {
             if self < i16::MIN / rhs { null } else { ?(self * rhs) }
         } else {
             if self < i16::MAX / rhs { null } else { ?(self * rhs) }
@@ -556,7 +556,7 @@ extend i16 : CheckedDiv[i16] {
     type Output = i16;
 
     fn checkedDiv(self, rhs: i16) ?i16 {
-        if rhs == 0i16 or (self == i16::MIN and rhs == -1i16) {
+        if rhs == 0 or (self == i16::MIN and rhs == -1) {
             null
         } else {
             ?(self / rhs)
@@ -568,7 +568,7 @@ extend i16 : CheckedRem[i16] {
     type Output = i16;
 
     fn checkedRem(self, rhs: i16) ?i16 {
-        if rhs == 0i16 or (self == i16::MIN and rhs == -1i16) {
+        if rhs == 0 or (self == i16::MIN and rhs == -1) {
             null
         } else {
             ?(self % rhs)
@@ -583,7 +583,7 @@ extend i16 : CheckedNeg {
         if self == i16::MIN {
             null
         } else {
-            ?(0i16 - self)
+            ?(0 - self)
         }
     }
 }
@@ -592,7 +592,7 @@ extend i16 : CheckedAbs {
     type Output = i16;
 
     fn checkedAbs(self) ?i16 {
-        if self < 0i16 {
+        if self < 0 {
             self.checkedNeg()
         } else {
             ?self
@@ -604,9 +604,9 @@ extend i32 : CheckedAdd[i32] {
     type Output = i32;
 
     fn checkedAdd(self, rhs: i32) ?i32 {
-        if rhs > 0i32 and self > i32::MAX - rhs {
+        if rhs > 0 and self > i32::MAX - rhs {
             null
-        } else if rhs < 0i32 and self < i32::MIN - rhs {
+        } else if rhs < 0 and self < i32::MIN - rhs {
             null
         } else {
             ?(self + rhs)
@@ -618,9 +618,9 @@ extend i32 : CheckedSub[i32] {
     type Output = i32;
 
     fn checkedSub(self, rhs: i32) ?i32 {
-        if rhs > 0i32 and self < i32::MIN + rhs {
+        if rhs > 0 and self < i32::MIN + rhs {
             null
-        } else if rhs < 0i32 and self > i32::MAX + rhs {
+        } else if rhs < 0 and self > i32::MAX + rhs {
             null
         } else {
             ?(self - rhs)
@@ -632,13 +632,13 @@ extend i32 : CheckedMul[i32] {
     type Output = i32;
 
     fn checkedMul(self, rhs: i32) ?i32 {
-        if self == 0i32 or rhs == 0i32 {
-            ?0i32
-        } else if self > 0i32 and rhs > 0i32 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
             if self > i32::MAX / rhs { null } else { ?(self * rhs) }
-        } else if self > 0i32 and rhs < 0i32 {
+        } else if self > 0 and rhs < 0 {
             if rhs < i32::MIN / self { null } else { ?(self * rhs) }
-        } else if self < 0i32 and rhs > 0i32 {
+        } else if self < 0 and rhs > 0 {
             if self < i32::MIN / rhs { null } else { ?(self * rhs) }
         } else {
             if self < i32::MAX / rhs { null } else { ?(self * rhs) }
@@ -650,7 +650,7 @@ extend i32 : CheckedDiv[i32] {
     type Output = i32;
 
     fn checkedDiv(self, rhs: i32) ?i32 {
-        if rhs == 0i32 or (self == i32::MIN and rhs == -1i32) {
+        if rhs == 0 or (self == i32::MIN and rhs == -1) {
             null
         } else {
             ?(self / rhs)
@@ -662,7 +662,7 @@ extend i32 : CheckedRem[i32] {
     type Output = i32;
 
     fn checkedRem(self, rhs: i32) ?i32 {
-        if rhs == 0i32 or (self == i32::MIN and rhs == -1i32) {
+        if rhs == 0 or (self == i32::MIN and rhs == -1) {
             null
         } else {
             ?(self % rhs)
@@ -677,7 +677,7 @@ extend i32 : CheckedNeg {
         if self == i32::MIN {
             null
         } else {
-            ?(0i32 - self)
+            ?(0 - self)
         }
     }
 }
@@ -686,7 +686,7 @@ extend i32 : CheckedAbs {
     type Output = i32;
 
     fn checkedAbs(self) ?i32 {
-        if self < 0i32 {
+        if self < 0 {
             self.checkedNeg()
         } else {
             ?self
@@ -698,9 +698,9 @@ extend i64 : CheckedAdd[i64] {
     type Output = i64;
 
     fn checkedAdd(self, rhs: i64) ?i64 {
-        if rhs > 0i64 and self > i64::MAX - rhs {
+        if rhs > 0 and self > i64::MAX - rhs {
             null
-        } else if rhs < 0i64 and self < i64::MIN - rhs {
+        } else if rhs < 0 and self < i64::MIN - rhs {
             null
         } else {
             ?(self + rhs)
@@ -712,9 +712,9 @@ extend i64 : CheckedSub[i64] {
     type Output = i64;
 
     fn checkedSub(self, rhs: i64) ?i64 {
-        if rhs > 0i64 and self < i64::MIN + rhs {
+        if rhs > 0 and self < i64::MIN + rhs {
             null
-        } else if rhs < 0i64 and self > i64::MAX + rhs {
+        } else if rhs < 0 and self > i64::MAX + rhs {
             null
         } else {
             ?(self - rhs)
@@ -726,13 +726,13 @@ extend i64 : CheckedMul[i64] {
     type Output = i64;
 
     fn checkedMul(self, rhs: i64) ?i64 {
-        if self == 0i64 or rhs == 0i64 {
-            ?0i64
-        } else if self > 0i64 and rhs > 0i64 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
             if self > i64::MAX / rhs { null } else { ?(self * rhs) }
-        } else if self > 0i64 and rhs < 0i64 {
+        } else if self > 0 and rhs < 0 {
             if rhs < i64::MIN / self { null } else { ?(self * rhs) }
-        } else if self < 0i64 and rhs > 0i64 {
+        } else if self < 0 and rhs > 0 {
             if self < i64::MIN / rhs { null } else { ?(self * rhs) }
         } else {
             if self < i64::MAX / rhs { null } else { ?(self * rhs) }
@@ -744,7 +744,7 @@ extend i64 : CheckedDiv[i64] {
     type Output = i64;
 
     fn checkedDiv(self, rhs: i64) ?i64 {
-        if rhs == 0i64 or (self == i64::MIN and rhs == -1i64) {
+        if rhs == 0 or (self == i64::MIN and rhs == -1) {
             null
         } else {
             ?(self / rhs)
@@ -756,7 +756,7 @@ extend i64 : CheckedRem[i64] {
     type Output = i64;
 
     fn checkedRem(self, rhs: i64) ?i64 {
-        if rhs == 0i64 or (self == i64::MIN and rhs == -1i64) {
+        if rhs == 0 or (self == i64::MIN and rhs == -1) {
             null
         } else {
             ?(self % rhs)
@@ -771,7 +771,7 @@ extend i64 : CheckedNeg {
         if self == i64::MIN {
             null
         } else {
-            ?(0i64 - self)
+            ?(0 - self)
         }
     }
 }
@@ -780,7 +780,7 @@ extend i64 : CheckedAbs {
     type Output = i64;
 
     fn checkedAbs(self) ?i64 {
-        if self < 0i64 {
+        if self < 0 {
             self.checkedNeg()
         } else {
             ?self
@@ -792,9 +792,9 @@ extend i128 : CheckedAdd[i128] {
     type Output = i128;
 
     fn checkedAdd(self, rhs: i128) ?i128 {
-        if rhs > 0i128 and self > i128::MAX - rhs {
+        if rhs > 0 and self > i128::MAX - rhs {
             null
-        } else if rhs < 0i128 and self < i128::MIN - rhs {
+        } else if rhs < 0 and self < i128::MIN - rhs {
             null
         } else {
             ?(self + rhs)
@@ -806,9 +806,9 @@ extend i128 : CheckedSub[i128] {
     type Output = i128;
 
     fn checkedSub(self, rhs: i128) ?i128 {
-        if rhs > 0i128 and self < i128::MIN + rhs {
+        if rhs > 0 and self < i128::MIN + rhs {
             null
-        } else if rhs < 0i128 and self > i128::MAX + rhs {
+        } else if rhs < 0 and self > i128::MAX + rhs {
             null
         } else {
             ?(self - rhs)
@@ -820,13 +820,13 @@ extend i128 : CheckedMul[i128] {
     type Output = i128;
 
     fn checkedMul(self, rhs: i128) ?i128 {
-        if self == 0i128 or rhs == 0i128 {
-            ?0i128
-        } else if self > 0i128 and rhs > 0i128 {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
             if self > i128::MAX / rhs { null } else { ?(self * rhs) }
-        } else if self > 0i128 and rhs < 0i128 {
+        } else if self > 0 and rhs < 0 {
             if rhs < i128::MIN / self { null } else { ?(self * rhs) }
-        } else if self < 0i128 and rhs > 0i128 {
+        } else if self < 0 and rhs > 0 {
             if self < i128::MIN / rhs { null } else { ?(self * rhs) }
         } else {
             if self < i128::MAX / rhs { null } else { ?(self * rhs) }
@@ -838,7 +838,7 @@ extend i128 : CheckedDiv[i128] {
     type Output = i128;
 
     fn checkedDiv(self, rhs: i128) ?i128 {
-        if rhs == 0i128 or (self == i128::MIN and rhs == -1i128) {
+        if rhs == 0 or (self == i128::MIN and rhs == -1) {
             null
         } else {
             ?(self / rhs)
@@ -850,7 +850,7 @@ extend i128 : CheckedRem[i128] {
     type Output = i128;
 
     fn checkedRem(self, rhs: i128) ?i128 {
-        if rhs == 0i128 or (self == i128::MIN and rhs == -1i128) {
+        if rhs == 0 or (self == i128::MIN and rhs == -1) {
             null
         } else {
             ?(self % rhs)
@@ -865,7 +865,7 @@ extend i128 : CheckedNeg {
         if self == i128::MIN {
             null
         } else {
-            ?(0i128 - self)
+            ?(0 - self)
         }
     }
 }
@@ -874,7 +874,7 @@ extend i128 : CheckedAbs {
     type Output = i128;
 
     fn checkedAbs(self) ?i128 {
-        if self < 0i128 {
+        if self < 0 {
             self.checkedNeg()
         } else {
             ?self
@@ -886,9 +886,9 @@ extend isize : CheckedAdd[isize] {
     type Output = isize;
 
     fn checkedAdd(self, rhs: isize) ?isize {
-        if rhs > 0isize and self > isize::MAX - rhs {
+        if rhs > 0 and self > isize::MAX - rhs {
             null
-        } else if rhs < 0isize and self < isize::MIN - rhs {
+        } else if rhs < 0 and self < isize::MIN - rhs {
             null
         } else {
             ?(self + rhs)
@@ -900,9 +900,9 @@ extend isize : CheckedSub[isize] {
     type Output = isize;
 
     fn checkedSub(self, rhs: isize) ?isize {
-        if rhs > 0isize and self < isize::MIN + rhs {
+        if rhs > 0 and self < isize::MIN + rhs {
             null
-        } else if rhs < 0isize and self > isize::MAX + rhs {
+        } else if rhs < 0 and self > isize::MAX + rhs {
             null
         } else {
             ?(self - rhs)
@@ -914,13 +914,13 @@ extend isize : CheckedMul[isize] {
     type Output = isize;
 
     fn checkedMul(self, rhs: isize) ?isize {
-        if self == 0isize or rhs == 0isize {
-            ?0isize
-        } else if self > 0isize and rhs > 0isize {
+        if self == 0 or rhs == 0 {
+            ?0
+        } else if self > 0 and rhs > 0 {
             if self > isize::MAX / rhs { null } else { ?(self * rhs) }
-        } else if self > 0isize and rhs < 0isize {
+        } else if self > 0 and rhs < 0 {
             if rhs < isize::MIN / self { null } else { ?(self * rhs) }
-        } else if self < 0isize and rhs > 0isize {
+        } else if self < 0 and rhs > 0 {
             if self < isize::MIN / rhs { null } else { ?(self * rhs) }
         } else {
             if self < isize::MAX / rhs { null } else { ?(self * rhs) }
@@ -932,7 +932,7 @@ extend isize : CheckedDiv[isize] {
     type Output = isize;
 
     fn checkedDiv(self, rhs: isize) ?isize {
-        if rhs == 0isize or (self == isize::MIN and rhs == -1isize) {
+        if rhs == 0 or (self == isize::MIN and rhs == -1) {
             null
         } else {
             ?(self / rhs)
@@ -944,7 +944,7 @@ extend isize : CheckedRem[isize] {
     type Output = isize;
 
     fn checkedRem(self, rhs: isize) ?isize {
-        if rhs == 0isize or (self == isize::MIN and rhs == -1isize) {
+        if rhs == 0 or (self == isize::MIN and rhs == -1) {
             null
         } else {
             ?(self % rhs)
@@ -959,7 +959,7 @@ extend isize : CheckedNeg {
         if self == isize::MIN {
             null
         } else {
-            ?(0isize - self)
+            ?(0 - self)
         }
     }
 }
@@ -968,7 +968,7 @@ extend isize : CheckedAbs {
     type Output = isize;
 
     fn checkedAbs(self) ?isize {
-        if self < 0isize {
+        if self < 0 {
             self.checkedNeg()
         } else {
             ?self
@@ -982,22 +982,22 @@ extend usize {
             false
         } else {
             let mut n = self;
-            while n > 1usize {
-                if n % 2usize != 0usize {
+            while n > 1 {
+                if n % 2 != 0 {
                     return false;
                 }
-                n = n / 2usize;
+                n = n / 2;
             }
             true
         }
     }
 
     pub fn alignForward(self, align: usize) ?usize {
-        if align == 0usize or not align.isPowerOfTwo() {
+        if align == 0 or not align.isPowerOfTwo() {
             return null;
         }
         let remainder = self % align;
-        if remainder == 0usize {
+        if remainder == 0 {
             ?self
         } else {
             self.checkedAdd(align - remainder)
