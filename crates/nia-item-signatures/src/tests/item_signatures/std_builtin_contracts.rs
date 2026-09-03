@@ -6,7 +6,7 @@ fn std_builtin_source_declarations_match_rust_descriptors() {
 
     let expected_functions = BuiltinFunction::ALL
         .iter()
-        .map(|builtin| builtin.source_name().to_string())
+        .map(|builtin| builtin.name().to_string())
         .collect::<BTreeSet<_>>();
     let actual_functions = declarations
         .functions
@@ -233,21 +233,22 @@ fn std_builtin_source_declarations() -> SourceBuiltinDeclarations {
             match item.kind {
                 nia_ast::ItemKind::Function(function) => {
                     if let Some(name) = builtin_attribute(&item.attributes) {
-                        let builtin = BuiltinFunction::from_name(&name).unwrap_or_else(|| {
-                            panic!("unknown builtin function `{name}` in {}", path.display())
-                        });
-                        assert_eq!(
-                            function.name,
-                            sym(builtin.source_name()),
-                            "builtin function source item name must match its public spelling"
-                        );
+                        let name_symbol = sym(&name);
                         assert!(
-                            !out.functions.contains(&function.name),
-                            "duplicate builtin function declaration `{}` in {}",
-                            builtin.source_name(),
+                            BuiltinFunction::from_name(&name).is_some(),
+                            "unknown builtin function `{name}` in {}",
                             path.display()
                         );
-                        out.functions.push(function.name);
+                        assert_eq!(
+                            function.name, name_symbol,
+                            "builtin function source item name must match `@[builtin]` name"
+                        );
+                        assert!(
+                            !out.functions.contains(&name_symbol),
+                            "duplicate builtin function declaration `{name}` in {}",
+                            path.display()
+                        );
+                        out.functions.push(name_symbol);
                     }
                 }
                 nia_ast::ItemKind::TypeAlias(alias) => {

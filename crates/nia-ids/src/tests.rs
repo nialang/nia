@@ -128,32 +128,6 @@ fn builtin_name_registries_are_exhaustive_unique_and_bidirectional() {
 }
 
 #[test]
-fn builtin_function_operation_names_are_distinct_from_public_spellings() {
-    let cases = [
-        (
-            BuiltinFunction::LoadUnaligned,
-            "load_unaligned",
-            "loadUnaligned",
-        ),
-        (BuiltinFunction::AtomicLoad, "atomic_load", "atomicLoad"),
-        (BuiltinFunction::AtomicStore, "atomic_store", "atomicStore"),
-        (BuiltinFunction::AtomicRmw, "atomic_rmw", "atomicRmw"),
-        (
-            BuiltinFunction::CmpxchgStrong,
-            "cmpxchg_strong",
-            "cmpxchgStrong",
-        ),
-        (BuiltinFunction::CmpxchgWeak, "cmpxchg_weak", "cmpxchgWeak"),
-    ];
-
-    for (builtin, operation_name, source_name) in cases {
-        assert_eq!(builtin.name(), operation_name);
-        assert_eq!(builtin.source_name(), source_name);
-        assert_eq!(BuiltinFunction::from_name(operation_name), Some(builtin));
-    }
-}
-
-#[test]
 fn builtin_trait_descriptors_cover_each_trait_and_method_once() {
     assert_eq!(BuiltinTrait::DESCRIPTORS.len(), BuiltinTrait::ALL.len());
     assert_eq!(

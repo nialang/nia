@@ -534,7 +534,7 @@ impl BuiltinFunction {
         Self::SliceLen,
     ];
 
-    /// Parses the stable operation name used by `@[builtin("...")]`.
+    /// Parses a canonical builtin function name.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "error" => Some(Self::ConstError),
@@ -546,7 +546,7 @@ impl BuiltinFunction {
             "memcpy" => Some(Self::MemCopy),
             "memmove" => Some(Self::MemMove),
             "memset" => Some(Self::MemSet),
-            "load_unaligned" => Some(Self::LoadUnaligned),
+            "loadUnaligned" => Some(Self::LoadUnaligned),
             "splat" => Some(Self::Splat),
             "extract" => Some(Self::Extract),
             "insert" => Some(Self::Insert),
@@ -554,11 +554,11 @@ impl BuiltinFunction {
             "ctz" => Some(Self::Ctz),
             "clz" => Some(Self::Clz),
             "popcount" => Some(Self::Popcount),
-            "atomic_load" => Some(Self::AtomicLoad),
-            "atomic_store" => Some(Self::AtomicStore),
-            "atomic_rmw" => Some(Self::AtomicRmw),
-            "cmpxchg_strong" => Some(Self::CmpxchgStrong),
-            "cmpxchg_weak" => Some(Self::CmpxchgWeak),
+            "atomicLoad" => Some(Self::AtomicLoad),
+            "atomicStore" => Some(Self::AtomicStore),
+            "atomicRmw" => Some(Self::AtomicRmw),
+            "cmpxchgStrong" => Some(Self::CmpxchgStrong),
+            "cmpxchgWeak" => Some(Self::CmpxchgWeak),
             "fence" => Some(Self::Fence),
             "embed" => Some(Self::Embed),
             "charFromU32" => Some(Self::CharFromU32),
@@ -567,7 +567,7 @@ impl BuiltinFunction {
         }
     }
 
-    /// Returns the stable operation name used by `@[builtin("...")]`.
+    /// Returns the canonical source-level function name.
     pub fn name(self) -> &'static str {
         match self {
             Self::ConstError => "error",
@@ -579,7 +579,7 @@ impl BuiltinFunction {
             Self::MemCopy => "memcpy",
             Self::MemMove => "memmove",
             Self::MemSet => "memset",
-            Self::LoadUnaligned => "load_unaligned",
+            Self::LoadUnaligned => "loadUnaligned",
             Self::Splat => "splat",
             Self::Extract => "extract",
             Self::Insert => "insert",
@@ -587,28 +587,15 @@ impl BuiltinFunction {
             Self::Ctz => "ctz",
             Self::Clz => "clz",
             Self::Popcount => "popcount",
-            Self::AtomicLoad => "atomic_load",
-            Self::AtomicStore => "atomic_store",
-            Self::AtomicRmw => "atomic_rmw",
-            Self::CmpxchgStrong => "cmpxchg_strong",
-            Self::CmpxchgWeak => "cmpxchg_weak",
-            Self::Fence => "fence",
-            Self::Embed => "embed",
-            Self::CharFromU32 => "charFromU32",
-            Self::SliceLen => "sliceLen",
-        }
-    }
-
-    /// Returns the public Nia spelling of this builtin function.
-    pub fn source_name(self) -> &'static str {
-        match self {
-            Self::LoadUnaligned => "loadUnaligned",
             Self::AtomicLoad => "atomicLoad",
             Self::AtomicStore => "atomicStore",
             Self::AtomicRmw => "atomicRmw",
             Self::CmpxchgStrong => "cmpxchgStrong",
             Self::CmpxchgWeak => "cmpxchgWeak",
-            _ => self.name(),
+            Self::Fence => "fence",
+            Self::Embed => "embed",
+            Self::CharFromU32 => "charFromU32",
+            Self::SliceLen => "sliceLen",
         }
     }
 

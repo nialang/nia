@@ -13,5 +13,5 @@ pub fn memmove[T](dest: &mut [T], source: &[T]) ();
 pub fn memset(dest: &mut [u8], value: u8) ();
 
 // Loads `T` from a byte pointer without requiring alignment.
-@[builtin("load_unaligned")]
+@[builtin("loadUnaligned")]
 pub fn loadUnaligned[T](ptr: &u8) T;
