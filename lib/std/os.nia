@@ -409,11 +409,8 @@ extend platform::Timestamp {
 extend platform::FileMetadata {
     fn asOsMetadata(&self) FileMetadata {
         let mut accessed: ?Timestamp = null;
-        match self.atime() {
-            ?value => {
-                accessed = ?value.asOsTimestamp();
-            },
-            null => {},
+        if self.atime() is ?value {
+            accessed = ?value.asOsTimestamp();
         }
         FileMetadata::init(
             self.kind().asOsFileKind(),

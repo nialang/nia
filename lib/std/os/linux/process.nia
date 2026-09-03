@@ -238,26 +238,20 @@ fn reap_spawn_failure(pid: ProcessId) Errno!() {
 
 extend SpawnAttempt {
     pub fn finish(&mut self) SpawnError!SpawnResult {
-        match self.pending_reap {
-            ?pid => {
-                match self.pending_reap_error {
-                    ?cause => {
-                        self.pending_reap_error = null;
-                        return self.reap_error(pid, cause)!;
-                    },
-                    null => {},
-                }
-                match reap_spawn_failure(pid) {
-                    !ok => {
-                        _ = ok;
-                        self.pending_reap = null;
-                    },
-                    cause! => {
-                        return self.reap_error(pid, cause)!;
-                    },
-                }
-            },
-            null => {},
+        if self.pending_reap is ?pid {
+            if self.pending_reap_error is ?cause {
+                self.pending_reap_error = null;
+                return self.reap_error(pid, cause)!;
+            }
+            match reap_spawn_failure(pid) {
+                !ok => {
+                    _ = ok;
+                    self.pending_reap = null;
+                },
+                cause! => {
+                    return self.reap_error(pid, cause)!;
+                },
+            }
         }
         match self.result {
             ?result => {
@@ -329,13 +323,10 @@ fn apply_stdio(options: SpawnOptions, stdin_pipe: &mut SpawnPipe, stdout_pipe: &
     stdin_pipe.close_all_except(options);
     stdout_pipe.close_all_except(options);
     stderr_pipe.close_all_except(options);
-    match dev_null {
-        ?fd => {
-            if not isStandardTarget(fd, options) {
-                fd.close().?;
-            }
-        },
-        null => {},
+    if dev_null is ?fd {
+        if not isStandardTarget(fd, options) {
+            fd.close().?;
+        }
     }
     !()
 }
@@ -501,20 +492,14 @@ extend SpawnPipe {
     }
 
     fn close_read(&mut self) () {
-        match self.take_read() {
-            ?fd => {
-                _ = fd.close();
-            },
-            null => {},
+        if self.take_read() is ?fd {
+            _ = fd.close();
         }
     }
 
     fn close_write(&mut self) () {
-        match self.take_write() {
-            ?fd => {
-                _ = fd.close();
-            },
-            null => {},
+        if self.take_write() is ?fd {
+            _ = fd.close();
         }
     }
 
@@ -524,21 +509,15 @@ extend SpawnPipe {
     }
 
     fn close_all_except(&mut self, options: SpawnOptions) () {
-        match self.take_read() {
-            ?fd => {
-                if not isStandardTarget(fd, options) {
-                    _ = fd.close();
-                }
-            },
-            null => {},
+        if self.take_read() is ?fd {
+            if not isStandardTarget(fd, options) {
+                _ = fd.close();
+            }
         }
-        match self.take_write() {
-            ?fd => {
-                if not isStandardTarget(fd, options) {
-                    _ = fd.close();
-                }
-            },
-            null => {},
+        if self.take_write() is ?fd {
+            if not isStandardTarget(fd, options) {
+                _ = fd.close();
+            }
         }
     }
 }

@@ -89,18 +89,12 @@ extend os::Timestamp {
 extend os::FileMetadata {
     pub(pkg) fn as_fs_metadata(&self) Metadata {
         let mut accessed: ?Timestamp = null;
-        match self.accessed() {
-            ?value => {
-                accessed = ?value.as_fs_timestamp();
-            },
-            null => {},
+        if self.accessed() is ?value {
+            accessed = ?value.as_fs_timestamp();
         }
         let mut status_changed: ?Timestamp = null;
-        match self.statusChanged() {
-            ?value => {
-                status_changed = ?value.as_fs_timestamp();
-            },
-            null => {},
+        if self.statusChanged() is ?value {
+            status_changed = ?value.as_fs_timestamp();
         }
         Metadata::init(
             self.kind().as_fs_file_kind(),

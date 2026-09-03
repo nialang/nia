@@ -94,11 +94,8 @@ extend Child {
     }
 
     fn waitStatus(&mut self) Error!os::WaitStatus {
-        match self.state.status() {
-            ?status => {
-                return !status;
-            },
-            null => {},
+        if self.state.status() is ?status {
+            return !status;
         }
         let pid = self.state.pid();
         self.closeStdin().?;
@@ -151,11 +148,8 @@ extend Child {
     }
 
     pub fn killWith(&mut self, signal: Signal) Error!Term {
-        match self.state.status() {
-            ?status => {
-                return !Term::fromWaitStatus(status);
-            },
-            null => {},
+        if self.state.status() is ?status {
+            return !Term::fromWaitStatus(status);
         }
         os::killWith(self.state.osPid(), signal as i32).withKillContext().?;
         self.wait()
