@@ -142,11 +142,11 @@ pub(pkg) struct SpawnOptions {
 }
 
 pub(pkg) fn pageSize() usize {
-    platform::page_size()
+    platform::pageSize()
 }
 
 pub(pkg) fn pageAlignedLen(len: usize) Error!usize {
-    !(platform::page_aligned_len(len).?)
+    !(platform::pageAlignedLen(len).?)
 }
 
 pub(pkg) fn cwd() FileHandle {
@@ -242,7 +242,7 @@ pub(pkg) fn renameAtBeneath(
 }
 
 pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) Error!FileMetadata {
-    let metadata = platform::metadata_at_beneath(
+    let metadata = platform::metadataAtBeneath(
         dir.platform(),
         path,
         followSymlinks,
@@ -251,11 +251,11 @@ pub(pkg) fn metadataAtBeneath(dir: FileHandle, path: &u8, followSymlinks: bool) 
 }
 
 pub(pkg) fn mapPages(len: usize, align: usize) Error!platform::MappedPages {
-    !(platform::map_pages(len, align).?)
+    !(platform::mapPages(len, align).?)
 }
 
 pub(pkg) fn unmapPages(ptr: &mut u8, len: usize) Error!() {
-    !(platform::unmap_pages(ptr, len).?)
+    !(platform::unmapPages(ptr, len).?)
 }
 
 pub(pkg) fn random(bytes: &mut [u8]) Error!() {
