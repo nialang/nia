@@ -1031,14 +1031,15 @@ impl Parser {
             let capture_start = self.peek().span.start;
             let is_reference = self.eat(TokenKind::Amp).is_some();
             let is_mutable = is_reference && self.eat(TokenKind::Mut).is_some();
+            let value_span = self.peek().span;
             let name = self.expect_name(TokenKind::Ident, "expected capture name")?;
-            let name_span = Span::new(capture_start, self.previous_end());
-            let value = self.make_expr(name_span, ExprKind::Ident(name));
+            let capture_span = Span::new(capture_start, self.previous_end());
+            let value = self.make_expr(value_span, ExprKind::Ident(name));
             // Capture modes reuse ordinary address expressions so ownership,
             // mutability, and lowering continue through one semantic path.
             let value = if is_reference {
                 self.make_expr(
-                    name_span,
+                    capture_span,
                     ExprKind::Unary {
                         op: if is_mutable {
                             UnaryOp::Ref
@@ -1054,8 +1055,8 @@ impl Parser {
             captures.push(ClosureCapture {
                 name,
                 value,
-                span: name_span,
-                node_key: self.node_key(nia_node_id::SyntaxKind::Expr, name_span),
+                span: capture_span,
+                node_key: self.node_key(nia_node_id::SyntaxKind::Expr, capture_span),
             });
             if self.eat(TokenKind::Comma).is_none() {
                 break;
