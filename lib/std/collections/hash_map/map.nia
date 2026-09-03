@@ -1,3 +1,4 @@
+using pkg::cmp;
 using pkg::error;
 using pkg::hash;
 using pkg::iter::range;
@@ -212,7 +213,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn shrinkToCapacity(&mut self, allocator: &mut mem::Allocator, minCapacity: usize) mem::Error!() {
-        let targetCapacity = raw::maxUsize(self.len(), minCapacity);
+        let targetCapacity = cmp::max(self.len(), minCapacity);
         if targetCapacity >= self.capacity() {
             return !();
         }

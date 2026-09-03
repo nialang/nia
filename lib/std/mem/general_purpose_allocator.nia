@@ -1,3 +1,4 @@
+using pkg::cmp;
 using pkg::math;
 using pkg::iter::range;
 using pkg::mem::allocator;
@@ -502,7 +503,7 @@ extend GeneralPurposeAllocator {
                 return Error::OutOfMemory!;
             },
         };
-        let blockAlign = maxUsize(std::builtin::align[LargeHeader](), layout.align());
+        let blockAlign = cmp::max(std::builtin::align[LargeHeader](), layout.align());
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
         let base = backing.ptr() as usize;
@@ -765,7 +766,7 @@ fn smallSlotSize(layout: Layout) ?usize {
             return null;
         },
     };
-    let needed = maxUsize(neededSize, layout.align());
+    let needed = cmp::max(neededSize, layout.align());
     while slotSize < needed {
         slotSize = match slotSize.checkedMul(2usize) {
             ?value => {
@@ -932,14 +933,6 @@ fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     match headerAddr.checkedAdd(std::builtin::size[LargeHeader]()) {
         ?value => ?(value as &mut u8),
         null => null,
-    }
-}
-
-fn maxUsize(left: usize, right: usize) usize {
-    if left > right {
-        left
-    } else {
-        right
     }
 }
 
