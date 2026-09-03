@@ -18,11 +18,11 @@ pub trait HashMapContext[K] {
 extend HashMapInitError {
     pub(pkg) const fn fromOs(cause: os::Error) HashMapInitError {
         match cause {
-            os::Error::PermissionDenied => HashMapInitError::PermissionDenied,
-            os::Error::Io => HashMapInitError::Io,
-            os::Error::Again => HashMapInitError::Again,
-            os::Error::Fault => HashMapInitError::Fault,
-            os::Error::Invalid => HashMapInitError::Invalid,
+            .PermissionDenied => HashMapInitError::PermissionDenied,
+            .Io => HashMapInitError::Io,
+            .Again => HashMapInitError::Again,
+            .Fault => HashMapInitError::Fault,
+            .Invalid => HashMapInitError::Invalid,
             _ => HashMapInitError::System,
         }
     }

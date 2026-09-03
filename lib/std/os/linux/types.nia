@@ -194,31 +194,31 @@ extend[T] Errno!T {
 extend SpawnError {
     pub fn from_stage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage {
-            SpawnStage::Setup => SpawnError::Setup(errno),
-            SpawnStage::Stdio => SpawnError::Stdio(errno),
-            SpawnStage::Cwd => SpawnError::Cwd(errno),
-            SpawnStage::Exec => SpawnError::Exec(errno),
+            .Setup => SpawnError::Setup(errno),
+            .Stdio => SpawnError::Stdio(errno),
+            .Cwd => SpawnError::Cwd(errno),
+            .Exec => SpawnError::Exec(errno),
             _ => SpawnError::Setup(errno),
         }
     }
 
     pub fn stage(&self) SpawnStage {
         match self.* {
-            SpawnError::Setup(_) => SpawnStage::Setup,
-            SpawnError::Stdio(_) => SpawnStage::Stdio,
-            SpawnError::Cwd(_) => SpawnStage::Cwd,
-            SpawnError::Exec(_) => SpawnStage::Exec,
-            SpawnError::Reap { stage, primary: _, cause: _, pid: _ } => stage,
+            .Setup(_) => SpawnStage::Setup,
+            .Stdio(_) => SpawnStage::Stdio,
+            .Cwd(_) => SpawnStage::Cwd,
+            .Exec(_) => SpawnStage::Exec,
+            .Reap { stage, primary: _, cause: _, pid: _ } => stage,
         }
     }
 
     pub fn primary(&self) Errno {
         match self.* {
-            SpawnError::Setup(cause) => cause,
-            SpawnError::Stdio(cause) => cause,
-            SpawnError::Cwd(cause) => cause,
-            SpawnError::Exec(cause) => cause,
-            SpawnError::Reap { stage: _, primary, cause: _, pid: _ } => primary,
+            .Setup(cause) => cause,
+            .Stdio(cause) => cause,
+            .Cwd(cause) => cause,
+            .Exec(cause) => cause,
+            .Reap { stage: _, primary, cause: _, pid: _ } => primary,
         }
     }
 }

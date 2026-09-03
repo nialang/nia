@@ -12,8 +12,8 @@ using types::{Error, ExitCode, SpawnError, SystemError};
 extend debug::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            debug::Error::Format(cause) => cause.asExitCode(),
-            debug::Error::Flush(cause) => cause.asExitCode(),
+            .Format(cause) => cause.asExitCode(),
+            .Flush(cause) => cause.asExitCode(),
         }
     }
 }
@@ -33,8 +33,8 @@ extend[T] debug::Error!T {
 extend cstring::CStringBuildError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            cstring::CStringBuildError::ContainsNul => exit(22),
-            cstring::CStringBuildError::Allocation(cause) => cause.asExitCode(),
+            .ContainsNul => exit(22),
+            .Allocation(cause) => cause.asExitCode(),
         }
     }
 }
@@ -66,11 +66,11 @@ extend fs::Error {
 extend fs::PathError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            fs::PathError::ContainsNul => exit(22),
-            fs::PathError::Absolute => exit(22),
-            fs::PathError::ParentTraversal => exit(22),
-            fs::PathError::MissingTerminator => exit(22),
-            fs::PathError::TooLong => exit(36),
+            .ContainsNul => exit(22),
+            .Absolute => exit(22),
+            .ParentTraversal => exit(22),
+            .MissingTerminator => exit(22),
+            .TooLong => exit(36),
             _ => exit(255),
         }
     }
@@ -85,10 +85,10 @@ extend fs::PathError {
 extend fs::OperationError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            fs::OperationError::Path { operation: _, cause } => {
+            .Path { operation: _, cause } => {
                 cause.asExitCode()
             },
-            fs::OperationError::System { operation: _, cause } => {
+            .System { operation: _, cause } => {
                 cause.asExitCode()
             },
         }
@@ -132,10 +132,10 @@ extend SystemError {
 extend io::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            io::Error::EndOfStream => exit(5),
-            io::Error::ShortWrite => exit(5),
-            io::Error::Closed => exit(9),
-            io::Error::System(cause) => cause.into_error(),
+            .EndOfStream => exit(5),
+            .ShortWrite => exit(5),
+            .Closed => exit(9),
+            .System(cause) => cause.into_error(),
         }
     }
 }
@@ -155,20 +155,20 @@ extend[T] io::Error!T {
 extend Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            Error::Allocation(cause) => cause.asExitCode(),
-            Error::Path(cause) => cause.asExitCode(),
-            Error::ArgumentContainsNul(_) => {
+            .Allocation(cause) => cause.asExitCode(),
+            .Path(cause) => cause.asExitCode(),
+            .ArgumentContainsNul(_) => {
                 exit(22)
             },
-            Error::Environment { index: _, cause: _ } => {
+            .Environment { index: _, cause: _ } => {
                 exit(22)
             },
-            Error::SpawnSetup(cause) => cause.asExitCode(),
-            Error::Spawn(cause) => cause.asExitCode(),
-            Error::Wait(cause) => cause.asExitCode(),
-            Error::TryWait(cause) => cause.asExitCode(),
-            Error::Kill(cause) => cause.asExitCode(),
-            Error::Close { stream: _, cause } => {
+            .SpawnSetup(cause) => cause.asExitCode(),
+            .Spawn(cause) => cause.asExitCode(),
+            .Wait(cause) => cause.asExitCode(),
+            .TryWait(cause) => cause.asExitCode(),
+            .Kill(cause) => cause.asExitCode(),
+            .Close { stream: _, cause } => {
                 cause.asExitCode()
             },
         }
@@ -178,11 +178,11 @@ extend Error : error::IntoError[ExitCode] {
 extend SpawnError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            SpawnError::Setup(cause) => cause.asExitCode(),
-            SpawnError::Stdio(cause) => cause.asExitCode(),
-            SpawnError::Cwd(cause) => cause.asExitCode(),
-            SpawnError::Exec(cause) => cause.asExitCode(),
-            SpawnError::Reap { stage: _, primary: _, cause, pid: _ } => cause.asExitCode(),
+            .Setup(cause) => cause.asExitCode(),
+            .Stdio(cause) => cause.asExitCode(),
+            .Cwd(cause) => cause.asExitCode(),
+            .Exec(cause) => cause.asExitCode(),
+            .Reap { stage: _, primary: _, cause, pid: _ } => cause.asExitCode(),
         }
     }
 }
@@ -226,10 +226,10 @@ extend[T] fs::OperationError!T {
 extend fmt::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            fmt::Error::Write => exit(5),
-            fmt::Error::InvalidTemplate => exit(22),
-            fmt::Error::MissingArgument => exit(22),
-            fmt::Error::ExtraArgument => exit(22),
+            .Write => exit(5),
+            .InvalidTemplate => exit(22),
+            .MissingArgument => exit(22),
+            .ExtraArgument => exit(22),
             _ => exit(255),
         }
     }
@@ -250,9 +250,9 @@ extend[T] fmt::Error!T {
 extend io::BufferError : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            io::BufferError::NoSpace => exit(2),
-            io::BufferError::ShortWrite => exit(5),
-            io::BufferError::EndOfStream => exit(5),
+            .NoSpace => exit(2),
+            .ShortWrite => exit(5),
+            .EndOfStream => exit(5),
             _ => exit(255),
         }
     }
@@ -273,9 +273,9 @@ extend[T] io::BufferError!T {
 extend mem::Error : error::IntoError[ExitCode] {
     const fn into_error(self) ExitCode {
         match self {
-            mem::Error::Invalid => exit(22),
-            mem::Error::InvalidAlignment => exit(22),
-            mem::Error::OutOfMemory => exit(12),
+            .Invalid => exit(22),
+            .InvalidAlignment => exit(22),
+            .OutOfMemory => exit(12),
             _ => exit(255),
         }
     }

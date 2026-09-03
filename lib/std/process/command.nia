@@ -161,9 +161,9 @@ extend Command {
         storage: &mut SpawnStorage,
     ) Error!() {
         match self.environment {
-            CommandEnvironment::Exact(entries) => validateEnvironment(entries).?,
-            CommandEnvironment::Inherit(env) => { _ = env; },
-            CommandEnvironment::Empty => {},
+            .Exact(entries) => validateEnvironment(entries).?,
+            .Inherit(env) => { _ = env; },
+            .Empty => {},
         }
 
         appendPath(allocator, &mut storage.argumentBytes, self.path).?;
@@ -180,8 +180,8 @@ extend Command {
 
         let emptyEnvp: [&u8; 1] = [0usize as &u8];
         let envp = match self.environment {
-            CommandEnvironment::Inherit(env) => env.rawEnvp(),
-            CommandEnvironment::Exact(entries) => {
+            .Inherit(env) => env.rawEnvp(),
+            .Exact(entries) => {
                 if entries.isEmpty() {
                     &emptyEnvp[0]
                 } else {
@@ -196,7 +196,7 @@ extend Command {
                     storage.environmentPointers.asSlice().ptr()
                 }
             },
-            CommandEnvironment::Empty => &emptyEnvp[0],
+            .Empty => &emptyEnvp[0],
         };
 
         let mut options: os::SpawnOptions = .init();
@@ -261,8 +261,8 @@ extend SpawnStorage {
         };
         self.outcome = null;
         match outcome {
-            SpawnOutcome::Success(child) => !child,
-            SpawnOutcome::Failure(cause) => cause!,
+            .Success(child) => !child,
+            .Failure(cause) => cause!,
         }
     }
 
@@ -277,7 +277,7 @@ extend SpawnStorage {
                 self.outcome = ?SpawnOutcome::Success(Child::fromSpawnResult(result));
                 !()
             },
-            os::SpawnError::Reap { stage, primary, cause, pid }! => {
+            .Reap { stage, primary, cause, pid }! => {
                 self.nativeSpawn = ?attempt;
                 Error::Spawn(SpawnError::Reap {
                     stage: commandSpawnStage(stage),
@@ -326,9 +326,9 @@ extend AllocatorSpawnAttempt {
 extend StdIo {
     fn asOsStdio(self) os::StdIo {
         match self {
-            StdIo::Inherit => os::StdIo::Inherit,
-            StdIo::Ignore => os::StdIo::Ignore,
-            StdIo::Pipe => os::StdIo::Pipe,
+            .Inherit => os::StdIo::Inherit,
+            .Ignore => os::StdIo::Ignore,
+            .Pipe => os::StdIo::Pipe,
         }
     }
 }
@@ -473,19 +473,19 @@ fn appendCStringPointers(
 
 fn commandSpawnError(cause: os::SpawnError) Error {
     match cause {
-        os::SpawnError::Setup(system) => {
+        .Setup(system) => {
             Error::Spawn(SpawnError::Setup(SystemError::fromOs(system)))
         },
-        os::SpawnError::Stdio(system) => {
+        .Stdio(system) => {
             Error::Spawn(SpawnError::Stdio(SystemError::fromOs(system)))
         },
-        os::SpawnError::Cwd(system) => {
+        .Cwd(system) => {
             Error::Spawn(SpawnError::Cwd(SystemError::fromOs(system)))
         },
-        os::SpawnError::Exec(system) => {
+        .Exec(system) => {
             Error::Spawn(SpawnError::Exec(SystemError::fromOs(system)))
         },
-        os::SpawnError::Reap { stage, primary, cause, pid } => {
+        .Reap { stage, primary, cause, pid } => {
             Error::Spawn(SpawnError::Reap {
                 stage: commandSpawnStage(stage),
                 primary: SystemError::fromOs(primary),
@@ -498,10 +498,10 @@ fn commandSpawnError(cause: os::SpawnError) Error {
 
 fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
     match stage {
-        os::SpawnStage::Setup => SpawnStage::Setup,
-        os::SpawnStage::Stdio => SpawnStage::Stdio,
-        os::SpawnStage::Cwd => SpawnStage::Cwd,
-        os::SpawnStage::Exec => SpawnStage::Exec,
+        .Setup => SpawnStage::Setup,
+        .Stdio => SpawnStage::Stdio,
+        .Cwd => SpawnStage::Cwd,
+        .Exec => SpawnStage::Exec,
         _ => SpawnStage::Setup,
     }
 }

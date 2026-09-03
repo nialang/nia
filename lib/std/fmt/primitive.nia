@@ -9,11 +9,11 @@ fn format_signed_spec(
         return core::Error::InvalidTemplate!;
     }
     match spec.presentation() {
-        core::FormatPresentation::Display => formatter.writeSignedRadixSpec(value, 10u128, false, spec),
-        core::FormatPresentation::LowerHex => formatter.writeSignedRadixSpec(value, 16u128, false, spec),
-        core::FormatPresentation::UpperHex => formatter.writeSignedRadixSpec(value, 16u128, true, spec),
-        core::FormatPresentation::Binary => formatter.writeSignedRadixSpec(value, 2u128, false, spec),
-        core::FormatPresentation::Octal => formatter.writeSignedRadixSpec(value, 8u128, false, spec),
+        .Display => formatter.writeSignedRadixSpec(value, 10u128, false, spec),
+        .LowerHex => formatter.writeSignedRadixSpec(value, 16u128, false, spec),
+        .UpperHex => formatter.writeSignedRadixSpec(value, 16u128, true, spec),
+        .Binary => formatter.writeSignedRadixSpec(value, 2u128, false, spec),
+        .Octal => formatter.writeSignedRadixSpec(value, 8u128, false, spec),
         _ => core::Error::InvalidTemplate!,
     }
 }
@@ -27,11 +27,11 @@ fn format_unsigned_spec(
         return core::Error::InvalidTemplate!;
     }
     match spec.presentation() {
-        core::FormatPresentation::Display => formatter.writeUnsignedRadixSpec(value, 10u128, false, spec),
-        core::FormatPresentation::LowerHex => formatter.writeUnsignedRadixSpec(value, 16u128, false, spec),
-        core::FormatPresentation::UpperHex => formatter.writeUnsignedRadixSpec(value, 16u128, true, spec),
-        core::FormatPresentation::Binary => formatter.writeUnsignedRadixSpec(value, 2u128, false, spec),
-        core::FormatPresentation::Octal => formatter.writeUnsignedRadixSpec(value, 8u128, false, spec),
+        .Display => formatter.writeUnsignedRadixSpec(value, 10u128, false, spec),
+        .LowerHex => formatter.writeUnsignedRadixSpec(value, 16u128, false, spec),
+        .UpperHex => formatter.writeUnsignedRadixSpec(value, 16u128, true, spec),
+        .Binary => formatter.writeUnsignedRadixSpec(value, 2u128, false, spec),
+        .Octal => formatter.writeUnsignedRadixSpec(value, 8u128, false, spec),
         _ => core::Error::InvalidTemplate!,
     }
 }

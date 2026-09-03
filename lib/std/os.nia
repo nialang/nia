@@ -294,30 +294,30 @@ pub(pkg) fn exit(code: i32) () {
 extend platform::Errno : error::IntoError[Error] {
     const fn into_error(self) Error {
         match self {
-            platform::Errno::PermissionDenied => Error::PermissionDenied,
-            platform::Errno::NoEntry => Error::NotFound,
-            platform::Errno::Interrupted => Error::Interrupted,
-            platform::Errno::Io => Error::Io,
-            platform::Errno::BadFd => Error::BadFd,
-            platform::Errno::NoChild => Error::NoChild,
-            platform::Errno::Again => Error::Again,
-            platform::Errno::NoMemory => Error::OutOfMemory,
-            platform::Errno::Access => Error::Access,
-            platform::Errno::Fault => Error::Fault,
-            platform::Errno::Busy => Error::Busy,
-            platform::Errno::Exists => Error::AlreadyExists,
-            platform::Errno::CrossDevice => Error::CrossDevice,
-            platform::Errno::NotDir => Error::NotDir,
-            platform::Errno::IsDir => Error::IsDir,
-            platform::Errno::Invalid => Error::Invalid,
-            platform::Errno::NoSpace => Error::NoSpace,
-            platform::Errno::ReadOnly => Error::ReadOnly,
-            platform::Errno::BrokenPipe => Error::BrokenPipe,
-            platform::Errno::OutOfRange => Error::OutOfRange,
-            platform::Errno::TooLong => Error::TooLong,
-            platform::Errno::Unsupported => Error::Unsupported,
-            platform::Errno::SymlinkLoop => Error::SymlinkLoop,
-            platform::Errno::NotEmpty => Error::NotEmpty,
+            .PermissionDenied => Error::PermissionDenied,
+            .NoEntry => Error::NotFound,
+            .Interrupted => Error::Interrupted,
+            .Io => Error::Io,
+            .BadFd => Error::BadFd,
+            .NoChild => Error::NoChild,
+            .Again => Error::Again,
+            .NoMemory => Error::OutOfMemory,
+            .Access => Error::Access,
+            .Fault => Error::Fault,
+            .Busy => Error::Busy,
+            .Exists => Error::AlreadyExists,
+            .CrossDevice => Error::CrossDevice,
+            .NotDir => Error::NotDir,
+            .IsDir => Error::IsDir,
+            .Invalid => Error::Invalid,
+            .NoSpace => Error::NoSpace,
+            .ReadOnly => Error::ReadOnly,
+            .BrokenPipe => Error::BrokenPipe,
+            .OutOfRange => Error::OutOfRange,
+            .TooLong => Error::TooLong,
+            .Unsupported => Error::Unsupported,
+            .SymlinkLoop => Error::SymlinkLoop,
+            .NotEmpty => Error::NotEmpty,
             _ => Error::System,
         }
     }
@@ -326,11 +326,11 @@ extend platform::Errno : error::IntoError[Error] {
 extend platform::SpawnError : error::IntoError[SpawnError] {
     const fn into_error(self) SpawnError {
         match self {
-            platform::SpawnError::Setup(cause) => SpawnError::Setup(cause.into_error()),
-            platform::SpawnError::Stdio(cause) => SpawnError::Stdio(cause.into_error()),
-            platform::SpawnError::Cwd(cause) => SpawnError::Cwd(cause.into_error()),
-            platform::SpawnError::Exec(cause) => SpawnError::Exec(cause.into_error()),
-            platform::SpawnError::Reap { stage, primary, cause, pid } => SpawnError::Reap {
+            .Setup(cause) => SpawnError::Setup(cause.into_error()),
+            .Stdio(cause) => SpawnError::Stdio(cause.into_error()),
+            .Cwd(cause) => SpawnError::Cwd(cause.into_error()),
+            .Exec(cause) => SpawnError::Exec(cause.into_error()),
+            .Reap { stage, primary, cause, pid } => SpawnError::Reap {
                 stage: stage.asSpawnStage(),
                 primary: primary.into_error(),
                 cause: cause.into_error(),
@@ -343,10 +343,10 @@ extend platform::SpawnError : error::IntoError[SpawnError] {
 extend platform::SpawnStage {
     const fn asSpawnStage(self) SpawnStage {
         match self {
-            platform::SpawnStage::Setup => SpawnStage::Setup,
-            platform::SpawnStage::Stdio => SpawnStage::Stdio,
-            platform::SpawnStage::Cwd => SpawnStage::Cwd,
-            platform::SpawnStage::Exec => SpawnStage::Exec,
+            .Setup => SpawnStage::Setup,
+            .Stdio => SpawnStage::Stdio,
+            .Cwd => SpawnStage::Cwd,
+            .Exec => SpawnStage::Exec,
             _ => SpawnStage::Setup,
         }
     }
@@ -366,9 +366,9 @@ extend SpawnAttempt {
 extend OpenMode {
     fn asPlatformOpenMode(self) Error!platform::OpenMode {
         match self {
-            OpenMode::ReadOnly => !platform::OpenMode::ReadOnly,
-            OpenMode::WriteOnly => !platform::OpenMode::WriteOnly,
-            OpenMode::ReadWrite => !platform::OpenMode::ReadWrite,
+            .ReadOnly => !platform::OpenMode::ReadOnly,
+            .WriteOnly => !platform::OpenMode::WriteOnly,
+            .ReadWrite => !platform::OpenMode::ReadWrite,
             _ => Error::Invalid!,
         }
     }
@@ -377,9 +377,9 @@ extend OpenMode {
 extend SeekWhence {
     fn asPlatformSeekWhence(self) Error!platform::SeekWhence {
         match self {
-            SeekWhence::Start => !platform::SeekWhence::Start,
-            SeekWhence::Current => !platform::SeekWhence::Current,
-            SeekWhence::End => !platform::SeekWhence::End,
+            .Start => !platform::SeekWhence::Start,
+            .Current => !platform::SeekWhence::Current,
+            .End => !platform::SeekWhence::End,
             _ => Error::Invalid!,
         }
     }
@@ -388,13 +388,13 @@ extend SeekWhence {
 extend platform::FileKind {
     fn asOsFileKind(self) FileKind {
         match self {
-            platform::FileKind::BlockDevice => FileKind::BlockDevice,
-            platform::FileKind::CharacterDevice => FileKind::CharacterDevice,
-            platform::FileKind::Directory => FileKind::Directory,
-            platform::FileKind::NamedPipe => FileKind::NamedPipe,
-            platform::FileKind::Symlink => FileKind::Symlink,
-            platform::FileKind::File => FileKind::File,
-            platform::FileKind::UnixSocket => FileKind::UnixSocket,
+            .BlockDevice => FileKind::BlockDevice,
+            .CharacterDevice => FileKind::CharacterDevice,
+            .Directory => FileKind::Directory,
+            .NamedPipe => FileKind::NamedPipe,
+            .Symlink => FileKind::Symlink,
+            .File => FileKind::File,
+            .UnixSocket => FileKind::UnixSocket,
             _ => FileKind::Unknown,
         }
     }
@@ -756,9 +756,9 @@ extend SpawnResult {
 extend StdIo {
     fn asPlatformStdio(self) Error!platform::StdIo {
         match self {
-            StdIo::Inherit => !platform::StdIo::Inherit,
-            StdIo::Ignore => !platform::StdIo::Ignore,
-            StdIo::Pipe => !platform::StdIo::Pipe,
+            .Inherit => !platform::StdIo::Inherit,
+            .Ignore => !platform::StdIo::Ignore,
+            .Pipe => !platform::StdIo::Pipe,
         }
     }
 }

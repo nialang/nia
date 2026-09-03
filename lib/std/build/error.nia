@@ -77,23 +77,23 @@ pub enum Error {
 extend Error {
     pub const fn asExitCode(self) process::ExitCode {
         match self {
-            Error::UnknownStep => process::exit(2),
-            Error::Invalid { operation: _, subject: _ } => {
+            .UnknownStep => process::exit(2),
+            .Invalid { operation: _, subject: _ } => {
                 process::exit(22)
             },
-            Error::Failure { operation: _, subject: _, cause } => {
+            .Failure { operation: _, subject: _, cause } => {
                 cause.asExitCode()
             },
-            Error::Internal(_) => {
+            .Internal(_) => {
                 process::exit(255)
             },
-            Error::StepCycle { step: _, dependency: _ } => {
+            .StepCycle { step: _, dependency: _ } => {
                 process::exit(22)
             },
-            Error::StepFailed(_) => {
+            .StepFailed(_) => {
                 process::exit(1)
             },
-            Error::MissingDefaultStep => process::exit(22),
+            .MissingDefaultStep => process::exit(22),
         }
     }
 }
@@ -101,21 +101,21 @@ extend Error {
 extend ErrorCause {
     const fn asExitCode(self) process::ExitCode {
         match self {
-            ErrorCause::Memory(cause) => match cause {
+            .Memory(cause) => match cause {
                 .OutOfMemory => process::exit(12),
                 _ => process::exit(255),
             },
-            ErrorCause::Format(cause) => match cause {
+            .Format(cause) => match cause {
                 .Write => process::exit(5),
                 _ => process::exit(255),
             },
-            ErrorCause::FileSystem(cause) => match cause {
+            .FileSystem(cause) => match cause {
                 .OutOfMemory => process::exit(12),
                 _ => process::exit(5),
             },
-            ErrorCause::FileSystemOperation(cause) => cause.asExitCode(),
-            ErrorCause::Process(cause) => cause.asExitCode(),
-            ErrorCause::Exit(_) => {
+            .FileSystemOperation(cause) => cause.asExitCode(),
+            .Process(cause) => cause.asExitCode(),
+            .Exit(_) => {
                 process::exit(1)
             },
         }
@@ -253,27 +253,27 @@ extend ErrorSubject : fmt::Format {
 extend ErrorCause : fmt::Format {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
-            ErrorCause::Memory(cause) => {
+            .Memory(cause) => {
                 writeCausePrefix(formatter, &"memory").?;
                 writeMemoryCause(formatter, cause)
             },
-            ErrorCause::Format(cause) => {
+            .Format(cause) => {
                 writeCausePrefix(formatter, &"format").?;
                 writeFormatCause(formatter, cause)
             },
-            ErrorCause::FileSystem(cause) => {
+            .FileSystem(cause) => {
                 writeCausePrefix(formatter, &"filesystem").?;
                 writeFileSystemCause(formatter, cause)
             },
-            ErrorCause::FileSystemOperation(cause) => {
+            .FileSystemOperation(cause) => {
                 writeCausePrefix(formatter, &"filesystem").?;
                 writeFileSystemOperationCause(formatter, cause)
             },
-            ErrorCause::Process(cause) => {
+            .Process(cause) => {
                 writeCausePrefix(formatter, &"process").?;
                 writeProcessCause(formatter, cause)
             },
-            ErrorCause::Exit(cause) => writeTermCause(formatter, cause),
+            .Exit(cause) => writeTermCause(formatter, cause),
         }
     }
 }
@@ -281,35 +281,35 @@ extend ErrorCause : fmt::Format {
 extend Error : fmt::Format {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
-            Error::UnknownStep => formatter.writeText(&"unknown requested step"),
-            Error::Invalid { operation, subject } => {
+            .UnknownStep => formatter.writeText(&"unknown requested step"),
+            .Invalid { operation, subject } => {
                 formatter.writeText(&"invalid ").?;
                 subject.format(formatter).?;
                 formatter.writeText(&" during ").?;
                 operation.format(formatter)
             },
-            Error::Failure { operation, subject, cause } => {
+            .Failure { operation, subject, cause } => {
                 operation.format(formatter).?;
                 formatter.writeText(&" ").?;
                 subject.format(formatter).?;
                 formatter.writeText(&": ").?;
                 cause.format(formatter)
             },
-            Error::Internal(operation) => {
+            .Internal(operation) => {
                 formatter.writeText(&"internal build failure during ").?;
                 operation.format(formatter)
             },
-            Error::StepCycle { step, dependency } => {
+            .StepCycle { step, dependency } => {
                 formatter.writeText(&"step cycle between ").?;
                 formatter.writeUnsigned(step as u128).?;
                 formatter.writeText(&" and ").?;
                 formatter.writeUnsigned(dependency as u128)
             },
-            Error::StepFailed(step) => {
+            .StepFailed(step) => {
                 formatter.writeText(&"previously failed step ").?;
                 formatter.writeUnsigned(step as u128)
             },
-            Error::MissingDefaultStep => formatter.writeText(&"build declares steps without a default"),
+            .MissingDefaultStep => formatter.writeText(&"build declares steps without a default"),
         }
     }
 }
@@ -379,12 +379,12 @@ fn writeFileSystemCause(formatter: &mut fmt::Formatter, cause: fs::Error) fmt::E
 
 fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::OperationError) fmt::Error!() {
     match cause {
-        fs::OperationError::Path { operation, cause } => {
+        .Path { operation, cause } => {
             writeFileSystemOperation(formatter, operation).?;
             formatter.writeText(&"/path/").?;
             writePathCause(formatter, cause)
         },
-        fs::OperationError::System { operation, cause } => {
+        .System { operation, cause } => {
             writeFileSystemOperation(formatter, operation).?;
             formatter.writeText(&"/").?;
             writeFileSystemCause(formatter, cause)
@@ -394,59 +394,59 @@ fn writeFileSystemOperationCause(formatter: &mut fmt::Formatter, cause: fs::Oper
 
 fn writeFileSystemOperation(formatter: &mut fmt::Formatter, operation: fs::Operation) fmt::Error!() {
     formatter.writeText(match operation {
-        fs::Operation::OpenFile => &"open file",
-        fs::Operation::OpenDir => &"open directory",
-        fs::Operation::CreateFile => &"create file",
-        fs::Operation::CreateDir => &"create directory",
-        fs::Operation::DeleteFile => &"delete file",
-        fs::Operation::DeleteDir => &"delete directory",
-        fs::Operation::Rename => &"rename",
-        fs::Operation::Metadata => &"metadata",
+        .OpenFile => &"open file",
+        .OpenDir => &"open directory",
+        .CreateFile => &"create file",
+        .CreateDir => &"create directory",
+        .DeleteFile => &"delete file",
+        .DeleteDir => &"delete directory",
+        .Rename => &"rename",
+        .Metadata => &"metadata",
     })
 }
 
 fn writeProcessCause(formatter: &mut fmt::Formatter, cause: process::Error) fmt::Error!() {
     match cause {
-        process::Error::Allocation(cause) => {
+        .Allocation(cause) => {
             writeCausePrefix(formatter, &"allocation").?;
             writeMemoryCause(formatter, cause)
         },
-        process::Error::Path(cause) => {
+        .Path(cause) => {
             writeCausePrefix(formatter, &"path").?;
             writePathCause(formatter, cause)
         },
-        process::Error::ArgumentContainsNul(index) => {
+        .ArgumentContainsNul(index) => {
             formatter.writeText(&"argument[").?;
             formatter.writeUnsigned(index as u128).?;
             formatter.writeText(&"]/contains NUL")
         },
-        process::Error::Environment { index, cause } => {
+        .Environment { index, cause } => {
             formatter.writeText(&"environment[").?;
             formatter.writeUnsigned(index as u128).?;
             formatter.writeText(&"]/").?;
             writeEnvEntryCause(formatter, cause)
         },
-        process::Error::SpawnSetup(cause) => {
+        .SpawnSetup(cause) => {
             writeCausePrefix(formatter, &"spawn setup").?;
             writeSystemCause(formatter, cause)
         },
-        process::Error::Spawn(cause) => {
+        .Spawn(cause) => {
             writeCausePrefix(formatter, &"spawn").?;
             writeSpawnCause(formatter, cause)
         },
-        process::Error::Wait(cause) => {
+        .Wait(cause) => {
             writeCausePrefix(formatter, &"wait").?;
             writeSystemCause(formatter, cause)
         },
-        process::Error::TryWait(cause) => {
+        .TryWait(cause) => {
             writeCausePrefix(formatter, &"try wait").?;
             writeSystemCause(formatter, cause)
         },
-        process::Error::Kill(cause) => {
+        .Kill(cause) => {
             writeCausePrefix(formatter, &"kill").?;
             writeSystemCause(formatter, cause)
         },
-        process::Error::Close { stream, cause } => {
+        .Close { stream, cause } => {
             writeCausePrefix(formatter, &"close").?;
             writeStdStream(formatter, stream).?;
             formatter.writeText(&"/").?;
@@ -552,23 +552,23 @@ fn writeIoCause(formatter: &mut fmt::Formatter, cause: io::Error) fmt::Error!() 
 
 fn writeSpawnCause(formatter: &mut fmt::Formatter, cause: process::SpawnError) fmt::Error!() {
     match cause {
-        process::SpawnError::Setup(system) => {
+        .Setup(system) => {
             formatter.writeText(&"setup/").?;
             writeSystemCause(formatter, system)
         },
-        process::SpawnError::Stdio(system) => {
+        .Stdio(system) => {
             formatter.writeText(&"standard I/O/").?;
             writeSystemCause(formatter, system)
         },
-        process::SpawnError::Cwd(system) => {
+        .Cwd(system) => {
             formatter.writeText(&"working directory/").?;
             writeSystemCause(formatter, system)
         },
-        process::SpawnError::Exec(system) => {
+        .Exec(system) => {
             formatter.writeText(&"executable/").?;
             writeSystemCause(formatter, system)
         },
-        process::SpawnError::Reap { stage, primary, cause, pid } => {
+        .Reap { stage, primary, cause, pid } => {
             formatter.writeText(&"child reap pid ").?;
             formatter.writeSigned(pid.raw() as i128).?;
             formatter.writeText(&" after ").?;

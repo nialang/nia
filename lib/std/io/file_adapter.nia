@@ -26,8 +26,8 @@ enum FileSource {
 extend FileSource {
     fn handle(&self) fs::Error!os::FileHandle {
         match self.* {
-            FileSource::Borrowed(file) => file.borrowHandle(),
-            FileSource::Standard(handle) => !handle,
+            .Borrowed(file) => file.borrowHandle(),
+            .Standard(handle) => !handle,
         }
     }
 }
