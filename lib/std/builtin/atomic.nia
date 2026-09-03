@@ -1,23 +1,23 @@
 // Atomic compiler intrinsics.
 
 // Atomic load.
-@[builtin("atomic_load")]
+@[builtin("atomicLoad")]
 pub fn atomicLoad[T](ptr: &T, order: usize) T;
 
 // Atomic store.
-@[builtin("atomic_store")]
+@[builtin("atomicStore")]
 pub fn atomicStore[T](ptr: &mut T, value: T, order: usize) ();
 
 // Atomic read-modify-write.
-@[builtin("atomic_rmw")]
+@[builtin("atomicRmw")]
 pub fn atomicRmw[T](ptr: &mut T, op: usize, value: T, order: usize) T;
 
 // Strong atomic compare-and-exchange.
-@[builtin("cmpxchg_strong")]
+@[builtin("cmpxchgStrong")]
 pub fn cmpxchgStrong[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
 
 // Weak atomic compare-and-exchange.
-@[builtin("cmpxchg_weak")]
+@[builtin("cmpxchgWeak")]
 pub fn cmpxchgWeak[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
 
 // Atomic fence.
