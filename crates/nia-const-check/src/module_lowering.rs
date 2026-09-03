@@ -17,6 +17,9 @@ use nia_local_resolve::LocalKind;
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
+use nia_ty::TyKind;
+
+type LocalTypeHints = HashMap<LocalId, (InternedTyId, Option<nia_ast::TypeRef>)>;
 
 /// Lowers active module const expressions into identity-resolved const IR.
 ///
@@ -220,14 +223,14 @@ impl ConstModuleLowerer<'_> {
         let mut aggregate_types = HashMap::new();
         let mut omitted_members = HashMap::new();
         let mut omitted_associated_types = HashMap::new();
-        let mut local_types = HashMap::new();
+        let mut local_types = LocalTypeHints::new();
         for param in &function.params {
             if let (Some(local_id), Some(type_ref)) = (
                 self.input.semantic_uses.node_local_def(&param.node_key),
                 param.ty.as_ref(),
             ) && let Some(ty) = self.input.semantic_uses.node_type_use(&type_ref.node_key)
             {
-                local_types.insert(local_id, (ty, type_ref.clone()));
+                local_types.insert(local_id, (ty, Some(type_ref.clone())));
             }
         }
         if let Some(body) = function.body.as_ref() {
@@ -238,7 +241,7 @@ impl ConstModuleLowerer<'_> {
                 &mut aggregate_types,
                 &mut omitted_members,
                 &mut omitted_associated_types,
-                &local_types,
+                &mut local_types,
             );
         }
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
@@ -309,34 +312,10 @@ impl ConstModuleLowerer<'_> {
         {
             aggregate_types.insert(expr.node_key.clone(), expected_type);
         }
-        let enum_id =
-            expected_ref.and_then(|ty| {
-                self.input
-                    .semantic_uses
-                    .node_type_prefix(&ty.node_key)
-                    .or_else(|| match &ty.kind {
-                        nia_ast::TypeKind::Path { segments } if segments.len() == 1 => {
-                            let nia_ast::PathSegmentKind::Name(name) = segments[0].kind else {
-                                return None;
-                            };
-                            self.input.defs.module_scope.types.get(&name).map(|def_id| {
-                                GlobalDefId {
-                                    module_id: self.input.defs.module_id,
-                                    def_id,
-                                }
-                            })
-                        }
-                        _ => None,
-                    })
-            });
+        let enum_id = self.enum_def_for_type(expected_type, expected_ref);
         let variant_for = |name: &nia_symbol::SymbolId| {
             let enum_id = enum_id?;
-            let scope = self.input.defs.scopes.enum_members.get(&enum_id.def_id)?;
-            let def_id = scope.variants.get(name)?;
-            Some(GlobalDefId {
-                module_id: enum_id.module_id,
-                def_id,
-            })
+            self.enum_variant_by_name(enum_id, *name)
         };
         let mut record_member = |member: &Expr| {
             if let nia_ast::ExprKind::OmittedMember { name } = &member.kind
@@ -354,6 +333,45 @@ impl ConstModuleLowerer<'_> {
         (aggregate_types, omitted_members)
     }
 
+    fn enum_def_for_type(
+        &self,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+    ) -> Option<GlobalDefId> {
+        expected_ref
+            .and_then(|ty| {
+                self.input
+                    .semantic_uses
+                    .node_type_prefix(&ty.node_key)
+                    .or_else(|| match &ty.kind {
+                        nia_ast::TypeKind::Path { segments } if segments.len() == 1 => {
+                            let nia_ast::PathSegmentKind::Name(name) = segments[0].kind else {
+                                return None;
+                            };
+                            self.input.defs.module_scope.types.get(&name).map(|def_id| {
+                                GlobalDefId {
+                                    module_id: self.input.defs.module_id,
+                                    def_id,
+                                }
+                            })
+                        }
+                        _ => None,
+                    })
+            })
+            .or_else(|| {
+                let expected_type = expected_type?;
+                let TyKind::Nominal { def_id, .. } = self.input.type_store.get(expected_type)?
+                else {
+                    return None;
+                };
+                Some(*def_id)
+            })
+            .filter(|id| {
+                id.module_id != self.input.defs.module_id
+                    || self.input.defs.scopes.enum_members.contains_key(&id.def_id)
+            })
+    }
+
     fn collect_function_omitted_maps(
         &self,
         block: &nia_ast::Block,
@@ -362,7 +380,7 @@ impl ConstModuleLowerer<'_> {
         aggregate_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
         omitted_members: &mut HashMap<VersionedNodeKey, GlobalDefId>,
         omitted_associated_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
-        local_types: &HashMap<LocalId, (InternedTyId, nia_ast::TypeRef)>,
+        local_types: &mut LocalTypeHints,
     ) {
         if let Some(tail) = block.tail.as_deref() {
             self.collect_expr_omitted_maps(
@@ -392,6 +410,17 @@ impl ConstModuleLowerer<'_> {
                             omitted_associated_types,
                             local_types,
                         );
+                        if let Some(expected) = expected {
+                            self.collect_pattern_omitted_maps(
+                                &binding.pattern,
+                                Some(expected),
+                                binding.ty.as_ref(),
+                                aggregate_types,
+                                omitted_members,
+                                omitted_associated_types,
+                                local_types,
+                            );
+                        }
                     }
                 }
                 nia_ast::StmtKind::Return(Some(value)) => {
@@ -454,7 +483,7 @@ impl ConstModuleLowerer<'_> {
         aggregate_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
         omitted_members: &mut HashMap<VersionedNodeKey, GlobalDefId>,
         omitted_associated_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
-        local_types: &HashMap<LocalId, (InternedTyId, nia_ast::TypeRef)>,
+        local_types: &mut LocalTypeHints,
     ) {
         let (aggregates, members) =
             self.omitted_constructor_maps(expr, expected_type, expected_ref);
@@ -505,7 +534,9 @@ impl ConstModuleLowerer<'_> {
                         .semantic_uses
                         .node_value_use(&matched.target.node_key)
                         .and_then(|use_| match use_ {
-                            SemanticValueUse::Local(local_id) => local_types.get(&local_id),
+                            SemanticValueUse::Local(local_id) => {
+                                local_types.get(&local_id).cloned()
+                            }
                             SemanticValueUse::Global(_) => None,
                         }),
                     _ => None,
@@ -514,8 +545,10 @@ impl ConstModuleLowerer<'_> {
                     for pattern in &arm.patterns {
                         self.collect_pattern_omitted_maps(
                             pattern,
-                            target_hint.map(|(ty, _)| *ty),
-                            target_hint.map(|(_, type_ref)| type_ref),
+                            target_hint.as_ref().map(|(ty, _)| *ty),
+                            target_hint
+                                .as_ref()
+                                .and_then(|(_, type_ref)| type_ref.as_ref()),
                             aggregate_types,
                             omitted_members,
                             omitted_associated_types,
@@ -569,9 +602,17 @@ impl ConstModuleLowerer<'_> {
         aggregate_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
         omitted_members: &mut HashMap<VersionedNodeKey, GlobalDefId>,
         omitted_associated_types: &mut HashMap<VersionedNodeKey, InternedTyId>,
-        local_types: &HashMap<LocalId, (InternedTyId, nia_ast::TypeRef)>,
+        local_types: &mut LocalTypeHints,
     ) {
         match &pattern.kind {
+            nia_ast::PatternKind::Bind { node_key, .. } => {
+                if let (Some(local_id), Some(expected_type)) = (
+                    self.input.semantic_uses.node_local_def(node_key),
+                    expected_type,
+                ) {
+                    local_types.insert(local_id, (expected_type, expected_ref.cloned()));
+                }
+            }
             nia_ast::PatternKind::Expr(expr) => self.collect_expr_omitted_maps(
                 expr,
                 expected_type,
@@ -581,30 +622,118 @@ impl ConstModuleLowerer<'_> {
                 omitted_associated_types,
                 local_types,
             ),
-            nia_ast::PatternKind::Nominal { constructor, .. } => {
+            nia_ast::PatternKind::Nominal {
+                constructor,
+                fields,
+            } => {
                 let (aggregates, members) =
                     self.omitted_constructor_maps(constructor, expected_type, expected_ref);
                 aggregate_types.extend(aggregates);
                 omitted_members.extend(members);
+                if let Some(variant_id) =
+                    self.pattern_variant_id(constructor, expected_type, expected_ref)
+                    && let Some(variant) = self.local_enum_variant_signature(variant_id)
+                {
+                    match (&variant.payload, fields) {
+                        (
+                            nia_item_signatures::EnumVariantPayloadSignature::Tuple(types),
+                            nia_ast::NominalPatternFields::Tuple(patterns),
+                        ) => {
+                            for (pattern, ty) in patterns.iter().zip(types.iter().copied()) {
+                                self.collect_pattern_omitted_maps(
+                                    pattern,
+                                    Some(ty),
+                                    None,
+                                    aggregate_types,
+                                    omitted_members,
+                                    omitted_associated_types,
+                                    local_types,
+                                );
+                            }
+                        }
+                        (
+                            nia_item_signatures::EnumVariantPayloadSignature::Named(types),
+                            nia_ast::NominalPatternFields::Named { fields, .. },
+                        ) => {
+                            for field in fields {
+                                let ty = types
+                                    .iter()
+                                    .find(|expected| expected.name == field.name)
+                                    .map(|expected| expected.ty);
+                                self.collect_pattern_omitted_maps(
+                                    &field.pattern,
+                                    ty,
+                                    None,
+                                    aggregate_types,
+                                    omitted_members,
+                                    omitted_associated_types,
+                                    local_types,
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
-            nia_ast::PatternKind::Pointer(inner)
-            | nia_ast::PatternKind::MutPointer(inner)
-            | nia_ast::PatternKind::OptionalSome(inner)
-            | nia_ast::PatternKind::ErrorOk(inner)
-            | nia_ast::PatternKind::ErrorErr(inner) => self.collect_pattern_omitted_maps(
-                inner,
-                expected_type,
-                expected_ref,
-                aggregate_types,
-                omitted_members,
-                omitted_associated_types,
-                local_types,
-            ),
+            nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
+                let elem = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                    Some(TyKind::Pointer { elem, .. }) => Some(*elem),
+                    _ => None,
+                });
+                self.collect_pattern_omitted_maps(
+                    inner,
+                    elem,
+                    None,
+                    aggregate_types,
+                    omitted_members,
+                    omitted_associated_types,
+                    local_types,
+                );
+            }
+            nia_ast::PatternKind::OptionalSome(inner) => {
+                let elem = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                    Some(TyKind::Optional { elem }) => Some(*elem),
+                    _ => None,
+                });
+                self.collect_pattern_omitted_maps(
+                    inner,
+                    elem,
+                    None,
+                    aggregate_types,
+                    omitted_members,
+                    omitted_associated_types,
+                    local_types,
+                );
+            }
+            nia_ast::PatternKind::ErrorOk(inner) | nia_ast::PatternKind::ErrorErr(inner) => {
+                let error_arm = matches!(pattern.kind, nia_ast::PatternKind::ErrorErr(_));
+                let elem = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                    Some(TyKind::ErrorUnion { error, value }) => {
+                        Some(if error_arm { *error } else { *value })
+                    }
+                    _ => None,
+                });
+                self.collect_pattern_omitted_maps(
+                    inner,
+                    elem,
+                    None,
+                    aggregate_types,
+                    omitted_members,
+                    omitted_associated_types,
+                    local_types,
+                );
+            }
             nia_ast::PatternKind::Tuple(items) => {
-                for item in items {
+                let types = expected_type
+                    .and_then(|ty| match self.input.type_store.get(ty) {
+                        Some(TyKind::Tuple(types)) => Some(types.as_slice()),
+                        _ => None,
+                    })
+                    .unwrap_or(&[]);
+                for (index, item) in items.iter().enumerate() {
                     self.collect_pattern_omitted_maps(
                         item,
-                        None,
+                        types.get(index).copied(),
                         None,
                         aggregate_types,
                         omitted_members,
@@ -617,6 +746,68 @@ impl ConstModuleLowerer<'_> {
         }
     }
 
+    fn pattern_variant_id(
+        &self,
+        constructor: &Expr,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+    ) -> Option<GlobalDefId> {
+        if let Some(SemanticValueUse::Global(def_id)) = self
+            .input
+            .semantic_uses
+            .node_value_use(&constructor.node_key)
+        {
+            return Some(def_id);
+        }
+        let nia_ast::ExprKind::OmittedMember { name } = &constructor.kind else {
+            return None;
+        };
+        let enum_id = self.enum_def_for_type(expected_type, expected_ref)?;
+        self.enum_variant_by_name(enum_id, *name)
+    }
+
+    fn enum_variant_by_name(
+        &self,
+        enum_id: GlobalDefId,
+        name: nia_symbol::SymbolId,
+    ) -> Option<GlobalDefId> {
+        let def_id = if enum_id.module_id == self.input.defs.module_id {
+            self.input
+                .defs
+                .scopes
+                .enum_members
+                .get(&enum_id.def_id)?
+                .variants
+                .get(&name)?
+        } else {
+            let defs = (self.input.defs_for_module?)(enum_id.module_id)?;
+            defs.scopes
+                .enum_members
+                .get(&enum_id.def_id)?
+                .variants
+                .get(&name)?
+        };
+        Some(GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id,
+        })
+    }
+
+    fn local_enum_variant_signature(
+        &self,
+        variant_id: GlobalDefId,
+    ) -> Option<&nia_item_signatures::EnumVariantSignature> {
+        if variant_id.module_id != self.input.defs.module_id {
+            return None;
+        }
+        self.input
+            .signatures
+            .enums
+            .values()
+            .flat_map(|signature| signature.variants.iter())
+            .find(|variant| variant.def_id == variant_id.def_id)
+    }
+
     fn omitted_associated_maps(
         &self,
         expr: &Expr,
@@ -626,7 +817,10 @@ impl ConstModuleLowerer<'_> {
         let Some(expected_type) = expected_type else {
             return HashMap::new();
         };
-        if self.enum_def_for_type_ref(expected_ref).is_some() {
+        if self
+            .enum_def_for_type(Some(expected_type), expected_ref)
+            .is_some()
+        {
             return HashMap::new();
         }
         let nia_ast::ExprKind::Call { callee, .. } = &expr.kind else {
@@ -636,34 +830,6 @@ impl ConstModuleLowerer<'_> {
             return HashMap::new();
         }
         HashMap::from([(callee.node_key.clone(), expected_type)])
-    }
-
-    fn enum_def_for_type_ref(
-        &self,
-        type_ref: Option<&nia_ast::TypeRef>,
-    ) -> Option<GlobalDefId> {
-        let type_ref = type_ref?;
-        self.input
-            .semantic_uses
-            .node_type_prefix(&type_ref.node_key)
-            .or_else(|| match &type_ref.kind {
-                nia_ast::TypeKind::Path { segments } if segments.len() == 1 => {
-                    let nia_ast::PathSegmentKind::Name(name) = segments[0].kind else {
-                        return None;
-                    };
-                    self.input
-                        .defs
-                        .module_scope
-                        .types
-                        .get(&name)
-                        .map(|def_id| GlobalDefId {
-                            module_id: self.input.defs.module_id,
-                            def_id,
-                        })
-                }
-                _ => None,
-            })
-            .filter(|id| self.input.defs.scopes.enum_members.contains_key(&id.def_id))
     }
 
     fn semantic_uses_with_allowed_locals(

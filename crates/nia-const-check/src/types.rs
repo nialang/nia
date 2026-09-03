@@ -214,9 +214,15 @@ pub struct ConstModuleLowering {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 /// Inputs needed to lower active module items into resolved const IR.
 pub struct ConstModuleInput<'a> {
+    /// Session type store used to recover nominal identities while propagating
+    /// expected types through const-function locals and patterns.
+    pub type_store: &'a nia_ty::TypeStore,
+    /// Lazily loads definition scopes for enums owned by imported modules.
+    pub defs_for_module:
+        Option<&'a dyn Fn(nia_ids::ModuleId) -> Option<std::sync::Arc<DefCollection>>>,
     /// Active item tree selecting the module's current revision.
     pub active_item_tree: &'a ActiveModuleItemTree,
     /// Definition identities used during lowering.

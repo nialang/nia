@@ -245,6 +245,8 @@ fn filtered_const_global_initializer_for_body_check(
             || {
                 let symbols = db.context().symbols();
                 nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
+                    type_store: &db.context().type_store,
+                    defs_for_module: Some(&program_defs),
                     active_item_tree: &filtered_active_item_tree,
                     defs: &defs,
                     signatures: &signatures,
@@ -364,6 +366,7 @@ fn const_inputs_for_body_check(
         lowered,
     );
     let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
+    let defs_for_module = |owner| full_module_defs_semantic(db, owner).ok();
     let lower_module = || {
         time_module_provider(
             db,
@@ -372,6 +375,8 @@ fn const_inputs_for_body_check(
             || {
                 let symbols = db.context().symbols();
                 nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
+                    type_store: &db.context().type_store,
+                    defs_for_module: Some(&defs_for_module),
                     active_item_tree: &inputs.active_item_tree,
                     defs,
                     signatures,

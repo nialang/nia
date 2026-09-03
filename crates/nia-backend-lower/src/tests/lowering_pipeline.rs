@@ -70,6 +70,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
+        type_store: &type_store,
+        defs_for_module: None,
         active_item_tree: &active_item_tree,
         defs: &defs,
         signatures: &signatures,

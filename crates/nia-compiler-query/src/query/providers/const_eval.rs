@@ -14,8 +14,11 @@ pub(super) fn provide_const_module(
     let signatures = item_signatures_semantic(db, module_id)?;
     let source_path = db.get(ModulePathQuery(module_id))?;
     let symbols = db.context().symbols();
+    let defs_for_module = |owner| full_module_defs_semantic(db, owner).ok();
     Ok(nia_const_check::lower_module_const(
         nia_const_check::ConstModuleInput {
+            type_store: &db.context().type_store,
+            defs_for_module: Some(&defs_for_module),
             active_item_tree: &active_item_tree,
             defs: &defs,
             signatures: &signatures,

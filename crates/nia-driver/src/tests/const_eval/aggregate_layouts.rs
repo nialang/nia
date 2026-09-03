@@ -101,6 +101,7 @@ fn omitted_patterns_are_const_evaluable() {
         &root.join("main.nia"),
         r#"
 enum Color { Red, Data(usize), Resize { value: usize } }
+enum Cause { Memory(Color), Nested { cause: Color } }
 
 const fn score(color: Color) usize {
     match color {
@@ -110,7 +111,24 @@ const fn score(color: Color) usize {
     }
 }
 
-const n: usize = score(Color::Data(7usize));
+const fn nested_score(cause: Cause) usize {
+    match cause {
+        .Memory(color) => match color {
+            .Red => 2usize,
+            .Data(value) => value,
+            .Resize { value } => value,
+        },
+        .Nested { cause: color } => match color {
+            .Red => 3usize,
+            .Data(value) => value,
+            .Resize { value } => value,
+        },
+    }
+}
+
+const n: usize = score(Color::Data(7usize))
+    + nested_score(Cause::Memory(Color::Red))
+    + nested_score(Cause::Nested { cause: Color::Red });
 
 fn main() i32 {
     n as i32
