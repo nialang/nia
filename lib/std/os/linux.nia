@@ -13,7 +13,7 @@ pub(pkg) module x86;
 using pkg::os::linux::fd;
 using pkg::os::linux::mem as memory;
 using pkg::os::linux::process;
-using pkg::os::linux::random as random_impl;
+using pkg::os::linux::random as randomImpl;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
 
@@ -48,8 +48,8 @@ pub fn cwd() FileDescriptor {
     fd::cwd()
 }
 
-pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
-    fd::getcwd(buffer)
+pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
+    fd::getCwd(buffer)
 }
 
 pub fn pageSize() usize {
@@ -60,7 +60,7 @@ pub fn pageAlignedLen(len: usize) Errno!usize {
     memory::pageAlignedLen(len)
 }
 
-pub fn open_at(
+pub fn openAt(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -69,10 +69,10 @@ pub fn open_at(
     exclusive: bool,
     permissions: u32,
 ) Errno!FileDescriptor {
-    fd::open_at(dir, path, mode, create, truncate, exclusive, permissions)
+    fd::openAt(dir, path, mode, create, truncate, exclusive, permissions)
 }
 
-pub fn open_at_beneath(
+pub fn openAtBeneath(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -81,9 +81,9 @@ pub fn open_at_beneath(
     truncate: bool,
     exclusive: bool,
     permissions: u32,
-    follow_symlinks: bool,
+    followSymlinks: bool,
 ) Errno!FileDescriptor {
-    fd::open_at_beneath(
+    fd::openAtBeneath(
         dir,
         path,
         mode,
@@ -92,56 +92,56 @@ pub fn open_at_beneath(
         truncate,
         exclusive,
         permissions,
-        follow_symlinks,
+        followSymlinks,
     )
 }
 
-pub fn create_dir_at_beneath(
+pub fn createDirAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
     permissions: u32,
 ) Errno!() {
-    fd::create_dir_at_beneath(dir, parent, name, permissions)
+    fd::createDirAtBeneath(dir, parent, name, permissions)
 }
 
-pub fn delete_at_beneath(
+pub fn deleteAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
     directory: bool,
 ) Errno!() {
-    fd::delete_at_beneath(dir, parent, name, directory)
+    fd::deleteAtBeneath(dir, parent, name, directory)
 }
 
-pub fn rename_at_beneath(
-    old_dir: FileDescriptor,
-    old_parent: &u8,
-    old_name: &u8,
-    new_dir: FileDescriptor,
-    new_parent: &u8,
-    new_name: &u8,
+pub fn renameAtBeneath(
+    oldDir: FileDescriptor,
+    oldParent: &u8,
+    oldName: &u8,
+    newDir: FileDescriptor,
+    newParent: &u8,
+    newName: &u8,
 ) Errno!() {
-    fd::rename_at_beneath(
-        old_dir,
-        old_parent,
-        old_name,
-        new_dir,
-        new_parent,
-        new_name,
+    fd::renameAtBeneath(
+        oldDir,
+        oldParent,
+        oldName,
+        newDir,
+        newParent,
+        newName,
     )
 }
 
-pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
-    stat::metadataAtBeneath(dir, path, follow_symlinks)
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
+    stat::metadataAtBeneath(dir, path, followSymlinks)
 }
 
-pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
-    fd::dir_entry_at(buffer, offset)
+pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
+    fd::dirEntryAt(buffer, offset)
 }
 
-pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
-    fd::dir_entry_next_offset(buffer, offset)
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
+    fd::dirEntryNextOffset(buffer, offset)
 }
 
 pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
@@ -153,7 +153,7 @@ pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
 }
 
 pub fn random(bytes: &mut [u8]) Errno!() {
-    random_impl::random(bytes)
+    randomImpl::random(bytes)
 }
 
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
@@ -164,16 +164,16 @@ pub fn wait(pid: ProcessId) Errno!WaitStatus {
     process::wait(pid)
 }
 
-pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
-    process::try_wait(pid)
+pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
+    process::tryWait(pid)
 }
 
 pub fn kill(pid: ProcessId) Errno!() {
-    process::kill_with(pid, types::sigTerm)
+    process::killWith(pid, types::sigTerm)
 }
 
-pub fn kill_with(pid: ProcessId, signal: i32) Errno!() {
-    process::kill_with(pid, signal)
+pub fn killWith(pid: ProcessId, signal: i32) Errno!() {
+    process::killWith(pid, signal)
 }
 
 pub fn exit(code: i32) () {

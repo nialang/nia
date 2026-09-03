@@ -95,14 +95,14 @@ pub(pkg) struct Timestamp {
 
 pub(pkg) struct FileMetadata {
     kind: FileKind,
-    file_id: ?u64,
-    link_count: ?u32,
+    fileId: ?u64,
+    linkCount: ?u32,
     size: u64,
     permissions: u32,
-    preferred_block_size: u32,
+    preferredBlockSize: u32,
     accessed: ?Timestamp,
     modified: Timestamp,
-    status_changed: ?Timestamp,
+    statusChanged: ?Timestamp,
 }
 
 pub(pkg) struct DirectoryEntry {
@@ -153,8 +153,8 @@ pub(pkg) fn cwd() FileHandle {
     FileHandle::fromPlatform(platform::cwd())
 }
 
-pub(pkg) fn getcwd(buffer: &mut [u8]) Error!&[u8] {
-    !(platform::getcwd(buffer).?)
+pub(pkg) fn getCwd(buffer: &mut [u8]) Error!&[u8] {
+    !(platform::getCwd(buffer).?)
 }
 
 pub(pkg) fn openAt(
@@ -166,11 +166,11 @@ pub(pkg) fn openAt(
     exclusive: bool,
     permissions: u32,
 ) Error!FileHandle {
-    let platform_mode = mode.asPlatformOpenMode().?;
-    let handle = platform::open_at(
+    let platformMode = mode.asPlatformOpenMode().?;
+    let handle = platform::openAt(
         dir.platform(),
         path,
-        platform_mode,
+        platformMode,
         create,
         truncate,
         exclusive,
@@ -191,7 +191,7 @@ pub(pkg) fn openAtBeneath(
     followSymlinks: bool,
 ) Error!FileHandle {
     let platformMode = mode.asPlatformOpenMode().?;
-    let handle = platform::open_at_beneath(
+    let handle = platform::openAtBeneath(
         dir.platform(),
         path,
         platformMode,
@@ -211,7 +211,7 @@ pub(pkg) fn createDirAtBeneath(
     name: &u8,
     permissions: u32,
 ) Error!() {
-    !(platform::create_dir_at_beneath(
+    !(platform::createDirAtBeneath(
         dir.platform(),
         parent,
         name,
@@ -220,24 +220,24 @@ pub(pkg) fn createDirAtBeneath(
 }
 
 pub(pkg) fn deleteAtBeneath(dir: FileHandle, parent: &u8, name: &u8, directory: bool) Error!() {
-    !(platform::delete_at_beneath(dir.platform(), parent, name, directory).?)
+    !(platform::deleteAtBeneath(dir.platform(), parent, name, directory).?)
 }
 
 pub(pkg) fn renameAtBeneath(
-    old_dir: FileHandle,
-    old_parent: &u8,
-    old_name: &u8,
-    new_dir: FileHandle,
-    new_parent: &u8,
-    new_name: &u8,
+    oldDir: FileHandle,
+    oldParent: &u8,
+    oldName: &u8,
+    newDir: FileHandle,
+    newParent: &u8,
+    newName: &u8,
 ) Error!() {
-    !(platform::rename_at_beneath(
-        old_dir.platform(),
-        old_parent,
-        old_name,
-        new_dir.platform(),
-        new_parent,
-        new_name,
+    !(platform::renameAtBeneath(
+        oldDir.platform(),
+        oldParent,
+        oldName,
+        newDir.platform(),
+        newParent,
+        newName,
     ).?)
 }
 
@@ -272,7 +272,7 @@ pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
 }
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
-    let status = platform::try_wait(pid.platform()).?;
+    let status = platform::tryWait(pid.platform()).?;
     match status {
         ?value => {
             !(?WaitStatus::fromPlatform(value))
@@ -284,7 +284,7 @@ pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
 }
 
 pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
-    !(platform::kill_with(pid.platform(), signal).?)
+    !(platform::killWith(pid.platform(), signal).?)
 }
 
 pub(pkg) fn exit(code: i32) () {
@@ -489,7 +489,7 @@ extend DirectoryReader {
             }
         }
 
-        let entry = match platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
+        let entry = match platform::dirEntryAt(&self.buffer[0..self.end], self.start) {
             ?value => {
                 value.asOsDirectoryEntry()
             },
@@ -497,7 +497,7 @@ extend DirectoryReader {
                 return ?(Error::Invalid!);
             },
         };
-        self.start = match platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
+        self.start = match platform::dirEntryNextOffset(&self.buffer[0..self.end], self.start) {
             ?value => {
                 value
             },
@@ -512,25 +512,25 @@ extend DirectoryReader {
 extend FileMetadata {
     pub(pkg) fn init(
         kind: FileKind,
-        file_id: ?u64,
-        link_count: ?u32,
+        fileId: ?u64,
+        linkCount: ?u32,
         size: u64,
         permissions: u32,
-        preferred_block_size: u32,
+        preferredBlockSize: u32,
         accessed: ?Timestamp,
         modified: Timestamp,
-        status_changed: ?Timestamp,
+        statusChanged: ?Timestamp,
     ) FileMetadata {
         Self {
             kind: kind,
-            file_id: file_id,
-            link_count: link_count,
+            fileId: fileId,
+            linkCount: linkCount,
             size: size,
             permissions: permissions,
-            preferred_block_size: preferred_block_size,
+            preferredBlockSize: preferredBlockSize,
             accessed: accessed,
             modified: modified,
-            status_changed: status_changed,
+            statusChanged: statusChanged,
         }
     }
 
@@ -539,11 +539,11 @@ extend FileMetadata {
     }
 
     pub(pkg) fn fileId(&self) ?u64 {
-        self.file_id
+        self.fileId
     }
 
     pub(pkg) fn linkCount(&self) ?u32 {
-        self.link_count
+        self.linkCount
     }
 
     pub(pkg) fn size(&self) u64 {
@@ -555,7 +555,7 @@ extend FileMetadata {
     }
 
     pub(pkg) fn preferredBlockSize(&self) u32 {
-        self.preferred_block_size
+        self.preferredBlockSize
     }
 
     pub(pkg) fn accessed(&self) ?Timestamp {
@@ -567,7 +567,7 @@ extend FileMetadata {
     }
 
     pub(pkg) fn statusChanged(&self) ?Timestamp {
-        self.status_changed
+        self.statusChanged
     }
 }
 
@@ -593,7 +593,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn writeSome(&self, bytes: &[u8]) Error!usize {
-        let n = self.platform().write_some(bytes).?;
+        let n = self.platform().writeSome(bytes).?;
         if n > bytes.len() {
             return Error::Invalid!;
         }
@@ -601,7 +601,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn readSome(&self, bytes: &mut [u8]) Error!usize {
-        let n = self.platform().read_some(bytes).?;
+        let n = self.platform().readSome(bytes).?;
         if n > bytes.len() {
             return Error::Invalid!;
         }
@@ -613,10 +613,10 @@ extend FileHandle {
     }
 
     pub(pkg) fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
-        let platform_whence = whence.asPlatformSeekWhence().?;
+        let platformWhence = whence.asPlatformSeekWhence().?;
         !(self.platform().seek(
             offset,
-            platform_whence,
+            platformWhence,
         ).?)
     }
 
@@ -625,7 +625,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn setPermissions(&self, permissions: u32) Error!() {
-        !(self.platform().set_permissions(permissions).?)
+        !(self.platform().setPermissions(permissions).?)
     }
 
     pub(pkg) fn sync(&self) Error!() {
@@ -633,7 +633,7 @@ extend FileHandle {
     }
 
     pub(pkg) fn syncData(&self) Error!() {
-        !(self.platform().sync_data().?)
+        !(self.platform().syncData().?)
     }
 
     pub(pkg) fn metadata(&self) Error!FileMetadata {
@@ -642,7 +642,7 @@ extend FileHandle {
     }
 
     fn readDirEntries(&self, buffer: &mut [u8]) Error!usize {
-        let n = self.platform().read_dir_entries(buffer).?;
+        let n = self.platform().readDirEntries(buffer).?;
         if n > buffer.len() {
             return Error::Invalid!;
         }

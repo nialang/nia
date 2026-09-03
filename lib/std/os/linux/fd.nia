@@ -5,17 +5,17 @@ using pkg::math;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
-const linux_dirent64_reclen_offset: usize = 16usize;
-const linux_dirent64_type_offset: usize = 18usize;
-const linux_dirent64_name_offset: usize = 19usize;
-const dirent_type_unknown: u8 = 0u8;
-const dirent_type_fifo: u8 = 1u8;
-const dirent_type_chr: u8 = 2u8;
-const dirent_type_dir: u8 = 4u8;
-const dirent_type_blk: u8 = 6u8;
-const dirent_type_reg: u8 = 8u8;
-const dirent_type_lnk: u8 = 10u8;
-const dirent_type_sock: u8 = 12u8;
+const linuxDirent64ReclenOffset: usize = 16usize;
+const linuxDirent64TypeOffset: usize = 18usize;
+const linuxDirent64NameOffset: usize = 19usize;
+const direntTypeUnknown: u8 = 0u8;
+const direntTypeFifo: u8 = 1u8;
+const direntTypeChr: u8 = 2u8;
+const direntTypeDir: u8 = 4u8;
+const direntTypeBlk: u8 = 6u8;
+const direntTypeReg: u8 = 8u8;
+const direntTypeLnk: u8 = 10u8;
+const direntTypeSock: u8 = 12u8;
 
 struct ParsedDirent {
     recordEnd: usize,
@@ -25,7 +25,7 @@ struct ParsedDirent {
 }
 
 extend FileDescriptor {
-    pub fn write_some(&self, bytes: &[u8]) Errno!usize {
+    pub fn writeSome(&self, bytes: &[u8]) Errno!usize {
         let ptr = bytes.ptr();
         let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
@@ -39,7 +39,7 @@ extend FileDescriptor {
         }
     }
 
-    pub fn read_some(&self, bytes: &mut [u8]) Errno!usize {
+    pub fn readSome(&self, bytes: &mut [u8]) Errno!usize {
         let ptr = bytes.ptrMut();
         let ret = syscall::syscall3(syscall::read, self.fd as usize, ptr as usize, bytes.len());
         if ret < 0 {
@@ -77,7 +77,7 @@ extend FileDescriptor {
         ret.syscallSuccess()
     }
 
-    pub fn set_permissions(&self, permissions: u32) Errno!() {
+    pub fn setPermissions(&self, permissions: u32) Errno!() {
         let ret = syscall::syscall2(syscall::fchmod, self.fd as usize, permissions as usize);
         ret.syscallSuccess()
     }
@@ -87,7 +87,7 @@ extend FileDescriptor {
         ret.syscallSuccess()
     }
 
-    pub fn sync_data(&self) Errno!() {
+    pub fn syncData(&self) Errno!() {
         let ret = syscall::syscall1(syscall::fdatasync, self.fd as usize);
         ret.syscallSuccess()
     }
@@ -96,7 +96,7 @@ extend FileDescriptor {
         stat::metadataFd(FileDescriptor::init(self.fd))
     }
 
-    pub fn read_dir_entries(&self, buffer: &mut [u8]) Errno!usize {
+    pub fn readDirEntries(&self, buffer: &mut [u8]) Errno!usize {
         if buffer.len() == 0 {
             return Errno::Invalid!;
         }
@@ -122,7 +122,7 @@ pub fn cwd() FileDescriptor {
     FileDescriptor::init(types::atFdCwd)
 }
 
-pub fn pipe_close_on_exec() Errno!Pipe {
+pub fn pipeCloseOnExec() Errno!Pipe {
     let mut fds: [i32; 2] = [0, 0];
     let ret = syscall::syscall2(
         syscall::pipe2,
@@ -135,7 +135,7 @@ pub fn pipe_close_on_exec() Errno!Pipe {
     !Pipe::init(read, write)
 }
 
-pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
+pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0usize {
         return Errno::Invalid!;
     }
@@ -159,7 +159,7 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
     }
 }
 
-pub fn open_at(
+pub fn openAt(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -194,7 +194,7 @@ pub fn open_at(
 }
 
 // openat2 resolves every component beneath the directory fd, including symlinks.
-pub fn open_at_beneath(
+pub fn openAtBeneath(
     dir: FileDescriptor,
     path: &u8,
     mode: OpenMode,
@@ -203,7 +203,7 @@ pub fn open_at_beneath(
     truncate: bool,
     exclusive: bool,
     permissions: u32,
-    follow_symlinks: bool,
+    followSymlinks: bool,
 ) Errno!FileDescriptor {
     let mut flags = mode as i32;
     if directory {
@@ -218,7 +218,7 @@ pub fn open_at_beneath(
     if truncate {
         flags = flags + types::openTruncate;
     }
-    if not follow_symlinks {
+    if not followSymlinks {
         flags = flags + types::openNoFollow;
     }
     let how = OpenHow {
@@ -240,7 +240,7 @@ pub fn open_at_beneath(
     }
 }
 
-pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() {
+pub fn createDirAt(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() {
     let ret = syscall::syscall3(
         syscall::mkdirat,
         dir.raw() as usize,
@@ -250,13 +250,13 @@ pub fn create_dir_at(dir: FileDescriptor, path: &u8, permissions: u32) Errno!() 
     ret.syscallSuccess()
 }
 
-pub fn create_dir_at_beneath(
+pub fn createDirAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
     permissions: u32,
 ) Errno!() {
-    let parent_handle = open_at_beneath(
+    let parentHandle = openAtBeneath(
         dir,
         parent,
         OpenMode::ReadOnly,
@@ -267,16 +267,16 @@ pub fn create_dir_at_beneath(
         0,
         true,
     ).?;
-    let result = create_dir_at(parent_handle, name, permissions);
-    result.closeAfter(parent_handle.close())
+    let result = createDirAt(parentHandle, name, permissions);
+    result.closeAfter(parentHandle.close())
 }
 
-pub fn delete_file_at(dir: FileDescriptor, path: &u8) Errno!() {
+pub fn deleteFileAt(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(syscall::unlinkat, dir.raw() as usize, path as usize, 0);
     ret.syscallSuccess()
 }
 
-pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!() {
+pub fn deleteDirAt(dir: FileDescriptor, path: &u8) Errno!() {
     let ret = syscall::syscall3(
         syscall::unlinkat,
         dir.raw() as usize,
@@ -286,13 +286,13 @@ pub fn delete_dir_at(dir: FileDescriptor, path: &u8) Errno!() {
     ret.syscallSuccess()
 }
 
-pub fn delete_at_beneath(
+pub fn deleteAtBeneath(
     dir: FileDescriptor,
     parent: &u8,
     name: &u8,
     directory: bool,
 ) Errno!() {
-    let parent_handle = open_at_beneath(
+    let parentHandle = openAtBeneath(
         dir,
         parent,
         OpenMode::ReadOnly,
@@ -304,40 +304,40 @@ pub fn delete_at_beneath(
         true,
     ).?;
     let result = if directory {
-        delete_dir_at(parent_handle, name)
+        deleteDirAt(parentHandle, name)
     } else {
-        delete_file_at(parent_handle, name)
+        deleteFileAt(parentHandle, name)
     };
-    result.closeAfter(parent_handle.close())
+    result.closeAfter(parentHandle.close())
 }
 
-pub fn rename_at(
-    old_dir: FileDescriptor,
-    old_path: &u8,
-    new_dir: FileDescriptor,
-    new_path: &u8,
+pub fn renameAt(
+    oldDir: FileDescriptor,
+    oldPath: &u8,
+    newDir: FileDescriptor,
+    newPath: &u8,
 ) Errno!() {
     let ret = syscall::syscall4(
         syscall::renameat,
-        old_dir.raw() as usize,
-        old_path as usize,
-        new_dir.raw() as usize,
-        new_path as usize,
+        oldDir.raw() as usize,
+        oldPath as usize,
+        newDir.raw() as usize,
+        newPath as usize,
     );
     ret.syscallSuccess()
 }
 
-pub fn rename_at_beneath(
-    old_dir: FileDescriptor,
-    old_parent: &u8,
-    old_name: &u8,
-    new_dir: FileDescriptor,
-    new_parent: &u8,
-    new_name: &u8,
+pub fn renameAtBeneath(
+    oldDir: FileDescriptor,
+    oldParent: &u8,
+    oldName: &u8,
+    newDir: FileDescriptor,
+    newParent: &u8,
+    newName: &u8,
 ) Errno!() {
-    let old_parent_handle = open_at_beneath(
-        old_dir,
-        old_parent,
+    let oldParentHandle = openAtBeneath(
+        oldDir,
+        oldParent,
         OpenMode::ReadOnly,
         true,
         false,
@@ -346,9 +346,9 @@ pub fn rename_at_beneath(
         0,
         true,
     ).?;
-    let new_parent_handle = match open_at_beneath(
-        new_dir,
-        new_parent,
+    let newParentHandle = match openAtBeneath(
+        newDir,
+        newParent,
         OpenMode::ReadOnly,
         true,
         false,
@@ -361,33 +361,33 @@ pub fn rename_at_beneath(
             handle
         },
         error! => {
-            _ = old_parent_handle.close();
+            _ = oldParentHandle.close();
             return error!;
         },
     };
-    let result = rename_at(
-        old_parent_handle,
-        old_name,
-        new_parent_handle,
-        new_name,
+    let result = renameAt(
+        oldParentHandle,
+        oldName,
+        newParentHandle,
+        newName,
     );
     result
-        .closeAfter(old_parent_handle.close())
-        .closeAfter(new_parent_handle.close())
+        .closeAfter(oldParentHandle.close())
+        .closeAfter(newParentHandle.close())
 }
 
-pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
+pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
     let parsed = match parseDirent(buffer, offset) {
         ?value => value,
         null => return null,
     };
     ?DirectoryEntry::init(
-        dirent_kind(buffer[parsed.typeIndex]),
+        direntKind(buffer[parsed.typeIndex]),
         &buffer[parsed.nameStart..parsed.nameEnd],
     )
 }
 
-pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
+pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
     match parseDirent(buffer, offset) {
         ?parsed => ?parsed.recordEnd,
         null => null,
@@ -399,23 +399,23 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
         return null;
     }
     let remaining = buffer.len() - offset;
-    if remaining < linux_dirent64_name_offset + 1usize {
+    if remaining < linuxDirent64NameOffset + 1usize {
         return null;
     }
 
-    let reclen = dirent_reclen(buffer, offset);
-    if reclen <= linux_dirent64_name_offset or reclen > remaining {
+    let reclen = direntReclen(buffer, offset);
+    if reclen <= linuxDirent64NameOffset or reclen > remaining {
         return null;
     }
     let recordEnd = match offset.checkedAdd(reclen) {
         ?value => value,
         null => return null,
     };
-    let typeIndex = match offset.checkedAdd(linux_dirent64_type_offset) {
+    let typeIndex = match offset.checkedAdd(linuxDirent64TypeOffset) {
         ?value => value,
         null => return null,
     };
-    let nameStart = match offset.checkedAdd(linux_dirent64_name_offset) {
+    let nameStart = match offset.checkedAdd(linuxDirent64NameOffset) {
         ?value => value,
         null => return null,
     };
@@ -434,21 +434,21 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     }
 }
 
-fn dirent_reclen(buffer: &[u8], offset: usize) usize {
-    (buffer[offset + linux_dirent64_reclen_offset] as usize)
-        | ((buffer[offset + linux_dirent64_reclen_offset + 1usize] as usize) << 8usize)
+fn direntReclen(buffer: &[u8], offset: usize) usize {
+    (buffer[offset + linuxDirent64ReclenOffset] as usize)
+        | ((buffer[offset + linuxDirent64ReclenOffset + 1usize] as usize) << 8usize)
 }
 
-fn dirent_kind(value: u8) FileKind {
+fn direntKind(value: u8) FileKind {
     match value {
-        (dirent_type_fifo) => FileKind::NamedPipe,
-        (dirent_type_chr) => FileKind::CharacterDevice,
-        (dirent_type_dir) => FileKind::Directory,
-        (dirent_type_blk) => FileKind::BlockDevice,
-        (dirent_type_reg) => FileKind::File,
-        (dirent_type_lnk) => FileKind::Symlink,
-        (dirent_type_sock) => FileKind::UnixSocket,
-        (dirent_type_unknown) => FileKind::Unknown,
+        (direntTypeFifo) => FileKind::NamedPipe,
+        (direntTypeChr) => FileKind::CharacterDevice,
+        (direntTypeDir) => FileKind::Directory,
+        (direntTypeBlk) => FileKind::BlockDevice,
+        (direntTypeReg) => FileKind::File,
+        (direntTypeLnk) => FileKind::Symlink,
+        (direntTypeSock) => FileKind::UnixSocket,
+        (direntTypeUnknown) => FileKind::Unknown,
         _ => FileKind::Unknown,
     }
 }
