@@ -1520,6 +1520,7 @@ mod tests {
         let trait_callee = TypedCallee::TraitMethod {
             trait_id,
             method_id: method,
+            implementation_method: None,
             method_name: nia_symbol::known::ADD,
             self_ty: ty,
             trait_args: vec![ty],

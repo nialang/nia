@@ -214,6 +214,348 @@ fn stored_indirectly(base: i32) () {
 }
 
 #[test]
+fn aggregate_field_summary_does_not_escape_an_unrelated_callable() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    marker: &i32,
+    callback: &Fn() (),
+}
+
+extern fn retainMarker(marker: &i32) ();
+
+fn run(case: Case) () {
+    retainMarker(case.marker);
+    (case.callback)();
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    run(Case { marker: marker, callback: &callback });
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "unrelated aggregate field escaped the callback: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn aggregate_field_summary_rejects_an_escaping_callable_field() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    marker: &i32,
+    callback: &Fn() (),
+}
+
+extern fn retainCallback(callback: &Fn() ()) ();
+
+fn leak(case: Case) () {
+    retainCallback(case.callback);
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    leak(Case { marker: marker, callback: &callback });
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
+fn returned_aggregate_preserves_field_provenance() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    marker: &i32,
+    callback: &Fn() (),
+}
+
+extern fn retainMarker(marker: &i32) ();
+
+fn make(marker: &i32, callback: &Fn() ()) Case {
+    Case { marker: marker, callback: callback }
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    let case = make(marker, &callback);
+    retainMarker(case.marker);
+    (case.callback)();
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "returned aggregate lost its field provenance: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn returned_aggregate_still_rejects_an_escaping_callable_field() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    marker: &i32,
+    callback: &Fn() (),
+}
+
+extern fn retainCallback(callback: &Fn() ()) ();
+
+fn make(marker: &i32, callback: &Fn() ()) Case {
+    Case { marker: marker, callback: callback }
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    let case = make(marker, &callback);
+    retainCallback(case.callback);
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
+fn tuple_projection_does_not_escape_a_sibling_callable() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+extern fn retainMarker(marker: &i32) ();
+
+fn run(pair: (&i32, &Fn() ())) () {
+    retainMarker(pair.0);
+    (pair.1)();
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    run((marker, &callback));
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "tuple projection escaped a sibling callable: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn indexed_aggregate_preserves_its_field_provenance() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    marker: &i32,
+    callback: &Fn() (),
+}
+
+extern fn retainMarker(marker: &i32) ();
+
+fn run(cases: &[Case]) () {
+    let case = &cases[0];
+    retainMarker(case.marker);
+    (case.callback)();
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    let cases: [Case; 1] = [Case { marker: marker, callback: &callback }];
+    run(&cases[..]);
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "array element projection escaped a sibling callable: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn indexed_assignment_keeps_sibling_element_provenance() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    callback: &Fn() (),
+}
+
+extern fn retain(callback: &Fn() ()) ();
+
+fn noop() () {}
+
+fn main(base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    let mut cases: [Case; 2] = [
+        Case { callback: &callback },
+        Case { callback: &callback },
+    ];
+    cases[0] = Case { callback: &noop };
+    retain(cases[1].callback);
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
+fn projected_field_can_be_reembedded_before_an_escape() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+struct Case {
+    marker: &i32,
+    callback: &Fn() (),
+}
+
+struct CaseResult {
+    marker: &i32,
+}
+
+extern fn retainResult(result: CaseResult) ();
+
+fn run(cases: &[Case]) () {
+    let case = &cases[0];
+    retainResult(CaseResult { marker: case.marker });
+    (case.callback)();
+}
+
+fn main(marker: &i32, base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    let cases: [Case; 1] = [Case { marker: marker, callback: &callback }];
+    run(&cases[..]);
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "re-embedded field escaped a sibling callable: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn static_trait_dispatch_uses_the_selected_safe_implementation_summary() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+trait Run {
+    fn run(&self) ();
+}
+
+struct Case {
+    callback: &Fn() (),
+}
+
+extend Case : Run {
+    fn run(&self) () {
+        (self.callback)()
+    }
+}
+
+fn main(base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    Case { callback: &callback }.run();
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+
+    assert!(
+        closure_diagnostics(&checked).is_empty(),
+        "safe static trait implementation was treated as unknown: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn static_trait_dispatch_preserves_implementation_escape_effects() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+trait Store {
+    fn store(&self) ();
+}
+
+struct Case {
+    callback: &Fn() (),
+}
+
+extern fn retain(callback: &Fn() ()) ();
+
+extend Case : Store {
+    fn store(&self) () {
+        retain(self.callback)
+    }
+}
+
+fn main(base: i32) () {
+    let callback = \[base] -> { _ = base; () };
+    Case { callback: &callback }.store();
+}
+"#,
+    );
+    let checked = query_db(fixture.program()).expect_get(CheckedProgramQuery);
+    let diagnostics = closure_diagnostics(&checked);
+
+    assert_eq!(diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        diagnostics[0]
+            .diagnostic
+            .summary
+            .contains("passed to a call that may retain it")
+    );
+}
+
+#[test]
 fn mutually_recursive_call_summaries_converge_and_preserve_returned_callable() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

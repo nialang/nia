@@ -1371,6 +1371,7 @@ impl FunctionLowerer<'_> {
             TypedCallee::TraitMethod {
                 trait_id,
                 method_id,
+                implementation_method: _,
                 method_name,
                 self_ty,
                 trait_args,

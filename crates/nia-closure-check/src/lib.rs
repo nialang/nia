@@ -10,8 +10,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nia_body_ir::{
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedMatchArmBody, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
-    TypedPlace, TypedStmtKind,
+    TypedExprKind, TypedMatchArmBody, TypedMemoryIntrinsicSource, TypedNominalPatternConstructor,
+    TypedPattern, TypedPatternKind, TypedPlace, TypedStmtKind,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{ClosureId, GlobalDefId, LocalId};
@@ -76,9 +76,60 @@ struct CallableBody<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum InputSource {
+enum InputRoot {
     Capture(usize),
     Parameter(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct InputSource {
+    root: InputRoot,
+    projections: Vec<AggregateProjection>,
+    imprecise: bool,
+}
+
+impl InputSource {
+    fn capture(index: usize) -> Self {
+        Self {
+            root: InputRoot::Capture(index),
+            projections: Vec::new(),
+            imprecise: false,
+        }
+    }
+
+    fn parameter(index: usize) -> Self {
+        Self {
+            root: InputRoot::Parameter(index),
+            projections: Vec::new(),
+            imprecise: false,
+        }
+    }
+
+    fn projected(&self, projection: AggregateProjection) -> Self {
+        if self.imprecise {
+            return self.clone();
+        }
+        let mut projected = self.clone();
+        if projected.projections.len() == MAX_PROJECTION_DEPTH {
+            projected.projections.clear();
+            projected.imprecise = true;
+        } else {
+            projected.projections.push(projection);
+        }
+        projected
+    }
+}
+
+// Recursive aggregate types make access paths theoretically unbounded. Keep
+// common paths precise and widen deeper paths to one conservative top value so
+// interprocedural summary iteration always reaches a finite fixed point.
+const MAX_PROJECTION_DEPTH: usize = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum AggregateProjection {
+    Field(GlobalDefId),
+    TupleField(usize),
+    Element,
 }
 
 /// Monotone origin attached to a value or error channel during escape analysis.
@@ -104,6 +155,13 @@ enum Provenance {
     ClosureCapture {
         closure_id: ClosureId,
         index: usize,
+        origin: Box<Provenance>,
+    },
+    Aggregate {
+        projection: AggregateProjection,
+        origin: Box<Provenance>,
+    },
+    OpaqueAggregate {
         origin: Box<Provenance>,
     },
 }
@@ -138,16 +196,16 @@ type Environment = HashMap<LocalId, ValueProvenance>;
 
 /// Summary transfer facts for one callable over its captures and parameters.
 ///
-/// Every field is a finite set. Summary iteration therefore converges by
-/// monotone growth even for recursive and mutually recursive call graphs.
+/// Every field uses the bounded access-path domain above. Summary iteration
+/// therefore converges even for recursive and mutually recursive call graphs.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CallableSummary {
-    returned_inputs: BTreeSet<InputSource>,
-    returned_error_inputs: BTreeSet<InputSource>,
-    escaping_inputs: BTreeSet<InputSource>,
-    returned_captured_addresses: BTreeSet<InputSource>,
-    returned_error_captured_addresses: BTreeSet<InputSource>,
-    escaping_captured_addresses: BTreeSet<InputSource>,
+    returned_inputs: Provenances,
+    returned_error_inputs: Provenances,
+    escaping_inputs: Provenances,
+    returned_captured_addresses: Provenances,
+    returned_error_captured_addresses: Provenances,
+    escaping_captured_addresses: Provenances,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -191,9 +249,9 @@ pub fn check_closure_safety(
         .copied()
         .map(|key| (key, CallableSummary::default()))
         .collect::<HashMap<_, _>>();
-    // Summaries form a finite powerset lattice over callable inputs. Replaying
-    // every body until no set grows handles recursive and mutually recursive
-    // calls without depending on callable discovery or hash iteration order.
+    // Summaries form a finite domain over callable inputs and widened aggregate
+    // paths. Replaying every body to stability handles recursive and mutually
+    // recursive calls without depending on discovery or hash iteration order.
     loop {
         let mut changed = false;
         for (key, callable) in &callables {
@@ -241,18 +299,14 @@ pub fn check_closure_safety(
                         .returned_inputs
                         .into_iter()
                         .chain(summary.returned_error_inputs)
-                        .filter_map(|source| match source {
-                            InputSource::Parameter(index) => Some(index),
-                            InputSource::Capture(_) => None,
-                        })
+                        .filter_map(|origin| input_source(&origin))
+                        .filter_map(parameter_source)
                         .collect(),
                     escaping_parameters: summary
                         .escaping_inputs
                         .into_iter()
-                        .filter_map(|source| match source {
-                            InputSource::Parameter(index) => Some(index),
-                            InputSource::Capture(_) => None,
-                        })
+                        .filter_map(|origin| input_source(&origin))
+                        .filter_map(parameter_source)
                         .collect(),
                     returned_captured_address_parameters: parameter_sources(
                         summary
@@ -321,7 +375,7 @@ impl<'a> Analyzer<'a> {
             env.insert(
                 local_id,
                 ValueProvenance::from_value(Provenances::from([Provenance::Input(
-                    InputSource::Capture(index),
+                    InputSource::capture(index),
                 )])),
             );
         }
@@ -329,19 +383,19 @@ impl<'a> Analyzer<'a> {
             env.insert(
                 local_id,
                 ValueProvenance::from_value(Provenances::from([Provenance::Input(
-                    InputSource::Parameter(index),
+                    InputSource::parameter(index),
                 )])),
             );
         }
         let tail = self.analyze_body_contents(callable.body, &mut env);
         self.record_return(&tail, callable.body.span);
         CallableSummary {
-            returned_inputs: input_sources(&self.returned),
-            returned_error_inputs: input_sources(&self.returned_errors),
-            escaping_inputs: input_sources(&self.escaped),
-            returned_captured_addresses: captured_input_sources(&self.returned),
-            returned_error_captured_addresses: captured_input_sources(&self.returned_errors),
-            escaping_captured_addresses: captured_input_sources(&self.escaped),
+            returned_inputs: input_provenances(&self.returned, false),
+            returned_error_inputs: input_provenances(&self.returned_errors, false),
+            escaping_inputs: input_provenances(&self.escaped, false),
+            returned_captured_addresses: input_provenances(&self.returned, true),
+            returned_error_captured_addresses: input_provenances(&self.returned_errors, true),
+            escaping_captured_addresses: input_provenances(&self.escaped, true),
         }
     }
 
@@ -506,8 +560,9 @@ impl<'a> Analyzer<'a> {
     fn analyze_expr(&mut self, expr: &TypedExpr, env: &mut Environment) -> ValueProvenance {
         // Expression transfer is deliberately conservative at effectful
         // boundaries: stores and calls record all incoming origins, while
-        // pure constructors union child origins. This prevents an optimizer or
-        // unknown callee from hiding a borrowed address.
+        // pure constructors preserve child origins under their projections.
+        // This prevents an optimizer or unknown callee from hiding a borrowed
+        // address without conflating known sibling fields.
         let origins = match &expr.kind {
             TypedExprKind::Error
             | TypedExprKind::Integer(_)
@@ -528,7 +583,18 @@ impl<'a> Analyzer<'a> {
             TypedExprKind::FunctionCallable { function } => self.analyze_expr(function, env),
             TypedExprKind::Local(local_id) => env.get(local_id).cloned().unwrap_or_default(),
             TypedExprKind::EnumVariant { fields, .. } | TypedExprKind::Tuple(fields) => {
-                ValueProvenance::from_value(self.analyze_exprs(fields, env))
+                ValueProvenance::from_value(
+                    fields
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(index, field)| {
+                            embed_projection(
+                                AggregateProjection::TupleField(index),
+                                self.analyze_expr(field, env).all(),
+                            )
+                        })
+                        .collect(),
+                )
             }
             TypedExprKind::Closure {
                 captures,
@@ -639,18 +705,37 @@ impl<'a> Analyzer<'a> {
                 ValueProvenance::from_value(self.analyze_expr(vector, env).all())
             }
             TypedExprKind::ArrayLiteral { elems } => match elems {
-                TypedArrayElements::List(elems) => {
-                    ValueProvenance::from_value(self.analyze_exprs(elems, env))
-                }
+                TypedArrayElements::List(elems) => ValueProvenance::from_value(
+                    elems
+                        .iter()
+                        .flat_map(|elem| {
+                            embed_projection(
+                                AggregateProjection::Element,
+                                self.analyze_expr(elem, env).all(),
+                            )
+                        })
+                        .collect(),
+                ),
                 TypedArrayElements::Repeat { value, .. } => {
-                    ValueProvenance::from_value(self.analyze_expr(value, env).all())
+                    ValueProvenance::from_value(embed_projection(
+                        AggregateProjection::Element,
+                        self.analyze_expr(value, env).all(),
+                    ))
                 }
             },
             TypedExprKind::StructLiteral { fields, .. } => ValueProvenance::from_value(
                 fields
                     .iter()
-                    .map(|field| self.analyze_expr(&field.value, env).all())
-                    .fold(Provenances::new(), union),
+                    .flat_map(|field| {
+                        let origins = self.analyze_expr(&field.value, env).all();
+                        match field.field {
+                            Some(field) => {
+                                embed_projection(AggregateProjection::Field(field), origins)
+                            }
+                            None => origins,
+                        }
+                    })
+                    .collect(),
             ),
             TypedExprKind::UnionLiteral { field, .. } => {
                 ValueProvenance::from_value(self.analyze_expr(&field.value, env).all())
@@ -667,11 +752,14 @@ impl<'a> Analyzer<'a> {
                 self.record_error_return(&value.error, expr.span);
                 ValueProvenance::from_value(value.value)
             }
-            TypedExprKind::Binary { lhs, rhs, .. } | TypedExprKind::Index { lhs, index: rhs } => {
-                ValueProvenance::from_value(union(
-                    self.analyze_expr(lhs, env).all(),
-                    self.analyze_expr(rhs, env).all(),
-                ))
+            TypedExprKind::Binary { lhs, rhs, .. } => ValueProvenance::from_value(union(
+                self.analyze_expr(lhs, env).all(),
+                self.analyze_expr(rhs, env).all(),
+            )),
+            TypedExprKind::Index { lhs, index } => {
+                let lhs = self.analyze_expr(lhs, env).all();
+                self.analyze_expr(index, env);
+                ValueProvenance::from_value(project_origins(lhs, AggregateProjection::Element))
             }
             TypedExprKind::Assign { place, rhs, .. } => {
                 // Function lowering materializes the destination, including
@@ -695,8 +783,17 @@ impl<'a> Analyzer<'a> {
                 ValueProvenance::from_value(value)
             }
             TypedExprKind::Call { callee, args } => self.analyze_call(callee, args, expr, env),
-            TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
-                ValueProvenance::from_value(self.analyze_expr(lhs, env).all())
+            TypedExprKind::Field { lhs, field, .. } => {
+                ValueProvenance::from_value(project_origins(
+                    self.analyze_expr(lhs, env).all(),
+                    AggregateProjection::Field(*field),
+                ))
+            }
+            TypedExprKind::TupleField { lhs, index } => {
+                ValueProvenance::from_value(project_origins(
+                    self.analyze_expr(lhs, env).all(),
+                    AggregateProjection::TupleField(*index),
+                ))
             }
             TypedExprKind::Slice { lhs, range, .. } => {
                 let mut value = self.analyze_expr(lhs, env).all();
@@ -899,6 +996,7 @@ impl<'a> Analyzer<'a> {
             }
             TypedCallee::TraitMethod {
                 method_id,
+                implementation_method,
                 receiver,
                 ..
             } => {
@@ -907,7 +1005,7 @@ impl<'a> Analyzer<'a> {
                 let mut operands = vec![receiver];
                 operands.extend(args);
                 self.apply_summary(
-                    CallableKey::Function(*method_id),
+                    CallableKey::Function(implementation_method.unwrap_or(*method_id)),
                     &Provenances::new(),
                     &operands,
                     call.span,
@@ -947,14 +1045,7 @@ impl<'a> Analyzer<'a> {
                 let args = self.analyze_call_args(args, env);
                 let closure_ids = callee
                     .iter()
-                    .filter_map(|origin| match origin {
-                        Provenance::CallableClosure { closure_id, .. } => Some(*closure_id),
-                        Provenance::Input(_)
-                        | Provenance::StackAddress { .. }
-                        | Provenance::CapturedInputAddress(_)
-                        | Provenance::CapturedStackAddress { .. }
-                        | Provenance::ClosureCapture { .. } => None,
-                    })
+                    .flat_map(callable_closure_ids)
                     .collect::<BTreeSet<_>>();
                 let mut result = ValueProvenance::default();
                 for closure_id in &closure_ids {
@@ -976,11 +1067,7 @@ impl<'a> Analyzer<'a> {
                         call.ty,
                     ));
                 }
-                if closure_ids.is_empty()
-                    || callee
-                        .iter()
-                        .any(|origin| matches!(origin, Provenance::Input(_)))
-                {
+                if closure_ids.is_empty() || callee.iter().any(contains_input) {
                     result.extend(self.apply_unknown_call(&args, call.span, call.ty));
                 }
                 result
@@ -1035,38 +1122,39 @@ impl<'a> Analyzer<'a> {
         let Some(summary) = self.summaries.get(&key) else {
             return self.apply_unknown_call(args, span, return_ty);
         };
-        let mut result = Provenances::new();
-        for source in &summary.returned_inputs {
-            result.extend(input_origins(key, *source, captures, args));
-        }
-        let mut error = Provenances::new();
-        for source in &summary.returned_error_inputs {
-            error.extend(input_origins(key, *source, captures, args));
-        }
-        for source in &summary.escaping_inputs {
-            self.record_escape(
-                &input_origins(key, *source, captures, args),
-                span,
-                EscapeKind::Call,
-            );
-        }
-        for source in &summary.returned_captured_addresses {
-            result.extend(capture_address_origins(input_origins(
-                key, *source, captures, args,
-            )));
-        }
-        for source in &summary.returned_error_captured_addresses {
-            error.extend(capture_address_origins(input_origins(
-                key, *source, captures, args,
-            )));
-        }
-        for source in &summary.escaping_captured_addresses {
-            self.record_escape(
-                &capture_address_origins(input_origins(key, *source, captures, args)),
-                span,
-                EscapeKind::Call,
-            );
-        }
+        let mut result = substitute_summary(&summary.returned_inputs, key, captures, args, false);
+        result.extend(substitute_summary(
+            &summary.returned_captured_addresses,
+            key,
+            captures,
+            args,
+            true,
+        ));
+        let mut error =
+            substitute_summary(&summary.returned_error_inputs, key, captures, args, false);
+        error.extend(substitute_summary(
+            &summary.returned_error_captured_addresses,
+            key,
+            captures,
+            args,
+            true,
+        ));
+        self.record_escape(
+            &substitute_summary(&summary.escaping_inputs, key, captures, args, false),
+            span,
+            EscapeKind::Call,
+        );
+        self.record_escape(
+            &substitute_summary(
+                &summary.escaping_captured_addresses,
+                key,
+                captures,
+                args,
+                true,
+            ),
+            span,
+            EscapeKind::Call,
+        );
         ValueProvenance {
             value: result,
             error,
@@ -1100,8 +1188,18 @@ impl<'a> Analyzer<'a> {
             PlaceBase::Deref(expr) => self.analyze_expr(expr, env).all(),
         };
         for elem in &place.elems {
-            if let PlaceElem::Index(index) = elem {
-                value.extend(self.analyze_expr(index, env).all());
+            match elem {
+                PlaceElem::Field(field) => {
+                    value = project_origins(value, AggregateProjection::Field(*field));
+                }
+                PlaceElem::TupleField(index) => {
+                    value = project_origins(value, AggregateProjection::TupleField(*index));
+                }
+                PlaceElem::Index(index) => {
+                    self.analyze_expr(index, env);
+                    value = project_origins(value, AggregateProjection::Element);
+                }
+                PlaceElem::Error => {}
             }
         }
         value
@@ -1119,7 +1217,19 @@ impl<'a> Analyzer<'a> {
                 env.insert(*local_id, value.clone());
             }
             PlaceBase::Local(local_id) => {
-                env.entry(*local_id).or_default().value.extend(value.all());
+                let projections = place
+                    .elems
+                    .iter()
+                    .filter_map(place_projection)
+                    .collect::<Vec<_>>();
+                let embedded = embed_projections(&projections, value.all());
+                let current = &mut env.entry(*local_id).or_default().value;
+                // All runtime indices share one `Element` bucket. Replacing it
+                // would incorrectly forget origins stored in sibling elements.
+                if !projections.contains(&AggregateProjection::Element) {
+                    remove_projection(current, &projections);
+                }
+                current.extend(embedded);
             }
             PlaceBase::Global(_) | PlaceBase::Deref(_) => {
                 self.record_escape(&value.all(), span, EscapeKind::Store);
@@ -1267,58 +1377,159 @@ impl<'a> Analyzer<'a> {
     }
 }
 
-fn input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
+fn input_provenances(origins: &Provenances, captured: bool) -> Provenances {
     origins
         .iter()
-        .filter_map(|origin| match origin {
-            Provenance::Input(source) => Some(*source),
-            Provenance::StackAddress { .. }
-            | Provenance::CapturedInputAddress(_)
-            | Provenance::CapturedStackAddress { .. }
-            | Provenance::CallableClosure { .. } => None,
-            Provenance::ClosureCapture { origin, .. } => input_source(origin),
-        })
+        .flat_map(|origin| input_provenance(origin, captured))
         .collect()
 }
 
-fn captured_input_sources(origins: &Provenances) -> BTreeSet<InputSource> {
+fn input_provenance(origin: &Provenance, captured: bool) -> Provenances {
+    match origin {
+        Provenance::Input(_) if !captured => Provenances::from([origin.clone()]),
+        Provenance::CapturedInputAddress(_) if captured => Provenances::from([origin.clone()]),
+        Provenance::Aggregate { projection, origin } => {
+            embed_projection(*projection, input_provenance(origin, captured))
+        }
+        Provenance::ClosureCapture { origin, .. } => input_provenance(origin, captured),
+        Provenance::OpaqueAggregate { origin } => input_provenance(origin, captured)
+            .into_iter()
+            .map(|origin| Provenance::OpaqueAggregate {
+                origin: Box::new(origin),
+            })
+            .collect(),
+        Provenance::Input(_)
+        | Provenance::StackAddress { .. }
+        | Provenance::CapturedInputAddress(_)
+        | Provenance::CapturedStackAddress { .. }
+        | Provenance::CallableClosure { .. } => Provenances::new(),
+    }
+}
+
+fn parameter_sources(origins: Provenances) -> BTreeSet<usize> {
     origins
         .iter()
-        .filter_map(|origin| match origin {
-            Provenance::CapturedInputAddress(source) => Some(*source),
-            Provenance::Input(_)
-            | Provenance::StackAddress { .. }
-            | Provenance::CapturedStackAddress { .. }
-            | Provenance::CallableClosure { .. } => None,
-            Provenance::ClosureCapture { origin, .. } => captured_input_source(origin),
-        })
+        .filter_map(|origin| input_source(origin).or_else(|| captured_input_source(origin)))
+        .filter_map(parameter_source)
         .collect()
 }
 
-fn parameter_sources(sources: BTreeSet<InputSource>) -> BTreeSet<usize> {
-    sources
-        .into_iter()
-        .filter_map(|source| match source {
-            InputSource::Parameter(index) => Some(index),
-            InputSource::Capture(_) => None,
-        })
-        .collect()
+fn parameter_source(source: InputSource) -> Option<usize> {
+    match source.root {
+        InputRoot::Parameter(index) => Some(index),
+        InputRoot::Capture(_) => None,
+    }
 }
 
 fn capture_address_origins(origins: Provenances) -> Provenances {
+    origins.into_iter().map(capture_address_origin).collect()
+}
+
+fn capture_address_origin(origin: Provenance) -> Provenance {
+    match origin {
+        Provenance::Input(source) => Provenance::CapturedInputAddress(source),
+        Provenance::StackAddress { scope_depth } => {
+            Provenance::CapturedStackAddress { scope_depth }
+        }
+        Provenance::Aggregate { projection, origin } => Provenance::Aggregate {
+            projection,
+            origin: Box::new(capture_address_origin(*origin)),
+        },
+        Provenance::OpaqueAggregate { origin } => Provenance::OpaqueAggregate {
+            origin: Box::new(capture_address_origin(*origin)),
+        },
+        Provenance::CapturedInputAddress(_)
+        | Provenance::CapturedStackAddress { .. }
+        | Provenance::CallableClosure { .. }
+        | Provenance::ClosureCapture { .. } => origin,
+    }
+}
+
+fn embed_projection(projection: AggregateProjection, origins: Provenances) -> Provenances {
     origins
         .into_iter()
-        .map(|origin| match origin {
-            Provenance::Input(source) => Provenance::CapturedInputAddress(source),
-            Provenance::StackAddress { scope_depth } => {
-                Provenance::CapturedStackAddress { scope_depth }
+        .map(|origin| {
+            if matches!(origin, Provenance::OpaqueAggregate { .. }) {
+                return origin;
             }
-            Provenance::CapturedInputAddress(_)
-            | Provenance::CapturedStackAddress { .. }
-            | Provenance::CallableClosure { .. }
-            | Provenance::ClosureCapture { .. } => origin,
+            if aggregate_depth(&origin) >= MAX_PROJECTION_DEPTH {
+                return Provenance::OpaqueAggregate {
+                    origin: Box::new(origin),
+                };
+            }
+            Provenance::Aggregate {
+                projection,
+                origin: Box::new(origin),
+            }
         })
         .collect()
+}
+
+fn aggregate_depth(origin: &Provenance) -> usize {
+    match origin {
+        Provenance::Aggregate { origin, .. } => 1 + aggregate_depth(origin),
+        _ => 0,
+    }
+}
+
+fn embed_projections(projections: &[AggregateProjection], mut origins: Provenances) -> Provenances {
+    for projection in projections.iter().rev() {
+        origins = embed_projection(*projection, origins);
+    }
+    origins
+}
+
+fn project_origins(origins: Provenances, projection: AggregateProjection) -> Provenances {
+    origins
+        .into_iter()
+        .filter_map(|origin| match origin {
+            Provenance::Aggregate {
+                projection: candidate,
+                origin,
+            } => (candidate == projection).then_some(*origin),
+            Provenance::Input(source) => Some(Provenance::Input(source.projected(projection))),
+            Provenance::CapturedInputAddress(source) => Some(Provenance::CapturedInputAddress(
+                source.projected(projection),
+            )),
+            origin @ Provenance::OpaqueAggregate { .. } => Some(origin),
+            // Origins without aggregate structure predate or cross an opaque
+            // boundary. Retaining them is the sound fallback; known sibling
+            // fields above are still discarded precisely.
+            origin => Some(origin),
+        })
+        .collect()
+}
+
+fn place_projection(elem: &PlaceElem) -> Option<AggregateProjection> {
+    match elem {
+        PlaceElem::Field(field) => Some(AggregateProjection::Field(*field)),
+        PlaceElem::TupleField(index) => Some(AggregateProjection::TupleField(*index)),
+        PlaceElem::Index(_) => Some(AggregateProjection::Element),
+        PlaceElem::Error => None,
+    }
+}
+
+fn remove_projection(origins: &mut Provenances, projections: &[AggregateProjection]) {
+    let Some((projection, rest)) = projections.split_first() else {
+        origins.clear();
+        return;
+    };
+    let old = std::mem::take(origins);
+    for origin in old {
+        match origin {
+            Provenance::Aggregate {
+                projection: candidate,
+                origin,
+            } if candidate == *projection => {
+                let mut nested = Provenances::from([*origin]);
+                remove_projection(&mut nested, rest);
+                origins.extend(embed_projection(candidate, nested));
+            }
+            origin => {
+                origins.insert(origin);
+            }
+        }
+    }
 }
 
 fn closure_capture_origins(
@@ -1381,12 +1592,12 @@ fn is_integer_type(type_store: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
 
 fn input_origins(
     key: CallableKey,
-    source: InputSource,
+    source: &InputSource,
     captures: &Provenances,
     args: &[Provenances],
 ) -> Provenances {
-    match source {
-        InputSource::Capture(index) => {
+    let mut origins = match source.root {
+        InputRoot::Capture(index) => {
             let CallableKey::Closure(closure_id) = key else {
                 return captures.clone();
             };
@@ -1400,9 +1611,9 @@ fn input_origins(
                 )
             });
             if !has_slots {
-                // Summaries crossing a function boundary currently publish
-                // flattened parameter facts. Retain the conservative fallback
-                // until those products carry closure-state field provenance.
+                // An opaque flow can erase closure-state slot wrappers. Retain
+                // every capture origin when the requested slot cannot be
+                // selected instead of silently dropping a possible escape.
                 return captures.clone();
             }
             captures
@@ -1419,14 +1630,68 @@ fn input_origins(
                 })
                 .collect()
         }
-        InputSource::Parameter(index) => args.get(index).cloned().unwrap_or_default(),
+        InputRoot::Parameter(index) => args.get(index).cloned().unwrap_or_default(),
+    };
+    if source.imprecise {
+        return origins;
     }
+    for projection in &source.projections {
+        origins = project_origins(origins, *projection);
+    }
+    origins
+}
+
+fn substitute_summary(
+    template: &Provenances,
+    key: CallableKey,
+    captures: &Provenances,
+    args: &[Provenances],
+    capture_address: bool,
+) -> Provenances {
+    template
+        .iter()
+        .flat_map(|origin| match origin {
+            Provenance::Input(source) | Provenance::CapturedInputAddress(source) => {
+                let origins = input_origins(key, source, captures, args);
+                if capture_address {
+                    capture_address_origins(origins)
+                } else {
+                    origins
+                }
+            }
+            Provenance::Aggregate { projection, origin } => embed_projection(
+                *projection,
+                substitute_summary(
+                    &Provenances::from([origin.as_ref().clone()]),
+                    key,
+                    captures,
+                    args,
+                    capture_address,
+                ),
+            ),
+            Provenance::OpaqueAggregate { origin } => substitute_summary(
+                &Provenances::from([origin.as_ref().clone()]),
+                key,
+                captures,
+                args,
+                capture_address,
+            )
+            .into_iter()
+            .map(|origin| Provenance::OpaqueAggregate {
+                origin: Box::new(origin),
+            })
+            .collect(),
+            _ => Provenances::new(),
+        })
+        .collect()
 }
 
 fn input_source(origin: &Provenance) -> Option<InputSource> {
     match origin {
-        Provenance::Input(source) => Some(*source),
-        Provenance::ClosureCapture { origin, .. } => input_source(origin),
+        Provenance::Input(source) => Some(source.clone()),
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => input_source(origin),
         Provenance::StackAddress { .. }
         | Provenance::CapturedInputAddress(_)
         | Provenance::CapturedStackAddress { .. }
@@ -1436,8 +1701,10 @@ fn input_source(origin: &Provenance) -> Option<InputSource> {
 
 fn captured_input_source(origin: &Provenance) -> Option<InputSource> {
     match origin {
-        Provenance::CapturedInputAddress(source) => Some(*source),
-        Provenance::ClosureCapture { origin, .. } => captured_input_source(origin),
+        Provenance::CapturedInputAddress(source) => Some(source.clone()),
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => captured_input_source(origin),
         Provenance::Input(_)
         | Provenance::StackAddress { .. }
         | Provenance::CapturedStackAddress { .. }
@@ -1450,7 +1717,9 @@ fn contains_stack_backed_callable(origin: &Provenance) -> bool {
         Provenance::CallableClosure {
             stack_backed: true, ..
         } => true,
-        Provenance::ClosureCapture { origin, .. } => contains_stack_backed_callable(origin),
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => contains_stack_backed_callable(origin),
         _ => false,
     }
 }
@@ -1458,7 +1727,9 @@ fn contains_stack_backed_callable(origin: &Provenance) -> bool {
 fn contains_captured_stack_address(origin: &Provenance) -> bool {
     match origin {
         Provenance::CapturedStackAddress { .. } => true,
-        Provenance::ClosureCapture { origin, .. } => contains_captured_stack_address(origin),
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => contains_captured_stack_address(origin),
         _ => false,
     }
 }
@@ -1476,9 +1747,31 @@ fn provenance_expires_at(
             .get(closure_id)
             .is_some_and(|closure_depth| *closure_depth >= depth),
         Provenance::CapturedStackAddress { scope_depth } => *scope_depth >= depth,
-        Provenance::ClosureCapture { origin, .. } => {
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => {
             provenance_expires_at(origin, closure_scopes, depth)
         }
+        _ => false,
+    }
+}
+
+fn callable_closure_ids(origin: &Provenance) -> BTreeSet<ClosureId> {
+    match origin {
+        Provenance::CallableClosure { closure_id, .. } => BTreeSet::from([*closure_id]),
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => callable_closure_ids(origin),
+        _ => BTreeSet::new(),
+    }
+}
+
+fn contains_input(origin: &Provenance) -> bool {
+    match origin {
+        Provenance::Input(_) => true,
+        Provenance::ClosureCapture { origin, .. }
+        | Provenance::Aggregate { origin, .. }
+        | Provenance::OpaqueAggregate { origin } => contains_input(origin),
         _ => false,
     }
 }
@@ -1504,13 +1797,35 @@ fn bind_pattern(pattern: &TypedPattern, value: &ValueProvenance, env: &mut Envir
             env,
         ),
         TypedPatternKind::Tuple(patterns) => {
-            for pattern in patterns {
-                bind_pattern(pattern, &ValueProvenance::from_value(value.all()), env);
+            for (index, pattern) in patterns.iter().enumerate() {
+                bind_pattern(
+                    pattern,
+                    &ValueProvenance::from_value(project_origins(
+                        value.all(),
+                        AggregateProjection::TupleField(index),
+                    )),
+                    env,
+                );
             }
         }
-        TypedPatternKind::Nominal { fields, .. } => {
-            for pattern in fields {
-                bind_pattern(pattern, &ValueProvenance::from_value(value.all()), env);
+        TypedPatternKind::Nominal {
+            constructor,
+            fields,
+        } => {
+            for (index, pattern) in fields.iter().enumerate() {
+                let projection = match constructor {
+                    TypedNominalPatternConstructor::Struct { field_defs } => field_defs
+                        .get(index)
+                        .copied()
+                        .map(AggregateProjection::Field),
+                    TypedNominalPatternConstructor::EnumVariant { .. } => {
+                        Some(AggregateProjection::TupleField(index))
+                    }
+                };
+                let origins = projection
+                    .map(|projection| project_origins(value.all(), projection))
+                    .unwrap_or_else(|| value.all());
+                bind_pattern(pattern, &ValueProvenance::from_value(origins), env);
             }
         }
         TypedPatternKind::Wildcard
@@ -1539,6 +1854,49 @@ mod tests {
     use nia_ty::TyKind;
 
     use super::*;
+
+    #[test]
+    fn deep_input_projection_widens_to_a_stable_conservative_source() {
+        let projection = AggregateProjection::TupleField(0);
+        let mut source = InputSource::parameter(0);
+        for _ in 0..=MAX_PROJECTION_DEPTH {
+            source = source.projected(projection);
+        }
+
+        assert!(source.imprecise);
+        assert!(source.projections.is_empty());
+        assert_eq!(source.projected(projection), source);
+
+        let closure_id = closure_id();
+        let stack_backed = Provenance::CallableClosure {
+            closure_id,
+            stack_backed: true,
+        };
+        assert_eq!(
+            input_origins(
+                CallableKey::Function(closure_id.owner),
+                &source,
+                &Provenances::new(),
+                &[Provenances::from([stack_backed.clone()])],
+            ),
+            Provenances::from([stack_backed]),
+        );
+    }
+
+    #[test]
+    fn deep_output_embedding_widens_and_stabilizes() {
+        let projection = AggregateProjection::TupleField(0);
+        let mut origins = Provenances::from([Provenance::Input(InputSource::parameter(0))]);
+        for _ in 0..=MAX_PROJECTION_DEPTH {
+            origins = embed_projection(projection, origins);
+        }
+
+        assert!(matches!(
+            origins.iter().next(),
+            Some(Provenance::OpaqueAggregate { .. })
+        ));
+        assert_eq!(embed_projection(projection, origins.clone()), origins);
+    }
 
     fn closure_id() -> ClosureId {
         let module_id = ModuleIdAllocator::new().allocate();
@@ -1692,7 +2050,7 @@ mod tests {
     #[test]
     fn known_closure_capture_lookup_selects_only_the_requested_slot() {
         let closure_id = closure_id();
-        let selected = Provenance::CapturedInputAddress(InputSource::Parameter(0));
+        let selected = Provenance::CapturedInputAddress(InputSource::parameter(0));
         let ignored = Provenance::CallableClosure {
             closure_id,
             stack_backed: true,
@@ -1713,7 +2071,7 @@ mod tests {
         assert_eq!(
             input_origins(
                 CallableKey::Closure(closure_id),
-                InputSource::Capture(0),
+                &InputSource::capture(0),
                 &captures,
                 &[],
             ),
@@ -1725,14 +2083,14 @@ mod tests {
     fn flattened_closure_capture_lookup_remains_conservative() {
         let closure_id = closure_id();
         let captures = Provenances::from([
-            Provenance::CapturedInputAddress(InputSource::Parameter(0)),
-            Provenance::CapturedInputAddress(InputSource::Parameter(1)),
+            Provenance::CapturedInputAddress(InputSource::parameter(0)),
+            Provenance::CapturedInputAddress(InputSource::parameter(1)),
         ]);
 
         assert_eq!(
             input_origins(
                 CallableKey::Closure(closure_id),
-                InputSource::Capture(0),
+                &InputSource::capture(0),
                 &captures,
                 &[],
             ),
@@ -1763,7 +2121,7 @@ mod tests {
             (
                 selected,
                 ValueProvenance::from_value(Provenances::from([Provenance::Input(
-                    InputSource::Parameter(0),
+                    InputSource::parameter(0),
                 )])),
             ),
             (
@@ -1836,7 +2194,7 @@ mod tests {
         let selected = LocalId(1);
         let stack_backed = LocalId(2);
         let input = ValueProvenance::from_value(Provenances::from([Provenance::Input(
-            InputSource::Parameter(0),
+            InputSource::parameter(0),
         )]));
         let mut env = Environment::from([
             (pending, input.clone()),
@@ -2006,7 +2364,7 @@ mod tests {
             (
                 selected,
                 ValueProvenance::from_value(Provenances::from([Provenance::Input(
-                    InputSource::Parameter(0),
+                    InputSource::parameter(0),
                 )])),
             ),
             (
@@ -2076,7 +2434,7 @@ mod tests {
             (
                 safe,
                 ValueProvenance::from_value(Provenances::from([Provenance::Input(
-                    InputSource::Parameter(0),
+                    InputSource::parameter(0),
                 )])),
             ),
         ]);
@@ -2158,7 +2516,7 @@ mod tests {
             (
                 selected,
                 ValueProvenance::from_value(Provenances::from([Provenance::Input(
-                    InputSource::Parameter(0),
+                    InputSource::parameter(0),
                 )])),
             ),
             (
