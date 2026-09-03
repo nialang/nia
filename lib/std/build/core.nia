@@ -1150,7 +1150,7 @@ extend Build {
     }
 
     fn cleanupValidationScratch(&mut self) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(
             Operation::Release,
             Subject::Dependencies,

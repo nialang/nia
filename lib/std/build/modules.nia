@@ -104,7 +104,7 @@ extend Package {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.root.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
         cleanup.finish()
@@ -143,8 +143,8 @@ extend Module {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
-        let mut elements = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
+        let mut elements: CleanupAccumulator[Error] = .init();
         let mut index = self.imports.len();
         while index != 0 {
             index -= 1;
@@ -216,7 +216,7 @@ extend OwnedModuleImport {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.path.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
         cleanup.finish()

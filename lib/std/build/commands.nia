@@ -366,7 +366,7 @@ extend OwnedCommandEnvironmentInput {
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.value.deinit(allocator).withBuildContext(.Release, .Step(index)));
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Step(index)));
         cleanup.finish()
@@ -429,8 +429,8 @@ extend ExternalCommandStep {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
-        let mut environmentElements = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
+        let mut environmentElements: CleanupAccumulator[Error] = .init();
         let mut environmentIndex = self.environment.len();
         while environmentIndex != 0 {
             environmentIndex -= 1;
@@ -443,7 +443,7 @@ extend ExternalCommandStep {
         } else {
             cleanup.attempt(environmentElements.finish());
         }
-        let mut argumentElements = CleanupAccumulator[Error]::init();
+        let mut argumentElements: CleanupAccumulator[Error] = .init();
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;

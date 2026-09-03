@@ -21,7 +21,7 @@ extend BuildPaths {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.toolchainResourceRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainResourceRoot));
         cleanup.attempt(self.toolchainExecutable.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainExecutable));
         cleanup.attempt(self.cacheDir.deinit(allocator).withBuildContext(Operation::Release, Subject::CacheDir));

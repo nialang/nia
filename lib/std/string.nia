@@ -131,7 +131,7 @@ extend String {
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut cleanup = error::CleanupAccumulator[mem::Error]::init();
+        let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.text.deinit(allocator));
         cleanup.attempt(self.formatBytes.deinit(allocator));
         if not cleanup.isClean() {

@@ -46,7 +46,7 @@ where T: Sized
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut cleanup = error::CleanupAccumulator[mem::Error]::init();
+        let mut cleanup: error::CleanupAccumulator[mem::Error] = .init();
         cleanup.attempt(self.freeItems(allocator));
         cleanup.attempt(self.freeReplacementItems(allocator));
         cleanup.attempt(self.freeAliasItems(allocator));
