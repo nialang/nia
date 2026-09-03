@@ -187,7 +187,7 @@ extend CString : fmt::Format {
 
 extend CStringView : fmt::Format {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
-        formatter.write_bytes(self.bytes())
+        formatter.writeBytes(self.bytes())
     }
 
     fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
@@ -195,14 +195,14 @@ extend CStringView : fmt::Format {
             return fmt::Error::InvalidTemplate!;
         }
         let contentWidth = formatter.precision_width(self.len(), spec);
-        formatter.write_padding_before(contentWidth, spec).?;
+        formatter.writePaddingBefore(contentWidth, spec).?;
         let bytes = self.bytes();
         let mut index: usize = 0;
         while index < bytes.len() and index < contentWidth {
-            formatter.write_byte(bytes[index]).?;
+            formatter.writeByte(bytes[index]).?;
             index += 1;
         }
-        formatter.write_padding_after(contentWidth, spec)
+        formatter.writePaddingAfter(contentWidth, spec)
     }
 }
 

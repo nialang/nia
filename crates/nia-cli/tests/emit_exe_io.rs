@@ -538,7 +538,7 @@ struct CountingFormatWriter {
 }
 
 extend CountingFormatWriter : fmt::FormatWriter {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) fmt::Error!() {
+    fn writeFmtBytes(&mut self, bytes: &[u8]) fmt::Error!() {
         self.len += bytes.len();
         !()
     }
@@ -663,25 +663,25 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let mut radixWriter = CountingFormatWriter { len: 0usize };
     let mut formatter = fmt::Formatter::init(&mut radixWriter);
     if not expect_error(
-        formatter.write_unsigned_radix_spec(7u128, 0u128, false, invalidRadixSpec),
+        formatter.writeUnsignedRadixSpec(7u128, 0u128, false, invalidRadixSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
         return process::exit(30)!;
     }
     if not expect_error(
-        formatter.write_unsigned_radix_spec(7u128, 1u128, false, invalidRadixSpec),
+        formatter.writeUnsignedRadixSpec(7u128, 1u128, false, invalidRadixSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
         return process::exit(31)!;
     }
     if not expect_error(
-        formatter.write_unsigned_radix_spec(7u128, 3u128, false, invalidRadixSpec),
+        formatter.writeUnsignedRadixSpec(7u128, 3u128, false, invalidRadixSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
         return process::exit(32)!;
     }
     if not expect_error(
-        formatter.write_signed_radix(-7i128, 3u128, false),
+        formatter.writeSignedRadix(-7i128, 3u128, false),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
         return process::exit(33)!;
@@ -699,7 +699,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(34)!;
     }
     if not expect_error(
-        formatter.write_unsigned_radix_spec(7u128, 10u128, false, invalidAlignmentSpec),
+        formatter.writeUnsignedRadixSpec(7u128, 10u128, false, invalidAlignmentSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
         return process::exit(35)!;
@@ -714,7 +714,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         false,
     );
     if not expect_error(
-        formatter.write_padding_before(1usize, invalidPresentationSpec),
+        formatter.writePaddingBefore(1usize, invalidPresentationSpec),
         fmt::Error::InvalidTemplate,
     ) or radixWriter.len != 0usize {
         return process::exit(36)!;

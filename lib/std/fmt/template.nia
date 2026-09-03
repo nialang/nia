@@ -259,7 +259,7 @@ where W: io::Writer
                 arg_index += 1usize;
                 index += 2usize;
             } else if next == '{' {
-                formatter.write_char('{').?;
+                formatter.writeChar('{').?;
                 index += 2usize;
             } else if next == ':' {
                 let parsed = parse_extended_spec(template, index + 2usize).?;
@@ -276,13 +276,13 @@ where W: io::Writer
             }
         } else if ch == '}' {
             if index + 1usize < template.len() and template[index + 1usize] == '}' {
-                formatter.write_char('}').?;
+                formatter.writeChar('}').?;
                 index += 2usize;
             } else {
                 return core::Error::InvalidTemplate!;
             }
         } else {
-            formatter.write_char(ch).?;
+            formatter.writeChar(ch).?;
             index += 1usize;
         }
     }

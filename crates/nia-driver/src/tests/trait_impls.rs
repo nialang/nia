@@ -709,13 +709,13 @@ trait Writer {
 }
 
 trait FormatWriter[E] {
-    fn write_fmt_bytes(&mut self) E!();
+    fn writeFmtBytes(&mut self) E!();
 }
 
 extend[W] W : FormatWriter[[W as Writer]::Error]
 where W: Writer
 {
-    fn write_fmt_bytes(&mut self) [W as Writer]::Error!() {
+    fn writeFmtBytes(&mut self) [W as Writer]::Error!() {
         self.write_all()
     }
 }
@@ -733,7 +733,7 @@ extend Sink : Writer {
 
 fn main() i32 {
     let mut sink = Sink {};
-    match sink.write_fmt_bytes() {
+    match sink.writeFmtBytes() {
         !ok => {
             _ = ok;
             0
