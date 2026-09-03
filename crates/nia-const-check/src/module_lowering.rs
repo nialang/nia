@@ -53,12 +53,12 @@ impl ConstModuleLowerer<'_> {
                     self.lower_global_initializer(item.span, binding)
                 }
                 ItemTreeNodeKind::Function(function) if function.is_const => {
-                    self.lower_function(function, DefKind::Function)
+                    self.lower_function(function, DefKind::Function, None)
                 }
                 ItemTreeNodeKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
                         if method.function.is_const && method.function.body.is_some() {
-                            self.lower_function(&method.function, DefKind::TraitMethod);
+                            self.lower_function(&method.function, DefKind::TraitMethod, None);
                         }
                     }
                 }
@@ -79,9 +79,14 @@ impl ConstModuleLowerer<'_> {
                             );
                         }
                     }
+                    let receiver_type = self
+                        .input
+                        .semantic_uses
+                        .node_type_use(&extend.target.node_key)
+                        .map(|ty| (ty, &extend.target));
                     for method in &extend.methods {
                         if method.function.is_const {
-                            self.lower_function(&method.function, DefKind::Method);
+                            self.lower_function(&method.function, DefKind::Method, receiver_type);
                         }
                     }
                 }
@@ -199,7 +204,12 @@ impl ConstModuleLowerer<'_> {
         }
     }
 
-    fn lower_function(&mut self, function: &nia_ast::FunctionItem, kind: DefKind) {
+    fn lower_function(
+        &mut self,
+        function: &nia_ast::FunctionItem,
+        kind: DefKind,
+        receiver_type: Option<(InternedTyId, &nia_ast::TypeRef)>,
+    ) {
         if function.body.is_none() {
             return;
         }
@@ -225,10 +235,15 @@ impl ConstModuleLowerer<'_> {
         let mut omitted_associated_types = HashMap::new();
         let mut local_types = LocalTypeHints::new();
         for param in &function.params {
-            if let (Some(local_id), Some(type_ref)) = (
-                self.input.semantic_uses.node_local_def(&param.node_key),
-                param.ty.as_ref(),
-            ) && let Some(ty) = self.input.semantic_uses.node_type_use(&type_ref.node_key)
+            let Some(local_id) = self.input.semantic_uses.node_local_def(&param.node_key) else {
+                continue;
+            };
+            if param.receiver.is_some() {
+                if let Some((ty, type_ref)) = receiver_type {
+                    local_types.insert(local_id, (ty, Some(type_ref.clone())));
+                }
+            } else if let Some(type_ref) = param.ty.as_ref()
+                && let Some(ty) = self.input.semantic_uses.node_type_use(&type_ref.node_key)
             {
                 local_types.insert(local_id, (ty, Some(type_ref.clone())));
             }
@@ -528,19 +543,14 @@ impl ConstModuleLowerer<'_> {
                 local_types,
             ),
             nia_ast::ExprKind::Match(matched) => {
-                let target_hint = match &matched.target.kind {
-                    nia_ast::ExprKind::Ident(_) => self
-                        .input
-                        .semantic_uses
-                        .node_value_use(&matched.target.node_key)
-                        .and_then(|use_| match use_ {
-                            SemanticValueUse::Local(local_id) => {
-                                local_types.get(&local_id).cloned()
-                            }
-                            SemanticValueUse::Global(_) => None,
-                        }),
-                    _ => None,
-                };
+                let target_hint = self
+                    .input
+                    .semantic_uses
+                    .node_value_use(&matched.target.node_key)
+                    .and_then(|use_| match use_ {
+                        SemanticValueUse::Local(local_id) => local_types.get(&local_id).cloned(),
+                        SemanticValueUse::Global(_) => None,
+                    });
                 for arm in &matched.arms {
                     for pattern in &arm.patterns {
                         self.collect_pattern_omitted_maps(
