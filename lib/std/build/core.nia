@@ -26,6 +26,14 @@ using pkg::build::queries::{
     findStaticArchive as findStaticArchiveRecord,
     findStep as findStepRecord,
 };
+using pkg::build::records_cleanup::{
+    releaseExecutables,
+    releaseModules,
+    releaseObjects,
+    releasePackages,
+    releaseStaticArchives,
+    releaseSteps,
+};
 using pkg::build::steps;
 using pkg::build::targets::{
     executableOutputName,
@@ -261,74 +269,14 @@ extend Build {
         rememberCleanupError(&mut firstError, self.cleanupPendingObject());
         rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
         rememberCleanupError(&mut firstError, self.cleanupPendingExecutable());
-        let mut elementError: ?Error = null;
         rememberCleanupError(&mut firstError, self.cleanupPendingStep());
-        let mut index = self.steps.len();
-        while index != 0 {
-            index -= 1;
-            rememberCleanupError(&mut elementError, self.steps.asMutSlice()[index].deinit(self.allocator));
-        }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.steps.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Steps));
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
+        rememberCleanupError(&mut firstError, releaseSteps(self.allocator, &mut self.steps));
         rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        elementError = null;
-        index = self.packages.len();
-        while index != 0 {
-            index -= 1;
-            rememberCleanupError(&mut elementError, self.packages.asMutSlice()[index].deinit(self.allocator));
-        }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.packages.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Packages));
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
-        elementError = null;
-        index = self.executables.len();
-        while index != 0 {
-            index -= 1;
-            rememberCleanupError(&mut elementError, self.executables.asMutSlice()[index].deinit(self.allocator));
-        }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.executables.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Executables));
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
-        elementError = null;
-        index = self.objects.len();
-        while index != 0 {
-            index -= 1;
-            rememberCleanupError(&mut elementError, self.objects.asMutSlice()[index].deinit(self.allocator));
-        }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.objects.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Objects));
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
-        elementError = null;
-        index = self.staticArchives.len();
-        while index != 0 {
-            index -= 1;
-            rememberCleanupError(&mut elementError, self.staticArchives.asMutSlice()[index].deinit(self.allocator));
-        }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.staticArchives.deinit(self.allocator).withBuildContext(Operation::Release, Subject::StaticArchives));
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
-        elementError = null;
-        index = self.modules.len();
-        while index != 0 {
-            index -= 1;
-            rememberCleanupError(&mut elementError, self.modules.asMutSlice()[index].deinit(self.allocator));
-        }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.modules.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Modules));
-        } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
-        }
+        rememberCleanupError(&mut firstError, releasePackages(self.allocator, &mut self.packages));
+        rememberCleanupError(&mut firstError, releaseExecutables(self.allocator, &mut self.executables));
+        rememberCleanupError(&mut firstError, releaseObjects(self.allocator, &mut self.objects));
+        rememberCleanupError(&mut firstError, releaseStaticArchives(self.allocator, &mut self.staticArchives));
+        rememberCleanupError(&mut firstError, releaseModules(self.allocator, &mut self.modules));
         rememberCleanupError(&mut firstError, self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
         rememberCleanupError(&mut firstError, self.hostTarget.deinit(self.allocator, Subject::HostTarget));
         rememberCleanupError(
