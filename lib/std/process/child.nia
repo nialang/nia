@@ -87,7 +87,7 @@ extend Child {
     }
 
     pub fn closePipes(&mut self) Error!() {
-        let mut cleanup = error::CleanupAccumulator[Error]::init();
+        let mut cleanup: error::CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.closeStdin());
         cleanup.attempt(self.closeStdout());
         cleanup.attempt(self.closeStderr());

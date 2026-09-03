@@ -76,7 +76,7 @@ extend GeneratedFileStep {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.contents.deinit(allocator).withBuildContext(.Release, .Step(index)));
         cleanup.attempt(self.output.deinit(allocator).withBuildContext(.Release, .Step(index)));
         cleanup.finish()
@@ -164,8 +164,8 @@ extend RunExecutableStep {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
-        let mut elements = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
+        let mut elements: CleanupAccumulator[Error] = .init();
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;
@@ -288,7 +288,7 @@ extend Step {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         if self.kind == StepKind::Uncacheable {
             cleanup.attempt(self.payload.uncacheable.deinit(allocator, self.index));
         }

@@ -173,7 +173,7 @@ extend Build {
     }
 
     pub fn deinit(&mut self) Error!() {
-        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut cleanup: CleanupAccumulator[Error] = .init();
         cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
         cleanup.attempt(self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
         cleanup.attempt(self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));

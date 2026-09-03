@@ -59,29 +59,21 @@ extend ArenaAllocator : Allocator {
             return !Block::empty(layout);
         }
 
-        match self.allocFromOptionalChunk(self.usedList, layout) {
-            ?block => {
-                return !block;
-            },
-            null => {
-            },
+        if self.allocFromOptionalChunk(self.usedList, layout) is ?block {
+            return !block;
         }
 
-        match self.popFreeChunk(layout) {
-            mut ?chunk => {
-                chunk.next = self.usedList;
-                self.usedList = ?chunk;
-                match allocFromChunk(chunk, layout) {
-                    ?block => {
-                        return !block;
-                    },
-                    null => {
-                        return Error::OutOfMemory!;
-                    },
+        if self.popFreeChunk(layout) is mut ?chunk {
+            chunk.next = self.usedList;
+            self.usedList = ?chunk;
+            match allocFromChunk(chunk, layout) {
+                ?block => {
+                    return !block;
+                },
+                null => {
+                    return Error::OutOfMemory!;
                 }
-            },
-            null => {
-            },
+            }
         }
 
         let prevCapacity = match self.usedList {

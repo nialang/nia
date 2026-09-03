@@ -22,7 +22,7 @@ pub(pkg) fn releaseSteps(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Step],
 ) Error!() {
-    let mut cleanup = CleanupAccumulator[Error]::init();
+    let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
@@ -38,7 +38,7 @@ pub(pkg) fn releasePackages(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Package],
 ) Error!() {
-    let mut cleanup = CleanupAccumulator[Error]::init();
+    let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
@@ -54,7 +54,7 @@ pub(pkg) fn releaseExecutables(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ExecutableTarget],
 ) Error!() {
-    let mut cleanup = CleanupAccumulator[Error]::init();
+    let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
@@ -70,7 +70,7 @@ pub(pkg) fn releaseObjects(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ObjectTarget],
 ) Error!() {
-    let mut cleanup = CleanupAccumulator[Error]::init();
+    let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
@@ -86,7 +86,7 @@ pub(pkg) fn releaseStaticArchives(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[StaticArchiveTarget],
 ) Error!() {
-    let mut cleanup = CleanupAccumulator[Error]::init();
+    let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
@@ -102,7 +102,7 @@ pub(pkg) fn releaseModules(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Module],
 ) Error!() {
-    let mut cleanup = CleanupAccumulator[Error]::init();
+    let mut cleanup: CleanupAccumulator[Error] = .init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;

@@ -305,12 +305,8 @@ extend GeneralPurposeAllocator : Allocator {
         if block.isEmpty() {
             return !();
         }
-        match self.findSmallPage(block) {
-            ?page => {
-                return self.freeSmall(page, block);
-            },
-            null => {
-            },
+        if self.findSmallPage(block) is ?page {
+            return self.freeSmall(page, block);
         }
         self.freeLarge(block)
     }
@@ -594,13 +590,8 @@ extend GeneralPurposeAllocator {
             match current {
                 ?page => {
                     if page.slotSize == slotSize {
-                        match page.freeList {
-                            ?node => {
-                                _ = node;
-                                return ?page;
-                            },
-                            null => {
-                            },
+                        if page.freeList is ?_ {
+                            return ?page;
                         }
                     }
                     current = page.next;

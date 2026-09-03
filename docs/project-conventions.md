@@ -49,6 +49,19 @@ serialization, hashes and bit operations, overflow boundaries, mixed-width
 arithmetic, otherwise unconstrained literals, and tests specifically about
 literal typing or casts.
 
+When a binding already states the complete nominal type, prefer an omitted
+constructor whose result is determined by that expected type:
+
+```nia
+let mut cleanup: CleanupAccumulator[Error] = .init();
+```
+
+This is especially useful for generic constructors with a long type name. The
+type is written once as the binding contract, while `.init()` makes contextual
+construction explicit. Keep `Type::init()` when the value is passed without an
+expected type, when inference would be ambiguous, or when the nominal owner is
+important at the call site.
+
 Executable fixtures return numeric failures with `process::exit(code)!` and use
 direct `.?` propagation when the source error has a reviewed
 `IntoError[process::ExitCode]` implementation. Explicit `.exit()` remains for
