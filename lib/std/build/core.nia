@@ -432,10 +432,9 @@ extend Build {
     pub fn addExternalCommandStep(&mut self, name: &[char], options: ExternalCommandOptions) Error!StepHandle {
         validateExternalCommand(options, self.steps.len()).?;
         let mut artifactInputCount: usize = 0;
-        match options.arguments {
-            ?arguments => {
-                for &argument in arguments.iter() {
-                    if argument.kind == CommandArgumentKind::ArtifactInput {
+        if options.arguments is ?arguments {
+            for &argument in arguments.iter() {
+                if argument.kind == CommandArgumentKind::ArtifactInput {
                         let target = argument.payload.artifact;
                         self.validateExecutableHandle(target).?;
                         match self.findEmitStep(target) {
@@ -446,7 +445,7 @@ extend Build {
                             }!,
                         }
                         artifactInputCount += 1;
-                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let target = argument.payload.object;
                         self.validateObjectHandle(target).?;
                         match self.findEmitObjectStep(target) {
@@ -457,7 +456,7 @@ extend Build {
                             }!,
                         }
                         artifactInputCount += 1;
-                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let target = argument.payload.staticArchive;
                         self.validateStaticArchiveHandle(target).?;
                         match self.findEmitStaticArchiveStep(target) {
@@ -468,12 +467,10 @@ extend Build {
                             }!,
                         }
                         artifactInputCount += 1;
-                    } else if argument.kind == CommandArgumentKind::PackageInput {
+                } else if argument.kind == CommandArgumentKind::PackageInput {
                         self.validatePackageHandle(argument.package).?;
-                    }
                 }
-            },
-            null => {},
+            }
         }
         self.dependencies.reserve(
             self.allocator,
@@ -509,10 +506,9 @@ extend Build {
         step: StepHandle,
         arguments: ?&[CommandArgument],
     ) Error!() {
-        match arguments {
-            ?arguments => {
-                for &argument in arguments.iter() {
-                    if argument.kind == CommandArgumentKind::ArtifactInput {
+        if arguments is ?arguments {
+            for &argument in arguments.iter() {
+                if argument.kind == CommandArgumentKind::ArtifactInput {
                         let producer = match self.findEmitStep(argument.payload.artifact) {
                             ?producer => producer,
                             null => return Error::Invalid {
@@ -521,7 +517,7 @@ extend Build {
                             }!,
                         };
                         self.dependOn(step, producer).?;
-                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let producer = match self.findEmitObjectStep(argument.payload.object) {
                             ?producer => producer,
                             null => return Error::Invalid {
@@ -530,7 +526,7 @@ extend Build {
                             }!,
                         };
                         self.dependOn(step, producer).?;
-                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let producer = match self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
                             ?producer => producer,
                             null => return Error::Invalid {
@@ -539,10 +535,8 @@ extend Build {
                             }!,
                         };
                         self.dependOn(step, producer).?;
-                    }
                 }
-            },
-            null => {},
+            }
         }
         !()
     }
@@ -674,33 +668,30 @@ extend Build {
             }!;
         }
         self.validateModuleHandle(options.rootModule).?;
-        match options.staticArchives {
-            ?archives => {
-                let mut archiveIndex: usize = 0;
-                while archiveIndex < archives.len() {
-                    let archive = archives[archiveIndex];
-                    self.validateStaticArchiveHandle(archive).?;
-                    let archiveTarget = self.staticArchives.asSlice()[archive.index()];
-                    if archiveTarget.targetRole != options.targetRole {
+        if options.staticArchives is ?archives {
+            let mut archiveIndex: usize = 0;
+            while archiveIndex < archives.len() {
+                let archive = archives[archiveIndex];
+                self.validateStaticArchiveHandle(archive).?;
+                let archiveTarget = self.staticArchives.asSlice()[archive.index()];
+                if archiveTarget.targetRole != options.targetRole {
+                    return Error::Invalid {
+                        operation: Operation::Validate,
+                        subject: Subject::Executable(handle.index()),
+                    }!;
+                }
+                let mut previous: usize = 0;
+                while previous < archiveIndex {
+                    if archives[previous].index() == archive.index() {
                         return Error::Invalid {
                             operation: Operation::Validate,
                             subject: Subject::Executable(handle.index()),
                         }!;
                     }
-                    let mut previous: usize = 0;
-                    while previous < archiveIndex {
-                        if archives[previous].index() == archive.index() {
-                            return Error::Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Executable(handle.index()),
-                            }!;
-                        }
-                        previous += 1;
-                    }
-                    archiveIndex += 1;
+                    previous += 1;
                 }
-            },
-            null => {},
+                archiveIndex += 1;
+            }
         }
         let outputName = executableOutputName(options);
         if not isValidOutputName(outputName) {

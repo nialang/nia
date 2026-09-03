@@ -145,10 +145,10 @@ extend String {
                 }
             },
         }
-        match firstError {
-            ?error => error!,
-            null => !(),
+        if firstError is ?error {
+            return error!;
         }
+        !()
     }
 
     fn releaseFormatBytes(&mut self, allocator: &mut mem::Allocator) mem::Error!() {

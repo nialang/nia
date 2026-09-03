@@ -222,26 +222,23 @@ extend ArenaAllocator {
         while true {
             match current {
                 mut ?chunk => {
-                    match chunkFitEnd(chunk, layout) {
-                        ?end => {
-                            let capacity = chunkPayloadCapacity(chunk);
-                            if end <= capacity {
-                                let waste = capacity - end;
-                                if waste < bestWaste {
-                                    best = ?chunk;
-                                    bestPrev = prev;
-                                    bestWaste = waste;
-                                }
-                            } else {
-                                let shortage = end - capacity;
-                                if shortage < closestShortage {
-                                    closest = ?chunk;
-                                    closestPrev = prev;
-                                    closestShortage = shortage;
-                                }
+                    if chunkFitEnd(chunk, layout) is ?end {
+                        let capacity = chunkPayloadCapacity(chunk);
+                        if end <= capacity {
+                            let waste = capacity - end;
+                            if waste < bestWaste {
+                                best = ?chunk;
+                                bestPrev = prev;
+                                bestWaste = waste;
                             }
-                        },
-                        null => {},
+                        } else {
+                            let shortage = end - capacity;
+                            if shortage < closestShortage {
+                                closest = ?chunk;
+                                closestPrev = prev;
+                                closestShortage = shortage;
+                            }
+                        }
                     }
                     prev = ?chunk;
                     current = chunk.next;
