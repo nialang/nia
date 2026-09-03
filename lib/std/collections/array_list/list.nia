@@ -292,32 +292,8 @@ where T: Sized
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(values);
-            match self.insertStableSlice(allocator, index, copy) {
-                !ok => {
-                    _ = ok;
-                },
-                err! => {
-                    match allocator.free(copyBlock) {
-                        !ok => {
-                            _ = ok;
-                        },
-                        error! => {
-                            self.retainAliasBlock(copyBlock);
-                        },
-                    }
-                    return err!;
-                },
-            }
-            match allocator.free(copyBlock) {
-                !ok => {
-                    _ = ok;
-                    return !();
-                },
-                err! => {
-                    self.retainAliasBlock(copyBlock);
-                    return err!;
-                },
-            }
+            let result = self.insertStableSlice(allocator, index, copy);
+            return self.finishAliasCopy(allocator, copyBlock, result);
         }
 
         self.insertStableSlice(allocator, index, values)
@@ -351,32 +327,8 @@ where T: Sized
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(values);
-            match self.replaceRangeStable(allocator, start, count, copy) {
-                !ok => {
-                    _ = ok;
-                },
-                err! => {
-                    match allocator.free(copyBlock) {
-                        !ok => {
-                            _ = ok;
-                        },
-                        error! => {
-                            self.retainAliasBlock(copyBlock);
-                        },
-                    }
-                    return err!;
-                },
-            }
-            match allocator.free(copyBlock) {
-                !ok => {
-                    _ = ok;
-                    return !();
-                },
-                err! => {
-                    self.retainAliasBlock(copyBlock);
-                    return err!;
-                },
-            }
+            let result = self.replaceRangeStable(allocator, start, count, copy);
+            return self.finishAliasCopy(allocator, copyBlock, result);
         }
 
         self.replaceRangeStable(allocator, start, count, values)
@@ -495,32 +447,8 @@ where T: Sized
             let copyBlock = allocator.alloc(copyLayout).?;
             let mut copy = copyBlock.asSlice[T]();
             _ = copy.copyFrom(items);
-            match self.appendStableSlice(allocator, copy) {
-                !ok => {
-                    _ = ok;
-                },
-                err! => {
-                    match allocator.free(copyBlock) {
-                        !ok => {
-                            _ = ok;
-                        },
-                        error! => {
-                            self.retainAliasBlock(copyBlock);
-                        },
-                    }
-                    return err!;
-                },
-            }
-            match allocator.free(copyBlock) {
-                !ok => {
-                    _ = ok;
-                    return !();
-                },
-                err! => {
-                    self.retainAliasBlock(copyBlock);
-                    return err!;
-                },
-            }
+            let result = self.appendStableSlice(allocator, copy);
+            return self.finishAliasCopy(allocator, copyBlock, result);
         }
 
         self.appendStableSlice(allocator, items)
@@ -814,6 +742,23 @@ where T: Sized
 
     fn retainAliasBlock(&mut self, block: mem::Block) () {
         self.aliasBlock = ?block;
+    }
+
+    // Free an alias-stabilizing copy after its operation has completed. The
+    // operation error remains primary, while a failed free keeps the block
+    // owned by the list so deinit or the next mutating call can retry it.
+    fn finishAliasCopy(
+        &mut self,
+        allocator: &mut mem::Allocator,
+        block: mem::Block,
+        result: mem::Error!(),
+    ) mem::Error!() {
+        let cleanup = allocator.free(block);
+        if cleanup is error! {
+            _ = error;
+            self.retainAliasBlock(block);
+        }
+        result.cleanupAfter(cleanup)
     }
 
     fn allocatedItems(&mut self) &mut [T] {

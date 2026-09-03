@@ -167,30 +167,6 @@ extend Errno {
     }
 }
 
-extend[T] Errno!T {
-    // Cleanup errors are secondary to the operation that produced the value.
-    // Once the operation succeeds, expose the first close failure instead.
-    pub fn closeAfter(self, close: Errno!()) Errno!T {
-        match self {
-            !value => {
-                match close {
-                    !ok => {
-                        _ = ok;
-                        !value
-                    },
-                    error! => {
-                        error!
-                    },
-                }
-            },
-            error! => {
-                _ = close;
-                error!
-            },
-        }
-    }
-}
-
 extend SpawnError {
     pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage {

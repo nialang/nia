@@ -1,6 +1,7 @@
 using pkg::os::linux::syscall;
 using pkg::os::linux::stat;
 using pkg::os::linux::types;
+using pkg::error;
 using pkg::math;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
@@ -268,7 +269,7 @@ pub fn createDirAtBeneath(
         true,
     ).?;
     let result = createDirAt(parentHandle, name, permissions);
-    result.closeAfter(parentHandle.close())
+    result.cleanupAfter(parentHandle.close())
 }
 
 pub fn deleteFileAt(dir: FileDescriptor, path: &u8) Errno!() {
@@ -308,7 +309,7 @@ pub fn deleteAtBeneath(
     } else {
         deleteFileAt(parentHandle, name)
     };
-    result.closeAfter(parentHandle.close())
+    result.cleanupAfter(parentHandle.close())
 }
 
 pub fn renameAt(
@@ -372,8 +373,8 @@ pub fn renameAtBeneath(
         newName,
     );
     result
-        .closeAfter(oldParentHandle.close())
-        .closeAfter(newParentHandle.close())
+        .cleanupAfter(oldParentHandle.close())
+        .cleanupAfter(newParentHandle.close())
 }
 
 pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {

@@ -289,6 +289,88 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_cleanup_after_runs_cleanup_and_preserves_primary_failure() {
+    let root = temp_dir("emit_exe_std_cleanup_after_runs_cleanup_and_preserves_primary_failure");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::process;
+
+enum Failure: i32 {
+    Primary = 1,
+    Cleanup = 2,
+    _,
+}
+
+fn operation(order: &mut usize, succeeds: bool) Failure!usize {
+    order.* = order.* * 10usize + 1usize;
+    if succeeds { !7usize } else { Failure::Primary! }
+}
+
+fn cleanup(order: &mut usize, succeeds: bool) Failure!() {
+    order.* = order.* * 10usize + 2usize;
+    if succeeds { !() } else { Failure::Cleanup! }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut order = 0usize;
+    match operation(&mut order, true).cleanupAfter(cleanup(&mut order, true)) {
+        !value => { if value != 7usize { return process::exit(1)!; } },
+        failure! => { _ = failure; return process::exit(2)!; },
+    }
+    if order != 12usize { return process::exit(3)!; }
+
+    order = 0usize;
+    match operation(&mut order, true).cleanupAfter(cleanup(&mut order, false)) {
+        Failure::Cleanup! => {},
+        !value => { _ = value; return process::exit(4)!; },
+        failure! => { _ = failure; return process::exit(5)!; },
+    }
+    if order != 12usize { return process::exit(6)!; }
+
+    order = 0usize;
+    match operation(&mut order, false).cleanupAfter(cleanup(&mut order, true)) {
+        Failure::Primary! => {},
+        !value => { _ = value; return process::exit(7)!; },
+        failure! => { _ = failure; return process::exit(8)!; },
+    }
+    if order != 12usize { return process::exit(9)!; }
+
+    order = 0usize;
+    match operation(&mut order, false).cleanupAfter(cleanup(&mut order, false)) {
+        Failure::Primary! => {},
+        !value => { _ = value; return process::exit(10)!; },
+        failure! => { _ = failure; return process::exit(11)!; },
+    }
+    if order != 12usize { return process::exit(12)!; }
+    !()
+}
+"#,
+    )
+    .expect("write cleanupAfter source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit -- cleanupAfter");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted cleanupAfter executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_cleanup_accumulator_runs_all_and_keeps_first_failure() {
     let root = temp_dir("emit_exe_std_cleanup_accumulator_runs_all_and_keeps_first_failure");
     let main = root.join("main.nia");

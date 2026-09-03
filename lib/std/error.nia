@@ -3,6 +3,8 @@
 // `IntoError` is an infallible cause-preserving conversion used by `.?`.
 // `mapError` and `orElse` evaluate the receiver once and borrow their callback
 // only for the active call; contextual domain information remains explicit.
+// `cleanupAfter` combines an already-produced result with eagerly evaluated
+// cleanup while keeping the operation failure primary.
 
 pub module cleanup;
 
@@ -33,6 +35,32 @@ extend[Value, Source, Target] Source!Value {
             },
             error! => {
                 fallback(error)
+            },
+        }
+    }
+}
+
+extend[Value, Failure] Failure!Value {
+    // Combine a primary operation with cleanup that must run in either case.
+    //
+    //     operation     cleanup       result
+    //     success       success       operation value
+    //     success       failure       cleanup failure
+    //     failure       success       operation failure
+    //     failure       failure       operation failure
+    //
+    // Arguments are evaluated before a call, so `cleanup` has already run even
+    // when `self` is a failure. This method combines results; it does not own or
+    // retry resources whose cleanup failed.
+    pub fn cleanupAfter(self, cleanup: Failure!()) Failure!Value {
+        match self {
+            !value => {
+                cleanup.?;
+                !value
+            },
+            failure! => {
+                _ = cleanup;
+                failure!
             },
         }
     }
