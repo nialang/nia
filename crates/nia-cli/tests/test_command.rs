@@ -43,9 +43,51 @@ pub fn build(b: &mut build::Build) build::Error!() {
         r#"using std::process;
 using std::test;
 
+fn passingCase() test::Error!() {
+    test::expectEqual(2, 2).?;
+    !()
+}
+
+fn failingCase() test::Error!() {
+    test::fail()
+}
+
+fn recordCaseResult(result: test::CaseResult) () {
+    _ = result;
+    ()
+}
+
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    test::expectEqual(2, 2).?;
+    let cases: [test::Case; 2] = [
+        .init(&"passing", &passingCase),
+        .init(&"failing", &failingCase),
+    ];
+    let first = cases[0].run();
+    if not first.isPassed() {
+        return process::exit(9)!;
+    }
+    _ = first.name();
+    let summary = test::Runner::init(&cases[..]).run();
+    if summary.total() != 2 or summary.passed() != 1 or summary.failed() != 1
+        or summary.skipped() != 0 or summary.isSuccessful()
+    {
+        return process::exit(10)!;
+    }
+    let failFastCases: [test::Case; 2] = [
+        .init(&"failing", &failingCase),
+        .init(&"passing", &passingCase),
+    ];
+    let failFast = test::Runner::init(&failFastCases[..]).withFailFast().run();
+    if failFast.total() != 2 or failFast.passed() != 0 or failFast.failed() != 1
+        or failFast.skipped() != 1
+    {
+        return process::exit(11)!;
+    }
+    let reported = test::Runner::init(&cases[..]).runWith(&recordCaseResult);
+    if reported.total() != 2 or reported.passed() != 1 or reported.failed() != 1 {
+        return process::exit(12)!;
+    }
     !()
 }
 "#,

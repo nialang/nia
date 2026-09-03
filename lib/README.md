@@ -5,6 +5,14 @@ supported API, while provider and implementation modules remain package-private.
 Importing a facade does not by itself select every provider; loader tests keep
 that dependency closure explicit.
 
+Testing is explicit at two levels. A build script registers each suite with
+`std::build::Build::addTestSuite`; the suite is an ordinary host executable
+and may organize any number of modules. Inside that executable,
+`std::test::Case` and `std::test::Runner` provide named case execution and a
+`RunSummary`. The runner borrows a caller-owned case table, continues after
+failures by default, and offers `withFailFast()` without introducing hidden
+allocation or file discovery.
+
 The library follows a small set of ownership rules:
 
 - Owned values such as `String`, `fs::Path`, and collections use explicit
