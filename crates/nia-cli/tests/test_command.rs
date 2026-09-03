@@ -88,6 +88,20 @@ pub fn main(init: process::Init) process::ExitCode!() {
     if reported.total() != 2 or reported.passed() != 1 or reported.failed() != 1 {
         return process::exit(12)!;
     }
+    let mut reportedCount: usize = 0;
+    let mut reportedFailures: usize = 0;
+    let captured = test::Runner::init(&cases[..]).runWith(
+        &mut \[&mut reportedCount, &mut reportedFailures] result: test::CaseResult -> {
+            reportedCount.* += 1;
+            if result.isFailed() {
+                reportedFailures.* += 1;
+            }
+            ()
+        },
+    );
+    if captured.total() != 2 or reportedCount != 2 or reportedFailures != 1 {
+        return process::exit(13)!;
+    }
     !()
 }
 "#,
