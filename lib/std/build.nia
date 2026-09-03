@@ -53,6 +53,7 @@ pub(pkg) module dependencies;
 pub(pkg) module diagnostics;
 pub(pkg) module error;
 pub(pkg) module handles;
+pub(pkg) module lifecycle;
 pub(pkg) module modules;
 pub(pkg) module ownership;
 pub(pkg) module paths;
@@ -65,6 +66,7 @@ pub(pkg) module types;
 pub(pkg) module validation;
 
 using pkg::build::core;
+using pkg::build::lifecycle;
 using pkg::build::plan;
 
 pub using error::{

@@ -9,7 +9,6 @@ using pkg::build::dependencies::{findGeneratedSourceProducer, hasDependency};
 using pkg::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
 using pkg::build::handles;
 using pkg::build::modules::validateModuleImports;
-using pkg::build::ownership::allocateBuildOwnerId;
 using pkg::build::paths::{isValidBuildPath, isValidPackagePath};
 using pkg::build::queries::{
     findEmitObjectStep as findEmitObjectStepRecord,
@@ -20,14 +19,6 @@ using pkg::build::queries::{
     findObject as findObjectRecord,
     findStaticArchive as findStaticArchiveRecord,
     findStep as findStepRecord,
-};
-using pkg::build::records_cleanup::{
-    releaseExecutables,
-    releaseModules,
-    releaseObjects,
-    releasePackages,
-    releaseStaticArchives,
-    releaseSteps,
 };
 using pkg::build::steps;
 using pkg::build::targets::{
@@ -53,7 +44,6 @@ using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
 using types::{
     Build,
-    BuildInitAttempt,
     Step,
     StepHandle,
     StepDependency,
@@ -94,7 +84,6 @@ using types::{
     PackageOptions,
     OptimizationMode,
     TargetView,
-    TargetStorage,
     TargetRole,
     ExecutableOptions,
     ExecutableTarget,
@@ -102,167 +91,11 @@ using types::{
     ObjectTarget,
     StaticArchiveOptions,
     StaticArchiveTarget,
-    BuildPaths,
     BuildPathView,
     StepPayload,
 };
 
 extend Build {
-    // The generated runner supplies these values from the resolved toolchain
-    // invocation. Ordinary build scripts receive the initialized value and do
-    // not construct alternate roots, targets, or protocol versions.
-    pub fn init(
-        allocator: &mut mem::Allocator,
-        packageRoot: fs::PathView,
-        buildDir: fs::PathView,
-        cacheDir: fs::PathView,
-        toolchainExecutable: fs::PathView,
-        toolchainResourceRoot: fs::PathView,
-        hostTarget: TargetView,
-        artifactTarget: TargetView,
-        defaultOptimization: OptimizationMode,
-        planSchemaVersion: u32,
-        requestedStep: ?&[char],
-    ) BuildInitAttempt {
-        let ownerId = match allocateBuildOwnerId() {
-            ?value => value,
-            null => 0usize,
-        };
-        let build = Self {
-            ownerId: ownerId,
-            allocator: allocator,
-            paths: BuildPaths::init(),
-            hostTarget: TargetStorage::init(hostTarget.pointerWidth),
-            artifactTarget: TargetStorage::init(artifactTarget.pointerWidth),
-            defaultOptimization: defaultOptimization,
-            planSchemaVersion: planSchemaVersion,
-            requestedStep: string::String::init(),
-            hasRequestedStep: false,
-            defaultStep: null,
-            selectedStep: null,
-            planValidated: false,
-            steps: collections::ArrayList[Step]::init(),
-            pendingStep: Step::initAggregate(0usize),
-            hasPendingStep: false,
-            dependencies: collections::ArrayList[StepDependency]::init(),
-            packages: collections::ArrayList[Package]::init(),
-            pendingPackage: Package::init(0usize),
-            hasPendingPackage: false,
-            modules: collections::ArrayList[Module]::init(),
-            pendingModule: Module::init(
-                0usize,
-                ModuleSourceRoot::Package,
-                PackageHandle::init(ownerId, 0usize),
-                defaultOptimization,
-            ),
-            hasPendingModule: false,
-            executables: collections::ArrayList[ExecutableTarget]::init(),
-            pendingExecutable: ExecutableTarget::init(
-                0usize,
-                ModuleHandle::init(ownerId, 0usize),
-                TargetRole::Artifact,
-            ),
-            hasPendingExecutable: false,
-            objects: collections::ArrayList[ObjectTarget]::init(),
-            pendingObject: ObjectTarget::init(
-                0usize,
-                ModuleHandle::init(ownerId, 0usize),
-                TargetRole::Artifact,
-            ),
-            hasPendingObject: false,
-            staticArchives: collections::ArrayList[StaticArchiveTarget]::init(),
-            pendingStaticArchive: StaticArchiveTarget::init(
-                0usize,
-                ModuleHandle::init(ownerId, 0usize),
-                TargetRole::Artifact,
-            ),
-            hasPendingStaticArchive: false,
-            validationIndegree: collections::ArrayList[usize]::init(),
-            validationReady: collections::ArrayList[usize]::init(),
-            planEncoding: collections::ArrayList[u8]::init(),
-        };
-        let mut attempt = BuildInitAttempt::init(build);
-        if ownerId == 0usize {
-            attempt.primary = ?Error::Internal(Operation::Initialize);
-            return attempt;
-        }
-        match attempt.build.initialize(
-            packageRoot,
-            buildDir,
-            cacheDir,
-            toolchainExecutable,
-            toolchainResourceRoot,
-            hostTarget,
-            artifactTarget,
-            requestedStep,
-        ) {
-            !ok => {
-                _ = ok;
-            },
-            primary! => attempt.primary = ?primary,
-        }
-        attempt
-    }
-
-    fn initialize(
-        &mut self,
-        packageRoot: fs::PathView,
-        buildDir: fs::PathView,
-        cacheDir: fs::PathView,
-        toolchainExecutable: fs::PathView,
-        toolchainResourceRoot: fs::PathView,
-        hostTarget: TargetView,
-        artifactTarget: TargetView,
-        requestedStep: ?&[char],
-    ) Error!() {
-        self.paths.packageRoot = fs::Path::fromView(self.allocator, packageRoot).withBuildContext(Operation::Retain, Subject::PackageRoot).?;
-        self.paths.buildDir = fs::Path::fromView(self.allocator, buildDir).withBuildContext(Operation::Retain, Subject::BuildDir).?;
-        self.paths.cacheDir = fs::Path::fromView(self.allocator, cacheDir).withBuildContext(Operation::Retain, Subject::CacheDir).?;
-        self.paths.toolchainExecutable = fs::Path::fromView(self.allocator, toolchainExecutable).withBuildContext(Operation::Retain, Subject::ToolchainExecutable).?;
-        self.paths.toolchainResourceRoot = fs::Path::fromView(self.allocator, toolchainResourceRoot).withBuildContext(Operation::Retain, Subject::ToolchainResourceRoot).?;
-        self.hostTarget.initialize(self.allocator, hostTarget, Subject::HostTarget).?;
-        self.artifactTarget.initialize(self.allocator, artifactTarget, Subject::ArtifactTarget).?;
-        if requestedStep is ?step {
-            self.requestedStep = string::String::fromSlice(self.allocator, step).withBuildContext(
-                Operation::Retain,
-                Subject::RequestedStep,
-            ).?;
-            self.hasRequestedStep = true;
-        }
-        !()
-    }
-
-    pub fn deinit(&mut self) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));
-        rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
-        rememberCleanupError(&mut firstError, self.cleanupPendingModule());
-        rememberCleanupError(&mut firstError, self.cleanupPendingObject());
-        rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
-        rememberCleanupError(&mut firstError, self.cleanupPendingExecutable());
-        rememberCleanupError(&mut firstError, self.cleanupPendingStep());
-        rememberCleanupError(&mut firstError, releaseSteps(self.allocator, &mut self.steps));
-        rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, releasePackages(self.allocator, &mut self.packages));
-        rememberCleanupError(&mut firstError, releaseExecutables(self.allocator, &mut self.executables));
-        rememberCleanupError(&mut firstError, releaseObjects(self.allocator, &mut self.objects));
-        rememberCleanupError(&mut firstError, releaseStaticArchives(self.allocator, &mut self.staticArchives));
-        rememberCleanupError(&mut firstError, releaseModules(self.allocator, &mut self.modules));
-        rememberCleanupError(&mut firstError, self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
-        rememberCleanupError(&mut firstError, self.hostTarget.deinit(self.allocator, Subject::HostTarget));
-        rememberCleanupError(
-            &mut firstError,
-            self.requestedStep.deinit(self.allocator).withBuildContext(
-                Operation::Release,
-                Subject::RequestedStep,
-            ),
-        );
-        rememberCleanupError(&mut firstError, self.paths.deinit(self.allocator));
-        cleanupResult(firstError)
-    }
-
     pub fn packageRoot(&self) fs::PathView {
         self.paths.packageRoot.view()
     }
@@ -317,7 +150,7 @@ extend Build {
         !handle
     }
 
-    fn cleanupPendingPackage(&mut self) Error!() {
+    pub(pkg) fn cleanupPendingPackage(&mut self) Error!() {
         if not self.hasPendingPackage {
             return !();
         }
@@ -826,7 +659,7 @@ extend Build {
         !handle
     }
 
-    fn cleanupPendingModule(&mut self) Error!() {
+    pub(pkg) fn cleanupPendingModule(&mut self) Error!() {
         if not self.hasPendingModule {
             return !();
         }
@@ -937,7 +770,7 @@ extend Build {
         !handle
     }
 
-    fn cleanupPendingExecutable(&mut self) Error!() {
+    pub(pkg) fn cleanupPendingExecutable(&mut self) Error!() {
         if not self.hasPendingExecutable {
             return !();
         }
@@ -1015,7 +848,7 @@ extend Build {
         !handle
     }
 
-    fn cleanupPendingObject(&mut self) Error!() {
+    pub(pkg) fn cleanupPendingObject(&mut self) Error!() {
         if not self.hasPendingObject {
             return !();
         }
@@ -1093,7 +926,7 @@ extend Build {
         !handle
     }
 
-    fn cleanupPendingStaticArchive(&mut self) Error!() {
+    pub(pkg) fn cleanupPendingStaticArchive(&mut self) Error!() {
         if not self.hasPendingStaticArchive {
             return !();
         }
@@ -1592,7 +1425,7 @@ extend Build {
         }
     }
 
-    fn cleanupPendingStep(&mut self) Error!() {
+    pub(pkg) fn cleanupPendingStep(&mut self) Error!() {
         if not self.hasPendingStep {
             return !();
         }
