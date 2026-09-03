@@ -14,4 +14,4 @@ pub fn memset(dest: &mut [u8], value: u8) ();
 
 // Loads `T` from a byte pointer without requiring alignment.
 @[builtin("load_unaligned")]
-pub fn load_unaligned[T](ptr: &u8) T;
+pub fn loadUnaligned[T](ptr: &u8) T;

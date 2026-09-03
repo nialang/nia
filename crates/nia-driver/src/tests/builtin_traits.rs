@@ -258,7 +258,7 @@ struct Flag {
 }
 
 extend Flag : Not {
-    fn logical_not(self) bool {
+    fn logicalNot(self) bool {
         not self.value
     }
 }
@@ -452,7 +452,7 @@ where S: Slice[..] {
     & items[..]
 }
 
-fn slice_mut[S](items: S) [S as SliceMut[..]]::Output
+fn sliceMut[S](items: S) [S as SliceMut[..]]::Output
 where S: SliceMut[..] {
     &mut items[..]
 }
@@ -464,7 +464,7 @@ fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
     write_index[&mut [i32]](rw, 0, y);
     write_index_i32[&mut [i32]](rw, 0, y);
     let mut a = slice[& [i32]](ro);
-    let mut b = slice_mut[&mut [i32]](rw);
+    let mut b = sliceMut[&mut [i32]](rw);
     a.len() as i32 + b.len() as i32 + x + y
 }
 "##,
@@ -480,14 +480,14 @@ fn len_and_inherent_pointer_methods_model_arrays_and_slices() {
     write(
         &root.join("main.nia"),
         r##"
-fn main(slice: & [usize], slice_mut: &mut [usize]) usize {
+fn main(slice: & [usize], sliceMut: &mut [usize]) usize {
     let mut array: [i32; 4] = [1, 2, 3, 4];
     let mut literal_ptr = (&b"nia\0").ptr();
     let mut read_ptr = slice.ptr();
-    let mut write_ptr = slice_mut.ptrMut();
+    let mut write_ptr = sliceMut.ptrMut();
     array.len()
         + slice.len()
-        + slice_mut.len()
+        + sliceMut.len()
         + read_ptr.*
         + write_ptr.*
         + literal_ptr[0] as usize
@@ -639,7 +639,7 @@ extend Cell : Deref {
 extend Cell : DerefMut {
     type Target = i32;
 
-    fn deref_mut(&mut self) &mut i32 {
+    fn derefMut(&mut self) &mut i32 {
         &mut self.value
     }
 }
@@ -655,7 +655,7 @@ extend Cell : Index[usize] {
 extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn index_mut(&mut self, index: usize) &mut i32 {
+    fn indexMut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
@@ -755,7 +755,7 @@ struct Cell {
 extend Cell : DerefMut {
     type Target = i32;
 
-    fn deref_mut(&mut self) &mut i32 {
+    fn derefMut(&mut self) &mut i32 {
         &mut self.value
     }
 }
@@ -763,7 +763,7 @@ extend Cell : DerefMut {
 extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn index_mut(&mut self, index: usize) &mut i32 {
+    fn indexMut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }

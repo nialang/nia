@@ -1030,10 +1030,10 @@ fn checks_atomic_builtin_ordering_rules() {
         r#"
 fn main() () {
     let mut value = 0i32;
-    _ = std::builtin::atomic_load[i32](&value, 3usize);
-    std::builtin::atomic_store[i32](&mut value, 1i32, 2usize);
-    _ = std::builtin::cmpxchg_strong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
-    _ = std::builtin::cmpxchg_strong[i32](&mut value, 0i32, 1i32, 3usize, 2usize);
+    _ = std::builtin::atomicLoad[i32](&value, 3usize);
+    std::builtin::atomicStore[i32](&mut value, 1i32, 2usize);
+    _ = std::builtin::cmpxchgStrong[i32](&mut value, 0i32, 1i32, 1usize, 3usize);
+    _ = std::builtin::cmpxchgStrong[i32](&mut value, 0i32, 1i32, 3usize, 2usize);
     std::builtin::fence(1usize);
 }
 "#,
@@ -1093,8 +1093,8 @@ struct Point {
 
 fn main() () {
     let mut point = Point { x: 1 };
-    _ = std::builtin::atomic_load[Point](&point, 1usize);
-    _ = std::builtin::atomic_rmw[Point](&mut point, 1usize, Point { x: 2 }, 1usize);
+    _ = std::builtin::atomicLoad[Point](&point, 1usize);
+    _ = std::builtin::atomicRmw[Point](&mut point, 1usize, Point { x: 2 }, 1usize);
 }
 "#,
     );
@@ -1209,11 +1209,11 @@ fn checks_load_unaligned_builtin() {
     let checked = pipeline(
         r#"
 fn load(ptr: &u8) u8x8 {
-    std::builtin::load_unaligned[u8x8](ptr)
+    std::builtin::loadUnaligned[u8x8](ptr)
 }
 
 fn invalid_ptr(ptr: &u16) u8x8 {
-    std::builtin::load_unaligned[u8x8](ptr)
+    std::builtin::loadUnaligned[u8x8](ptr)
 }
 "#,
     );

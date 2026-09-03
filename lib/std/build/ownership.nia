@@ -10,17 +10,17 @@ static mut nextBuildOwnerId: usize = 1;
 static mut buildOwnerIdExhausted: usize = 0;
 
 pub(pkg) fn allocateBuildOwnerId() ?usize {
-    if atomicBuiltin::atomic_load[usize](&buildOwnerIdExhausted, atomic::SeqCst) != 0 {
+    if atomicBuiltin::atomicLoad[usize](&buildOwnerIdExhausted, atomic::SeqCst) != 0 {
         return null;
     }
-    let ownerId = atomicBuiltin::atomic_rmw[usize](
+    let ownerId = atomicBuiltin::atomicRmw[usize](
         &mut nextBuildOwnerId,
         atomic::Add,
         1,
         atomic::Monotonic,
     );
     if ownerId == 0 or ownerId == usize::MAX {
-        atomicBuiltin::atomic_store[usize](&mut buildOwnerIdExhausted, 1, atomic::SeqCst);
+        atomicBuiltin::atomicStore[usize](&mut buildOwnerIdExhausted, 1, atomic::SeqCst);
         null
     } else {
         ?ownerId

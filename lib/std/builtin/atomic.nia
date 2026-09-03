@@ -2,23 +2,23 @@
 
 // Atomic load.
 @[builtin("atomic_load")]
-pub fn atomic_load[T](ptr: &T, order: usize) T;
+pub fn atomicLoad[T](ptr: &T, order: usize) T;
 
 // Atomic store.
 @[builtin("atomic_store")]
-pub fn atomic_store[T](ptr: &mut T, value: T, order: usize) ();
+pub fn atomicStore[T](ptr: &mut T, value: T, order: usize) ();
 
 // Atomic read-modify-write.
 @[builtin("atomic_rmw")]
-pub fn atomic_rmw[T](ptr: &mut T, op: usize, value: T, order: usize) T;
+pub fn atomicRmw[T](ptr: &mut T, op: usize, value: T, order: usize) T;
 
 // Strong atomic compare-and-exchange.
 @[builtin("cmpxchg_strong")]
-pub fn cmpxchg_strong[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
+pub fn cmpxchgStrong[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
 
 // Weak atomic compare-and-exchange.
 @[builtin("cmpxchg_weak")]
-pub fn cmpxchg_weak[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
+pub fn cmpxchgWeak[T](ptr: &mut T, expected: T, desired: T, success: usize, failure: usize) ?T;
 
 // Atomic fence.
 @[builtin("fence")]

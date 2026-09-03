@@ -534,7 +534,7 @@ impl BuiltinFunction {
         Self::SliceLen,
     ];
 
-    /// Parses a canonical builtin function name.
+    /// Parses the stable operation name used by `@[builtin("...")]`.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "error" => Some(Self::ConstError),
@@ -567,7 +567,7 @@ impl BuiltinFunction {
         }
     }
 
-    /// Returns the canonical source-level function name.
+    /// Returns the stable operation name used by `@[builtin("...")]`.
     pub fn name(self) -> &'static str {
         match self {
             Self::ConstError => "error",
@@ -596,6 +596,19 @@ impl BuiltinFunction {
             Self::Embed => "embed",
             Self::CharFromU32 => "charFromU32",
             Self::SliceLen => "sliceLen",
+        }
+    }
+
+    /// Returns the public Nia spelling of this builtin function.
+    pub fn source_name(self) -> &'static str {
+        match self {
+            Self::LoadUnaligned => "loadUnaligned",
+            Self::AtomicLoad => "atomicLoad",
+            Self::AtomicStore => "atomicStore",
+            Self::AtomicRmw => "atomicRmw",
+            Self::CmpxchgStrong => "cmpxchgStrong",
+            Self::CmpxchgWeak => "cmpxchgWeak",
+            _ => self.name(),
         }
     }
 
@@ -969,23 +982,23 @@ impl BuiltinTraitMethod {
         ),
         (
             Self::Not,
-            BuiltinTraitMethodDescriptor::value_operator("logical_not", BuiltinTrait::Not, 1),
+            BuiltinTraitMethodDescriptor::value_operator("logicalNot", BuiltinTrait::Not, 1),
         ),
         (
             Self::BitNot,
-            BuiltinTraitMethodDescriptor::value_operator("bit_not", BuiltinTrait::BitNot, 1),
+            BuiltinTraitMethodDescriptor::value_operator("bitNot", BuiltinTrait::BitNot, 1),
         ),
         (
             Self::BitAnd,
-            BuiltinTraitMethodDescriptor::value_operator("bit_and", BuiltinTrait::BitAnd, 2),
+            BuiltinTraitMethodDescriptor::value_operator("bitAnd", BuiltinTrait::BitAnd, 2),
         ),
         (
             Self::BitOr,
-            BuiltinTraitMethodDescriptor::value_operator("bit_or", BuiltinTrait::BitOr, 2),
+            BuiltinTraitMethodDescriptor::value_operator("bitOr", BuiltinTrait::BitOr, 2),
         ),
         (
             Self::BitXor,
-            BuiltinTraitMethodDescriptor::value_operator("bit_xor", BuiltinTrait::BitXor, 2),
+            BuiltinTraitMethodDescriptor::value_operator("bitXor", BuiltinTrait::BitXor, 2),
         ),
         (
             Self::Shl,
@@ -1032,7 +1045,7 @@ impl BuiltinTraitMethod {
         (
             Self::DerefMut,
             BuiltinTraitMethodDescriptor::place(
-                "deref_mut",
+                "derefMut",
                 BuiltinTrait::DerefMut,
                 1,
                 ReceiverKind::Value,
@@ -1052,7 +1065,7 @@ impl BuiltinTraitMethod {
         (
             Self::IndexMut,
             BuiltinTraitMethodDescriptor::place(
-                "index_mut",
+                "indexMut",
                 BuiltinTrait::IndexMut,
                 2,
                 ReceiverKind::Value,
@@ -1072,7 +1085,7 @@ impl BuiltinTraitMethod {
         (
             Self::SliceMut,
             BuiltinTraitMethodDescriptor::place(
-                "slice_mut",
+                "sliceMut",
                 BuiltinTrait::SliceMut,
                 2,
                 ReceiverKind::Ref,

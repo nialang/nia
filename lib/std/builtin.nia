@@ -31,11 +31,11 @@ using pkg::builtin::simd;
 using pkg::builtin::target;
 
 pub using atomic::{
-    atomic_load,
-    atomic_rmw,
-    atomic_store,
-    cmpxchg_strong,
-    cmpxchg_weak,
+    atomicLoad,
+    atomicRmw,
+    atomicStore,
+    cmpxchgStrong,
+    cmpxchgWeak,
     fence,
 };
 pub using bits::{clz, ctz, popcount};
@@ -43,7 +43,7 @@ pub using control::{AsmConfig, AsmInputs, AsmOutputs, asm, embed, error, trap};
 pub using iter::{Iterable, Iterator};
 pub using layout::{align, offset, size};
 pub using marker::{Sized, Unsized};
-pub using mem::{load_unaligned, memcpy, memmove, memset};
+pub using mem::{loadUnaligned, memcpy, memmove, memset};
 pub using ops::{
     Add,
     BitAnd,

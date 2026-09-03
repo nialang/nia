@@ -1051,7 +1051,7 @@ fn emits_unaligned_vector_load_builtin() {
         &main,
         r#"
 fn load(ptr: &u8) u8x8 {
-    std::builtin::load_unaligned[u8x8](ptr)
+    std::builtin::loadUnaligned[u8x8](ptr)
 }
 "#,
     )

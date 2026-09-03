@@ -44,35 +44,35 @@ pub trait Neg {
 
 @[builtin("Not")]
 pub trait Not {
-    fn logical_not(self) bool;
+    fn logicalNot(self) bool;
 }
 
 @[builtin("BitNot")]
 pub trait BitNot {
     type Output;
 
-    fn bit_not(self) [Self as BitNot]::Output;
+    fn bitNot(self) [Self as BitNot]::Output;
 }
 
 @[builtin("BitAnd")]
 pub trait BitAnd[Rhs] {
     type Output;
 
-    fn bit_and(self, rhs: Rhs) [Self as BitAnd[Rhs]]::Output;
+    fn bitAnd(self, rhs: Rhs) [Self as BitAnd[Rhs]]::Output;
 }
 
 @[builtin("BitOr")]
 pub trait BitOr[Rhs] {
     type Output;
 
-    fn bit_or(self, rhs: Rhs) [Self as BitOr[Rhs]]::Output;
+    fn bitOr(self, rhs: Rhs) [Self as BitOr[Rhs]]::Output;
 }
 
 @[builtin("BitXor")]
 pub trait BitXor[Rhs] {
     type Output;
 
-    fn bit_xor(self, rhs: Rhs) [Self as BitXor[Rhs]]::Output;
+    fn bitXor(self, rhs: Rhs) [Self as BitXor[Rhs]]::Output;
 }
 
 @[builtin("Shl")]

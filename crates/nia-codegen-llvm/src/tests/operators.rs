@@ -169,7 +169,7 @@ extend Number : Neg {
 extend Number : BitNot {
     type Output = Number;
 
-    fn bit_not(self) Number {
+    fn bitNot(self) Number {
         Self { value: ~self.value }
     }
 }
@@ -191,7 +191,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', "neg");
-    assert_contains_mangled_symbol(ir, '@', "bit_not");
+    assert_contains_mangled_symbol(ir, '@', "bitNot");
     assert!(ir.contains("call void @"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }

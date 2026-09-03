@@ -66,7 +66,7 @@ extend Cell : Deref {
 extend Cell : DerefMut {
     type Target = i32;
 
-    fn deref_mut(&mut self) &mut i32 {
+    fn derefMut(&mut self) &mut i32 {
         &mut self.value
     }
 }
@@ -82,7 +82,7 @@ extend Cell : Index[usize] {
 extend Cell : IndexMut[usize] {
     type Output = i32;
 
-    fn index_mut(&mut self, index: usize) &mut i32 {
+    fn indexMut(&mut self, index: usize) &mut i32 {
         &mut self.value
     }
 }
@@ -106,9 +106,9 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', "deref");
-    assert_contains_mangled_symbol(ir, '@', "deref_mut");
+    assert_contains_mangled_symbol(ir, '@', "derefMut");
     assert_contains_mangled_symbol(ir, '@', "index");
-    assert_contains_mangled_symbol(ir, '@', "index_mut");
+    assert_contains_mangled_symbol(ir, '@', "indexMut");
     assert!(ir.contains("ret i32"), "{ir}");
 }
 
