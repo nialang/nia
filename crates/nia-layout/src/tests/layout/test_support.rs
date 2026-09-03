@@ -21,6 +21,8 @@ fn compute_test_const(
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-layout-test/main.nia");
     let const_module = lower_module_const(ConstModuleInput {
+        type_store,
+        defs_for_module: None,
         active_item_tree: &active_item_tree,
         defs,
         signatures,

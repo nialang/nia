@@ -74,6 +74,8 @@ pub(super) fn check_source_for_target(
         semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
     let source_path = SourcePath::new("/tmp/nia-const-check-test/main.nia");
     let const_module = lower_module_const(ConstModuleInput {
+        type_store: &type_store,
+        defs_for_module: None,
         active_item_tree: &active_item_tree,
         defs: &defs,
         signatures: &signatures,
