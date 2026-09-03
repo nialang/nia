@@ -303,6 +303,7 @@ impl BodyInputValidator<'_, '_> {
             | TypedExprKind::Function(_)
             | TypedExprKind::FunctionInstance { .. }
             | TypedExprKind::ClosureFunctionPointer { .. }
+            | TypedExprKind::FunctionCallable { .. }
             | TypedExprKind::BuiltinValue(_)
             | TypedExprKind::Trap
             | TypedExprKind::MemoryIntrinsic(_)

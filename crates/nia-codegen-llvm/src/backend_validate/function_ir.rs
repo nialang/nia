@@ -1021,6 +1021,22 @@ impl BackendValidator<'_> {
             FunctionExprKind::CallableCoercion { state, closure_id } => {
                 self.validate_callable_coercion(expr.ty, state, *closure_id, expr.span);
             }
+            FunctionExprKind::FunctionCallable { function } => {
+                self.validate_expr(function);
+                if !matches!(
+                    self.ty_kind(function.ty),
+                    Some(TyKind::FunctionPointer {
+                        is_variadic: false,
+                        ..
+                    })
+                ) || !matches!(self.ty_kind(expr.ty), Some(TyKind::Callable { .. }))
+                {
+                    self.invalid_projection(
+                        expr.span,
+                        "function callable has incompatible source or target type",
+                    );
+                }
+            }
             FunctionExprKind::Unary { op, expr: inner } => {
                 self.validate_unary(expr.ty, *op, inner, expr.span);
             }

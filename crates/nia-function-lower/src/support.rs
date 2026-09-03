@@ -885,6 +885,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::ErrorOk { expr: inner }
                 | TypedExprKind::ErrorErr { expr: inner }
                 | TypedExprKind::Try { expr: inner, .. }
+                | TypedExprKind::FunctionCallable { function: inner }
                 | TypedExprKind::LoadUnaligned { ptr: inner, .. }
                 | TypedExprKind::Splat { value: inner }
                 | TypedExprKind::Bitmask { vector: inner }

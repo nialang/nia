@@ -24,7 +24,7 @@ pub enum CaseStatus: i32 {
 // name or callback, so a suite can keep its case table in static storage.
 pub struct Case {
     name: &[char],
-    callback: &fn() Error!(),
+    callback: &Fn() Error!(),
 }
 
 pub struct CaseResult {
@@ -51,7 +51,7 @@ fn ignoreResult(result: CaseResult) () {
 }
 
 extend Case {
-    pub fn init(name: &[char], callback: &fn() Error!()) Case {
+    pub fn init(name: &[char], callback: &Fn() Error!()) Case {
         .{ name: name, callback: callback }
     }
 

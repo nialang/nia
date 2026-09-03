@@ -119,6 +119,7 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
         | TypedExprKind::TraitObjectUpcast { expr: inner, .. }
         | TypedExprKind::TraitObjectCoercion { expr: inner, .. }
         | TypedExprKind::CallableCoercion { state: inner, .. }
+        | TypedExprKind::FunctionCallable { function: inner }
         | TypedExprKind::Unary { expr: inner, .. }
         | TypedExprKind::Field { lhs: inner, .. }
         | TypedExprKind::TupleField { lhs: inner, .. } => walk_expr(inner, visit),

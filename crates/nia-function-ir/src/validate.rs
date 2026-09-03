@@ -513,6 +513,9 @@ impl<'a> FunctionIrValidator<'a> {
                 self.validate_value_expr(inner)?
             }
             FunctionExprKind::CallableCoercion { state, .. } => self.validate_value_expr(state)?,
+            FunctionExprKind::FunctionCallable { function } => {
+                self.validate_value_expr(function)?
+            }
             FunctionExprKind::Discard(inner) => self.validate_expr(inner)?,
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &range.start {

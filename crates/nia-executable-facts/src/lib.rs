@@ -707,6 +707,9 @@ fn collect_typed_expr_refs(
                 source_def_id: None,
             });
         }
+        TypedExprKind::FunctionCallable { function } => {
+            collect_typed_expr_refs(module, function, refs);
+        }
         TypedExprKind::Field { lhs, .. } => {
             collect_typed_expr_refs(module, lhs, refs);
         }

@@ -959,6 +959,10 @@ impl<'a> Encoder<'a> {
                 self.global_def(closure_id.owner);
                 self.u32(closure_id.ordinal);
             }
+            FunctionExprKind::FunctionCallable { function } => {
+                self.tag(59);
+                self.expr(function);
+            }
             FunctionExprKind::ClosureFunctionPointer { closure_id } => {
                 self.tag(58);
                 self.global_def(closure_id.owner);

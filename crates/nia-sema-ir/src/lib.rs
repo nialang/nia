@@ -402,6 +402,8 @@ pub struct SemanticFacts {
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
     /// Pointer-to-array coercions owned by module-level expressions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Function-pointer to callable-view coercions owned by module-level expressions.
+    pub node_function_pointer_to_callable_coercions: NodeMap<FunctionPointerToCallableCoercion>,
     /// Trait-object coercions owned by module-level expressions.
     pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
     /// Trait-object upcasts owned by module-level expressions.
@@ -440,6 +442,9 @@ pub struct SemanticFactsBuilder {
     /// Module-level pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Module-level function-pointer to callable-view coercions.
+    pub node_function_pointer_to_callable_coercions:
+        HashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
     /// Module-level trait-object coercions.
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     /// Module-level trait-object upcasts.
@@ -505,6 +510,10 @@ impl SemanticFacts {
             facts.node_pointer_array_to_slice_coercions,
         );
         extend_node_map(
+            &mut self.node_function_pointer_to_callable_coercions,
+            facts.node_function_pointer_to_callable_coercions,
+        );
+        extend_node_map(
             &mut self.node_trait_object_coercions,
             facts.node_trait_object_coercions,
         );
@@ -547,6 +556,10 @@ impl SemanticFacts {
                 .collect(),
             node_pointer_array_to_slice_coercions: self
                 .node_pointer_array_to_slice_coercions
+                .into_entries()
+                .collect(),
+            node_function_pointer_to_callable_coercions: self
+                .node_function_pointer_to_callable_coercions
                 .into_entries()
                 .collect(),
             node_trait_object_coercions: self.node_trait_object_coercions.into_entries().collect(),
@@ -770,6 +783,10 @@ impl SemanticFactsBuilder {
                 store,
                 self.node_pointer_array_to_slice_coercions,
             ),
+            node_function_pointer_to_callable_coercions: node_map_from_entries(
+                store,
+                self.node_function_pointer_to_callable_coercions,
+            ),
             node_trait_object_coercions: node_map_from_entries(
                 store,
                 self.node_trait_object_coercions,
@@ -807,6 +824,8 @@ pub struct FunctionSemanticFacts {
     pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    /// Function-pointer to callable-view coercions.
+    pub node_function_pointer_to_callable_coercions: NodeMap<FunctionPointerToCallableCoercion>,
     /// Trait-object coercions.
     pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
     /// Trait-object upcasts.
@@ -843,6 +862,9 @@ pub struct FunctionSemanticFactsBuilder {
     /// Pointer-to-array coercions.
     pub node_pointer_array_to_slice_coercions:
         HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    /// Function-pointer to callable-view coercions.
+    pub node_function_pointer_to_callable_coercions:
+        HashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
     /// Trait-object coercions.
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     /// Trait-object upcasts.
@@ -890,6 +912,10 @@ impl FunctionSemanticFacts {
                 .node_pointer_array_to_slice_coercions
                 .into_entries()
                 .collect(),
+            node_function_pointer_to_callable_coercions: self
+                .node_function_pointer_to_callable_coercions
+                .into_entries()
+                .collect(),
             node_trait_object_coercions: self.node_trait_object_coercions.into_entries().collect(),
             node_trait_object_upcasts: self.node_trait_object_upcasts.into_entries().collect(),
             node_builtin_values: self.node_builtin_values.into_entries().collect(),
@@ -929,6 +955,10 @@ impl FunctionSemanticFactsBuilder {
             node_pointer_array_to_slice_coercions: node_map_from_entries(
                 store,
                 self.node_pointer_array_to_slice_coercions,
+            ),
+            node_function_pointer_to_callable_coercions: node_map_from_entries(
+                store,
+                self.node_function_pointer_to_callable_coercions,
             ),
             node_trait_object_coercions: node_map_from_entries(
                 store,
@@ -1027,6 +1057,15 @@ pub struct PointerArrayToSliceCoercion {
     pub slice_ty: InternedTyId,
     /// Whether the resulting slice forbids mutation.
     pub is_readonly: bool,
+}
+
+/// Coercion from a thin function pointer to a callable view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FunctionPointerToCallableCoercion {
+    /// Source function-pointer type.
+    pub function_ty: InternedTyId,
+    /// Result callable-view type.
+    pub callable_ty: InternedTyId,
 }
 
 /// Coercion from a concrete value to a trait object.

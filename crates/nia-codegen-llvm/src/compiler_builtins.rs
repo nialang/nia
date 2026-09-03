@@ -259,6 +259,7 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::CallableCoercion { state: expr, .. } => {
                 self.collect_expr(index, expr)
             }
+            FunctionExprKind::FunctionCallable { function } => self.collect_expr(index, function),
             FunctionExprKind::Cast {
                 expr: inner,
                 ty: target_ty,

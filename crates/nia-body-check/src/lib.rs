@@ -73,10 +73,11 @@ use nia_mangle::mangle_symbol_id;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
-    AssociatedConstProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
-    FunctionSemanticFactsBuilder, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
-    SemanticFacts, SemanticFactsBuilder, SemanticTraitMethodRef, SemanticUseTable,
-    SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
+    AssociatedConstProjection, BracketSuffixResolution, BuiltinValue,
+    FunctionPointerToCallableCoercion, FunctionReference, FunctionSemanticFactsBuilder,
+    GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, SemanticFacts,
+    SemanticFactsBuilder, SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse,
+    TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -175,6 +176,8 @@ struct BodyChecker<'a> {
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
     node_pointer_array_to_slice_coercions: HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
+    node_function_pointer_to_callable_coercions:
+        HashMap<VersionedNodeKey, FunctionPointerToCallableCoercion>,
     node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,

@@ -503,6 +503,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::CallableCoercion { closure_id, state } => {
                 self.emit_callable_coercion(expr.span, *closure_id, state)
             }
+            FunctionExprKind::FunctionCallable { function } => {
+                self.emit_function_callable(expr.span, function)
+            }
             FunctionExprKind::ClosureFunctionPointer { closure_id } => {
                 let key = nia_backend_ir::BackendClosureEntryKey {
                     closure_id: *closure_id,
@@ -909,6 +912,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 "callable.entry",
             )
             .map_err(|_| self.error(span, "failed to build callable entry view"))
+    }
+
+    fn emit_function_callable(
+        &mut self,
+        span: Span,
+        function: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let function = match &function.kind {
+            FunctionExprKind::Unary { expr: inner, .. } => self
+                .emit_function_pointer(span, inner)?
+                .into_pointer_value()?,
+            _ => self.emit_expr(function)?.into_pointer_value()?,
+        };
+        let ptr_ty = self.module.context.ptr_type(Default::default());
+        let result = self.module.callable_type()?.get_undef()?;
+        let result = self
+            .builder
+            .build_insert_value(result, ptr_ty.const_null()?, 0, "callable.context")
+            .map_err(|_| self.error(span, "failed to build function callable"))?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "failed to build function callable"))?;
+        self.builder
+            .build_insert_value(result, function, 1, "callable.function")
+            .map_err(|_| self.error(span, "failed to build function callable"))
     }
 
     fn emit_trait_object_data_ptr(

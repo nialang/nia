@@ -338,6 +338,9 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::CallableCoercion { state, .. } => {
             collect_function_refs_from_expr(state, types, refs);
         }
+        FunctionExprKind::FunctionCallable { function } => {
+            collect_function_refs_from_expr(function, types, refs);
+        }
         FunctionExprKind::StaticArrayPointer {
             allocation, array, ..
         } => {

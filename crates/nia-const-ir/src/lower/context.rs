@@ -228,7 +228,8 @@ impl ConstLowerContext for EarlyConstLowerInputs<'_> {
     }
 
     fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
-        self.omitted_associated_types.and_then(|map| map.get(key).copied())
+        self.omitted_associated_types
+            .and_then(|map| map.get(key).copied())
     }
 
     fn resolve_name(
@@ -316,7 +317,8 @@ impl ConstLowerContext for ResolvedConstLowerInputs<'_> {
     }
 
     fn probe_omitted_associated_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
-        self.omitted_associated_types.and_then(|map| map.get(key).copied())
+        self.omitted_associated_types
+            .and_then(|map| map.get(key).copied())
     }
 
     fn resolve_name(

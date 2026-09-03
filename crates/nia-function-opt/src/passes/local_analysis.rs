@@ -140,6 +140,7 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::Field { lhs: expr, .. }
             | FunctionExprKind::TupleField { value: expr, .. } => self.collect_expr(expr),
             FunctionExprKind::CallableCoercion { state, .. } => self.collect_expr(state),
+            FunctionExprKind::FunctionCallable { function } => self.collect_expr(function),
             FunctionExprKind::AddrOf(place) => {
                 if matches!(self.kind, LocalUseKind::Addressed) {
                     self.collect_addressed_place(place);

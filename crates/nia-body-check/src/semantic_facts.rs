@@ -251,6 +251,20 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(super) fn record_function_pointer_to_callable_coercion(
+        &mut self,
+        expr: &Expr,
+        coercion: FunctionPointerToCallableCoercion,
+    ) {
+        self.node_function_pointer_to_callable_coercions
+            .insert(expr.node_key.clone(), coercion);
+        if let Some(facts) = self.current_function_facts() {
+            facts
+                .node_function_pointer_to_callable_coercions
+                .insert(expr.node_key.clone(), coercion);
+        }
+    }
+
     pub(super) fn record_trait_object_node_coercion(
         &mut self,
         expr: &Expr,

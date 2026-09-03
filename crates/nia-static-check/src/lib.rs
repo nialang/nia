@@ -266,9 +266,7 @@ impl StaticChecker<'_> {
                 .iter()
                 .find_map(|field| self.static_init_reject_reason(&field.value))
                 .or(Some("omitted aggregate requires semantic elaboration")),
-            ExprKind::OmittedMember { .. } => {
-                Some("omitted member requires semantic elaboration")
-            }
+            ExprKind::OmittedMember { .. } => Some("omitted member requires semantic elaboration"),
             ExprKind::Unary { op, expr: inner } => match op {
                 UnaryOp::Neg if matches!(inner.kind, ExprKind::Float(_)) => None,
                 UnaryOp::Neg => self.static_int_expr_reject_reason(expr),

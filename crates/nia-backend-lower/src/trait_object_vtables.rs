@@ -218,6 +218,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.collect_trait_object_vtables_from_expr(state, out, seen);
             }
+            FunctionExprKind::FunctionCallable { function } => {
+                self.collect_trait_object_vtables_from_expr(function, out, seen);
+            }
             FunctionExprKind::ClosureFunctionPointer { .. } => {}
             FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }

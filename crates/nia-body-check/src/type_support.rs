@@ -9,7 +9,7 @@ use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, InternedTyId};
-use nia_sema_ir::PointerArrayToSliceCoercion;
+use nia_sema_ir::{FunctionPointerToCallableCoercion, PointerArrayToSliceCoercion};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_trait_solve::TraitSolverContext;
@@ -579,6 +579,18 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         if let Some(coerced) = self.coerce_mutable_pointer_to_readonly(expected, actual) {
+            self.record_expr_node_type(expr, coerced);
+            return;
+        }
+        if let Some(coerced) = self.coerce_function_pointer_to_callable(expected, actual) {
+            let function_ty = self.normalize_aliases_in_type(actual);
+            self.record_function_pointer_to_callable_coercion(
+                expr,
+                FunctionPointerToCallableCoercion {
+                    function_ty,
+                    callable_ty: coerced,
+                },
+            );
             self.record_expr_node_type(expr, coerced);
             return;
         }
@@ -1545,6 +1557,7 @@ impl<'a> BodyChecker<'a> {
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),
             node_pointer_array_to_slice_coercions: HashMap::new(),
+            node_function_pointer_to_callable_coercions: HashMap::new(),
             node_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),
             node_builtin_values: HashMap::new(),

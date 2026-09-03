@@ -346,6 +346,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CallableCoercion { state, .. } => {
                 self.inline_leaf_calls_in_expr(state, function_candidates, instance_candidates);
             }
+            FunctionExprKind::FunctionCallable { function } => {
+                self.inline_leaf_calls_in_expr(function, function_candidates, instance_candidates);
+            }
             FunctionExprKind::ClosureFunctionPointer { .. } => {}
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
@@ -993,6 +996,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
         | FunctionExprKind::CallableCoercion { .. }
+        | FunctionExprKind::FunctionCallable { .. }
         | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::Call { .. } => return None,
     }
@@ -1199,6 +1203,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
         | FunctionExprKind::CallableCoercion { .. }
+        | FunctionExprKind::FunctionCallable { .. }
         | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::Call { .. } => return None,
     };
