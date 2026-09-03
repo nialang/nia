@@ -391,8 +391,8 @@ extend mem::Error : error::IntoError[TextError] {
 extend TextError : error::IntoError[TextFormatError] {
     const fn into_error(self) TextFormatError {
         match self {
-            TextError::InvalidUtf8(error) => TextFormatError::InvalidUtf8(error),
-            TextError::Allocation(error) => TextFormatError::Allocation(error),
+            .InvalidUtf8(error) => TextFormatError::InvalidUtf8(error),
+            .Allocation(error) => TextFormatError::Allocation(error),
         }
     }
 }

@@ -171,8 +171,8 @@ extend ChildState {
 
     fn pid(&self) ProcessId {
         match self.kind {
-            ChildStateKind::Running => self.payload.running.pid(),
-            ChildStateKind::Exited => self.payload.exited.pid(),
+            .Running => self.payload.running.pid(),
+            .Exited => self.payload.exited.pid(),
         }
     }
 
@@ -182,8 +182,8 @@ extend ChildState {
 
     fn status(&self) ?os::WaitStatus {
         match self.kind {
-            ChildStateKind::Running => null,
-            ChildStateKind::Exited => ?self.payload.exited.status(),
+            .Running => null,
+            .Exited => ?self.payload.exited.status(),
         }
     }
 }

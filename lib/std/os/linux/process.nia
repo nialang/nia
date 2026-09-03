@@ -156,7 +156,7 @@ fn write_spawn_error(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno)
                 }
                 written += amount;
             },
-            Errno::Interrupted! => {},
+            .Interrupted! => {},
             error! => {
                 _ = error;
                 return;
@@ -174,7 +174,7 @@ fn read_spawn_error(fd: types::FileDescriptor) SpawnError! ?SpawnError {
             !amount => {
                 amount
             },
-            Errno::Interrupted! => {
+            .Interrupted! => {
                 continue;
             },
             error! => {
@@ -223,8 +223,8 @@ fn reap_spawn_failure(pid: ProcessId) Errno!() {
                 _ = status;
                 return !();
             },
-            Errno::Interrupted! => {},
-            Errno::NoChild! => {
+            .Interrupted! => {},
+            .NoChild! => {
                 // The kernel confirms that no waitable child owner remains.
                 return !();
             },

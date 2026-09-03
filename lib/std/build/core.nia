@@ -959,19 +959,19 @@ extend Build {
     fn compilerModuleIndexForStep(&self, index: usize) ?usize {
         let step = self.steps.asSlice()[index];
         match step.kind {
-            StepKind::CheckExecutable => ?self.executables.asSlice()[
+            .CheckExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
             ].rootModule.index(),
-            StepKind::EmitExecutable => ?self.executables.asSlice()[
+            .EmitExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
             ].rootModule.index(),
-            StepKind::EmitObject => ?self.objects.asSlice()[
+            .EmitObject => ?self.objects.asSlice()[
                 step.payload.object.target.index()
             ].rootModule.index(),
-            StepKind::EmitStaticArchive => ?self.staticArchives.asSlice()[
+            .EmitStaticArchive => ?self.staticArchives.asSlice()[
                 step.payload.staticArchive.target.index()
             ].rootModule.index(),
-            StepKind::TestExecutable => ?self.executables.asSlice()[
+            .TestExecutable => ?self.executables.asSlice()[
                 step.payload.runExecutable.target.index()
             ].rootModule.index(),
             _ => null,

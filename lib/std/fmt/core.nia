@@ -145,19 +145,19 @@ extend FormatSpec {
 
     pub fn validate(&self) Error!() {
         match self.presentation {
-            FormatPresentation::Display => {},
-            FormatPresentation::LowerHex => {},
-            FormatPresentation::UpperHex => {},
-            FormatPresentation::Binary => {},
-            FormatPresentation::Octal => {},
-            FormatPresentation::Pointer => {},
+            .Display => {},
+            .LowerHex => {},
+            .UpperHex => {},
+            .Binary => {},
+            .Octal => {},
+            .Pointer => {},
             _ => return Error::InvalidTemplate!,
         }
         match self.alignment {
-            FormatAlignment::None => {},
-            FormatAlignment::Left => {},
-            FormatAlignment::Right => {},
-            FormatAlignment::Center => {},
+            .None => {},
+            .Left => {},
+            .Right => {},
+            .Center => {},
             _ => return Error::InvalidTemplate!,
         }
         !()
@@ -251,8 +251,8 @@ extend Formatter {
         spec.validate().?;
         let padding = self.paddingWidth(content_width, spec);
         match spec.alignment() {
-            FormatAlignment::Left => !(),
-            FormatAlignment::Center => self.writeFill(spec.fill(), padding / 2usize),
+            .Left => !(),
+            .Center => self.writeFill(spec.fill(), padding / 2usize),
             _ => self.writeFill(spec.fill(), padding),
         }
     }
@@ -261,8 +261,8 @@ extend Formatter {
         spec.validate().?;
         let padding = self.paddingWidth(content_width, spec);
         match spec.alignment() {
-            FormatAlignment::Left => self.writeFill(spec.fill(), padding),
-            FormatAlignment::Center => self.writeFill(spec.fill(), padding - (padding / 2usize)),
+            .Left => self.writeFill(spec.fill(), padding),
+            .Center => self.writeFill(spec.fill(), padding - (padding / 2usize)),
             _ => !(),
         }
     }
