@@ -1,4 +1,4 @@
-// Small, composable assertions for explicit test executables.
+// Small, composable assertions and an explicit in-process test runner.
 //
 // A failed assertion is an ordinary typed error. Test runners can attach
 // context, accumulate failures, or convert it to their own suite result
@@ -11,6 +11,166 @@ pub enum Error: i32 {
     ValuesEqual = 2,
     ValuesNotEqual = 3,
     _
+}
+
+pub enum CaseStatus: i32 {
+    Passed = 0,
+    Failed = 1,
+    Skipped = 2,
+    _
+}
+
+// One named test function. The runner borrows this record and never owns the
+// name or callback, so a suite can keep its case table in static storage.
+pub struct Case {
+    name: &[char],
+    callback: &fn() Error!(),
+}
+
+pub struct CaseResult {
+    name: &[char],
+    status: CaseStatus,
+    error: ?Error,
+}
+
+pub struct RunSummary {
+    total: usize,
+    passed: usize,
+    failed: usize,
+    skipped: usize,
+}
+
+pub struct Runner {
+    cases: &[Case],
+    failFast: bool,
+}
+
+fn ignoreResult(result: CaseResult) () {
+    _ = result;
+    ()
+}
+
+extend Case {
+    pub fn init(name: &[char], callback: &fn() Error!()) Case {
+        .{ name: name, callback: callback }
+    }
+
+    pub fn name(&self) &[char] {
+        self.name
+    }
+
+    pub fn run(&self) CaseResult {
+        match (self.callback)() {
+            !() => .{ name: self.name, status: .Passed, error: null },
+            error! => .{ name: self.name, status: .Failed, error: ?error },
+        }
+    }
+}
+
+extend CaseResult {
+    fn skipped(name: &[char]) CaseResult {
+        .{ name: name, status: .Skipped, error: null }
+    }
+
+    pub fn name(&self) &[char] {
+        self.name
+    }
+
+    pub fn status(&self) CaseStatus {
+        self.status
+    }
+
+    pub fn error(&self) ?Error {
+        self.error
+    }
+
+    pub fn isPassed(&self) bool {
+        match self.status {
+            .Passed => true,
+            _ => false,
+        }
+    }
+
+    pub fn isFailed(&self) bool {
+        match self.status {
+            .Failed => true,
+            _ => false,
+        }
+    }
+
+    pub fn isSkipped(&self) bool {
+        match self.status {
+            .Skipped => true,
+            _ => false,
+        }
+    }
+}
+
+extend RunSummary {
+    pub fn init() RunSummary {
+        .{ total: 0, passed: 0, failed: 0, skipped: 0 }
+    }
+
+    pub fn total(&self) usize {
+        self.total
+    }
+
+    pub fn passed(&self) usize {
+        self.passed
+    }
+
+    pub fn failed(&self) usize {
+        self.failed
+    }
+
+    pub fn skipped(&self) usize {
+        self.skipped
+    }
+
+    pub fn isSuccessful(&self) bool {
+        self.failed == 0
+    }
+}
+
+extend Runner {
+    pub fn init(cases: &[Case]) Runner {
+        .{ cases: cases, failFast: false }
+    }
+
+    pub fn withFailFast(self) Runner {
+        .{ cases: self.cases, failFast: true }
+    }
+
+    pub fn run(self) RunSummary {
+        self.runWith(&ignoreResult)
+    }
+
+    // Run every selected case and report each result to a caller-owned
+    // callback. The callback is borrowed for the duration of this call.
+    pub fn runWith(self, reporter: &fn(CaseResult) ()) RunSummary {
+        let mut summary = RunSummary::init();
+        let mut index: usize = 0;
+        while index < self.cases.len() {
+            let case = &self.cases[index];
+            if self.failFast and summary.failed != 0 {
+                reporter(CaseResult::skipped(case.name));
+                summary.skipped += 1;
+                index += 1;
+                continue;
+            }
+            let result = case.run();
+            let passed = result.isPassed();
+            reporter(result);
+            if passed {
+                summary.passed += 1;
+            } else {
+                summary.failed += 1;
+            }
+            index += 1;
+        }
+        summary.total = summary.passed + summary.failed + summary.skipped;
+        summary
+    }
 }
 
 pub fn expect(condition: bool) Error!() {
