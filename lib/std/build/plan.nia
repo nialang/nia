@@ -359,7 +359,7 @@ extend PlanEncoder {
                 let run = step.payload.runExecutable;
                 let target = executables[run.target.index];
                 self.writeU8(7).?;
-                self.writeResourceClass(ActionResourceClass::Conservative).?;
+                self.writeResourceClass(ActionResourceClass::Cpu).?;
                 self.writeCommandEnvironmentPolicy(CommandEnvironmentPolicy::Inherit).?;
                 self.writeCommandCachePolicy(CommandCachePolicy::Uncacheable).?;
                 self.writeU8(0).?;

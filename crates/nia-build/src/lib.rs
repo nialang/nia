@@ -75,6 +75,8 @@ pub struct BuildRequest {
     pub test_filter: Option<String>,
     /// List matching test steps without executing them.
     pub test_list: bool,
+    /// Stop scheduling later test actions after the first failure.
+    pub test_fail_fast: bool,
 }
 
 impl BuildRequest {
@@ -91,6 +93,7 @@ impl BuildRequest {
             test_mode: false,
             test_filter: None,
             test_list: false,
+            test_fail_fast: false,
         }
     }
 
@@ -147,6 +150,12 @@ impl BuildRequest {
         self.test_list = enabled;
         self
     }
+
+    /// Stops test execution at the first failing action.
+    pub fn with_test_fail_fast(mut self, enabled: bool) -> Self {
+        self.test_fail_fast = enabled;
+        self
+    }
 }
 
 /// Fully resolved, invocation-local paths and build policies.
@@ -178,6 +187,8 @@ pub struct BuildInvocation {
     pub test_filter: Option<String>,
     /// Whether this invocation only lists test steps.
     pub test_list: bool,
+    /// Whether test execution stops at the first failing action.
+    pub test_fail_fast: bool,
     /// Timing policy inherited from the request.
     pub timings: TimingMode,
     /// Timing format inherited from the request.
@@ -706,6 +717,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         },
         test_filter: request.test_filter,
         test_list: request.test_list,
+        test_fail_fast: request.test_fail_fast,
         timings: request.timings,
         timing_format: request.timing_format,
         max_parallel_actions: request.max_parallel_actions,
@@ -1121,6 +1133,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let planDraft = readPath(&mut config, &mut allocator, &mut planDraftPath, build::ErrorSubject::BuildPlan).reportAndExit(init).?;
     let mut requestedStepText = string::String::init();
     defer requestedStepText.deinit(&mut allocator).withBuildContext(build::ErrorOperation::Release, build::ErrorSubject::RequestedStep).reportAndExit(init).?;
+    let mut testMode = false;
     let requestedStep: ?&[char] = match config.byte().reportAndExit(init).? {
         0 => null,
         1 => ?readText(
@@ -1129,6 +1142,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
             &mut requestedStepText,
             build::ErrorSubject::RequestedStep,
         ).reportAndExit(init).?,
+        2 => {
+            testMode = true;
+            null
+        },
         _ => {
             return build::Error::Invalid {
                 operation: build::ErrorOperation::Validate,
@@ -1158,6 +1175,7 @@ pub fn main(init: process::Init) process::ExitCode!() {
         defaultOptimization,
         planSchemaVersion,
         requestedStep,
+        testMode,
 "#,
     );
     source.push_str(

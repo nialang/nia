@@ -21,11 +21,17 @@ pub fn execute_build_plan(
     );
     let execute = if matches!(&invocation.step, BuildStepSelection::Tests) {
         execute_test_closure(plan, invocation.test_filter.as_deref(), |actions| {
-            execute_action_batch(&executor, &session, invocation, actions)
+            execute_action_batch(
+                &executor,
+                &session,
+                invocation,
+                actions,
+                invocation.test_fail_fast,
+            )
         })
     } else {
         execute_selected_closure(plan, |actions| {
-            execute_action_batch(&executor, &session, invocation, actions)
+            execute_action_batch(&executor, &session, invocation, actions, true)
         })
     };
     execute
@@ -36,6 +42,7 @@ fn execute_action_batch(
     session: &QuerySession,
     invocation: &BuildInvocation,
     actions: &[&PlanAction],
+    cancel_after_failure: bool,
 ) -> Vec<ActionOutcome> {
     // Positions follow canonical wave order. Recording the earliest failed
     // position makes cancellation deterministic even when later workers
@@ -49,6 +56,7 @@ fn execute_action_batch(
             let cancellation = ActionCancellation {
                 earliest_failure: Arc::clone(&earliest_failure),
                 position,
+                enabled: cancel_after_failure,
             };
             let action = (*action).clone();
             (action.resource_class(), move || {
@@ -136,16 +144,19 @@ pub(super) enum ActionOutcome {
 pub(super) struct ActionCancellation {
     pub(super) earliest_failure: Arc<AtomicUsize>,
     pub(super) position: usize,
+    pub(super) enabled: bool,
 }
 
 impl ActionCancellation {
     pub(super) fn is_cancelled(&self) -> bool {
-        self.earliest_failure.load(Ordering::Acquire) < self.position
+        self.enabled && self.earliest_failure.load(Ordering::Acquire) < self.position
     }
 
     pub(super) fn cancel_later_actions(&self) {
-        self.earliest_failure
-            .fetch_min(self.position, Ordering::AcqRel);
+        if self.enabled {
+            self.earliest_failure
+                .fetch_min(self.position, Ordering::AcqRel);
+        }
     }
 }
 
@@ -249,6 +260,7 @@ fn execute_roots_closure(
         actions: Vec::new(),
         action_cache: Vec::new(),
     };
+    let mut test_failures = Vec::new();
 
     while !ready.is_empty() {
         let wave = std::mem::take(&mut ready);
@@ -286,10 +298,19 @@ fn execute_roots_closure(
                     }
                 }
                 ActionOutcome::Cancelled => cancelled = true,
+                ActionOutcome::Failed(error) if action.kind.is_test() => {
+                    test_failures.push(TestFailure {
+                        action: action.key.clone(),
+                        error: Box::new(error),
+                    });
+                }
                 ActionOutcome::Failed(error) => return Err(error),
             }
         }
         if cancelled {
+            if !test_failures.is_empty() {
+                return Err(CoordinatorError::TestFailures(test_failures));
+            }
             return Err(inconsistent(
                 "coordinator action batch",
                 "failure cause for cancelled actions".to_string(),
@@ -321,5 +342,9 @@ fn execute_roots_closure(
             "acyclic dependency order".to_string(),
         ));
     }
-    Ok(report)
+    if test_failures.is_empty() {
+        Ok(report)
+    } else {
+        Err(CoordinatorError::TestFailures(test_failures))
+    }
 }

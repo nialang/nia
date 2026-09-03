@@ -35,7 +35,8 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_u32(&mut payload, BUILD_PLAN.schema);
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
-        BuildStepSelection::Default | BuildStepSelection::Tests => payload.push(0),
+        BuildStepSelection::Default => payload.push(0),
+        BuildStepSelection::Tests => payload.push(2),
         BuildStepSelection::Named(step) => {
             payload.push(1);
             write_text(&mut payload, "requested step", step)?;
@@ -137,6 +138,7 @@ mod tests {
         plan_schema: u32,
         plan_draft: String,
         step: Option<String>,
+        test_mode: bool,
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -176,6 +178,16 @@ mod tests {
         let decoded = decode(&encode(&invocation).expect("encode default selection"))
             .expect("decode default selection");
         assert_eq!(decoded.step, None);
+        assert!(!decoded.test_mode);
+    }
+
+    #[test]
+    fn test_selection_is_an_explicit_protocol_value() {
+        let invocation = invocation(BuildStepSelection::Tests);
+        let decoded = decode(&encode(&invocation).expect("encode test selection"))
+            .expect("decode test selection");
+        assert_eq!(decoded.step, None);
+        assert!(decoded.test_mode);
     }
 
     #[test]
@@ -222,7 +234,7 @@ mod tests {
 
         let mut bad_tag = baseline.clone();
         let last_step_tag = locate_step_tag(&baseline);
-        bad_tag[last_step_tag] = 2;
+        bad_tag[last_step_tag] = 3;
         rewrite_checksum(&mut bad_tag);
         assert_eq!(decode(&bad_tag), Err(DecodeError::Tag));
     }
@@ -246,6 +258,7 @@ mod tests {
             step,
             test_filter: None,
             test_list: false,
+            test_fail_fast: false,
             timings: nia_driver::TimingMode::Off,
             timing_format: nia_timing::TimingFormat::Text,
             max_parallel_actions: None,
@@ -308,9 +321,10 @@ mod tests {
         }
         let plan_schema = cursor.u32()?;
         let plan_draft = cursor.text()?;
-        let step = match cursor.byte()? {
-            0 => None,
-            1 => Some(cursor.text()?),
+        let (step, test_mode) = match cursor.byte()? {
+            0 => (None, false),
+            1 => (Some(cursor.text()?), false),
+            2 => (None, true),
             _ => return Err(DecodeError::Tag),
         };
         if cursor.position != payload.len() {
@@ -328,6 +342,7 @@ mod tests {
             plan_schema,
             plan_draft,
             step,
+            test_mode,
         })
     }
 

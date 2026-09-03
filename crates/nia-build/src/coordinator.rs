@@ -20,7 +20,8 @@ use scheduling::ActionCancellation;
 pub use scheduling::execute_build_plan;
 #[cfg(test)]
 use scheduling::{
-    ActionOutcome, action_resource_capacity, execute_selected_closure, run_action_tasks,
+    ActionOutcome, action_resource_capacity, execute_selected_closure, execute_test_closure,
+    run_action_tasks,
 };
 
 use std::{
@@ -126,6 +127,15 @@ pub struct ExternalCommandError {
     pub failure: ExternalCommandFailure,
 }
 
+/// One failed test action retained for deterministic suite-level reporting.
+#[derive(Debug)]
+pub struct TestFailure {
+    /// Stable test action identity.
+    pub action: ActionKey,
+    /// Underlying process or execution failure.
+    pub error: Box<CoordinatorError>,
+}
+
 /// Process and output failure detail retained by an external command error.
 #[derive(Debug)]
 pub enum ExternalCommandFailure {
@@ -198,6 +208,8 @@ pub enum CoordinatorError {
         /// Cancelled action.
         action: ActionKey,
     },
+    /// One or more independent test executables failed.
+    TestFailures(Vec<TestFailure>),
     /// Frozen-plan and invocation targets differ.
     TargetMismatch(Box<TargetMismatch>),
     /// A frozen plan contains an unresolved internal reference.
@@ -320,6 +332,13 @@ impl fmt::Display for CoordinatorError {
                 action.name(),
                 action.package().as_str()
             ),
+            Self::TestFailures(failures) => {
+                writeln!(f, "{} test suite(s) failed:", failures.len())?;
+                for failure in failures {
+                    writeln!(f, "\n{}: {}", failure.action.name(), failure.error)?;
+                }
+                Ok(())
+            }
             Self::TargetMismatch(details) => {
                 let TargetMismatch {
                     role,

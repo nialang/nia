@@ -74,6 +74,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             options: GLOBAL_OPTIONS,
             examples: &[
                 "nia build",
+                "nia test --filter parser",
                 "nia build install --root .",
                 "nia check src/main.nia",
                 "nia emit --ast src/main.nia",
@@ -121,7 +122,9 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Test => HelpDoc {
             title: "nia test",
             about: "Build and run explicitly registered host test executables.",
-            usage: &["nia test [--root <dir>] [--filter <text>] [--list] [--jobs <count>]"],
+            usage: &[
+                "nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast] [--jobs <count>]",
+            ],
             commands: &[],
             options: &[
                 HelpRow {
@@ -135,6 +138,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 HelpRow {
                     left: "--list",
                     right: "list matching test steps without executing them",
+                },
+                HelpRow {
+                    left: "--fail-fast",
+                    right: "stop scheduling later suites after the first failure",
                 },
                 HelpRow {
                     left: "-j, --jobs <count>",

@@ -337,7 +337,33 @@ extend Build {
     // keeps build scripts declarative while leaving file organization to Nia's
     // ordinary module system.
     pub fn addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
+        let mut compileName = string::String::fromSlice(self.allocator, name)
+            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
+        let result = self.addOwnedTestSuite(name, rootModule, &mut compileName);
+        let cleanup = compileName.deinit(self.allocator)
+            .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
+        match result {
+            !step => {
+                cleanup.?;
+                !step
+            },
+            primary! => {
+                _ = cleanup;
+                primary!
+            },
+        }
+    }
+
+    fn addOwnedTestSuite(
+        &mut self,
+        name: &[char],
+        rootModule: ModuleHandle,
+        compileName: &mut string::String,
+    ) Error!StepHandle {
+        compileName.append(self.allocator, &".compile")
+            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forHost()).?;
+        _ = self.addEmitExecutableStep(compileName.text(), executable).?;
         self.addTestExecutableStep(name, RunOptions::init(executable))
     }
 
@@ -921,15 +947,26 @@ extend Build {
                 }
             },
             null => {
-                match self.defaultStep {
-                    ?handle => {
-                        self.selectedStep = ?handle;
-                    },
-                    null => {
-                        if self.steps.len() != 0 {
-                            return Error::MissingDefaultStep!;
+                if self.testMode {
+                    let mut index: usize = 0;
+                    while index < self.steps.len() {
+                        if self.steps.asSlice()[index].kind == StepKind::TestExecutable {
+                            self.selectedStep = ?StepHandle::init(self.ownerId, index);
+                            break;
                         }
-                    },
+                        index += 1;
+                    }
+                } else {
+                    match self.defaultStep {
+                        ?handle => {
+                            self.selectedStep = ?handle;
+                        },
+                        null => {
+                            if self.steps.len() != 0 {
+                                return Error::MissingDefaultStep!;
+                            }
+                        },
+                    }
                 }
             },
         }
