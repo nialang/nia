@@ -6,17 +6,17 @@ using pkg::math;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
-const linuxDirent64ReclenOffset: usize = 16usize;
-const linuxDirent64TypeOffset: usize = 18usize;
-const linuxDirent64NameOffset: usize = 19usize;
-const direntTypeUnknown: u8 = 0u8;
-const direntTypeFifo: u8 = 1u8;
-const direntTypeChr: u8 = 2u8;
-const direntTypeDir: u8 = 4u8;
-const direntTypeBlk: u8 = 6u8;
-const direntTypeReg: u8 = 8u8;
-const direntTypeLnk: u8 = 10u8;
-const direntTypeSock: u8 = 12u8;
+const linuxDirent64ReclenOffset: usize = 16;
+const linuxDirent64TypeOffset: usize = 18;
+const linuxDirent64NameOffset: usize = 19;
+const direntTypeUnknown: u8 = 0;
+const direntTypeFifo: u8 = 1;
+const direntTypeChr: u8 = 2;
+const direntTypeDir: u8 = 4;
+const direntTypeBlk: u8 = 6;
+const direntTypeReg: u8 = 8;
+const direntTypeLnk: u8 = 10;
+const direntTypeSock: u8 = 12;
 
 struct ParsedDirent {
     recordEnd: usize,
@@ -137,7 +137,7 @@ pub fn pipeCloseOnExec() Errno!Pipe {
 }
 
 pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
-    if buffer.len() == 0usize {
+    if buffer.len() == 0 {
         return Errno::Invalid!;
     }
     let ret = syscall::syscall2(
@@ -149,13 +149,13 @@ pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
         ret.syscallError()!
     } else {
         let mut len = ret as usize;
-        if len == 0usize or len > buffer.len() {
+        if len == 0 or len > buffer.len() {
             return Errno::Io!;
         }
-        if buffer[len - 1usize] != 0u8 {
+        if buffer[len - 1] != 0 {
             return Errno::Io!;
         }
-        len -= 1usize;
+        len -= 1;
         !&buffer[0..len]
     }
 }
@@ -400,7 +400,7 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
         return null;
     }
     let remaining = buffer.len() - offset;
-    if remaining < linuxDirent64NameOffset + 1usize {
+    if remaining < linuxDirent64NameOffset + 1 {
         return null;
     }
 
@@ -421,8 +421,8 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
         null => return null,
     };
     let mut nameEnd = nameStart;
-    while nameEnd < recordEnd and buffer[nameEnd] != 0u8 {
-        nameEnd += 1usize;
+    while nameEnd < recordEnd and buffer[nameEnd] != 0 {
+        nameEnd += 1;
     }
     if nameEnd == nameStart or nameEnd == recordEnd {
         return null;
@@ -437,7 +437,7 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
 
 fn direntReclen(buffer: &[u8], offset: usize) usize {
     (buffer[offset + linuxDirent64ReclenOffset] as usize)
-        | ((buffer[offset + linuxDirent64ReclenOffset + 1usize] as usize) << 8usize)
+        | ((buffer[offset + linuxDirent64ReclenOffset + 1] as usize) << 8usize)
 }
 
 fn direntKind(value: u8) FileKind {

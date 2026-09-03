@@ -3,8 +3,8 @@ using pkg::math;
 using pkg::mem;
 using pkg::os;
 
-pub const ctrlEmpty: u8 = 0xffu8;
-pub const ctrlDeleted: u8 = 0x80u8;
+pub const ctrlEmpty: u8 = 0xff;
+pub const ctrlDeleted: u8 = 0x80;
 pub const groupWidth: usize = 8;
 
 pub struct ProbeCursor {
@@ -129,11 +129,11 @@ pub fn readU64(bytes: &[u8]) u64 {
 }
 
 pub fn tag(valueHash: u64) u8 {
-    ((valueHash >> 57u64) as u8) & 0x7fu8
+    ((valueHash >> 57u64) as u8) & 0x7f
 }
 
 pub fn isFull(control: u8) bool {
-    (control & 0x80u8) == 0u8
+    (control & 0x80) == 0
 }
 
 pub fn firstSet(mask: usize) usize {

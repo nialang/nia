@@ -72,8 +72,8 @@ where T: parse::FromRadix[cstring::CStringView]
 
 extend Args {
     pub(pkg) fn init(len: usize, ptr: &&u8) Args {
-        if ptr as usize == 0usize {
-            Self { len: 0usize, ptr: ptr }
+        if ptr as usize == 0 {
+            Self { len: 0, ptr: ptr }
         } else {
             Self { len: len, ptr: ptr }
         }
@@ -96,7 +96,7 @@ extend Args {
             null
         } else {
             let ptr = self.ptr[index];
-            if ptr as usize == 0usize {
+            if ptr as usize == 0 {
                 null
             } else {
                 ?Arg::init(ptr)

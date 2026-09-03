@@ -1,18 +1,18 @@
-pub const maxPathBytes: usize = 4096usize;
+pub const maxPathBytes: usize = 4096;
 pub const atFdCwd: i32 = -100;
-pub const atRemoveDir: usize = 0x200usize;
+pub const atRemoveDir: usize = 0x200;
 pub const openCreate: i32 = 0o100;
 pub const openExclusive: i32 = 0o200;
 pub const openTruncate: i32 = 0o1000;
 pub const openDirectory: i32 = 0o200000;
 pub const openNoFollow: i32 = 0o400000;
 pub const openPath: i32 = 0x200000;
-pub const resolveNoMagicLinks: u64 = 0x02u64;
-pub const resolveBeneath: u64 = 0x08u64;
+pub const resolveNoMagicLinks: u64 = 0x02;
+pub const resolveBeneath: u64 = 0x08;
 pub const closeOnExec: i32 = 0o2000000;
-pub const waitNoHang: usize = 1usize;
+pub const waitNoHang: usize = 1;
 pub const sigTerm: i32 = 15;
-const maxSyscallErrno: isize = 4095isize;
+const maxSyscallErrno: isize = 4095;
 
 pub enum Errno: i32 {
     PermissionDenied = 1,
@@ -219,14 +219,14 @@ extend FileDescriptor {
     }
 
     pub fn fromSyscall(ret: isize) Errno!FileDescriptor {
-        if ret < 0isize or ret > i32::MAX as isize {
+        if ret < 0 or ret > i32::MAX as isize {
             return Errno::Io!;
         }
         !FileDescriptor::init(ret as i32)
     }
 
     pub fn fromKernel(fd: i32) Errno!FileDescriptor {
-        if fd < 0i32 {
+        if fd < 0 {
             return Errno::Io!;
         }
         !FileDescriptor::init(fd)
@@ -269,7 +269,7 @@ extend ProcessId {
     }
 
     pub fn fromSyscall(ret: isize) Errno!ProcessId {
-        if ret <= 0isize or ret > i32::MAX as isize {
+        if ret <= 0 or ret > i32::MAX as isize {
             return Errno::Io!;
         }
         !ProcessId::init(ret as i32)
@@ -290,21 +290,21 @@ extend WaitStatus {
     }
 
     pub fn exited(&self) bool {
-        (self.raw & 0x7fi32) == 0i32
+        (self.raw & 0x7f) == 0
     }
 
     pub fn signaled(&self) bool {
-        let signal = self.raw & 0x7fi32;
-        signal != 0i32 and signal != 0x7fi32
+        let signal = self.raw & 0x7f;
+        signal != 0 and signal != 0x7f
     }
 
     pub fn stopped(&self) bool {
-        (self.raw & 0xffi32) == 0x7fi32
+        (self.raw & 0xff) == 0x7f
     }
 
     pub fn exitCode(&self) ?i32 {
         if self.exited() {
-            ?((self.raw >> 8u8) & 0xffi32)
+            ?((self.raw >> 8u8) & 0xff)
         } else {
             null
         }
@@ -312,7 +312,7 @@ extend WaitStatus {
 
     pub fn signal(&self) ?i32 {
         if self.signaled() {
-            ?(self.raw & 0x7fi32)
+            ?(self.raw & 0x7f)
         } else {
             null
         }
@@ -320,7 +320,7 @@ extend WaitStatus {
 
     pub fn stopSignal(&self) ?i32 {
         if self.stopped() {
-            ?((self.raw >> 8u8) & 0xffi32)
+            ?((self.raw >> 8u8) & 0xff)
         } else {
             null
         }
@@ -489,9 +489,9 @@ extend FileMetadata {
 
 extend isize {
     pub fn syscallSuccess(self) Errno!() {
-        if self < 0isize {
+        if self < 0 {
             self.syscallError()!
-        } else if self != 0isize {
+        } else if self != 0 {
             Errno::Io!
         } else {
             !()
@@ -499,10 +499,10 @@ extend isize {
     }
 
     pub fn syscallError(self) Errno {
-        if self >= 0isize or self == isize::MIN {
+        if self >= 0 or self == isize::MIN {
             return Errno::Io;
         }
-        let magnitude = 0isize - self;
+        let magnitude: isize = 0 - self;
         if magnitude > maxSyscallErrno {
             return Errno::Io;
         }

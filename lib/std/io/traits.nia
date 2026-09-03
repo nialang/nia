@@ -30,7 +30,7 @@ pub trait Writer {
     }
 
     fn writeAll(&mut self, bytes: &[u8]) Error!() {
-        let mut written = 0usize;
+        let mut written: usize = 0;
         while written < bytes.len() {
             let chunk = & bytes[written..];
             let n = self.write(chunk).?;
@@ -67,7 +67,7 @@ pub trait Reader {
     fn read(&mut self, bytes: &mut [u8]) Error!usize;
 
     fn readExact(&mut self, bytes: &mut [u8]) Error!() {
-        let mut read = 0usize;
+        let mut read: usize = 0;
         while read < bytes.len() {
             let chunk = &mut bytes[read..];
             let n = self.read(chunk).?;

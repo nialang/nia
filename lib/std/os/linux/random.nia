@@ -4,7 +4,7 @@ using pkg::os::linux::types;
 using types::Errno;
 
 pub fn random(bytes: &mut [u8]) Errno!() {
-    let mut done = 0usize;
+    let mut done: usize = 0;
     while done < bytes.len() {
         let mut chunk = &mut bytes[done..];
         let ret = syscall::syscall3(syscall::getrandom, chunk.ptrMut() as usize, chunk.len(), 0);
@@ -16,7 +16,7 @@ pub fn random(bytes: &mut [u8]) Errno!() {
             return err!;
         }
         let n = ret as usize;
-        if n == 0usize or n > chunk.len() {
+        if n == 0 or n > chunk.len() {
             return Errno::Io!;
         }
         done += n;

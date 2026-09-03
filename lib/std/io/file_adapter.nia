@@ -78,10 +78,10 @@ extend FileWriter {
     }
 
     fn appendBuffered(&mut self, bytes: &[u8]) () {
-        let mut index = 0usize;
+        let mut index: usize = 0;
         while index < bytes.len() {
             self.buffer[self.len + index] = bytes[index];
-            index += 1usize;
+            index += 1;
         }
         self.len += bytes.len();
     }
@@ -127,7 +127,7 @@ extend FileWriter : Writer {
                 let mut index = n;
                 while index < self.len {
                     self.buffer[index - n] = self.buffer[index];
-                    index += 1usize;
+                    index += 1;
                 }
                 self.len -= n;
             }
