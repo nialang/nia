@@ -1,13 +1,12 @@
 using pkg::collections;
 using pkg::fs;
-using pkg::io;
 using pkg::mem;
 using pkg::string;
 using pkg::build::error;
 using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
 using pkg::build::commands::{validateExternalCommand, validateRunArguments};
 using pkg::build::dependencies::{findGeneratedSourceProducer, hasDependency};
-using pkg::build::diagnostics::reportBuildError;
+using pkg::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
 using pkg::build::handles;
 using pkg::build::modules::validateModuleImports;
 using pkg::build::ownership::allocateBuildOwnerId;
@@ -1492,10 +1491,7 @@ extend Build {
     }
 
     fn reportUnknownStep(&mut self, step: &[char]) Error!() {
-        let mut buffer: [u8; 256] = [0; 256];
-        let mut stderr = io::FileWriter::stderr(&mut buffer);
-        stderr.print(&"unknown build step `{}`\n", &[step]).withBuildContext(Operation::Report, Subject::RequestedStep).?;
-        stderr.flush().withBuildContext(Operation::Report, Subject::RequestedStep)
+        reportUnknownBuildStep(step)
     }
 
     fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
