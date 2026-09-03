@@ -20,32 +20,32 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut value = std::Atomic[usize]::init(1usize);
-    let old = value.fetch_add_monotonic(2usize);
-    let now = value.load_acquire();
+    let old = value.fetchAddMonotonic(2usize);
+    let now = value.loadAcquire();
     if old != 1usize or now != 3usize {
         return process::exit(1)!;
     }
-    if value.fetch_or_seq_cst(4usize) != 3usize {
+    if value.fetchOrSeqCst(4usize) != 3usize {
         return process::exit(2)!;
     }
-    if value.fetch_and_seq_cst(6usize) != 7usize {
+    if value.fetchAndSeqCst(6usize) != 7usize {
         return process::exit(3)!;
     }
-    if value.fetch_xor_seq_cst(2usize) != 6usize {
+    if value.fetchXorSeqCst(2usize) != 6usize {
         return process::exit(4)!;
     }
-    match value.cmpxchg_strong_seq_cst(4usize, 5usize) {
+    match value.cmpxchgStrongSeqCst(4usize, 5usize) {
         ?actual => { _ = actual;
                 return process::exit(5)!; },
         null => { },
     }
-    match value.cmpxchg_strong_seq_cst(4usize, 5usize) {
+    match value.cmpxchgStrongSeqCst(4usize, 5usize) {
         ?actual => { if actual != 5usize {
                     return process::exit(6)!;
                 } },
         null => { return process::exit(7)!; },
     }
-    atomic::fence_seq_cst();
+    atomic::fenceSeqCst();
     !()
 }
 "#,
