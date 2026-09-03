@@ -9,6 +9,7 @@ fn main(base: i32) i32 {
     let callback = \[base] value: i32 -> { base + value };
     callback(2)
 }
+
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -24,6 +25,40 @@ fn main(base: i32) i32 {
     };
     assert!(matches!(callee, nia_body_ir::TypedCallee::Closure(_)));
     assert_eq!(args.len(), 1);
+}
+
+#[test]
+fn coerces_function_pointer_to_callable_view() {
+    let checked = pipeline(
+        r#"
+fn add(value: i32) i32 { value + 1 }
+
+fn apply(callback: &Fn(i32) i32, value: i32) i32 {
+    callback(value)
+}
+
+fn main() i32 {
+    apply(&add, 2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn coerces_runtime_function_pointer_to_callable_view() {
+    let checked = pipeline(
+        r#"
+fn add(value: i32) i32 { value + 1 }
+
+fn main() i32 {
+    let pointer: &fn(i32) i32 = &add;
+    let callable: &Fn(i32) i32 = pointer;
+    callable(2)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]

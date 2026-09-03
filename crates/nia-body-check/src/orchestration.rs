@@ -321,6 +321,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_pointer_array_to_slice_coercions: HashMap::new(),
+        node_function_pointer_to_callable_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
         node_builtin_values: HashMap::new(),
@@ -411,6 +412,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
+            node_function_pointer_to_callable_coercions: checker
+                .node_function_pointer_to_callable_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_builtin_values: checker.node_builtin_values,

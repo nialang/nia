@@ -525,6 +525,7 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::BuiltinValue(_)
             | TypedExprKind::Trap
             | TypedExprKind::ClosureFunctionPointer { .. } => ValueProvenance::default(),
+            TypedExprKind::FunctionCallable { function } => self.analyze_expr(function, env),
             TypedExprKind::Local(local_id) => env.get(local_id).cloned().unwrap_or_default(),
             TypedExprKind::EnumVariant { fields, .. } | TypedExprKind::Tuple(fields) => {
                 ValueProvenance::from_value(self.analyze_exprs(fields, env))

@@ -375,7 +375,9 @@ impl<'a> BodyChecker<'a> {
                 fields,
             } => {
                 if self.enum_variant_info(constructor).is_some()
-                    || self.omitted_enum_variant_info(constructor, target_ty).is_some()
+                    || self
+                        .omitted_enum_variant_info(constructor, target_ty)
+                        .is_some()
                 {
                     self.check_enum_variant_pattern(
                         pattern.span,

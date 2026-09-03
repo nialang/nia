@@ -867,7 +867,10 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    format!("enum variant `{}` expects no payload", self.symbol_name(*name)),
+                    format!(
+                        "enum variant `{}` expects no payload",
+                        self.symbol_name(*name)
+                    ),
                 ));
             }
             EnumVariantPayloadSignature::Named(_) => {

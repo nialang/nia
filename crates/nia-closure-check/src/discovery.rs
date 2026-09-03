@@ -81,6 +81,7 @@ fn collect_expr_closures<'a>(
             }
             collect_body_closures(body, callables);
         }
+        TypedExprKind::FunctionCallable { function } => collect_expr_closures(function, callables),
         TypedExprKind::EnumVariant { fields, .. } | TypedExprKind::Tuple(fields) => {
             for field in fields {
                 collect_expr_closures(field, callables);

@@ -679,17 +679,10 @@ impl<'a> BodyChecker<'a> {
             let closure_params_ready =
                 self.seed_closure_params_from_callable_pattern(substituted_param, arg);
             if closure_params_ready {
-                inferred_from_closure |= self.infer_generics_from_closure_signature(
-                    param,
-                    arg,
-                    substitutions,
-                    arg.span,
-                );
-                substituted_param = self.substitute_generics_and_consts(
-                    param,
-                    substitutions,
-                    const_substitutions,
-                );
+                inferred_from_closure |=
+                    self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span);
+                substituted_param =
+                    self.substitute_generics_and_consts(param, substitutions, const_substitutions);
             }
             let expected = self.generic_call_expected(substituted_param);
             let actual = if let Some(expected) = expected {

@@ -6,6 +6,7 @@ use nia_backend_ir::BackendClosureEntryKey;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
 use nia_ids::{InternedTyId, ReceiverKind};
+use nia_llvm::IntPredicate;
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::{TyKind, TypeEquivalence};
@@ -146,6 +147,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             };
         }
+        if matches!(callee, FunctionCallee::Callable(_)) {
+            return self.emit_callable_value_call(expr, callee, args);
+        }
         match self.module.classify_function_return(expr.ty) {
             AbiReturn::IndirectOut(ty) if !callee_is_extern(self, callee) => {
                 let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
@@ -168,6 +172,151 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             AbiReturn::Void | AbiReturn::Never => {
                 let _ = self.emit_call_raw_with_out(expr, callee, args, None)?;
                 Err(self.error(expr.span, "unit call cannot be used as a value"))
+            }
+        }
+    }
+
+    fn emit_callable_value_call(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let FunctionCallee::Callable(receiver) = callee else {
+            return Err(self.error(expr.span, "internal callable dispatch mismatch"));
+        };
+        let (params, return_type) = match self.module.ty_kind(receiver.ty) {
+            Some(TyKind::Callable {
+                params,
+                return_type,
+                ..
+            }) => (params.clone(), *return_type),
+            _ => return Err(self.error(receiver.span, "callee is not a callable view")),
+        };
+        let callable = self
+            .emit_expr(receiver)?
+            .into_struct_value()
+            .map_err(|_| self.error(receiver.span, "callable callee is not a view"))?;
+        let state = self
+            .builder
+            .build_extract_value(callable, 0, "callable.context")
+            .map_err(|_| self.error(receiver.span, "failed to extract callable context"))?
+            .into_pointer_value()?;
+        let entry = self
+            .builder
+            .build_extract_value(callable, 1, "callable.entry")
+            .map_err(|_| self.error(receiver.span, "failed to extract callable entry"))?
+            .into_pointer_value()?;
+        let is_function = self
+            .builder
+            .build_basic_int_compare(
+                IntPredicate::EQ,
+                state.into(),
+                self.module
+                    .context
+                    .ptr_type(Default::default())
+                    .const_null()?
+                    .into(),
+                "callable.is_function",
+            )?
+            .into_int_value()?;
+        let function_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "callable.function")?;
+        let closure_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "callable.closure")?;
+        let merge_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "callable.merge")?;
+        let abi_return = self.module.classify_function_return(expr.ty);
+        let result_ptr = match abi_return {
+            AbiReturn::Direct(ty) => Some(self.builder.build_alloca(
+                self.module.llvm_basic_type(ty, expr.span)?,
+                "callable.result",
+            )?),
+            AbiReturn::IndirectOut(ty) => Some(self.builder.build_alloca(
+                self.module.llvm_basic_type(ty, expr.span)?,
+                "callable.result",
+            )?),
+            AbiReturn::Void | AbiReturn::Never => None,
+        };
+        let call_out_ptr = result_ptr.filter(|_| matches!(abi_return, AbiReturn::IndirectOut(_)));
+        self.builder
+            .build_conditional_branch(is_function, function_block, closure_block)
+            .map_err(|_| self.error(expr.span, "failed to branch callable dispatch"))?;
+        self.builder.position_at_end(function_block);
+        let function_type =
+            self.module
+                .function_pointer_type_in(&params, return_type, false, receiver.span)?;
+        let function_args =
+            self.emit_call_args(expr.span, args, params.iter().copied(), call_out_ptr, false)?;
+        let function_call = self
+            .builder
+            .build_indirect_call(
+                function_type,
+                entry,
+                &function_args,
+                "callable.function.call",
+            )
+            .map_err(|error| {
+                self.error(
+                    expr.span,
+                    format!("failed to call function callable: {error:?}"),
+                )
+            })?;
+        if let Some(result_ptr) = result_ptr {
+            if matches!(abi_return, AbiReturn::Direct(_)) {
+                if let Some(value) = function_call.try_as_basic_value().basic() {
+                    self.builder.build_store(result_ptr, value?)?;
+                }
+            }
+        }
+        self.builder.build_unconditional_branch(merge_block)?;
+
+        self.builder.position_at_end(closure_block);
+        let closure_type =
+            self.module
+                .callable_entry_function_type_in(&params, return_type, receiver.span)?;
+        let mut closure_args =
+            self.emit_call_args(expr.span, args, params.iter().copied(), call_out_ptr, false)?;
+        let state_index = usize::from(call_out_ptr.is_some());
+        if state_index == 1 {
+            closure_args.insert(0, call_out_ptr.unwrap().into());
+        }
+        closure_args.insert(state_index, state.into());
+        let closure_call = self
+            .builder
+            .build_indirect_call(closure_type, entry, &closure_args, "callable.call")
+            .map_err(|error| {
+                self.error(
+                    expr.span,
+                    format!("failed to call closure callable: {error:?}"),
+                )
+            })?;
+        if let Some(result_ptr) = result_ptr {
+            if matches!(abi_return, AbiReturn::Direct(_)) {
+                if let Some(value) = closure_call.try_as_basic_value().basic() {
+                    self.builder.build_store(result_ptr, value?)?;
+                }
+            }
+        }
+        self.builder.build_unconditional_branch(merge_block)?;
+        self.builder.position_at_end(merge_block);
+        match abi_return {
+            AbiReturn::Direct(ty) | AbiReturn::IndirectOut(ty) => self
+                .builder
+                .build_load(
+                    self.module.llvm_basic_type(ty, expr.span)?,
+                    result_ptr.unwrap(),
+                    "callable.result",
+                )
+                .map_err(|_| self.error(expr.span, "failed to load callable result")),
+            AbiReturn::Void | AbiReturn::Never => {
+                Err(self.error(expr.span, "unit callable call cannot be used as a value"))
             }
         }
     }

@@ -525,6 +525,11 @@ impl<'a> ModuleLowerer<'a> {
                         closure_id,
                     }
                 }
+                FunctionExprKind::FunctionCallable { function } => {
+                    FunctionExprKind::FunctionCallable {
+                        function: Box::new(self.instantiate_expr(*function, substitutions)),
+                    }
+                }
                 FunctionExprKind::ClosureFunctionPointer { closure_id } => {
                     FunctionExprKind::ClosureFunctionPointer { closure_id }
                 }

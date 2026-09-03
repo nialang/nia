@@ -205,6 +205,7 @@ where
         | FunctionExprKind::Field { lhs: expr, .. }
         | FunctionExprKind::TupleField { value: expr, .. } => rewrite_expr(expr),
         FunctionExprKind::CallableCoercion { state, .. } => rewrite_expr(state),
+        FunctionExprKind::FunctionCallable { function } => rewrite_expr(function),
         FunctionExprKind::AddrOf(place) => {
             traversal.places && rewrite_place_exprs(place, rewrite_expr)
         }

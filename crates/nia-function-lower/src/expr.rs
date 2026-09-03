@@ -315,6 +315,9 @@ impl FunctionLowerer<'_> {
                     closure_id: *closure_id,
                 }
             }
+            TypedExprKind::FunctionCallable { function } => FunctionExprKind::FunctionCallable {
+                function: Box::new(self.lower_value_expr(function, scope, current, ops, blocks)),
+            },
             TypedExprKind::ClosureFunctionPointer { closure_id } => {
                 FunctionExprKind::ClosureFunctionPointer {
                     closure_id: *closure_id,

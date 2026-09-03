@@ -127,22 +127,28 @@ impl<'a> BodyChecker<'a> {
                         def_id: variant_def,
                     };
                     if let Some((_, variant)) = self.resolved_enum_variant(variant_id)
-                        && !matches!(variant.payload, nia_item_signatures::EnumVariantPayloadSignature::Unit)
+                        && !matches!(
+                            variant.payload,
+                            nia_item_signatures::EnumVariantPayloadSignature::Unit
+                        )
                     {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             expr.span,
-                            format!("enum variant `{}` requires a payload", self.symbol_name(*name)),
+                            format!(
+                                "enum variant `{}` requires a payload",
+                                self.symbol_name(*name)
+                            ),
                         ));
                     }
                     expected
                 } else {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    expr.span,
-                    "omitted member requires a call or enum expected type",
-                ));
-                self.error()
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        "omitted member requires a call or enum expected type",
+                    ));
+                    self.error()
                 }
             }
             ExprKind::Unary { op, expr: inner } => {

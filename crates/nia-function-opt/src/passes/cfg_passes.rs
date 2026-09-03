@@ -144,6 +144,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
         | FunctionExprKind::CallableCoercion { .. }
+        | FunctionExprKind::FunctionCallable { .. }
         | FunctionExprKind::Call { .. }
         | FunctionExprKind::Atomic(_)
         | FunctionExprKind::Field { .. }

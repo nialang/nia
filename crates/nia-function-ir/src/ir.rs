@@ -678,6 +678,12 @@ pub enum FunctionExprKind {
         /// Source closure identity.
         closure_id: ClosureId,
     },
+    /// Builds a callable value from a thin function pointer. A null state
+    /// pointer distinguishes this branch from a closure entry at runtime.
+    FunctionCallable {
+        /// Function pointer expression.
+        function: Box<FunctionExpr>,
+    },
     /// Selects the generated adapter for a non-capturing closure.
     ClosureFunctionPointer {
         /// Source closure identity.

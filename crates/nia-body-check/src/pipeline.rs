@@ -51,6 +51,8 @@ impl<'a> BodyChecker<'a> {
         self.node_expr_types = facts.node_expr_types;
         self.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
         self.node_pointer_array_to_slice_coercions = facts.node_pointer_array_to_slice_coercions;
+        self.node_function_pointer_to_callable_coercions =
+            facts.node_function_pointer_to_callable_coercions;
         self.node_trait_object_coercions = facts.node_trait_object_coercions;
         self.node_trait_object_upcasts = facts.node_trait_object_upcasts;
         self.node_builtin_values = facts.node_builtin_values;
@@ -209,6 +211,8 @@ impl<'a> BodyChecker<'a> {
             std::mem::take(&mut self.node_bracket_suffix_resolutions);
         let previous_node_pointer_array_to_slice_coercions =
             std::mem::take(&mut self.node_pointer_array_to_slice_coercions);
+        let previous_node_function_pointer_to_callable_coercions =
+            std::mem::take(&mut self.node_function_pointer_to_callable_coercions);
         let previous_node_trait_object_coercions =
             std::mem::take(&mut self.node_trait_object_coercions);
         let previous_node_trait_object_upcasts =
@@ -238,6 +242,8 @@ impl<'a> BodyChecker<'a> {
         self.node_bracket_suffix_resolutions = function_facts.node_bracket_suffix_resolutions;
         self.node_pointer_array_to_slice_coercions =
             function_facts.node_pointer_array_to_slice_coercions;
+        self.node_function_pointer_to_callable_coercions =
+            function_facts.node_function_pointer_to_callable_coercions;
         self.node_trait_object_coercions = function_facts.node_trait_object_coercions;
         self.node_trait_object_upcasts = function_facts.node_trait_object_upcasts;
         self.node_builtin_values = function_facts.node_builtin_values;
@@ -258,6 +264,8 @@ impl<'a> BodyChecker<'a> {
         self.node_expr_types = previous_node_expr_types;
         self.node_bracket_suffix_resolutions = previous_node_bracket_suffix_resolutions;
         self.node_pointer_array_to_slice_coercions = previous_node_pointer_array_to_slice_coercions;
+        self.node_function_pointer_to_callable_coercions =
+            previous_node_function_pointer_to_callable_coercions;
         self.node_trait_object_coercions = previous_node_trait_object_coercions;
         self.node_trait_object_upcasts = previous_node_trait_object_upcasts;
         self.node_builtin_values = previous_node_builtin_values;

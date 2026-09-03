@@ -80,14 +80,20 @@ impl<'a> BodyChecker<'a> {
         if let ExprKind::OmittedMember { name } = &callee.kind
             && let Some(expected) = expected
         {
-            if let Some(return_type) = self.check_omitted_enum_variant_call(
-                expr, name, args, expected,
-            ) {
+            if let Some(return_type) =
+                self.check_omitted_enum_variant_call(expr, name, args, expected)
+            {
                 return return_type;
             }
             if self.enum_global_def_id(expected).is_none()
-                && let Some(return_type) = self
-                    .check_associated_call_for_target(expr, expected, name, None, args, Some(expected))
+                && let Some(return_type) = self.check_associated_call_for_target(
+                    expr,
+                    expected,
+                    name,
+                    None,
+                    args,
+                    Some(expected),
+                )
             {
                 return return_type;
             }

@@ -222,6 +222,38 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn function_pointer_callable_codegen_materializes_function_branch() {
+    let root = common::temp_dir("function_pointer_callable_codegen");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn add(value: i32) i32 { value + 1 }
+
+fn main() i32 {
+    let pointer: &fn(i32) i32 = &add;
+    let callable: &Fn(i32) i32 = pointer;
+    callable(2)
+}
+"#,
+    )
+    .expect("write test source");
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    assert!(
+        ir.contains("callable.is_function"),
+        "LLVM IR omitted function branch: {ir}"
+    );
+    assert!(
+        ir.contains("callable.function.call"),
+        "LLVM IR omitted function callable call: {ir}"
+    );
+}
+
+#[test]
 fn callable_view_codegen_passes_indirect_error_union_return_storage() {
     let root = common::temp_dir("callable_view_codegen_indirect_error_union_return");
     let main = root.join("main.nia");

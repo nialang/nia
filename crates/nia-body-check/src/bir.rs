@@ -589,15 +589,13 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         target_ty: nia_ids::InternedTyId,
     ) -> TypedPatternKind {
-        if let Some(variant) = self
-            .qualified_enum_variant(expr)
-            .or_else(|| self.omitted_enum_variant_info(expr, target_ty).map(|(enum_id, def_id)| {
-                nia_ids::GlobalDefId {
+        if let Some(variant) = self.qualified_enum_variant(expr).or_else(|| {
+            self.omitted_enum_variant_info(expr, target_ty)
+                .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
                     module_id: enum_id.module_id,
                     def_id,
-                }
-            }))
-            && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
+                })
+        }) && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
             && let Some(signature) = self.resolved_enum_signature(enum_id)
         {
             return TypedPatternKind::Nominal {
@@ -701,6 +699,20 @@ impl<'a> BodyChecker<'a> {
                         inclusive: false,
                     },
                     is_readonly: coercion.is_readonly,
+                },
+            };
+        }
+        if let Some(coercion) = self
+            .node_function_pointer_to_callable_coercions
+            .get(&expr.node_key)
+            .copied()
+            .filter(|coercion| forced_ty.is_none_or(|forced_ty| forced_ty == coercion.callable_ty))
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.callable_ty,
+                kind: TypedExprKind::FunctionCallable {
+                    function: Box::new(self.lower_expr_with_ty(expr, Some(coercion.function_ty))),
                 },
             };
         }
