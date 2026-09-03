@@ -1,0 +1,129 @@
+// Stateless validation rules for retained build-graph references.
+//
+// Build methods supply graph-local counts and target views. The rules here do
+// not inspect or mutate Build itself, keeping ownership checks reusable and
+// separate from declaration transactions.
+
+using pkg::build::error;
+using pkg::build::handles;
+using pkg::build::targets;
+using pkg::build::types;
+
+using error::Error;
+using types::{
+    ExecutableHandle,
+    ModuleHandle,
+    ObjectHandle,
+    PackageHandle,
+    StaticArchiveHandle,
+    StepHandle,
+    TargetRole,
+    TargetView,
+};
+
+pub(pkg) fn validateExecutableHandle(
+    ownerId: usize,
+    count: usize,
+    handle: ExecutableHandle,
+) Error!() {
+    if handle.ownerId() != ownerId or handle.index() >= count {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .Executable(handle.index()),
+        }!;
+    }
+    !()
+}
+
+pub(pkg) fn validateObjectHandle(
+    ownerId: usize,
+    count: usize,
+    handle: ObjectHandle,
+) Error!() {
+    if handle.ownerId() != ownerId or handle.index() >= count {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .Object(handle.index()),
+        }!;
+    }
+    !()
+}
+
+pub(pkg) fn validateStaticArchiveHandle(
+    ownerId: usize,
+    count: usize,
+    handle: StaticArchiveHandle,
+) Error!() {
+    if handle.ownerId() != ownerId or handle.index() >= count {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .StaticArchive(handle.index()),
+        }!;
+    }
+    !()
+}
+
+pub(pkg) fn validatePackageHandle(
+    ownerId: usize,
+    count: usize,
+    handle: PackageHandle,
+) Error!() {
+    if handle.ownerId() != ownerId or handle.index() > count {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .Packages,
+        }!;
+    }
+    !()
+}
+
+pub(pkg) fn validateModuleHandle(
+    ownerId: usize,
+    count: usize,
+    handle: ModuleHandle,
+) Error!() {
+    if handle.ownerId() != ownerId or handle.index() >= count {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .Module(handle.index()),
+        }!;
+    }
+    !()
+}
+
+pub(pkg) fn validateStepHandle(
+    ownerId: usize,
+    count: usize,
+    handle: StepHandle,
+) Error!() {
+    if handle.ownerId() != ownerId or handle.index() >= count {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .Step(handle.index()),
+        }!;
+    }
+    !()
+}
+
+pub(pkg) fn validateRunnableTarget(
+    role: TargetRole,
+    hostTarget: TargetView,
+    artifactTarget: TargetView,
+    stepIndex: usize,
+) Error!() {
+    // Run and test actions execute while constructing this build, so their
+    // program must match the host. An artifact-role executable remains
+    // runnable for native builds because both roles resolve to one target.
+    let runsOnHost = match role {
+        .Host => true,
+        .Artifact => hostTarget.equals(artifactTarget),
+        _ => false,
+    };
+    if not runsOnHost {
+        return Error::Invalid {
+            operation: .Validate,
+            subject: .Step(stepIndex),
+        }!;
+    }
+    !()
+}

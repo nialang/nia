@@ -61,6 +61,7 @@ pub(pkg) module queries;
 pub(pkg) module steps;
 pub(pkg) module targets;
 pub(pkg) module types;
+pub(pkg) module validation;
 
 using pkg::build::core;
 using pkg::build::plan;

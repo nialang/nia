@@ -1,6 +1,7 @@
 using pkg::collections;
 using pkg::fmt;
 using pkg::fs;
+using pkg::io;
 using pkg::math;
 using pkg::mem;
 using pkg::os;
@@ -34,6 +35,15 @@ using pkg::build::targets::{
     staticArchiveOutputName,
 };
 using pkg::build::types;
+using pkg::build::validation::{
+    validateExecutableHandle as validateExecutableHandleValue,
+    validateModuleHandle as validateModuleHandleValue,
+    validateObjectHandle as validateObjectHandleValue,
+    validatePackageHandle as validatePackageHandleValue,
+    validateRunnableTarget,
+    validateStaticArchiveHandle as validateStaticArchiveHandleValue,
+    validateStepHandle as validateStepHandleValue,
+};
 
 using error::Error;
 using error::ErrorOperation as Operation;
@@ -1504,84 +1514,37 @@ extend Build {
     }
 
     fn validateExecutableHandle(&self, handle: ExecutableHandle) Error!() {
-        if handle.ownerId() != self.ownerId or handle.index() >= self.executables.len() {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Executable(handle.index()),
-            }!;
-        }
-        !()
+        validateExecutableHandleValue(self.ownerId, self.executables.len(), handle)
     }
 
     fn validateRunnableExecutable(&self, handle: ExecutableHandle, stepIndex: usize) Error!() {
         let role = self.executables.asSlice()[handle.index()].targetRole;
-        // Run and test actions execute while constructing this build, so their
-        // program must match the host. An artifact-role executable remains
-        // runnable for native builds because both roles resolve to one target.
-        let runsOnHost = match role {
-            TargetRole::Host => true,
-            TargetRole::Artifact => self.hostTarget.view().equals(self.artifactTarget.view()),
-            _ => false,
-        };
-        if not runsOnHost {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(stepIndex),
-            }!;
-        }
-        !()
+        validateRunnableTarget(
+            role,
+            self.hostTarget.view(),
+            self.artifactTarget.view(),
+            stepIndex,
+        )
     }
 
     fn validateObjectHandle(&self, handle: ObjectHandle) Error!() {
-        if handle.ownerId() != self.ownerId or handle.index() >= self.objects.len() {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Object(handle.index()),
-            }!;
-        }
-        !()
+        validateObjectHandleValue(self.ownerId, self.objects.len(), handle)
     }
 
     fn validateStaticArchiveHandle(&self, handle: StaticArchiveHandle) Error!() {
-        if handle.ownerId() != self.ownerId or handle.index() >= self.staticArchives.len() {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::StaticArchive(handle.index()),
-            }!;
-        }
-        !()
+        validateStaticArchiveHandleValue(self.ownerId, self.staticArchives.len(), handle)
     }
 
     fn validatePackageHandle(&self, handle: PackageHandle) Error!() {
-        if handle.ownerId != self.ownerId
-            or handle.index > self.packages.len()
-        {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Packages,
-            }!;
-        }
-        !()
+        validatePackageHandleValue(self.ownerId, self.packages.len(), handle)
     }
 
     fn validateModuleHandle(&self, handle: ModuleHandle) Error!() {
-        if handle.ownerId() != self.ownerId or handle.index() >= self.modules.len() {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Module(handle.index()),
-            }!;
-        }
-        !()
+        validateModuleHandleValue(self.ownerId, self.modules.len(), handle)
     }
 
     fn validateStepHandle(&self, handle: StepHandle) Error!() {
-        if handle.ownerId() != self.ownerId or handle.index() >= self.steps.len() {
-            return Error::Invalid {
-                operation: Operation::Validate,
-                subject: Subject::Step(handle.index()),
-            }!;
-        }
-        !()
+        validateStepHandleValue(self.ownerId, self.steps.len(), handle)
     }
 
     fn reportUnknownStep(&mut self, step: &[char]) Error!() {
