@@ -47,7 +47,7 @@ extend PlanEncoder {
     fn init(allocator: &mut mem::Allocator) PlanEncoder {
         Self {
             allocator: allocator,
-            bytes: collections::ArrayList[u8]::init(),
+            bytes: .init(),
         }
     }
 

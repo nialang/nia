@@ -199,7 +199,7 @@ extend Command {
             CommandEnvironment::Empty => &emptyEnvp[0],
         };
 
-        let mut options = os::SpawnOptions::init();
+        let mut options: os::SpawnOptions = .init();
         options.setStdin(self.stdin.asOsStdio()).withSpawnSetupContext().?;
         options.setStdout(self.stdout.asOsStdio()).withSpawnSetupContext().?;
         options.setStderr(self.stderr.asOsStdio()).withSpawnSetupContext().?;
@@ -215,11 +215,11 @@ extend Command {
 extend SpawnStorage {
     fn init() SpawnStorage {
         Self {
-            argumentBytes: collections::ArrayList[u8]::init(),
-            argv: collections::ArrayList[&u8]::init(),
-            environmentBytes: collections::ArrayList[u8]::init(),
-            environmentPointers: collections::ArrayList[&u8]::init(),
-            cwdBytes: collections::ArrayList[u8]::init(),
+            argumentBytes: .init(),
+            argv: .init(),
+            environmentBytes: .init(),
+            environmentPointers: .init(),
+            cwdBytes: .init(),
             nativeSpawn: null,
             outcome: null,
         }
@@ -297,8 +297,8 @@ extend SpawnStorage {
 extend SpawnAttempt {
     fn start(command: &Command) SpawnAttempt {
         let mut attempt = Self {
-            allocator: mem::PageAllocator::init(),
-            storage: SpawnStorage::init(),
+            allocator: .init(),
+            storage: .init(),
         };
         let allocator: &mut mem::Allocator = &mut attempt.allocator;
         attempt.storage.execute(command, allocator);
@@ -313,7 +313,7 @@ extend SpawnAttempt {
 
 extend AllocatorSpawnAttempt {
     fn start(command: &Command, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
-        let mut attempt = Self { storage: SpawnStorage::init() };
+        let mut attempt = Self { storage: .init() };
         attempt.storage.execute(command, allocator);
         attempt
     }

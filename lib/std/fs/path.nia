@@ -88,7 +88,7 @@ extend RelativePathView {
 
 extend Path {
     pub fn init() Path {
-        Self { text: string::String::init() }
+        Self { text: .init() }
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!Path {

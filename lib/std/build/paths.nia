@@ -12,11 +12,11 @@ using pkg::mem;
 extend BuildPaths {
     pub(pkg) fn init() BuildPaths {
         .{
-            packageRoot: fs::Path::init(),
-            buildDir: fs::Path::init(),
-            cacheDir: fs::Path::init(),
-            toolchainExecutable: fs::Path::init(),
-            toolchainResourceRoot: fs::Path::init(),
+            packageRoot: .init(),
+            buildDir: .init(),
+            cacheDir: .init(),
+            toolchainExecutable: .init(),
+            toolchainResourceRoot: .init(),
         }
     }
 
