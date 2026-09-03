@@ -1000,9 +1000,9 @@ Like `mapError`, `orElse` borrows a readonly synchronous callable and is not
 available during const evaluation.
 
 For cleanup that must continue after an individual release failure, the
-standard library provides `std::error::CleanupAccumulator[Failure]`. It keeps
-the first failure without allocating and never short-circuits a later
-`attempt`:
+standard library provides `std::error::cleanup::CleanupAccumulator[Failure]`
+(re-exported as `std::error::CleanupAccumulator[Failure]`). It keeps the first
+failure without allocating and never short-circuits a later `attempt`:
 
 ```nia
 let mut cleanup = std::error::CleanupAccumulator[ReleaseError]::init();

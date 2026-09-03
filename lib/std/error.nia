@@ -4,47 +4,11 @@
 // `mapError` and `orElse` evaluate the receiver once and borrow their callback
 // only for the active call; contextual domain information remains explicit.
 
-// Accumulates fallible cleanup outcomes without short-circuiting later work.
-// The first failure is kept in-place, so recording an error never allocates.
-// Resource ownership and retry state remain with the operation being attempted.
-//
-//     attempt(a); attempt(b); finish()
-//       run a       run b       report first failure
+pub module cleanup;
 
-pub struct CleanupAccumulator[Failure] {
-    firstFailure: ?Failure,
-}
+using pkg::error::cleanup;
 
-extend[Failure] CleanupAccumulator[Failure] {
-    // Start an empty, allocation-free cleanup report.
-    pub fn init() CleanupAccumulator[Failure] {
-        .{ firstFailure: null }
-    }
-
-    // Record a failure while always allowing the caller to attempt later work.
-    pub fn attempt(&mut self, result: Failure!()) () {
-        if result is err! {
-            if self.firstFailure is null {
-                self.firstFailure = ?err;
-            }
-        }
-    }
-
-    // Query whether every attempted cleanup has succeeded so far.
-    pub fn isClean(&self) bool {
-        if self.firstFailure is ?failure {
-            _ = failure;
-            false
-        } else {
-            true
-        }
-    }
-
-    // Return the first recorded failure after all cleanup attempts are complete.
-    pub fn finish(self) Failure!() {
-        if self.firstFailure is ?err { err! } else { !() }
-    }
-}
+pub using cleanup::CleanupAccumulator;
 
 pub trait IntoError[Target] {
     const fn into_error(self) Target;
