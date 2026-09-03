@@ -58,6 +58,7 @@ pub(pkg) module ownership;
 pub(pkg) module paths;
 pub(pkg) module plan;
 pub(pkg) module queries;
+pub(pkg) module records_cleanup;
 pub(pkg) module steps;
 pub(pkg) module targets;
 pub(pkg) module types;

@@ -1,0 +1,121 @@
+// Reverse-order release for Build-owned record lists.
+//
+// A list is deinitialized only after every element released successfully. If
+// one element fails, the list remains attached so a later cleanup attempt can
+// reach the residual owner. Each helper still attempts every element and
+// returns the first cleanup error, matching Build's aggregate policy.
+
+using pkg::collections;
+using pkg::mem;
+using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
+using pkg::build::types::{
+    ExecutableTarget,
+    Module,
+    ObjectTarget,
+    Package,
+    StaticArchiveTarget,
+    Step,
+};
+
+pub(pkg) fn releaseSteps(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[Step],
+) Error!() {
+    let mut firstError: ?Error = null;
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+    }
+    if firstError is null {
+        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Steps)
+    } else {
+        cleanupResult(firstError)
+    }
+}
+
+pub(pkg) fn releasePackages(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[Package],
+) Error!() {
+    let mut firstError: ?Error = null;
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+    }
+    if firstError is null {
+        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Packages)
+    } else {
+        cleanupResult(firstError)
+    }
+}
+
+pub(pkg) fn releaseExecutables(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[ExecutableTarget],
+) Error!() {
+    let mut firstError: ?Error = null;
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+    }
+    if firstError is null {
+        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Executables)
+    } else {
+        cleanupResult(firstError)
+    }
+}
+
+pub(pkg) fn releaseObjects(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[ObjectTarget],
+) Error!() {
+    let mut firstError: ?Error = null;
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+    }
+    if firstError is null {
+        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Objects)
+    } else {
+        cleanupResult(firstError)
+    }
+}
+
+pub(pkg) fn releaseStaticArchives(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[StaticArchiveTarget],
+) Error!() {
+    let mut firstError: ?Error = null;
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+    }
+    if firstError is null {
+        records.deinit(allocator).withBuildContext(Operation::Release, Subject::StaticArchives)
+    } else {
+        cleanupResult(firstError)
+    }
+}
+
+pub(pkg) fn releaseModules(
+    allocator: &mut mem::Allocator,
+    records: &mut collections::ArrayList[Module],
+) Error!() {
+    let mut firstError: ?Error = null;
+    let mut index = records.len();
+    while index != 0 {
+        index -= 1;
+        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+    }
+    if firstError is null {
+        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Modules)
+    } else {
+        cleanupResult(firstError)
+    }
+}
