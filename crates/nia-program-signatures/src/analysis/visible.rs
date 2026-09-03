@@ -77,7 +77,6 @@ pub struct VisibleExtensionsInput<'a> {
     /// Per-module canonical type-normalization resolver.
     pub normalizations: TypeNormalizationResolver<'a>,
     /// Resolver for visible type aliases.
-    /// Resolver for visible type aliases.
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
     /// Collected extension methods.
     pub extensions: &'a ExtensionMethods,
