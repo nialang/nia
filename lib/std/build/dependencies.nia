@@ -57,13 +57,10 @@ pub(pkg) fn findGeneratedSourceProducer(
             false
         };
         if matches {
-            match found {
-                ?old => {
-                    _ = old;
-                    return null;
-                },
-                null => found = ?StepHandle::init(ownerId, step.index),
+            if found is ?_ {
+                return null;
             }
+            found = ?StepHandle::init(ownerId, step.index);
         }
         index += 1;
     }

@@ -613,15 +613,11 @@ extend Build {
                 subject: Subject::Module(handle.index()),
             }!;
         }
-        match self.findModule(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Module(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findModule(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Module(handle.index()),
+            }!;
         }
         let optimization = match options.optimization {
             ?optimization => optimization,
@@ -713,35 +709,23 @@ extend Build {
                 subject: Subject::Executable(handle.index()),
             }!;
         }
-        match self.findExecutable(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Executable(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findExecutable(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Executable(handle.index()),
+            }!;
         }
-        match self.findObject(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Executable(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findObject(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Executable(handle.index()),
+            }!;
         }
-        match self.findStaticArchive(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Executable(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findStaticArchive(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Executable(handle.index()),
+            }!;
         }
         self.executables.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Executables).?;
         self.pendingExecutable = ExecutableTarget::init(
@@ -796,35 +780,23 @@ extend Build {
                 subject: Subject::Object(handle.index()),
             }!;
         }
-        match self.findObject(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Object(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findObject(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
         }
-        match self.findExecutable(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Object(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findExecutable(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
         }
-        match self.findStaticArchive(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Object(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findStaticArchive(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Object(handle.index()),
+            }!;
         }
         self.objects.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Objects).?;
         self.pendingObject = ObjectTarget::init(
@@ -874,35 +846,23 @@ extend Build {
                 subject: Subject::StaticArchive(handle.index()),
             }!;
         }
-        match self.findStaticArchive(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::StaticArchive(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findStaticArchive(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::StaticArchive(handle.index()),
+            }!;
         }
-        match self.findExecutable(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::StaticArchive(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findExecutable(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::StaticArchive(handle.index()),
+            }!;
         }
-        match self.findObject(options.name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::StaticArchive(handle.index()),
-                }!;
-            },
-            null => {},
+        if self.findObject(options.name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::StaticArchive(handle.index()),
+            }!;
         }
         self.staticArchives.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::StaticArchives).?;
         self.pendingStaticArchive = StaticArchiveTarget::init(
@@ -1383,15 +1343,11 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
-        match self.findStep(name) {
-            ?old => {
-                _ = old;
-                return Error::Invalid {
-                    operation: Operation::Validate,
-                    subject: Subject::Step(self.steps.len()),
-                }!;
-            },
-            null => {},
+        if self.findStep(name) is ?_ {
+            return Error::Invalid {
+                operation: Operation::Validate,
+                subject: Subject::Step(self.steps.len()),
+            }!;
         }
         self.steps.reserve(self.allocator, 1usize).withBuildContext(Operation::Retain, Subject::Steps).?;
         !()
