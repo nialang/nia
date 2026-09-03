@@ -253,7 +253,7 @@ extend DirIterator : Iterator {
             ?result => {
                 match result {
                     !value => ?(!value.as_fs_dir_entry()),
-                    err! => ?(err.into_error()!),
+                    err! => ?(err.intoError()!),
                 }
             },
             null => {

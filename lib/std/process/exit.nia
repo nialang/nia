@@ -10,7 +10,7 @@ using pkg::process::types;
 using types::{Error, ExitCode, SpawnError, SystemError};
 
 extend debug::Error : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .Format(cause) => cause.asExitCode(),
             .Flush(cause) => cause.asExitCode(),
@@ -20,18 +20,18 @@ extend debug::Error : error::IntoError[ExitCode] {
 
 extend debug::Error {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] debug::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: debug::Error -> cause.into_error())
+        self.mapError(&\cause: debug::Error -> cause.intoError())
     }
 }
 
 extend cstring::CStringBuildError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .ContainsNul => exit(22),
             .Allocation(cause) => cause.asExitCode(),
@@ -41,30 +41,30 @@ extend cstring::CStringBuildError : error::IntoError[ExitCode] {
 
 extend cstring::CStringBuildError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] cstring::CStringBuildError!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: cstring::CStringBuildError -> cause.into_error())
+        self.mapError(&\cause: cstring::CStringBuildError -> cause.intoError())
     }
 }
 
 extend fs::Error : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
 extend fs::Error {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend fs::PathError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .ContainsNul => exit(22),
             .Absolute => exit(22),
@@ -78,12 +78,12 @@ extend fs::PathError : error::IntoError[ExitCode] {
 
 extend fs::PathError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend fs::OperationError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .Path { operation: _, cause } => {
                 cause.asExitCode()
@@ -97,7 +97,7 @@ extend fs::OperationError : error::IntoError[ExitCode] {
 
 extend fs::OperationError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
@@ -106,54 +106,54 @@ pub const fn exit(code: i32) ExitCode {
 }
 
 extend io::SystemError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
 extend io::SystemError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend SystemError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         self as i32 as ExitCode
     }
 }
 
 extend SystemError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend io::Error : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .EndOfStream => exit(5),
             .ShortWrite => exit(5),
             .Closed => exit(9),
-            .System(cause) => cause.into_error(),
+            .System(cause) => cause.intoError(),
         }
     }
 }
 
 extend io::Error {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] io::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: io::Error -> cause.into_error())
+        self.mapError(&\cause: io::Error -> cause.intoError())
     }
 }
 
 extend Error : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .Allocation(cause) => cause.asExitCode(),
             .Path(cause) => cause.asExitCode(),
@@ -176,7 +176,7 @@ extend Error : error::IntoError[ExitCode] {
 }
 
 extend SpawnError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .Setup(cause) => cause.asExitCode(),
             .Stdio(cause) => cause.asExitCode(),
@@ -189,42 +189,42 @@ extend SpawnError : error::IntoError[ExitCode] {
 
 extend SpawnError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend Error {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] Error!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: Error -> cause.into_error())
+        self.mapError(&\cause: Error -> cause.intoError())
     }
 }
 
 extend[T] fs::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: fs::Error -> cause.into_error())
+        self.mapError(&\cause: fs::Error -> cause.intoError())
     }
 }
 
 extend[T] fs::PathError!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: fs::PathError -> cause.into_error())
+        self.mapError(&\cause: fs::PathError -> cause.intoError())
     }
 }
 
 extend[T] fs::OperationError!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: fs::OperationError -> cause.into_error())
+        self.mapError(&\cause: fs::OperationError -> cause.intoError())
     }
 }
 
 extend fmt::Error : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .Write => exit(5),
             .InvalidTemplate => exit(22),
@@ -237,18 +237,18 @@ extend fmt::Error : error::IntoError[ExitCode] {
 
 extend fmt::Error {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] fmt::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: fmt::Error -> cause.into_error())
+        self.mapError(&\cause: fmt::Error -> cause.intoError())
     }
 }
 
 extend io::BufferError : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .NoSpace => exit(2),
             .ShortWrite => exit(5),
@@ -260,18 +260,18 @@ extend io::BufferError : error::IntoError[ExitCode] {
 
 extend io::BufferError {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] io::BufferError!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: io::BufferError -> cause.into_error())
+        self.mapError(&\cause: io::BufferError -> cause.intoError())
     }
 }
 
 extend mem::Error : error::IntoError[ExitCode] {
-    const fn into_error(self) ExitCode {
+    const fn intoError(self) ExitCode {
         match self {
             .Invalid => exit(22),
             .InvalidAlignment => exit(22),
@@ -283,12 +283,12 @@ extend mem::Error : error::IntoError[ExitCode] {
 
 extend mem::Error {
     pub const fn asExitCode(self) ExitCode {
-        self.into_error()
+        self.intoError()
     }
 }
 
 extend[T] mem::Error!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: mem::Error -> cause.into_error())
+        self.mapError(&\cause: mem::Error -> cause.intoError())
     }
 }

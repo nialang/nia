@@ -198,7 +198,7 @@ fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize) core::Error!usi
     if arg_index.* >= args.len() {
         return core::Error::MissingArgument!;
     }
-    let value = match args[arg_index.*].format_usize_arg() {
+    let value = match args[arg_index.*].formatUsizeArg() {
         ?value => {
             value
         },
@@ -255,7 +255,7 @@ where W: io::Writer
                 if arg_index >= args.len() {
                     return core::Error::MissingArgument!;
                 }
-                args[arg_index].format_spec(&mut formatter, core::FormatSpec::display()).?;
+                args[arg_index].formatSpec(&mut formatter, core::FormatSpec::display()).?;
                 arg_index += 1usize;
                 index += 2usize;
             } else if next == '{' {
@@ -269,7 +269,7 @@ where W: io::Writer
                 let value_index = arg_index;
                 arg_index += 1usize;
                 let spec = resolve_dynamic_spec(parsed, args, &mut arg_index).?;
-                args[value_index].format_spec(&mut formatter, spec).?;
+                args[value_index].formatSpec(&mut formatter, spec).?;
                 index = parsed.next_index;
             } else {
                 return core::Error::InvalidTemplate!;

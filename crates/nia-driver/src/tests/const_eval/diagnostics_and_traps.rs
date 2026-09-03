@@ -1874,14 +1874,14 @@ fn unused_const_function_rejects_runtime_into_error_witness() {
         &root.join("main.nia"),
         r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 struct SourceError {}
 struct TargetError {}
 
 extend SourceError : IntoError[TargetError] {
-    fn into_error(self) TargetError {
+    fn intoError(self) TargetError {
         {}
     }
 }
@@ -1899,7 +1899,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("requires `into_error` to be declared `const fn`")),
+            .contains("requires `intoError` to be declared `const fn`")),
         "{:?}",
         program.diagnostics
     );

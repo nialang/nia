@@ -521,7 +521,7 @@ fn error_propagation_uses_unique_into_error_conversion() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -536,7 +536,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : IntoError[TargetError] {
-    fn into_error(self) TargetError {
+    fn intoError(self) TargetError {
         match self {
             SourceError::Failed => TargetError::Converted,
             _ => TargetError::Unknown,
@@ -565,7 +565,7 @@ fn error_propagation_rejects_missing_into_error_conversion() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -599,7 +599,7 @@ fn error_propagation_does_not_chain_into_error_conversions() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 enum SourceError: i32 { Value = 1, _ }
@@ -607,11 +607,11 @@ enum MiddleError: i32 { Value = 2, _ }
 enum TargetError: i32 { Value = 3, _ }
 
 extend SourceError : IntoError[MiddleError] {
-    fn into_error(self) MiddleError { MiddleError::Value }
+    fn intoError(self) MiddleError { MiddleError::Value }
 }
 
 extend MiddleError : IntoError[TargetError] {
-    fn into_error(self) TargetError { TargetError::Value }
+    fn intoError(self) TargetError { TargetError::Value }
 }
 
 fn propagate(value: SourceError!i32) TargetError!i32 {
@@ -634,7 +634,7 @@ fn error_propagation_rejects_ambiguous_into_error_conversion() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 struct Pair[A, B] {
@@ -645,11 +645,11 @@ struct Pair[A, B] {
 struct TargetError {}
 
 extend[T] Pair[T, i32] : IntoError[TargetError] {
-    fn into_error(self) TargetError { {} }
+    fn intoError(self) TargetError { {} }
 }
 
 extend[U] Pair[i32, U] : IntoError[TargetError] {
-    fn into_error(self) TargetError { {} }
+    fn intoError(self) TargetError { {} }
 }
 
 fn propagate(value: Pair[i32, i32]!i32) TargetError!i32 {
@@ -672,14 +672,14 @@ fn error_propagation_ignores_malformed_into_error_protocol() {
     let checked = pipeline(
         r#"
 trait IntoError[Target] {
-    fn into_error(self, context: i32) Target;
+    fn intoError(self, context: i32) Target;
 }
 
 struct SourceError {}
 struct TargetError {}
 
 extend SourceError : IntoError[TargetError] {
-    fn into_error(self, context: i32) TargetError {
+    fn intoError(self, context: i32) TargetError {
         _ = context;
         {}
     }
@@ -705,7 +705,7 @@ fn const_error_propagation_accepts_const_into_error_conversion() {
     let checked = pipeline_const_declarations(
         r#"
 trait IntoError[Target] {
-    const fn into_error(self) Target;
+    const fn intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -719,7 +719,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : IntoError[TargetError] {
-    const fn into_error(self) TargetError {
+    const fn intoError(self) TargetError {
         TargetError::Converted
     }
 }
@@ -738,7 +738,7 @@ fn const_error_propagation_rejects_runtime_into_error_conversion() {
     let checked = pipeline_const_declarations(
         r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -752,7 +752,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : IntoError[TargetError] {
-    fn into_error(self) TargetError {
+    fn intoError(self) TargetError {
         TargetError::Converted
     }
 }
@@ -766,7 +766,7 @@ const fn propagate(value: SourceError!i32) TargetError!i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .summary
-            .contains("requires `into_error` to be declared `const fn`")),
+            .contains("requires `intoError` to be declared `const fn`")),
         "{:?}",
         checked.diagnostics
     );

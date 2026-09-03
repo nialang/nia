@@ -81,7 +81,7 @@ extend Wyhash {
     }
 
     fn finish_value(&self) u64 {
-        let mut copy = self.shallow_copy();
+        let mut copy = self.shallowCopy();
         if self.total_len <= 16 {
             copy.small_key(&self.buf[0..self.buf_len]);
         } else {
@@ -103,7 +103,7 @@ extend Wyhash {
         copy.final2()
     }
 
-    fn shallow_copy(&self) Wyhash {
+    fn shallowCopy(&self) Wyhash {
         Self {
             a: self.a,
             b: self.b,

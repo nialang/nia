@@ -263,7 +263,7 @@ static mut conversionCount: i32 = 0;
 static mut sourceCount: i32 = 0;
 
 extend SourceError : error::IntoError[TargetError] {
-    fn into_error(self) TargetError {
+    fn intoError(self) TargetError {
         conversionCount += 1;
         match self {
             SourceError::Failed => TargetError::Converted,
@@ -273,7 +273,7 @@ extend SourceError : error::IntoError[TargetError] {
 }
 
 extend EmptySourceError : error::IntoError[EmptyTargetError] {
-    fn into_error(self) EmptyTargetError {
+    fn intoError(self) EmptyTargetError {
         conversionCount += 1;
         {}
     }

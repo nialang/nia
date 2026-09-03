@@ -961,7 +961,7 @@ impl Analyzer<'_> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::CONST,
                 span,
-                "automatic `IntoError` conversion during const evaluation requires `into_error` to be declared `const fn`",
+                "automatic `IntoError` conversion during const evaluation requires `intoError` to be declared `const fn`",
             ));
             return;
         }

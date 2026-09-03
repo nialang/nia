@@ -26,7 +26,7 @@ value: i32,
 }
 
 extend Source : error::IntoError[Target] {
-fn into_error(self) Target {
+fn intoError(self) Target {
     Target { value: self.value }
 }
 }
@@ -51,7 +51,7 @@ match value.cast_error() {
         "error.nia",
         r#"
 pub trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
@@ -63,7 +63,7 @@ pub fn cast_error(self) Target!T {
             !ok
         },
         error! => {
-            error.into_error()!
+            error.intoError()!
         },
     }
 }
@@ -92,14 +92,14 @@ using entry::error;
         .defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
+            (def.name == sym("intoError") && def.kind == nia_defs::DefKind::Method).then_some(
                 GlobalDefId {
                     module_id: entry_id,
                     def_id,
                 },
             )
         })
-        .expect("into_error method should be defined");
+        .expect("intoError method should be defined");
 
     assert!(
         module.body_ir.function_bodies.contains_key(&into_error),
@@ -137,7 +137,7 @@ match value.cast_error() {
         "error.nia",
         r#"
 pub trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
@@ -149,7 +149,7 @@ pub fn cast_error(self) Target!T {
             !ok
         },
         error! => {
-            error.into_error()!
+            error.intoError()!
         },
     }
 }
@@ -172,7 +172,7 @@ value: i32,
 }
 
 extend Source : error::IntoError[Target] {
-fn into_error(self) Target {
+fn intoError(self) Target {
     Target { value: self.value }
 }
 }
@@ -192,14 +192,14 @@ fn into_error(self) Target {
         .defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
+            (def.name == sym("intoError") && def.kind == nia_defs::DefKind::Method).then_some(
                 GlobalDefId {
                     module_id: impls_id,
                     def_id,
                 },
             )
         })
-        .expect("cross-module into_error method should be defined");
+        .expect("cross-module intoError method should be defined");
 
     assert!(
         module.body_ir.function_bodies.contains_key(&into_error),
@@ -237,7 +237,7 @@ match value.as_target_error() {
         "error.nia",
         r#"
 pub trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
@@ -249,7 +249,7 @@ pub fn cast_error(self) Target!T {
             !ok
         },
         error! => {
-            error.into_error()!
+            error.intoError()!
         },
     }
 }
@@ -272,7 +272,7 @@ value: i32,
 }
 
 extend Source : error::IntoError[Target] {
-fn into_error(self) Target {
+fn intoError(self) Target {
     Target { value: self.value }
 }
 }
@@ -298,14 +298,14 @@ pub fn as_target_error(self) Target!T {
         .defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
+            (def.name == sym("intoError") && def.kind == nia_defs::DefKind::Method).then_some(
                 GlobalDefId {
                     module_id: impls_id,
                     def_id,
                 },
             )
         })
-        .expect("cross-module into_error method should be defined");
+        .expect("cross-module intoError method should be defined");
 
     assert!(
         module.body_ir.function_bodies.contains_key(&into_error),
