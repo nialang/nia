@@ -3,7 +3,7 @@ using pkg::collections::hash_map::entries;
 using pkg::collections::hash_map::map;
 using pkg::collections::hash_map::raw;
 using pkg::collections::hash_map::types;
-using pkg::optional;
+using pkg::option;
 
 using context::DefaultHashMapContext;
 using entries::{HashMapEntry, HashMapEntryMut, HashMapEntryRef};

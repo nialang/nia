@@ -959,12 +959,12 @@ call only on the failure edge, just like runtime lowering; exact-type and
 optional propagation do not need a witness. A runtime-only `intoError`
 implementation is rejected in const code rather than executed as a fallback.
 
-Optional callback operations live in `std::optional`. `map` transforms a
+Optional callback operations live in `std::option`. `map` transforms a
 present payload, while `andThen` continues with a callback that produces
 another optional:
 
 ```nia
-using std::optional;
+using std::option;
 
 let doubled = maybe.map(&\value: i32 -> value * 2);
 let positive = doubled.andThen(&\value: i32 -> {
@@ -977,7 +977,7 @@ Both operations evaluate the receiver once and skip the borrowed callback for
 composition. When a branch needs the payload immediately, prefer the language
 pattern `if maybe is ?value` rather than querying and then matching again.
 
-Error unions provide matching success-side operations in `std::error`:
+Error unions provide result operations in `std::result`:
 `map` transforms `!value`, and `andThen` continues it with a callback returning
 another error union with the same error type. Both preserve an existing error
 without invoking the callback. Together with error-side `mapError` and
@@ -988,6 +988,8 @@ both sides without implicit flattening or allocation. `isSuccess` and
 Error unions also provide the explicit `mapError` extension:
 
 ```nia
+using std::result;
+
 let mapped = operation().mapError(&\[context] cause: SourceError -> {
     _ = context;
     _ = cause;

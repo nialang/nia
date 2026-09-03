@@ -6,6 +6,7 @@
 // violated build-library invariant.
 
 using pkg::error;
+using pkg::result;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
