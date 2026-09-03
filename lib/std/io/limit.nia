@@ -65,11 +65,8 @@ where R: Reader
                     if n > count {
                         return self.invalidRead()!;
                     }
-                    match self.limit.remaining {
-                        ?current => {
-                            self.limit = Limit::limited(current - n);
-                        },
-                        null => {},
+                    if self.limit.remaining is ?current {
+                        self.limit = Limit::limited(current - n);
                     }
                     !n
                 }

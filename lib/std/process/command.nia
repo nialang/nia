@@ -167,15 +167,12 @@ extend Command {
         }
 
         appendPath(allocator, &mut storage.argumentBytes, self.path).?;
-        match self.arguments {
-            ?arguments => {
-                let mut argumentIndex: usize = 0;
-                for &argument in arguments {
-                    appendArgument(allocator, &mut storage.argumentBytes, argument, argumentIndex).?;
-                    argumentIndex += 1;
-                }
-            },
-            null => {},
+        if self.arguments is ?arguments {
+            let mut argumentIndex: usize = 0;
+            for &argument in arguments {
+                appendArgument(allocator, &mut storage.argumentBytes, argument, argumentIndex).?;
+                argumentIndex += 1;
+            }
         }
 
         let bytes = storage.argumentBytes.asSlice();
@@ -206,12 +203,9 @@ extend Command {
         options.setStdin(self.stdin.asOsStdio()).withSpawnSetupContext().?;
         options.setStdout(self.stdout.asOsStdio()).withSpawnSetupContext().?;
         options.setStderr(self.stderr.asOsStdio()).withSpawnSetupContext().?;
-        match self.cwd {
-            ?cwd => {
-                appendPath(allocator, &mut storage.cwdBytes, cwd).?;
-                options.setCwd(storage.cwdBytes.asSlice().ptr());
-            },
-            null => {},
+        if self.cwd is ?cwd {
+            appendPath(allocator, &mut storage.cwdBytes, cwd).?;
+            options.setCwd(storage.cwdBytes.asSlice().ptr());
         }
         storage.nativeSpawn = ?os::spawn(bytes.ptr(), storage.argv.asSlice().ptr(), envp, options);
         !()

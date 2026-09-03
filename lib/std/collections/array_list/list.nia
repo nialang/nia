@@ -141,11 +141,8 @@ where T: Sized
         let len = self.len();
         let layout = mem::Layout::array[T](len).?;
         if std::builtin::size[T]() == 0 or self.capacity() == 0 {
-            match self.storageBlock {
-                ?block => {
-                    allocator.free(block).?;
-                },
-                null => {},
+            if self.storageBlock is ?block {
+                allocator.free(block).?;
             }
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
@@ -162,15 +159,11 @@ where T: Sized
             return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(layout), 0);
         }
 
-        match allocator.remap(oldBlock, layout) {
-            ?block => {
-                self.items = raw::danglingSlice[T](0);
-                self.capacity = 0;
-                self.storageBlock = null;
-                return !mem::SliceAllocation[T]::fromBlock(block, len);
-            },
-            null => {
-            },
+        if allocator.remap(oldBlock, layout) is ?block {
+            self.items = raw::danglingSlice[T](0);
+            self.capacity = 0;
+            self.storageBlock = null;
+            return !mem::SliceAllocation[T]::fromBlock(block, len);
         }
 
         let newBlock = allocator.alloc(layout).?;
@@ -691,13 +684,9 @@ where T: Sized
         }
 
         let layout = mem::Layout::array[T](targetCapacity).?;
-        match allocator.remap(oldBlock, layout) {
-            ?block => {
-                self.setAllocatedBlock(block, targetCapacity);
-                return !();
-            },
-            null => {
-            },
+        if allocator.remap(oldBlock, layout) is ?block {
+            self.setAllocatedBlock(block, targetCapacity);
+            return !();
         }
 
         let newBlock = allocator.alloc(layout).?;
@@ -759,13 +748,9 @@ where T: Sized
         }
         let oldBlock = self.allocatedBlock().?;
         let layout = mem::Layout::array[T](capacity).?;
-        match allocator.remap(oldBlock, layout) {
-            ?block => {
-                self.setAllocatedBlock(block, capacity);
-                return !();
-            },
-            null => {
-            },
+        if allocator.remap(oldBlock, layout) is ?block {
+            self.setAllocatedBlock(block, capacity);
+            return !();
         }
 
         let newBlock = allocator.alloc(layout).?;
