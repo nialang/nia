@@ -1,11 +1,7 @@
 using pkg::collections;
-using pkg::fmt;
 using pkg::fs;
 using pkg::io;
-using pkg::math;
 using pkg::mem;
-using pkg::os;
-using pkg::slice;
 using pkg::string;
 using pkg::build::error;
 using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
