@@ -1283,9 +1283,21 @@ impl<'a> BodyChecker<'a> {
             .enumerate()
             .map(|(index, arg)| {
                 let param = params.get(index).copied();
-                let inferred_from_closure = param.is_some_and(|param| {
+                let mut inferred_from_closure = param.is_some_and(|param| {
                     self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span)
                 });
+                let closure_params_ready = param.is_some_and(|param| {
+                    let substituted = self.substitute_generics(param, substitutions);
+                    self.seed_closure_params_from_callable_pattern(substituted, arg)
+                });
+                if closure_params_ready && let Some(param) = param {
+                    inferred_from_closure |= self.infer_generics_from_closure_signature(
+                        param,
+                        arg,
+                        substitutions,
+                        arg.span,
+                    );
+                }
                 if let Some(expected) =
                     param.map(|param| self.substitute_generics(param, substitutions))
                 {
@@ -1296,7 +1308,7 @@ impl<'a> BodyChecker<'a> {
                     };
                     match expected {
                         Some(expected) => Some(self.check_expr_with_expected(arg, Some(expected))),
-                        None if inferred_from_closure => None,
+                        None if inferred_from_closure && !closure_params_ready => None,
                         None => Some(self.check_expr(arg)),
                     }
                 } else {

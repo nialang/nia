@@ -369,6 +369,44 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_method_callable_infers_return_from_nested_method_call() {
+    let checked = pipeline(
+        r#"
+struct Source {
+    value: i32,
+}
+
+struct Target {
+    value: i32,
+}
+
+extend Source {
+    fn intoTarget(&self) Target {
+        Target { value: self.value }
+    }
+}
+
+extend[Value] ?Value {
+    fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
+        match self {
+            ?value => ?mapper(value),
+            null => null,
+        }
+    }
+}
+
+fn main(source: ?Source) i32 {
+    let mapped = source.map(&\value -> value.intoTarget());
+    _ = mapped;
+    0
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn fallible_callable_argument_infers_nested_error_union_return() {
     let checked = pipeline(
         r#"

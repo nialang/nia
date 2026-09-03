@@ -785,6 +785,64 @@ impl<'a> BodyChecker<'a> {
         true
     }
 
+    /// Supplies callable parameter types that the local closure pre-pass could
+    /// not discover on its own. This is needed when a closure body starts with
+    /// a method call: resolving that method requires the parameter type from
+    /// the surrounding generic call, while the callback return type must stay
+    /// unconstrained so its body can infer another generic argument.
+    pub(in crate::calls) fn seed_closure_params_from_callable_pattern(
+        &mut self,
+        pattern: InternedTyId,
+        expr: &Expr,
+    ) -> bool {
+        use crate::inference::InferredType;
+
+        let closure = match &expr.kind {
+            ExprKind::Closure { .. } => expr,
+            ExprKind::Unary {
+                op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
+                expr,
+            } if matches!(expr.kind, ExprKind::Closure { .. }) => expr,
+            _ => return false,
+        };
+        let pattern = self.normalization.normalize(pattern);
+        let params = match self.interner.get(pattern).cloned() {
+            Some(TyKind::Callable { params, .. })
+            | Some(TyKind::CallablePointee { params, .. })
+            | Some(TyKind::FunctionPointer {
+                params,
+                is_variadic: false,
+                ..
+            }) => params,
+            _ => return false,
+        };
+        if params.iter().any(|param| {
+            self.type_contains_generic_param(*param)
+                || self.type_contains_const_generic_param(*param)
+        }) {
+            return false;
+        }
+        let Some(mut signature) = self.inferred_closures.get(&closure.node_key).cloned() else {
+            return false;
+        };
+        if params.len() != signature.params.len()
+            || !params
+                .iter()
+                .zip(&signature.params)
+                .all(|(expected, inferred)| {
+                    self.generic_pattern_accepts_inferred_shape(*expected, inferred)
+                })
+        {
+            return false;
+        }
+        for (inferred, expected) in signature.params.iter_mut().zip(params) {
+            *inferred = InferredType::Known(expected);
+        }
+        self.inferred_closures
+            .insert(closure.node_key.clone(), signature);
+        true
+    }
+
     /// Checks whether closure-local partial type information can safely feed
     /// generic inference without publishing substitutions or diagnostics.
     fn generic_pattern_accepts_inferred_shape(
