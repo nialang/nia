@@ -832,6 +832,50 @@ extend math::Point {
 }
 
 #[test]
+fn merges_public_extensions_for_one_type_from_multiple_modules() {
+    let root = temp_dir("merges_public_extensions_for_one_type_from_multiple_modules");
+    write(
+        &root.join("main.nia"),
+        r#"
+module math;
+module first;
+module second;
+using entry::math;
+using entry::first;
+using entry::second;
+
+fn main(p: math::Point) i32 {
+    p.first() + p.second()
+}
+"#,
+    );
+    write(&root.join("math.nia"), r#"pub struct Point { value: i32 }"#);
+    write(
+        &root.join("first.nia"),
+        r#"
+using entry::math;
+
+extend math::Point {
+    pub fn first(& self) i32 { 1 }
+}
+"#,
+    );
+    write(
+        &root.join("second.nia"),
+        r#"
+using entry::math;
+
+extend math::Point {
+    pub fn second(& self) i32 { 2 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
 fn imports_public_extension_associated_const_values() {
     let root = temp_dir("imports_public_extension_associated_const_values");
     write(

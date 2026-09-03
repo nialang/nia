@@ -107,28 +107,6 @@ using types::{
     StepPayload,
 };
 
-extend BuildPaths {
-    fn init() BuildPaths {
-        BuildPaths {
-            packageRoot: fs::Path::init(),
-            buildDir: fs::Path::init(),
-            cacheDir: fs::Path::init(),
-            toolchainExecutable: fs::Path::init(),
-            toolchainResourceRoot: fs::Path::init(),
-        }
-    }
-
-    fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.toolchainResourceRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainResourceRoot));
-        rememberCleanupError(&mut firstError, self.toolchainExecutable.deinit(allocator).withBuildContext(Operation::Release, Subject::ToolchainExecutable));
-        rememberCleanupError(&mut firstError, self.cacheDir.deinit(allocator).withBuildContext(Operation::Release, Subject::CacheDir));
-        rememberCleanupError(&mut firstError, self.buildDir.deinit(allocator).withBuildContext(Operation::Release, Subject::BuildDir));
-        rememberCleanupError(&mut firstError, self.packageRoot.deinit(allocator).withBuildContext(Operation::Release, Subject::PackageRoot));
-        cleanupResult(firstError)
-    }
-}
-
 extend Build {
     // The generated runner supplies these values from the resolved toolchain
     // invocation. Ordinary build scripts receive the initialized value and do
