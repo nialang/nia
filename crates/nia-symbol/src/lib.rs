@@ -277,14 +277,14 @@ pub mod known {
     known_symbol!(TARGET_ENV, "target.env");
     known_symbol!(TARGET_ABI, "target.abi");
     known_symbol!(TARGET_ENDIAN, "target.endian");
-    known_symbol!(TARGET_POINTER_WIDTH, "target.pointer_width");
+    known_symbol!(TARGET_POINTER_WIDTH, "target.pointerWidth");
     known_symbol!(ARCH, "arch");
     known_symbol!(VENDOR, "vendor");
     known_symbol!(OS, "os");
     known_symbol!(ENV, "env");
     known_symbol!(ABI, "abi");
     known_symbol!(ENDIAN, "endian");
-    known_symbol!(POINTER_WIDTH, "pointer_width");
+    known_symbol!(POINTER_WIDTH, "pointerWidth");
 
     /// Complete text-to-identity registry used by deterministic resolvers.
     pub const WELL_KNOWN: &[(SymbolId, &str)] = &[
@@ -434,14 +434,14 @@ pub mod known {
         (TARGET_ENV, "target.env"),
         (TARGET_ABI, "target.abi"),
         (TARGET_ENDIAN, "target.endian"),
-        (TARGET_POINTER_WIDTH, "target.pointer_width"),
+        (TARGET_POINTER_WIDTH, "target.pointerWidth"),
         (ARCH, "arch"),
         (VENDOR, "vendor"),
         (OS, "os"),
         (ENV, "env"),
         (ABI, "abi"),
         (ENDIAN, "endian"),
-        (POINTER_WIDTH, "pointer_width"),
+        (POINTER_WIDTH, "pointerWidth"),
     ];
 
     /// Returns [`ENTRY`].

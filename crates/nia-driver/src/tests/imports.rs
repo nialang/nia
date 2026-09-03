@@ -484,7 +484,7 @@ fn builtin_module_exposes_target_const_values() {
 using std::builtin::target;
 
 fn main() usize {
-    if target::pointer_width == 64usize or target::pointer_width == 32usize {
+    if target::pointerWidth == 64usize or target::pointerWidth == 32usize {
         target::os.len()
     } else {
         0usize
@@ -927,7 +927,7 @@ using std::builtin::target;
 pub struct Marker {}
 
 extend Marker {
-    pub const LIMIT: usize = if target::pointer_width == 64usize {
+    pub const LIMIT: usize = if target::pointerWidth == 64usize {
         usize::MAX
     } else {
         u32::MAX as usize

@@ -25,7 +25,7 @@ fn conditional_attribute_accepts_target_fields() {
     write(
         &root.join("main.nia"),
         r#"
-@[if pointer_width == 64 or pointer_width == 32]
+@[if pointerWidth == 64 or pointerWidth == 32]
 fn selected() i32 { 1 }
 
 fn main() i32 { selected() }

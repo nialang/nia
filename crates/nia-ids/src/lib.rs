@@ -673,7 +673,7 @@ impl BuiltinConstValue {
             "target.env" => Some(Self::TargetEnv),
             "target.abi" => Some(Self::TargetAbi),
             "target.endian" => Some(Self::TargetEndian),
-            "target.pointer_width" => Some(Self::TargetPointerWidth),
+            "target.pointerWidth" => Some(Self::TargetPointerWidth),
             _ => None,
         }
     }
@@ -687,7 +687,7 @@ impl BuiltinConstValue {
             Self::TargetEnv => "target.env",
             Self::TargetAbi => "target.abi",
             Self::TargetEndian => "target.endian",
-            Self::TargetPointerWidth => "target.pointer_width",
+            Self::TargetPointerWidth => "target.pointerWidth",
         }
     }
 
@@ -700,7 +700,7 @@ impl BuiltinConstValue {
             Self::TargetEnv => "env",
             Self::TargetAbi => "abi",
             Self::TargetEndian => "endian",
-            Self::TargetPointerWidth => "pointer_width",
+            Self::TargetPointerWidth => "pointerWidth",
         }
     }
 }
