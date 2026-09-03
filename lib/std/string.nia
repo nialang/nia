@@ -114,7 +114,7 @@ extend String {
         };
 
         let mut writer = TextFormatWriter::init(allocator);
-        match fmt::print_checked(&mut writer, template, args) {
+        match fmt::printChecked(&mut writer, template, args) {
             !ok => { _ = ok; },
             error! => {
                 let primary = writer.textError(error);

@@ -1,11 +1,11 @@
 using pkg::fmt::core;
 
-fn format_signed_spec(
+fn formatSignedSpec(
     value: i128,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!() {
-    if spec.has_precision() {
+    if spec.hasPrecision() {
         return core::Error::InvalidTemplate!;
     }
     match spec.presentation() {
@@ -18,12 +18,12 @@ fn format_signed_spec(
     }
 }
 
-fn format_unsigned_spec(
+fn formatUnsignedSpec(
     value: u128,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
 ) core::Error!() {
-    if spec.sign_plus() or spec.has_precision() {
+    if spec.signPlus() or spec.hasPrecision() {
         return core::Error::InvalidTemplate!;
     }
     match spec.presentation() {
@@ -36,32 +36,32 @@ fn format_unsigned_spec(
     }
 }
 
-fn format_text_spec(
+fn formatTextSpec(
     formatter: &mut core::Formatter,
     text: &[char],
     spec: core::FormatSpec,
 ) core::Error!() {
-    if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
+    if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
         return core::Error::InvalidTemplate!;
     }
-    let content_width = formatter.precision_width(text.len(), spec);
-    formatter.writePaddingBefore(content_width, spec).?;
-    formatter.writeTextPrefix(text, content_width).?;
-    formatter.writePaddingAfter(content_width, spec)
+    let contentWidth = formatter.precisionWidth(text.len(), spec);
+    formatter.writePaddingBefore(contentWidth, spec).?;
+    formatter.writeTextPrefix(text, contentWidth).?;
+    formatter.writePaddingAfter(contentWidth, spec)
 }
 
-fn format_bytes_spec(
+fn formatBytesSpec(
     formatter: &mut core::Formatter,
     bytes: &[u8],
     spec: core::FormatSpec,
 ) core::Error!() {
-    if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
+    if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
         return core::Error::InvalidTemplate!;
     }
-    let content_width = formatter.precision_width(bytes.len(), spec);
-    formatter.writePaddingBefore(content_width, spec).?;
-    formatter.writeBytes(&bytes[0..content_width]).?;
-    formatter.writePaddingAfter(content_width, spec)
+    let contentWidth = formatter.precisionWidth(bytes.len(), spec);
+    formatter.writePaddingBefore(contentWidth, spec).?;
+    formatter.writeBytes(&bytes[0..contentWidth]).?;
+    formatter.writePaddingAfter(contentWidth, spec)
 }
 
 extend i8 : core::Format {
@@ -70,7 +70,7 @@ extend i8 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_signed_spec(self.* as i128, formatter, spec)
+        formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
@@ -80,7 +80,7 @@ extend i16 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_signed_spec(self.* as i128, formatter, spec)
+        formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
@@ -90,7 +90,7 @@ extend i32 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_signed_spec(self.* as i128, formatter, spec)
+        formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
@@ -100,7 +100,7 @@ extend i64 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_signed_spec(self.* as i128, formatter, spec)
+        formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
@@ -110,7 +110,7 @@ extend i128 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_signed_spec(self.*, formatter, spec)
+        formatSignedSpec(self.*, formatter, spec)
     }
 }
 
@@ -120,7 +120,7 @@ extend isize : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_signed_spec(self.* as i128, formatter, spec)
+        formatSignedSpec(self.* as i128, formatter, spec)
     }
 }
 
@@ -130,7 +130,7 @@ extend u8 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_unsigned_spec(self.* as u128, formatter, spec)
+        formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
@@ -140,7 +140,7 @@ extend u16 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_unsigned_spec(self.* as u128, formatter, spec)
+        formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
@@ -150,7 +150,7 @@ extend u32 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_unsigned_spec(self.* as u128, formatter, spec)
+        formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
@@ -160,7 +160,7 @@ extend u64 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_unsigned_spec(self.* as u128, formatter, spec)
+        formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 }
 
@@ -170,7 +170,7 @@ extend u128 : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_unsigned_spec(self.*, formatter, spec)
+        formatUnsignedSpec(self.*, formatter, spec)
     }
 }
 
@@ -180,7 +180,7 @@ extend usize : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_unsigned_spec(self.* as u128, formatter, spec)
+        formatUnsignedSpec(self.* as u128, formatter, spec)
     }
 
     fn formatUsizeArg(&self) ?usize {
@@ -188,7 +188,7 @@ extend usize : core::Format {
     }
 }
 
-fn format_pointer_spec(
+fn formatPointerSpec(
     value: usize,
     formatter: &mut core::Formatter,
     spec: core::FormatSpec,
@@ -208,7 +208,7 @@ where T: Sized
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_pointer_spec(self.* as usize, formatter, spec)
+        formatPointerSpec(self.* as usize, formatter, spec)
     }
 }
 
@@ -220,7 +220,7 @@ where T: Sized
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_pointer_spec(self.* as usize, formatter, spec)
+        formatPointerSpec(self.* as usize, formatter, spec)
     }
 }
 
@@ -235,9 +235,9 @@ extend bool : core::Format {
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         if self.* {
-            format_text_spec(formatter, &"true", spec)
+            formatTextSpec(formatter, &"true", spec)
         } else {
-            format_text_spec(formatter, &"false", spec)
+            formatTextSpec(formatter, &"false", spec)
         }
     }
 }
@@ -248,15 +248,15 @@ extend char : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        if spec.presentation() != core::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
+        if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
-        let content_width = formatter.precision_width(1usize, spec);
-        formatter.writePaddingBefore(content_width, spec).?;
-        if content_width != 0usize {
+        let contentWidth = formatter.precisionWidth(1usize, spec);
+        formatter.writePaddingBefore(contentWidth, spec).?;
+        if contentWidth != 0usize {
             formatter.writeChar(self.*).?;
         }
-        formatter.writePaddingAfter(content_width, spec)
+        formatter.writePaddingAfter(contentWidth, spec)
     }
 }
 
@@ -271,7 +271,7 @@ extend [char] : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_text_spec(formatter, self, spec)
+        formatTextSpec(formatter, self, spec)
     }
 }
 
@@ -281,7 +281,7 @@ extend [u8] : core::Format {
     }
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
-        format_bytes_spec(formatter, self, spec)
+        formatBytesSpec(formatter, self, spec)
     }
 }
 
@@ -303,7 +303,7 @@ where T: Sized + core::Format
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         spec.validate().?;
-        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.has_precision() or spec.sign_plus() or spec.alternate() {
+        if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0usize or spec.hasPrecision() or spec.signPlus() or spec.alternate() {
             return core::Error::InvalidTemplate!;
         }
         self.format(formatter)
