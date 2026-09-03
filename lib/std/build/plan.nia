@@ -98,7 +98,7 @@ extend PlanEncoder {
     // the addition checked also prevents a forged in-memory build from
     // wrapping an aggregate count before writeCount can reject it.
     fn addCount(left: usize, right: usize) Error!usize {
-        let value = match left.checked_add(right) {
+        let value = match left.checkedAdd(right) {
             ?value => value,
             null => return invalidPlan(),
         };

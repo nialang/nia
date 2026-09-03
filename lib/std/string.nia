@@ -86,7 +86,7 @@ extend String {
 
     pub fn appendUtf8View(&mut self, allocator: &mut mem::Allocator, view: unicode::Utf8View) mem::Error!() {
         let oldLen = self.len();
-        let newLen = match oldLen.checked_add(view.scalarCount()) {
+        let newLen = match oldLen.checkedAdd(view.scalarCount()) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
@@ -249,12 +249,12 @@ extend [&[char]] {
         separator: &[char],
     ) mem::Error!String {
         let separatorCount = if self.isEmpty() { 0 } else { self.len() - 1 };
-        let mut outputLen = match separator.len().checked_mul(separatorCount) {
+        let mut outputLen = match separator.len().checkedMul(separatorCount) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
         for &part in self {
-            outputLen = match outputLen.checked_add(part.len()) {
+            outputLen = match outputLen.checkedAdd(part.len()) {
                 ?value => value,
                 null => return mem::Error::OutOfMemory!,
             };
@@ -278,15 +278,15 @@ fn replaceAllText(
     replacement: &[char],
 ) mem::Error!String {
     let matchCount = source.split(needle).count() - 1;
-    let removed = match needle.len().checked_mul(matchCount) {
+    let removed = match needle.len().checkedMul(matchCount) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let added = match replacement.len().checked_mul(matchCount) {
+    let added = match replacement.len().checkedMul(matchCount) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let outputLen = match (source.len() - removed).checked_add(added) {
+    let outputLen = match (source.len() - removed).checkedAdd(added) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };

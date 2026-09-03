@@ -46,11 +46,11 @@ fn digit_value(ch: char) ?usize {
 }
 
 fn append_decimal_digit(value: usize, digit: usize) core::Error!usize {
-    let scaled = match value.checked_mul(10usize) {
+    let scaled = match value.checkedMul(10usize) {
         ?scaled => scaled,
         null => return core::Error::InvalidTemplate!,
     };
-    match scaled.checked_add(digit) {
+    match scaled.checkedAdd(digit) {
         ?next => !next,
         null => core::Error::InvalidTemplate!,
     }

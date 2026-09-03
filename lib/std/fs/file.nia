@@ -38,7 +38,7 @@ fn lowerNativeBytes(
     storage: &mut [u8],
     operation: Operation,
 ) OperationError!RelativeNativePathView {
-    let terminatedLen = match bytes.len().checked_add(1) {
+    let terminatedLen = match bytes.len().checkedAdd(1) {
         ?value => value,
         null => return OperationError::Path {
             operation: operation,

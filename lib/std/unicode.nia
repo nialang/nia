@@ -70,7 +70,7 @@ extend Utf8View {
                 ?next => next,
                 null => return Utf8DecodeError::Truncated!,
             };
-            scalarCount = match scalarCount.checked_add(1) {
+            scalarCount = match scalarCount.checkedAdd(1) {
                 ?next => next,
                 null => return Utf8DecodeError::InvalidScalar!,
             };
@@ -147,7 +147,7 @@ extend Utf8ViewIter : Iterator {
                 return null;
             },
         };
-        self.remaining = match self.remaining.checked_sub(1) {
+        self.remaining = match self.remaining.checkedSub(1) {
             ?remaining => remaining,
             null => {
                 self.byteIndex = self.bytes.len();
@@ -160,7 +160,7 @@ extend Utf8ViewIter : Iterator {
 }
 
 fn nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
-    match current.checked_add(width) {
+    match current.checkedAdd(width) {
         ?next => {
             if next <= limit {
                 ?next

@@ -65,7 +65,7 @@ pub fn page_size() usize {
 }
 
 pub fn page_aligned_len(len: usize) Errno!usize {
-    match len.align_forward(page_size()) {
+    match len.alignForward(page_size()) {
         ?value => {
             !value
         },
@@ -79,7 +79,7 @@ pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 {
         return Errno::Invalid!;
     }
-    if align == 0 or not align.is_power_of_two() {
+    if align == 0 or not align.isPowerOfTwo() {
         return Errno::Invalid!;
     }
 
@@ -88,7 +88,7 @@ pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
     if align > page_size() {
         extra = align - page_size();
     }
-    let map_len = match aligned_len.checked_add(extra) {
+    let map_len = match aligned_len.checkedAdd(extra) {
         ?value => {
             value
         },
@@ -98,13 +98,13 @@ pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
     };
     let mapped = raw_map_pages(map_len).?;
     let mapped_addr = mapped as usize;
-    match mapped_addr.checked_add(map_len) {
+    match mapped_addr.checkedAdd(map_len) {
         ?value => { _ = value; },
         null => {
             return reject_mapped_range(mapped, map_len);
         },
     }
-    let result_addr = match mapped_addr.align_forward(align) {
+    let result_addr = match mapped_addr.alignForward(align) {
         ?value => value,
         null => {
             return reject_mapped_range(mapped, map_len);

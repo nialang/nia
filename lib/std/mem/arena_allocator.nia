@@ -38,7 +38,7 @@ extend ArenaAllocator {
     pub fn capacity(&self) usize {
         let used = self.listCapacity(self.usedList);
         let free = self.listCapacity(self.freeList);
-        match used.checked_add(free) {
+        match used.checkedAdd(free) {
             ?total => {
                 total
             },
@@ -124,7 +124,7 @@ extend ArenaAllocator : Allocator {
         }
 
         let add = newLayout.size() - block.size();
-        let newEnd = match first.endIndex.checked_add(add) {
+        let newEnd = match first.endIndex.checkedAdd(add) {
             ?value => {
                 value
             },
@@ -174,7 +174,7 @@ extend ArenaAllocator : Allocator {
 extend ArenaAllocator {
     fn allocateChunk(&mut self, layout: Layout, prevCapacity: usize) Error!&mut ArenaChunk {
         let payloadCapacity = chunkCapacityFor(layout, prevCapacity).?;
-        let totalSize = match std::builtin::size[ArenaChunk]().checked_add(payloadCapacity) {
+        let totalSize = match std::builtin::size[ArenaChunk]().checkedAdd(payloadCapacity) {
             ?value => {
                 value
             },
@@ -294,7 +294,7 @@ extend ArenaAllocator {
         if end <= chunkPayloadCapacity(chunk) {
             return true;
         }
-        let newSize = match std::builtin::size[ArenaChunk]().checked_add(end) {
+        let newSize = match std::builtin::size[ArenaChunk]().checkedAdd(end) {
             ?value => {
                 value
             },
@@ -442,7 +442,7 @@ extend ArenaAllocator {
         while true {
             match current {
                 ?chunk => {
-                    total = match total.checked_add(chunkPayloadCapacity(chunk)) {
+                    total = match total.checkedAdd(chunkPayloadCapacity(chunk)) {
                         ?value => {
                             value
                         },
@@ -466,7 +466,7 @@ extend ArenaAllocator {
         while true {
             match current {
                 ?chunk => {
-                    total = match total.checked_add(chunk.endIndex) {
+                    total = match total.checkedAdd(chunk.endIndex) {
                         ?value => {
                             value
                         },
@@ -490,7 +490,7 @@ fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
         ?value => value,
         null => return null,
     };
-    let current = match payloadBase.checked_add(chunk.endIndex) {
+    let current = match payloadBase.checkedAdd(chunk.endIndex) {
         ?value => {
             value
         },
@@ -498,7 +498,7 @@ fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
             return null;
         },
     };
-    let aligned = match current.align_forward(layout.align()) {
+    let aligned = match current.alignForward(layout.align()) {
         ?value => {
             value
         },
@@ -507,7 +507,7 @@ fn allocFromChunk(chunk: &mut ArenaChunk, layout: Layout) ?Block {
         },
     };
     let offset = aligned - payloadBase;
-    let newEnd = match offset.checked_add(layout.size()) {
+    let newEnd = match offset.checkedAdd(layout.size()) {
         ?value => {
             value
         },
@@ -528,7 +528,7 @@ fn chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
         ?value => value,
         null => return null,
     };
-    let aligned = match payloadBase.align_forward(layout.align()) {
+    let aligned = match payloadBase.alignForward(layout.align()) {
         ?value => {
             value
         },
@@ -537,7 +537,7 @@ fn chunkFitEnd(chunk: &mut ArenaChunk, layout: Layout) ?usize {
         },
     };
     let offset = aligned - payloadBase;
-    offset.checked_add(layout.size())
+    offset.checkedAdd(layout.size())
 }
 
 fn isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
@@ -545,7 +545,7 @@ fn isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
         ?value => value,
         null => return false,
     };
-    let cursor = match payloadBase.checked_add(chunk.endIndex) {
+    let cursor = match payloadBase.checkedAdd(chunk.endIndex) {
         ?value => {
             value
         },
@@ -553,7 +553,7 @@ fn isLastAllocation(chunk: &mut ArenaChunk, block: Block) bool {
             return false;
         },
     };
-    let blockEnd = match (block.ptr() as usize).checked_add(block.size()) {
+    let blockEnd = match (block.ptr() as usize).checkedAdd(block.size()) {
         ?value => {
             value
         },
@@ -572,7 +572,7 @@ fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
         ?value => value,
         null => return false,
     };
-    let limit = match base.checked_add(chunkPayloadCapacity(chunk)) {
+    let limit = match base.checkedAdd(chunkPayloadCapacity(chunk)) {
         ?value => {
             value
         },
@@ -584,7 +584,7 @@ fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
     if addr < base {
         return false;
     }
-    let end = match addr.checked_add(block.size()) {
+    let end = match addr.checkedAdd(block.size()) {
         ?value => {
             value
         },
@@ -596,7 +596,7 @@ fn chunkOwnsBlock(chunk: &mut ArenaChunk, block: Block) bool {
 }
 
 fn chunkPayloadBase(chunk: &mut ArenaChunk) ?usize {
-    (chunk.block.ptr() as usize).checked_add(std::builtin::size[ArenaChunk]())
+    (chunk.block.ptr() as usize).checkedAdd(std::builtin::size[ArenaChunk]())
 }
 
 fn chunkPayloadCapacity(chunk: &mut ArenaChunk) usize {
@@ -608,7 +608,7 @@ fn chunkPayloadCapacity(chunk: &mut ArenaChunk) usize {
 }
 
 fn chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
-    let minWithPadding = match layout.size().checked_add(layout.align()) {
+    let minWithPadding = match layout.size().checkedAdd(layout.align()) {
         ?value => {
             value
         },
@@ -616,7 +616,7 @@ fn chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
             return Error::OutOfMemory!;
         },
     };
-    let grown = match prevCapacity.checked_add(prevCapacity / 2) {
+    let grown = match prevCapacity.checkedAdd(prevCapacity / 2) {
         ?value => {
             value
         },
@@ -624,7 +624,7 @@ fn chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
             usize::MAX
         },
     };
-    let grownWithSlop = match grown.checked_add(16) {
+    let grownWithSlop = match grown.checkedAdd(16) {
         ?value => {
             value
         },

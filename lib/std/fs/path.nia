@@ -50,7 +50,7 @@ fn encodedPathByteLen(text: &[char]) PathError!usize {
         if ch.codepoint() == 0 {
             return PathError::ContainsNul!;
         }
-        len = match len.checked_add(ch.encodeUtf8().byteLen()) {
+        len = match len.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return PathError::TooLong!,
         };
@@ -171,11 +171,11 @@ fn appendComponentToString(
             component
         };
         let separatorLen: usize = if needsSeparator { 1 } else { 0 };
-        let appendLen = match appended.len().checked_add(separatorLen) {
+        let appendLen = match appended.len().checkedAdd(separatorLen) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
-        let needed = match out.len().checked_add(appendLen) {
+        let needed = match out.len().checkedAdd(appendLen) {
             ?value => value,
             null => return mem::Error::OutOfMemory!,
         };
@@ -203,19 +203,19 @@ fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     if source < base {
         return !null;
     }
-    let outBytes = match out.len().checked_mul(itemSize) {
+    let outBytes = match out.len().checkedMul(itemSize) {
         ?value => value,
         null => return mem::Error::Invalid!,
     };
-    let outEnd = match base.checked_add(outBytes) {
+    let outEnd = match base.checkedAdd(outBytes) {
         ?value => value,
         null => return mem::Error::Invalid!,
     };
-    let sourceBytes = match text.len().checked_mul(itemSize) {
+    let sourceBytes = match text.len().checkedMul(itemSize) {
         ?value => value,
         null => return mem::Error::Invalid!,
     };
-    let sourceEnd = match source.checked_add(sourceBytes) {
+    let sourceEnd = match source.checkedAdd(sourceBytes) {
         ?value => value,
         null => return mem::Error::Invalid!,
     };

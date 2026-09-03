@@ -912,12 +912,12 @@ extend CountingAllocator : mem::Allocator {
         }
         let base = self.buffer.ptrMut() as usize;
         let current = base + self.end_index;
-        let aligned = match current.align_forward(layout.align()) {
+        let aligned = match current.alignForward(layout.align()) {
             ?value => { value },
             null => { return mem::Error::OutOfMemory!; },
         };
         let offset = aligned - base;
-        let next = match offset.checked_add(layout.size()) {
+        let next = match offset.checkedAdd(layout.size()) {
             ?value => { value },
             null => { return mem::Error::OutOfMemory!; },
         };

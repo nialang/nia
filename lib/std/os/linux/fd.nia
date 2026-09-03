@@ -407,15 +407,15 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     if reclen <= linux_dirent64_name_offset or reclen > remaining {
         return null;
     }
-    let recordEnd = match offset.checked_add(reclen) {
+    let recordEnd = match offset.checkedAdd(reclen) {
         ?value => value,
         null => return null,
     };
-    let typeIndex = match offset.checked_add(linux_dirent64_type_offset) {
+    let typeIndex = match offset.checkedAdd(linux_dirent64_type_offset) {
         ?value => value,
         null => return null,
     };
-    let nameStart = match offset.checked_add(linux_dirent64_name_offset) {
+    let nameStart = match offset.checkedAdd(linux_dirent64_name_offset) {
         ?value => value,
         null => return null,
     };

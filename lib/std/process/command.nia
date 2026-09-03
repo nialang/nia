@@ -371,7 +371,7 @@ fn appendText(
         if ch.codepoint() == 0 {
             return containsNul!;
         }
-        byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+        byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
@@ -425,18 +425,18 @@ fn appendEnvironmentEntry(
 ) Error!() {
     let mut byteLen: usize = 1;
     for &ch in entry.name() {
-        byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+        byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
     for &ch in entry.value() {
-        byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+        byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
             null => return Error::Allocation(mem::Error::OutOfMemory)!,
         };
     }
-    let needed = match byteLen.checked_add(1) {
+    let needed = match byteLen.checkedAdd(1) {
         ?value => value,
         null => return Error::Allocation(mem::Error::OutOfMemory)!,
     };

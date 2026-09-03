@@ -81,11 +81,11 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let offset = match self.index.checked_mul(std::builtin::size[T]()) {
+            let offset = match self.index.checkedMul(std::builtin::size[T]()) {
                 ?value => value,
                 null => return null,
             };
-            let address = match (self.ptr as usize).checked_add(offset) {
+            let address = match (self.ptr as usize).checkedAdd(offset) {
                 ?value => value,
                 null => return null,
             };
@@ -104,11 +104,11 @@ where T: Sized
             null
         } else {
             let backIndex = self.len - 1;
-            let offset = match backIndex.checked_mul(std::builtin::size[T]()) {
+            let offset = match backIndex.checkedMul(std::builtin::size[T]()) {
                 ?value => value,
                 null => return null,
             };
-            let address = match (self.ptr as usize).checked_add(offset) {
+            let address = match (self.ptr as usize).checkedAdd(offset) {
                 ?value => value,
                 null => return null,
             };
@@ -127,11 +127,11 @@ where T: Sized
         if self.index >= self.len {
             null
         } else {
-            let offset = match self.index.checked_mul(std::builtin::size[T]()) {
+            let offset = match self.index.checkedMul(std::builtin::size[T]()) {
                 ?value => value,
                 null => return null,
             };
-            let address = match (self.ptr as usize).checked_add(offset) {
+            let address = match (self.ptr as usize).checkedAdd(offset) {
                 ?value => value,
                 null => return null,
             };
@@ -150,11 +150,11 @@ where T: Sized
             null
         } else {
             let backIndex = self.len - 1;
-            let offset = match backIndex.checked_mul(std::builtin::size[T]()) {
+            let offset = match backIndex.checkedMul(std::builtin::size[T]()) {
                 ?value => value,
                 null => return null,
             };
-            let address = match (self.ptr as usize).checked_add(offset) {
+            let address = match (self.ptr as usize).checkedAdd(offset) {
                 ?value => value,
                 null => return null,
             };

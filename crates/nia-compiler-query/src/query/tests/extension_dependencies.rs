@@ -216,7 +216,7 @@ fn shallow_extension_provider_traits_participate_in_validation() {
 pub trait CheckedAdd[Rhs] {
     type Output;
 
-    fn checked_add(self, rhs: Rhs) ?[Self as CheckedAdd[Rhs]]::Output;
+    fn checkedAdd(self, rhs: Rhs) ?[Self as CheckedAdd[Rhs]]::Output;
 }
 "#,
     );
@@ -231,7 +231,7 @@ using traits::CheckedAdd;
 extend u8 : CheckedAdd[u8] {
     type Output = u8;
 
-    fn checked_add(self, rhs: u8) ?u8 {
+    fn checkedAdd(self, rhs: u8) ?u8 {
         _ = rhs;
         ?self
     }
@@ -260,7 +260,7 @@ extend u8 : CheckedAdd[u8] {
     let validation = db.expect_get(ExtensionProviderValidationFactsQuery(math_id));
     let diagnostics = resolve_diagnostic_bundle(db.context(), &validation.diagnostics);
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
-    let checked_add = sym("checked_add");
+    let checked_add = sym("checkedAdd");
     let provider_facts = db.expect_get(ExtensionProviderModuleFactsQuery(math_id));
     assert_eq!(
         provider_facts.methods.methods_named(&checked_add).count(),

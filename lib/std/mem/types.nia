@@ -24,7 +24,7 @@ extend Layout {
     pub fn init(size: usize, align: usize) Error!Layout {
         if align == 0 {
             Error::InvalidAlignment!
-        } else if not align.is_power_of_two() {
+        } else if not align.isPowerOfTwo() {
             Error::InvalidAlignment!
         } else {
             !Self { size, align }
@@ -41,7 +41,7 @@ extend Layout {
     where T: Sized
     {
         let elemLen = std::builtin::size[T]();
-        let size = match elemLen.checked_mul(count) {
+        let size = match elemLen.checkedMul(count) {
             ?value => {
                 value
             },

@@ -40,7 +40,7 @@ extend Wyhash {
     }
 
     pub fn update(&mut self, bytes: &[u8]) () {
-        self.total_len = match self.total_len.checked_add(bytes.len()) {
+        self.total_len = match self.total_len.checkedAdd(bytes.len()) {
             ?value => value,
             null => usize::MAX,
         };
@@ -60,7 +60,7 @@ extend Wyhash {
         }
 
         while true {
-            let next = match index.checked_add(48) {
+            let next = match index.checkedAdd(48) {
                 ?value => value,
                 null => break,
             };
