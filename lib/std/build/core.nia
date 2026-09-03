@@ -3,7 +3,7 @@ using pkg::fs;
 using pkg::mem;
 using pkg::string;
 using pkg::build::error;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::commands::{validateExternalCommand, validateRunArguments};
 using pkg::build::dependencies::{findGeneratedSourceProducer, hasDependency};
 using pkg::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
@@ -1150,22 +1150,16 @@ extend Build {
     }
 
     fn cleanupValidationScratch(&mut self) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(
-            &mut firstError,
-            self.validationReady.deinit(self.allocator).withBuildContext(
-                Operation::Release,
-                Subject::Dependencies,
-            ),
-        );
-        rememberCleanupError(
-            &mut firstError,
-            self.validationIndegree.deinit(self.allocator).withBuildContext(
-                Operation::Release,
-                Subject::Dependencies,
-            ),
-        );
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(
+            Operation::Release,
+            Subject::Dependencies,
+        ));
+        cleanup.attempt(self.validationIndegree.deinit(self.allocator).withBuildContext(
+            Operation::Release,
+            Subject::Dependencies,
+        ));
+        cleanup.finish()
     }
 
     pub fn reportError(&mut self, error: Error) Error!() {

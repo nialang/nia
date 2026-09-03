@@ -1,4 +1,5 @@
 using pkg::mem;
+using pkg::error;
 using pkg::slice;
 using pkg::collections::array_list::raw;
 
@@ -45,38 +46,17 @@ where T: Sized
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut firstError: ?mem::Error = null;
-        match self.freeItems(allocator) {
-            !ok => { _ = ok; },
-            err! => { firstError = ?err; },
+        let mut cleanup = error::CleanupAccumulator[mem::Error]::init();
+        cleanup.attempt(self.freeItems(allocator));
+        cleanup.attempt(self.freeReplacementItems(allocator));
+        cleanup.attempt(self.freeAliasItems(allocator));
+        if not cleanup.isClean() {
+            return cleanup.finish();
         }
-        match self.freeReplacementItems(allocator) {
-            !ok => { _ = ok; },
-            err! => {
-                match firstError {
-                    ?value => { _ = value; },
-                    null => { firstError = ?err; },
-                }
-            },
-        }
-        match self.freeAliasItems(allocator) {
-            !ok => { _ = ok; },
-            err! => {
-                match firstError {
-                    ?value => { _ = value; },
-                    null => { firstError = ?err; },
-                }
-            },
-        }
-        match firstError {
-            ?err => err!,
-            null => {
-                self.items = raw::danglingSlice[T](0);
-                self.capacity = 0;
-                self.storageBlock = null;
-                !()
-            },
-        }
+        self.items = raw::danglingSlice[T](0);
+        self.capacity = 0;
+        self.storageBlock = null;
+        !()
     }
 
     pub fn len(&self) usize {

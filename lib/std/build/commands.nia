@@ -7,7 +7,7 @@
 using pkg::fs;
 using pkg::mem;
 using pkg::string;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::error;
 using pkg::build::paths::{isValidBuildPath, isValidPackagePath};
 using pkg::build::types;
@@ -366,16 +366,10 @@ extend OwnedCommandEnvironmentInput {
     }
 
     fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(
-            &mut firstError,
-            self.value.deinit(allocator).withBuildContext(.Release, .Step(index)),
-        );
-        rememberCleanupError(
-            &mut firstError,
-            self.name.deinit(allocator).withBuildContext(.Release, .Step(index)),
-        );
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.value.deinit(allocator).withBuildContext(.Release, .Step(index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Step(index)));
+        cleanup.finish()
     }
 }
 
@@ -435,49 +429,35 @@ extend ExternalCommandStep {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut firstError: ?Error = null;
-        let mut elementError: ?Error = null;
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut environmentElements = CleanupAccumulator[Error]::init();
         let mut environmentIndex = self.environment.len();
         while environmentIndex != 0 {
             environmentIndex -= 1;
-            rememberCleanupError(
-                &mut elementError,
+            environmentElements.attempt(
                 self.environment.asMutSlice()[environmentIndex].deinit(allocator, index),
             );
         }
-        if elementError is null {
-            rememberCleanupError(
-                &mut firstError,
-                self.environment.deinit(allocator).withBuildContext(.Release, .Step(index)),
-            );
+        if environmentElements.isClean() {
+            cleanup.attempt(self.environment.deinit(allocator).withBuildContext(.Release, .Step(index)));
         } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+            cleanup.attempt(environmentElements.finish());
         }
-        elementError = null;
+        let mut argumentElements = CleanupAccumulator[Error]::init();
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;
-            rememberCleanupError(
-                &mut elementError,
+            argumentElements.attempt(
                 self.arguments.asMutSlice()[argumentIndex].deinit(allocator, index),
             );
         }
-        if elementError is null {
-            rememberCleanupError(
-                &mut firstError,
-                self.arguments.deinit(allocator).withBuildContext(.Release, .Step(index)),
-            );
+        if argumentElements.isClean() {
+            cleanup.attempt(self.arguments.deinit(allocator).withBuildContext(.Release, .Step(index)));
         } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+            cleanup.attempt(argumentElements.finish());
         }
-        rememberCleanupError(
-            &mut firstError,
-            self.workingDirectory.deinit(allocator).withBuildContext(.Release, .Step(index)),
-        );
-        rememberCleanupError(
-            &mut firstError,
-            self.program.deinit(allocator).withBuildContext(.Release, .Step(index)),
-        );
-        cleanupResult(firstError)
+        cleanup.attempt(self.workingDirectory.deinit(allocator).withBuildContext(.Release, .Step(index)));
+        cleanup.attempt(self.program.deinit(allocator).withBuildContext(.Release, .Step(index)));
+        cleanup.finish()
     }
 }

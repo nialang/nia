@@ -6,7 +6,7 @@
 using pkg::fs;
 using pkg::mem;
 using pkg::string;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::error;
 using pkg::build::paths::isValidBuildPath;
 using pkg::build::types;
@@ -104,10 +104,10 @@ extend Package {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.root.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.root.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Package(self.index)));
+        cleanup.finish()
     }
 }
 
@@ -143,21 +143,21 @@ extend Module {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        let mut elementError: ?Error = null;
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut elements = CleanupAccumulator[Error]::init();
         let mut index = self.imports.len();
         while index != 0 {
             index -= 1;
-            rememberCleanupError(&mut elementError, self.imports.asMutSlice()[index].deinit(allocator));
+            elements.attempt(self.imports.asMutSlice()[index].deinit(allocator));
         }
-        if elementError is null {
-            rememberCleanupError(&mut firstError, self.imports.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
+        if elements.isClean() {
+            cleanup.attempt(self.imports.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
         } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+            cleanup.attempt(elements.finish());
         }
-        rememberCleanupError(&mut firstError, self.rootSource.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
-        cleanupResult(firstError)
+        cleanup.attempt(self.rootSource.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Module(self.index)));
+        cleanup.finish()
     }
 }
 
@@ -216,10 +216,10 @@ extend OwnedModuleImport {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.path.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.path.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .ModuleImport(self.index)));
+        cleanup.finish()
     }
 }
 

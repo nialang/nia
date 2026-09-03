@@ -5,7 +5,7 @@
 
 using pkg::mem;
 using pkg::string;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::error;
 using pkg::build::types;
 
@@ -56,11 +56,11 @@ extend ExecutableTarget {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.staticArchives.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
-        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.staticArchives.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Executable(self.index)));
+        cleanup.finish()
     }
 }
 
@@ -85,10 +85,10 @@ extend ObjectTarget {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Object(self.index)));
+        cleanup.finish()
     }
 }
 
@@ -113,10 +113,10 @@ extend StaticArchiveTarget {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.outputName.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.outputName.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .StaticArchive(self.index)));
+        cleanup.finish()
     }
 }
 
@@ -213,14 +213,14 @@ extend TargetStorage {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, subject: Subject) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.endian.deinit(allocator).withBuildContext(.Release, subject));
-        rememberCleanupError(&mut firstError, self.abi.deinit(allocator).withBuildContext(.Release, subject));
-        rememberCleanupError(&mut firstError, self.env.deinit(allocator).withBuildContext(.Release, subject));
-        rememberCleanupError(&mut firstError, self.os.deinit(allocator).withBuildContext(.Release, subject));
-        rememberCleanupError(&mut firstError, self.vendor.deinit(allocator).withBuildContext(.Release, subject));
-        rememberCleanupError(&mut firstError, self.arch.deinit(allocator).withBuildContext(.Release, subject));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.endian.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.attempt(self.abi.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.attempt(self.env.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.attempt(self.os.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.attempt(self.vendor.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.attempt(self.arch.deinit(allocator).withBuildContext(.Release, subject));
+        cleanup.finish()
     }
 }
 

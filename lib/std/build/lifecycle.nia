@@ -9,7 +9,7 @@ using pkg::collections;
 using pkg::fs;
 using pkg::mem;
 using pkg::string;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::error;
 using pkg::build::handles;
 using pkg::build::ownership::allocateBuildOwnerId;
@@ -173,33 +173,30 @@ extend Build {
     }
 
     pub fn deinit(&mut self) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(&mut firstError, self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));
-        rememberCleanupError(&mut firstError, self.cleanupPendingPackage());
-        rememberCleanupError(&mut firstError, self.cleanupPendingModule());
-        rememberCleanupError(&mut firstError, self.cleanupPendingObject());
-        rememberCleanupError(&mut firstError, self.cleanupPendingStaticArchive());
-        rememberCleanupError(&mut firstError, self.cleanupPendingExecutable());
-        rememberCleanupError(&mut firstError, self.cleanupPendingStep());
-        rememberCleanupError(&mut firstError, releaseSteps(self.allocator, &mut self.steps));
-        rememberCleanupError(&mut firstError, self.dependencies.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
-        rememberCleanupError(&mut firstError, releasePackages(self.allocator, &mut self.packages));
-        rememberCleanupError(&mut firstError, releaseExecutables(self.allocator, &mut self.executables));
-        rememberCleanupError(&mut firstError, releaseObjects(self.allocator, &mut self.objects));
-        rememberCleanupError(&mut firstError, releaseStaticArchives(self.allocator, &mut self.staticArchives));
-        rememberCleanupError(&mut firstError, releaseModules(self.allocator, &mut self.modules));
-        rememberCleanupError(&mut firstError, self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
-        rememberCleanupError(&mut firstError, self.hostTarget.deinit(self.allocator, Subject::HostTarget));
-        rememberCleanupError(
-            &mut firstError,
-            self.requestedStep.deinit(self.allocator).withBuildContext(
-                Operation::Release,
-                Subject::RequestedStep,
-            ),
-        );
-        rememberCleanupError(&mut firstError, self.paths.deinit(self.allocator));
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.validationReady.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
+        cleanup.attempt(self.validationIndegree.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
+        cleanup.attempt(self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan));
+        cleanup.attempt(self.cleanupPendingPackage());
+        cleanup.attempt(self.cleanupPendingModule());
+        cleanup.attempt(self.cleanupPendingObject());
+        cleanup.attempt(self.cleanupPendingStaticArchive());
+        cleanup.attempt(self.cleanupPendingExecutable());
+        cleanup.attempt(self.cleanupPendingStep());
+        cleanup.attempt(releaseSteps(self.allocator, &mut self.steps));
+        cleanup.attempt(self.dependencies.deinit(self.allocator).withBuildContext(Operation::Release, Subject::Dependencies));
+        cleanup.attempt(releasePackages(self.allocator, &mut self.packages));
+        cleanup.attempt(releaseExecutables(self.allocator, &mut self.executables));
+        cleanup.attempt(releaseObjects(self.allocator, &mut self.objects));
+        cleanup.attempt(releaseStaticArchives(self.allocator, &mut self.staticArchives));
+        cleanup.attempt(releaseModules(self.allocator, &mut self.modules));
+        cleanup.attempt(self.artifactTarget.deinit(self.allocator, Subject::ArtifactTarget));
+        cleanup.attempt(self.hostTarget.deinit(self.allocator, Subject::HostTarget));
+        cleanup.attempt(self.requestedStep.deinit(self.allocator).withBuildContext(
+            Operation::Release,
+            Subject::RequestedStep,
+        ));
+        cleanup.attempt(self.paths.deinit(self.allocator));
+        cleanup.finish()
     }
 }

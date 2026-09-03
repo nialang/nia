@@ -237,14 +237,17 @@ extend SpawnStorage {
 
     fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
         let nativeResult = self.finishNativeSpawn();
-        let mut firstError: ?mem::Error = null;
-        rememberSpawnCleanupError(&mut firstError, self.cwdBytes.deinit(allocator));
-        rememberSpawnCleanupError(&mut firstError, self.environmentPointers.deinit(allocator));
-        rememberSpawnCleanupError(&mut firstError, self.environmentBytes.deinit(allocator));
-        rememberSpawnCleanupError(&mut firstError, self.argv.deinit(allocator));
-        rememberSpawnCleanupError(&mut firstError, self.argumentBytes.deinit(allocator));
-        if firstError is ?cause {
-            return Error::Allocation(cause)!;
+        let mut cleanup = error::CleanupAccumulator[mem::Error]::init();
+        cleanup.attempt(self.cwdBytes.deinit(allocator));
+        cleanup.attempt(self.environmentPointers.deinit(allocator));
+        cleanup.attempt(self.environmentBytes.deinit(allocator));
+        cleanup.attempt(self.argv.deinit(allocator));
+        cleanup.attempt(self.argumentBytes.deinit(allocator));
+        if not cleanup.isClean() {
+            match cleanup.finish() {
+                error! => return Error::Allocation(error)!,
+                !ok => { _ = ok; },
+            }
         }
         match nativeResult {
             !ok => {
@@ -317,19 +320,6 @@ extend AllocatorSpawnAttempt {
 
     pub fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
         self.storage.finish(allocator)
-    }
-}
-
-fn rememberSpawnCleanupError(firstError: &mut ?mem::Error, result: mem::Error!()) () {
-    match result {
-        !ok => {
-            _ = ok;
-        },
-        cause! => {
-            if firstError.* is null {
-                firstError.* = ?cause;
-            }
-        },
     }
 }
 

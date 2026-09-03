@@ -1,4 +1,5 @@
 using pkg::io;
+using pkg::error;
 using pkg::os;
 using pkg::process::types;
 
@@ -86,11 +87,11 @@ extend Child {
     }
 
     pub fn closePipes(&mut self) Error!() {
-        let mut firstError: ?Error = null;
-        rememberPipeCloseError(&mut firstError, self.closeStdin());
-        rememberPipeCloseError(&mut firstError, self.closeStdout());
-        rememberPipeCloseError(&mut firstError, self.closeStderr());
-        pipeCloseResult(firstError)
+        let mut cleanup = error::CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.closeStdin());
+        cleanup.attempt(self.closeStdout());
+        cleanup.attempt(self.closeStderr());
+        cleanup.finish()
     }
 
     fn waitStatus(&mut self) Error!os::WaitStatus {
@@ -150,27 +151,6 @@ extend Child {
         }
         os::killWith(self.state.osPid(), signal as i32).withKillContext().?;
         self.wait()
-    }
-}
-
-fn rememberPipeCloseError(firstError: &mut ?Error, result: Error!()) () {
-    match result {
-        !ok => {
-            _ = ok;
-        },
-        err! => {
-            if firstError.* is null {
-                firstError.* = ?err;
-            }
-        },
-    }
-}
-
-fn pipeCloseResult(firstError: ?Error) Error!() {
-    if firstError is ?err {
-        err!
-    } else {
-        !()
     }
 }
 
