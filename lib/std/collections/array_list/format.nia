@@ -7,15 +7,15 @@ extend[T] ArrayList[T] : fmt::Format
 where T: Sized + fmt::Format
 {
     fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
-        formatter.write_byte(b'[').?;
+        formatter.writeByte(b'[').?;
         let mut first = true;
         for item in self {
             if not first {
-                formatter.write_text(&", ").?;
+                formatter.writeText(&", ").?;
             }
             item.format(formatter).?;
             first = false;
         }
-        formatter.write_byte(b']')
+        formatter.writeByte(b']')
     }
 }

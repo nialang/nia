@@ -749,7 +749,7 @@ fn trait_object_method_call_wins_over_blanket_extension_methods() {
 trait Other {}
 
 trait Writer[E] {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) E!();
+    fn writeFmtBytes(&mut self, bytes: &[u8]) E!();
 }
 
 struct Formatter[E] {
@@ -758,10 +758,10 @@ struct Formatter[E] {
 
 extend[E] Formatter[E] {
     fn write_all(&mut self, bytes: &[u8]) E!() {
-        self.writer.write_fmt_bytes(bytes)
+        self.writer.writeFmtBytes(bytes)
     }
 
-    fn write_byte(&mut self) E!() {
+    fn writeByte(&mut self) E!() {
         let mut bytes: [u8; 1] = [0];
         self.write_all(&bytes[..]).?;
         !()
@@ -771,7 +771,7 @@ extend[E] Formatter[E] {
 extend[W] W : Writer[i32]
 where W: Other
 {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) i32!() {
+    fn writeFmtBytes(&mut self, bytes: &[u8]) i32!() {
         _ = bytes;
         !()
     }

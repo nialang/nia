@@ -1067,7 +1067,7 @@ trait Writer {
 trait FormatWriter {
     type Error;
 
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!();
+    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!();
 }
 
 extend[W] W : FormatWriter
@@ -1075,7 +1075,7 @@ where W: Writer
 {
     type Error = [W as Writer]::Error;
 
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!() {
+    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
         self.write_all(bytes)
     }
 }
@@ -1101,7 +1101,7 @@ extend Sink : Writer {
 fn use_format[W](writer: &mut W, bytes: &[u8]) [W as FormatWriter]::Error!()
 where W: FormatWriter
 {
-    writer.write_fmt_bytes(bytes)
+    writer.writeFmtBytes(bytes)
 }
 
 fn main() i32 {
@@ -1154,7 +1154,7 @@ fn main() i32 {
             .iter()
             .any(|symbol| symbol.contains(&format!(
                 "{}__inst__t_nom__",
-                backend_symbol_suffix("write_fmt_bytes")
+                backend_symbol_suffix("writeFmtBytes")
             ))),
         "{instance_symbols:#?}"
     );
@@ -1169,7 +1169,7 @@ fn main() i32 {
     assert!(
         ir.contains(&format!(
             "{}__inst__",
-            backend_symbol_suffix("write_fmt_bytes")
+            backend_symbol_suffix("writeFmtBytes")
         )),
         "{ir}"
     );

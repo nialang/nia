@@ -10,7 +10,7 @@ pub enum Error: i32 {
 }
 
 pub trait FormatWriter {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!();
+    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!();
 }
 
 pub trait Format {
@@ -181,33 +181,33 @@ extend Formatter {
         Self { writer }
     }
 
-    pub fn write_bytes(&mut self, bytes: &[u8]) Error!() {
-        self.writer.write_fmt_bytes(bytes)
+    pub fn writeBytes(&mut self, bytes: &[u8]) Error!() {
+        self.writer.writeFmtBytes(bytes)
     }
 
-    pub fn write_byte(&mut self, byte: u8) Error!() {
+    pub fn writeByte(&mut self, byte: u8) Error!() {
         let bytes: [u8; 1] = [byte];
-        self.write_bytes(&bytes[..])
+        self.writeBytes(&bytes[..])
     }
 
-    pub fn write_char(&mut self, ch: char) Error!() {
+    pub fn writeChar(&mut self, ch: char) Error!() {
         let encoded = ch.encodeUtf8();
-        self.write_bytes(encoded.bytes())
+        self.writeBytes(encoded.bytes())
     }
 
-    pub fn write_text(&mut self, text: &[char]) Error!() {
+    pub fn writeText(&mut self, text: &[char]) Error!() {
         let mut index = 0usize;
         while index < text.len() {
-            self.write_char(text[index]).?;
+            self.writeChar(text[index]).?;
             index += 1usize;
         }
         !()
     }
 
-    pub fn write_text_prefix(&mut self, text: &[char], count: usize) Error!() {
+    pub fn writeTextPrefix(&mut self, text: &[char], count: usize) Error!() {
         let mut index = 0usize;
         while index < text.len() and index < count {
-            self.write_char(text[index]).?;
+            self.writeChar(text[index]).?;
             index += 1usize;
         }
         !()
@@ -229,16 +229,16 @@ extend Formatter {
         }
     }
 
-    pub fn write_fill(&mut self, fill: char, count: usize) Error!() {
+    pub fn writeFill(&mut self, fill: char, count: usize) Error!() {
         let mut index = 0usize;
         while index < count {
-            self.write_char(fill).?;
+            self.writeChar(fill).?;
             index += 1usize;
         }
         !()
     }
 
-    fn padding_width(&mut self, content_width: usize, spec: FormatSpec) usize {
+    fn paddingWidth(&mut self, content_width: usize, spec: FormatSpec) usize {
         _ = self;
         if spec.width() > content_width {
             spec.width() - content_width
@@ -247,35 +247,35 @@ extend Formatter {
         }
     }
 
-    pub fn write_padding_before(&mut self, content_width: usize, spec: FormatSpec) Error!() {
+    pub fn writePaddingBefore(&mut self, content_width: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
-        let padding = self.padding_width(content_width, spec);
+        let padding = self.paddingWidth(content_width, spec);
         match spec.alignment() {
             FormatAlignment::Left => !(),
-            FormatAlignment::Center => self.write_fill(spec.fill(), padding / 2usize),
-            _ => self.write_fill(spec.fill(), padding),
+            FormatAlignment::Center => self.writeFill(spec.fill(), padding / 2usize),
+            _ => self.writeFill(spec.fill(), padding),
         }
     }
 
-    pub fn write_padding_after(&mut self, content_width: usize, spec: FormatSpec) Error!() {
+    pub fn writePaddingAfter(&mut self, content_width: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
-        let padding = self.padding_width(content_width, spec);
+        let padding = self.paddingWidth(content_width, spec);
         match spec.alignment() {
-            FormatAlignment::Left => self.write_fill(spec.fill(), padding),
-            FormatAlignment::Center => self.write_fill(spec.fill(), padding - (padding / 2usize)),
+            FormatAlignment::Left => self.writeFill(spec.fill(), padding),
+            FormatAlignment::Center => self.writeFill(spec.fill(), padding - (padding / 2usize)),
             _ => !(),
         }
     }
 
-    pub fn write_unsigned(&mut self, value: u128) Error!() {
-        self.write_unsigned_radix(value, 10u128, false)
+    pub fn writeUnsigned(&mut self, value: u128) Error!() {
+        self.writeUnsignedRadix(value, 10u128, false)
     }
 
-    pub fn write_pointer(&mut self, value: usize) Error!() {
-        self.write_pointer_spec(value, FormatSpec::pointer())
+    pub fn writePointer(&mut self, value: usize) Error!() {
+        self.writePointerSpec(value, FormatSpec::pointer())
     }
 
-    pub fn write_pointer_spec(&mut self, value: usize, spec: FormatSpec) Error!() {
+    pub fn writePointerSpec(&mut self, value: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
         if spec.sign_plus() or spec.alternate() or spec.has_precision() {
             return Error::InvalidTemplate!;
@@ -289,25 +289,25 @@ extend Formatter {
             false,
             true,
         );
-        self.write_unsigned_radix_spec(value as u128, 16u128, false, pointer_spec)
+        self.writeUnsignedRadixSpec(value as u128, 16u128, false, pointer_spec)
     }
 
-    pub fn write_unsigned_radix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
+    pub fn writeUnsignedRadix(&mut self, value: u128, radix: u128, uppercase: bool) Error!() {
         validate_radix(radix).?;
         if radix == 10u128 {
-            self.write_unsigned_base10(value, uppercase)
+            self.writeUnsignedBase10(value, uppercase)
         } else if radix == 16u128 {
-            self.write_unsigned_power_of_two(value, 124u32, 4u32, 15u128, uppercase)
+            self.writeUnsignedPowerOfTwo(value, 124u32, 4u32, 15u128, uppercase)
         } else if radix == 2u128 {
-            self.write_unsigned_power_of_two(value, 127u32, 1u32, 1u128, uppercase)
+            self.writeUnsignedPowerOfTwo(value, 127u32, 1u32, 1u128, uppercase)
         } else if radix == 8u128 {
-            self.write_unsigned_power_of_two(value, 126u32, 3u32, 7u128, uppercase)
+            self.writeUnsignedPowerOfTwo(value, 126u32, 3u32, 7u128, uppercase)
         } else {
             Error::InvalidTemplate!
         }
     }
 
-    fn unsigned_digit_count(&mut self, value: u128, radix: u128) usize {
+    fn unsignedDigitCount(&mut self, value: u128, radix: u128) usize {
         _ = self;
         if value == 0u128 {
             1usize
@@ -322,7 +322,7 @@ extend Formatter {
         }
     }
 
-    pub fn write_unsigned_radix_spec(
+    pub fn writeUnsignedRadixSpec(
         &mut self,
         value: u128,
         radix: u128,
@@ -341,20 +341,20 @@ extend Formatter {
                 return Error::InvalidTemplate!;
             }
         }
-        let content_width = self.unsigned_digit_count(value, radix) + prefix_width;
+        let content_width = self.unsignedDigitCount(value, radix) + prefix_width;
         if spec.alternate() and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > content_width {
-            self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
-            self.write_fill('0', spec.width() - content_width).?;
-            self.write_unsigned_radix(value, radix, uppercase)
+            self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
+            self.writeFill('0', spec.width() - content_width).?;
+            self.writeUnsignedRadix(value, radix, uppercase)
         } else {
-            self.write_padding_before(content_width, spec).?;
-            self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
-            self.write_unsigned_radix(value, radix, uppercase).?;
-            self.write_padding_after(content_width, spec)
+            self.writePaddingBefore(content_width, spec).?;
+            self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
+            self.writeUnsignedRadix(value, radix, uppercase).?;
+            self.writePaddingAfter(content_width, spec)
         }
     }
 
-    fn write_unsigned_prefix(
+    fn writeUnsignedPrefix(
         &mut self,
         radix: u128,
         uppercase: bool,
@@ -364,33 +364,33 @@ extend Formatter {
             !()
         } else if radix == 16u128 {
             if uppercase {
-                self.write_text(&"0X")
+                self.writeText(&"0X")
             } else {
-                self.write_text(&"0x")
+                self.writeText(&"0x")
             }
         } else if radix == 2u128 {
-            self.write_text(&"0b")
+            self.writeText(&"0b")
         } else if radix == 8u128 {
-            self.write_byte(b'0')
+            self.writeByte(b'0')
         } else {
             Error::InvalidTemplate!
         }
     }
 
-    fn write_unsigned_digit(&mut self, digit: u128, uppercase: bool) Error!() {
+    fn writeUnsignedDigit(&mut self, digit: u128, uppercase: bool) Error!() {
         if digit < 10u128 {
-            self.write_byte((digit as u8) + b'0')
+            self.writeByte((digit as u8) + b'0')
         } else if uppercase {
-            self.write_byte(((digit - 10u128) as u8) + b'A')
+            self.writeByte(((digit - 10u128) as u8) + b'A')
         } else {
-            self.write_byte(((digit - 10u128) as u8) + b'a')
+            self.writeByte(((digit - 10u128) as u8) + b'a')
         }
     }
 
-    fn write_unsigned_base10(&mut self, value: u128, uppercase: bool) Error!() {
+    fn writeUnsignedBase10(&mut self, value: u128, uppercase: bool) Error!() {
         _ = uppercase;
         if value == 0u128 {
-            self.write_byte(b'0')
+            self.writeByte(b'0')
         } else {
             let mut digits: [u8; 39] = [
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -408,13 +408,13 @@ extend Formatter {
             }
             while count != 0usize {
                 count -= 1;
-                self.write_byte(digits[count]).?;
+                self.writeByte(digits[count]).?;
             }
             !()
         }
     }
 
-    fn write_unsigned_power_of_two(
+    fn writeUnsignedPowerOfTwo(
         &mut self,
         value: u128,
         start_shift: u32,
@@ -423,41 +423,41 @@ extend Formatter {
         uppercase: bool,
     ) Error!() {
         if value == 0u128 {
-            self.write_byte(b'0')
+            self.writeByte(b'0')
         } else {
             let mut shift = start_shift;
             let mut started = false;
             while shift != 0u32 {
                 let digit = (value >> shift) & mask;
                 if digit != 0u128 or started {
-                    self.write_unsigned_digit(digit, uppercase).?;
+                    self.writeUnsignedDigit(digit, uppercase).?;
                     started = true;
                 }
                 shift -= step;
             }
             let digit = value & mask;
             if digit != 0u128 or started {
-                self.write_unsigned_digit(digit, uppercase).?;
+                self.writeUnsignedDigit(digit, uppercase).?;
             }
             !()
         }
     }
 
-    pub fn write_signed(&mut self, value: i128) Error!() {
-        self.write_signed_radix(value, 10u128, false)
+    pub fn writeSigned(&mut self, value: i128) Error!() {
+        self.writeSignedRadix(value, 10u128, false)
     }
 
-    pub fn write_signed_radix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
+    pub fn writeSignedRadix(&mut self, value: i128, radix: u128, uppercase: bool) Error!() {
         validate_radix(radix).?;
         if value < 0i128 {
-            self.write_byte(b'-').?;
-            self.write_unsigned_radix(((0i128 - (value + 1i128)) as u128) + 1u128, radix, uppercase)
+            self.writeByte(b'-').?;
+            self.writeUnsignedRadix(((0i128 - (value + 1i128)) as u128) + 1u128, radix, uppercase)
         } else {
-            self.write_unsigned_radix(value as u128, radix, uppercase)
+            self.writeUnsignedRadix(value as u128, radix, uppercase)
         }
     }
 
-    fn signed_abs(&mut self, value: i128) u128 {
+    fn signedAbs(&mut self, value: i128) u128 {
         _ = self;
         if value < 0i128 {
             ((0i128 - (value + 1i128)) as u128) + 1u128
@@ -466,7 +466,7 @@ extend Formatter {
         }
     }
 
-    pub fn write_signed_radix_spec(
+    pub fn writeSignedRadixSpec(
         &mut self,
         value: i128,
         radix: u128,
@@ -475,7 +475,7 @@ extend Formatter {
     ) Error!() {
         spec.validate().?;
         validate_radix(radix).?;
-        let abs = self.signed_abs(value);
+        let abs = self.signedAbs(value);
         let mut prefix_width = 0usize;
         if spec.alternate() {
             if radix == 16u128 or radix == 2u128 {
@@ -486,33 +486,33 @@ extend Formatter {
                 return Error::InvalidTemplate!;
             }
         }
-        let mut content_width = self.unsigned_digit_count(abs, radix) + prefix_width;
+        let mut content_width = self.unsignedDigitCount(abs, radix) + prefix_width;
         if value < 0i128 or spec.sign_plus() {
             content_width += 1usize;
         }
         if (value < 0i128 or spec.sign_plus()) and spec.fill() == '0' and spec.alignment() == FormatAlignment::Right and spec.width() > content_width {
             if value < 0i128 {
-                self.write_byte(b'-').?;
+                self.writeByte(b'-').?;
             } else {
-                self.write_byte(b'+').?;
+                self.writeByte(b'+').?;
             }
-            self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
-            self.write_fill('0', spec.width() - content_width).?;
-            self.write_unsigned_radix(abs, radix, uppercase)
+            self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
+            self.writeFill('0', spec.width() - content_width).?;
+            self.writeUnsignedRadix(abs, radix, uppercase)
         } else {
-            self.write_padding_before(content_width, spec).?;
+            self.writePaddingBefore(content_width, spec).?;
             if value < 0i128 {
-                self.write_byte(b'-').?;
-                self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
-                self.write_unsigned_radix(abs, radix, uppercase).?;
+                self.writeByte(b'-').?;
+                self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
+                self.writeUnsignedRadix(abs, radix, uppercase).?;
             } else {
                 if spec.sign_plus() {
-                    self.write_byte(b'+').?;
+                    self.writeByte(b'+').?;
                 }
-                self.write_unsigned_prefix(radix, uppercase, spec.alternate()).?;
-                self.write_unsigned_radix(abs, radix, uppercase).?;
+                self.writeUnsignedPrefix(radix, uppercase, spec.alternate()).?;
+                self.writeUnsignedRadix(abs, radix, uppercase).?;
             }
-            self.write_padding_after(content_width, spec)
+            self.writePaddingAfter(content_width, spec)
         }
     }
 
@@ -521,7 +521,7 @@ extend Formatter {
 extend[W] W : FormatWriter
 where W: io::Writer
 {
-    fn write_fmt_bytes(&mut self, bytes: &[u8]) Error!() {
+    fn writeFmtBytes(&mut self, bytes: &[u8]) Error!() {
         match self.writeAll(bytes) {
             !ok => {
                 !ok
