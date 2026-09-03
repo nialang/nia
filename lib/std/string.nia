@@ -131,22 +131,11 @@ extend String {
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let mut firstError: ?mem::Error = null;
-        match self.text.deinit(allocator) {
-            !ok => { _ = ok; },
-            error! => { firstError = ?error; },
-        }
-        match self.formatBytes.deinit(allocator) {
-            !ok => { _ = ok; },
-            error! => {
-                match firstError {
-                    ?value => { _ = value; },
-                    null => { firstError = ?error; },
-                }
-            },
-        }
-        if firstError is ?error {
-            return error!;
+        let mut cleanup = error::CleanupAccumulator[mem::Error]::init();
+        cleanup.attempt(self.text.deinit(allocator));
+        cleanup.attempt(self.formatBytes.deinit(allocator));
+        if not cleanup.isClean() {
+            return cleanup.finish();
         }
         !()
     }

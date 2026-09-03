@@ -7,7 +7,7 @@
 
 using pkg::collections;
 using pkg::mem;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
 using pkg::build::types::{
     ExecutableTarget,
@@ -22,100 +22,94 @@ pub(pkg) fn releaseSteps(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Step],
 ) Error!() {
-    let mut firstError: ?Error = null;
+    let mut cleanup = CleanupAccumulator[Error]::init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
     }
-    if firstError is null {
-        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Steps)
-    } else {
-        cleanupResult(firstError)
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Steps));
     }
+    cleanup.finish()
 }
 
 pub(pkg) fn releasePackages(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Package],
 ) Error!() {
-    let mut firstError: ?Error = null;
+    let mut cleanup = CleanupAccumulator[Error]::init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
     }
-    if firstError is null {
-        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Packages)
-    } else {
-        cleanupResult(firstError)
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Packages));
     }
+    cleanup.finish()
 }
 
 pub(pkg) fn releaseExecutables(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ExecutableTarget],
 ) Error!() {
-    let mut firstError: ?Error = null;
+    let mut cleanup = CleanupAccumulator[Error]::init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
     }
-    if firstError is null {
-        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Executables)
-    } else {
-        cleanupResult(firstError)
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Executables));
     }
+    cleanup.finish()
 }
 
 pub(pkg) fn releaseObjects(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[ObjectTarget],
 ) Error!() {
-    let mut firstError: ?Error = null;
+    let mut cleanup = CleanupAccumulator[Error]::init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
     }
-    if firstError is null {
-        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Objects)
-    } else {
-        cleanupResult(firstError)
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Objects));
     }
+    cleanup.finish()
 }
 
 pub(pkg) fn releaseStaticArchives(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[StaticArchiveTarget],
 ) Error!() {
-    let mut firstError: ?Error = null;
+    let mut cleanup = CleanupAccumulator[Error]::init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
     }
-    if firstError is null {
-        records.deinit(allocator).withBuildContext(Operation::Release, Subject::StaticArchives)
-    } else {
-        cleanupResult(firstError)
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::StaticArchives));
     }
+    cleanup.finish()
 }
 
 pub(pkg) fn releaseModules(
     allocator: &mut mem::Allocator,
     records: &mut collections::ArrayList[Module],
 ) Error!() {
-    let mut firstError: ?Error = null;
+    let mut cleanup = CleanupAccumulator[Error]::init();
     let mut index = records.len();
     while index != 0 {
         index -= 1;
-        rememberCleanupError(&mut firstError, records.asMutSlice()[index].deinit(allocator));
+        cleanup.attempt(records.asMutSlice()[index].deinit(allocator));
     }
-    if firstError is null {
-        records.deinit(allocator).withBuildContext(Operation::Release, Subject::Modules)
-    } else {
-        cleanupResult(firstError)
+    if cleanup.isClean() {
+        cleanup.attempt(records.deinit(allocator).withBuildContext(Operation::Release, Subject::Modules));
     }
+    cleanup.finish()
 }

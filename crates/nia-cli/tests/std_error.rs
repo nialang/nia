@@ -287,3 +287,88 @@ pub fn main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_cleanup_accumulator_runs_all_and_keeps_first_failure() {
+    let root = temp_dir("emit_exe_std_cleanup_accumulator_runs_all_and_keeps_first_failure");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::error;
+using std::process;
+
+enum Failure: i32 {
+    First = 1,
+    Second = 2,
+    _,
+}
+
+fn first(counter: &mut usize) Failure!() {
+    counter.* += 1usize;
+    Failure::First!
+}
+
+fn second(counter: &mut usize) Failure!() {
+    counter.* += 1usize;
+    Failure::Second!
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut counter: usize = 0;
+    let mut cleanup = error::CleanupAccumulator[Failure]::init();
+    cleanup.attempt(first(&mut counter));
+    cleanup.attempt(second(&mut counter));
+    if counter != 2usize or cleanup.isClean() {
+        return process::exit(1)!;
+    }
+    match cleanup.finish() {
+        Failure::First! => {},
+        error! => {
+            _ = error;
+            return process::exit(2)!;
+        },
+        !value => {
+            _ = value;
+            return process::exit(3)!;
+        },
+    }
+
+    let mut success = error::CleanupAccumulator[Failure]::init();
+    success.attempt(!());
+    if not success.isClean() {
+        return process::exit(4)!;
+    }
+    match success.finish() {
+        !ok => {
+            _ = ok;
+        },
+        error! => {
+            _ = error;
+            return process::exit(5)!;
+        },
+    }
+    !()
+}
+"#,
+    )
+    .expect("write cleanup accumulator source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit -- cleanup accumulator");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted cleanup accumulator executable");
+    assert_eq!(run.code(), Some(0));
+}

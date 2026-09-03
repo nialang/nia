@@ -7,7 +7,7 @@
 using pkg::collections;
 using pkg::mem;
 using pkg::string;
-using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
+using pkg::error::CleanupAccumulator;
 using pkg::build::commands;
 using pkg::build::error;
 using pkg::build::types;
@@ -76,16 +76,10 @@ extend GeneratedFileStep {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut firstError: ?Error = null;
-        rememberCleanupError(
-            &mut firstError,
-            self.contents.deinit(allocator).withBuildContext(.Release, .Step(index)),
-        );
-        rememberCleanupError(
-            &mut firstError,
-            self.output.deinit(allocator).withBuildContext(.Release, .Step(index)),
-        );
-        cleanupResult(firstError)
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        cleanup.attempt(self.contents.deinit(allocator).withBuildContext(.Release, .Step(index)));
+        cleanup.attempt(self.output.deinit(allocator).withBuildContext(.Release, .Step(index)));
+        cleanup.finish()
     }
 }
 
@@ -170,27 +164,23 @@ extend RunExecutableStep {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator, index: usize) Error!() {
-        let mut firstError: ?Error = null;
-        let mut elementError: ?Error = null;
+        let mut cleanup = CleanupAccumulator[Error]::init();
+        let mut elements = CleanupAccumulator[Error]::init();
         let mut argumentIndex = self.arguments.len();
         while argumentIndex != 0 {
             argumentIndex -= 1;
-            rememberCleanupError(
-                &mut elementError,
+            elements.attempt(
                 self.arguments.asMutSlice()[argumentIndex]
                     .deinit(allocator)
                     .withBuildContext(.Release, .Step(index)),
             );
         }
-        if elementError is null {
-            rememberCleanupError(
-                &mut firstError,
-                self.arguments.deinit(allocator).withBuildContext(.Release, .Step(index)),
-            );
+        if elements.isClean() {
+            cleanup.attempt(self.arguments.deinit(allocator).withBuildContext(.Release, .Step(index)));
         } else {
-            rememberCleanupError(&mut firstError, cleanupResult(elementError));
+            cleanup.attempt(elements.finish());
         }
-        cleanupResult(firstError)
+        cleanup.finish()
     }
 }
 
@@ -298,26 +288,26 @@ extend Step {
     }
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
-        let mut firstError: ?Error = null;
+        let mut cleanup = CleanupAccumulator[Error]::init();
         if self.kind == StepKind::Uncacheable {
-            rememberCleanupError(&mut firstError, self.payload.uncacheable.deinit(allocator, self.index));
+            cleanup.attempt(self.payload.uncacheable.deinit(allocator, self.index));
         }
         if self.kind == StepKind::GeneratedFile {
-            rememberCleanupError(&mut firstError, self.payload.generatedFile.deinit(allocator, self.index));
+            cleanup.attempt(self.payload.generatedFile.deinit(allocator, self.index));
         }
         if self.kind == StepKind::RunExecutable or self.kind == StepKind::TestExecutable {
-            rememberCleanupError(&mut firstError, self.payload.runExecutable.deinit(allocator, self.index));
+            cleanup.attempt(self.payload.runExecutable.deinit(allocator, self.index));
         }
         if self.kind == StepKind::InstallExecutable {
-            rememberCleanupError(&mut firstError, self.payload.installExecutable.deinit(allocator, self.index));
+            cleanup.attempt(self.payload.installExecutable.deinit(allocator, self.index));
         }
         if self.kind == StepKind::InstallStaticArchive {
-            rememberCleanupError(&mut firstError, self.payload.installStaticArchive.deinit(allocator, self.index));
+            cleanup.attempt(self.payload.installStaticArchive.deinit(allocator, self.index));
         }
         if self.kind == StepKind::ExternalCommand {
-            rememberCleanupError(&mut firstError, self.payload.externalCommand.deinit(allocator, self.index));
+            cleanup.attempt(self.payload.externalCommand.deinit(allocator, self.index));
         }
-        rememberCleanupError(&mut firstError, self.name.deinit(allocator).withBuildContext(.Release, .Step(self.index)));
-        cleanupResult(firstError)
+        cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Step(self.index)));
+        cleanup.finish()
     }
 }

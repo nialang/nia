@@ -999,6 +999,25 @@ has one error-union layer, with no implicit conversion or recursive flattening.
 Like `mapError`, `orElse` borrows a readonly synchronous callable and is not
 available during const evaluation.
 
+For cleanup that must continue after an individual release failure, the
+standard library provides `std::error::CleanupAccumulator[Failure]`. It keeps
+the first failure without allocating and never short-circuits a later
+`attempt`:
+
+```nia
+let mut cleanup = std::error::CleanupAccumulator[ReleaseError]::init();
+cleanup.attempt(first.deinit());
+cleanup.attempt(second.deinit());
+cleanup.finish();
+```
+
+`attempt` always evaluates its argument and records only the first error.
+`finish` returns that error after all attempts, or `!()` when every attempt
+succeeded. The accumulator does not own or detach resources: each cleanup
+operation must retain a failed owner so a later call can retry it. Use the
+accumulator for teardown/error aggregation, not for ordinary error propagation
+where `.?` and `orElse` intentionally short-circuit or recover.
+
 Patterns can destructure optional and error-union values:
 
 ```nia
