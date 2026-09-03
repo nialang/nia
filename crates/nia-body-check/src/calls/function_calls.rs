@@ -672,14 +672,29 @@ impl<'a> BodyChecker<'a> {
                 self.check_expr(arg);
                 continue;
             };
-            let inferred_from_closure =
+            let mut inferred_from_closure =
                 self.infer_generics_from_closure_signature(param, arg, substitutions, arg.span);
-            let substituted_param =
+            let mut substituted_param =
                 self.substitute_generics_and_consts(param, substitutions, const_substitutions);
+            let closure_params_ready =
+                self.seed_closure_params_from_callable_pattern(substituted_param, arg);
+            if closure_params_ready {
+                inferred_from_closure |= self.infer_generics_from_closure_signature(
+                    param,
+                    arg,
+                    substitutions,
+                    arg.span,
+                );
+                substituted_param = self.substitute_generics_and_consts(
+                    param,
+                    substitutions,
+                    const_substitutions,
+                );
+            }
             let expected = self.generic_call_expected(substituted_param);
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
-            } else if inferred_from_closure {
+            } else if inferred_from_closure && !closure_params_ready {
                 // A later argument or the closure's known result may still
                 // determine the generic callable signature. The instantiated
                 // argument pass performs the one authoritative body check.
