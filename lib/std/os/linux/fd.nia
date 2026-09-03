@@ -93,7 +93,7 @@ extend FileDescriptor {
     }
 
     pub fn metadata(&self) Errno!FileMetadata {
-        stat::metadata_fd(FileDescriptor::init(self.fd))
+        stat::metadataFd(FileDescriptor::init(self.fd))
     }
 
     pub fn read_dir_entries(&self, buffer: &mut [u8]) Errno!usize {

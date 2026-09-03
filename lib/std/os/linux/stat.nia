@@ -4,29 +4,29 @@ using pkg::os::linux::types;
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 using types::OpenHow;
 
-const at_empty_path: usize = 0x1000usize;
-const statx_type: u32 = 0x00000001u32;
-const statx_mode: u32 = 0x00000002u32;
-const statx_nlink: u32 = 0x00000004u32;
-const statx_atime: u32 = 0x00000020u32;
-const statx_mtime: u32 = 0x00000040u32;
-const statx_ctime: u32 = 0x00000080u32;
-const statx_ino: u32 = 0x00000100u32;
-const statx_size: u32 = 0x00000200u32;
-const statx_blocks: u32 = 0x00000400u32;
-const statx_request_basic: u32 =
-    statx_type | statx_mode | statx_nlink | statx_atime | statx_mtime | statx_ctime | statx_ino | statx_size | statx_blocks;
-const statx_required_basic: u32 =
-    statx_type | statx_mode | statx_nlink | statx_mtime | statx_ctime | statx_ino | statx_size;
-const s_ifmt: u16 = 0o170000u16;
-const s_ififo: u16 = 0o010000u16;
-const s_ifchr: u16 = 0o020000u16;
-const s_ifdir: u16 = 0o040000u16;
-const s_ifblk: u16 = 0o060000u16;
-const s_ifreg: u16 = 0o100000u16;
-const s_iflnk: u16 = 0o120000u16;
-const s_ifsock: u16 = 0o140000u16;
-const nanos_per_second: u32 = 1000000000u32;
+const atEmptyPath: usize = 0x1000usize;
+const statxType: u32 = 0x00000001u32;
+const statxMode: u32 = 0x00000002u32;
+const statxNlink: u32 = 0x00000004u32;
+const statxAtime: u32 = 0x00000020u32;
+const statxMtime: u32 = 0x00000040u32;
+const statxCtime: u32 = 0x00000080u32;
+const statxIno: u32 = 0x00000100u32;
+const statxSize: u32 = 0x00000200u32;
+const statxBlocks: u32 = 0x00000400u32;
+const statxRequestBasic: u32 =
+    statxType | statxMode | statxNlink | statxAtime | statxMtime | statxCtime | statxIno | statxSize | statxBlocks;
+const statxRequiredBasic: u32 =
+    statxType | statxMode | statxNlink | statxMtime | statxCtime | statxIno | statxSize;
+const sIfmt: u16 = 0o170000u16;
+const sIfifo: u16 = 0o010000u16;
+const sIfchr: u16 = 0o020000u16;
+const sIfdir: u16 = 0o040000u16;
+const sIfblk: u16 = 0o060000u16;
+const sIfreg: u16 = 0o100000u16;
+const sIflnk: u16 = 0o120000u16;
+const sIfsock: u16 = 0o140000u16;
+const nanosPerSecond: u32 = 1000000000u32;
 
 pub extern struct StatxTimestamp {
     sec: i64,
@@ -46,36 +46,36 @@ pub extern struct Statx {
     ino: u64,
     size: u64,
     blocks: u64,
-    attributes_mask: u64,
+    attributesMask: u64,
     atime: StatxTimestamp,
     btime: StatxTimestamp,
     ctime: StatxTimestamp,
     mtime: StatxTimestamp,
-    rdev_major: u32,
-    rdev_minor: u32,
-    dev_major: u32,
-    dev_minor: u32,
-    mnt_id: u64,
-    dio_mem_align: u32,
-    dio_offset_align: u32,
+    rdevMajor: u32,
+    rdevMinor: u32,
+    devMajor: u32,
+    devMinor: u32,
+    mntId: u64,
+    dioMemAlign: u32,
+    dioOffsetAlign: u32,
     subvol: u64,
-    atomic_write_unit_min: u32,
-    atomic_write_unit_max: u32,
-    atomic_write_segments_max: u32,
-    dio_read_offset_align: u32,
-    atomic_write_unit_max_opt: u32,
+    atomicWriteUnitMin: u32,
+    atomicWriteUnitMax: u32,
+    atomicWriteSegmentsMax: u32,
+    dioReadOffsetAlign: u32,
+    atomicWriteUnitMaxOpt: u32,
     spare2: [u32; 1],
     spare3: [u64; 8],
 }
 
-pub fn metadata_fd(fd: FileDescriptor) Errno!FileMetadata {
+pub fn metadataFd(fd: FileDescriptor) Errno!FileMetadata {
     let empty = b"\0";
-    statx_at(fd, &empty[0], at_empty_path, statx_request_basic)
+    statxAt(fd, &empty[0], atEmptyPath, statxRequestBasic)
 }
 
-pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) Errno!FileMetadata {
     let mut flags = types::openPath;
-    if not follow_symlinks {
+    if not followSymlinks {
         flags = flags + types::openNoFollow;
     }
     let how = OpenHow {
@@ -94,12 +94,12 @@ pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool
         ret.syscallError()!
     } else {
         let handle = FileDescriptor::fromSyscall(ret).?;
-        let result = metadata_fd(handle);
+        let result = metadataFd(handle);
         result.closeAfter(handle.close())
     }
 }
 
-fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
+fn statxAt(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMetadata {
     let mut stx: Statx;
     let mut bytes = &mut ((&mut stx as &mut u8)[0..std::builtin::size[Statx]()]);
     std::builtin::memset(bytes, 0);
@@ -112,12 +112,12 @@ fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileM
         &mut stx as usize,
     );
     ret.syscallSuccess().?;
-    stx.as_metadata()
+    stx.asMetadata()
 }
 
 extend StatxTimestamp {
-    fn as_timestamp(&self) Errno!Timestamp {
-        if self.nsec >= nanos_per_second {
+    fn asTimestamp(&self) Errno!Timestamp {
+        if self.nsec >= nanosPerSecond {
             return Errno::Invalid!;
         }
         !Timestamp::init(self.sec, self.nsec)
@@ -125,33 +125,33 @@ extend StatxTimestamp {
 }
 
 extend Statx {
-    fn has_required_basic(&self) bool {
-        (self.mask & statx_required_basic) == statx_required_basic
+    fn hasRequiredBasic(&self) bool {
+        (self.mask & statxRequiredBasic) == statxRequiredBasic
     }
 
     fn kind(&self) FileKind {
-        match self.mode & s_ifmt {
-            (s_ifdir) => FileKind::Directory,
-            (s_ifchr) => FileKind::CharacterDevice,
-            (s_ifblk) => FileKind::BlockDevice,
-            (s_ifreg) => FileKind::File,
-            (s_ififo) => FileKind::NamedPipe,
-            (s_iflnk) => FileKind::Symlink,
-            (s_ifsock) => FileKind::UnixSocket,
+        match self.mode & sIfmt {
+            (sIfdir) => FileKind::Directory,
+            (sIfchr) => FileKind::CharacterDevice,
+            (sIfblk) => FileKind::BlockDevice,
+            (sIfreg) => FileKind::File,
+            (sIfifo) => FileKind::NamedPipe,
+            (sIflnk) => FileKind::Symlink,
+            (sIfsock) => FileKind::UnixSocket,
             _ => FileKind::Unknown,
         }
     }
 
-    pub fn as_metadata(&self) Errno!FileMetadata {
-        if not self.has_required_basic() {
+    pub fn asMetadata(&self) Errno!FileMetadata {
+        if not self.hasRequiredBasic() {
             return Errno::Invalid!;
         }
         let mut atime: ?Timestamp = null;
-        if (self.mask & statx_atime) == statx_atime {
-            atime = ?self.atime.as_timestamp().?;
+        if (self.mask & statxAtime) == statxAtime {
+            atime = ?self.atime.asTimestamp().?;
         }
         let mut blockSize = 1u32;
-        if (self.mask & statx_blocks) == statx_blocks {
+        if (self.mask & statxBlocks) == statxBlocks {
             blockSize = self.blksize;
         }
         !FileMetadata::init(
@@ -162,8 +162,8 @@ extend Statx {
             self.mode as u32,
             blockSize,
             atime,
-            self.mtime.as_timestamp().?,
-            self.ctime.as_timestamp().?,
+            self.mtime.asTimestamp().?,
+            self.ctime.asTimestamp().?,
         )
     }
 }

@@ -4,7 +4,7 @@ using pkg::os::linux::types;
 
 using types::Errno;
 
-const native_page_size: usize = 4096usize;
+const nativePageSize: usize = 4096usize;
 
 pub struct MappedPages {
     ptr: &mut u8,
@@ -26,15 +26,15 @@ extend MappedPages {
     }
 }
 
-fn raw_map_pages(len: usize) Errno!&mut u8 {
-    let prot_read_write = 3usize;
-    let private_anonymous = 34usize;
+fn rawMapPages(len: usize) Errno!&mut u8 {
+    let protReadWrite = 3usize;
+    let privateAnonymous = 34usize;
     let ret = syscall::syscall6(
         syscall::mmap,
         0,
         len,
-        prot_read_write,
-        private_anonymous,
+        protReadWrite,
+        privateAnonymous,
         (-1isize) as usize,
         0,
     );
@@ -49,23 +49,23 @@ fn raw_map_pages(len: usize) Errno!&mut u8 {
     }
 }
 
-fn raw_unmap_pages(ptr: &mut u8, len: usize) Errno!() {
+fn rawUnmapPages(ptr: &mut u8, len: usize) Errno!() {
     let ret = syscall::syscall3(syscall::munmap, ptr as usize, len, 0);
     ret.syscallSuccess()
 }
 
 // A mapping remains owned until validation publishes MappedPages.
-fn reject_mapped_range(ptr: &mut u8, len: usize) Errno!MappedPages {
-    raw_unmap_pages(ptr, len).?;
+fn rejectMappedRange(ptr: &mut u8, len: usize) Errno!MappedPages {
+    rawUnmapPages(ptr, len).?;
     Errno::OutOfRange!
 }
 
-pub fn page_size() usize {
-    native_page_size
+pub fn pageSize() usize {
+    nativePageSize
 }
 
-pub fn page_aligned_len(len: usize) Errno!usize {
-    match len.alignForward(page_size()) {
+pub fn pageAlignedLen(len: usize) Errno!usize {
+    match len.alignForward(pageSize()) {
         ?value => {
             !value
         },
@@ -75,7 +75,7 @@ pub fn page_aligned_len(len: usize) Errno!usize {
     }
 }
 
-pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
+pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 {
         return Errno::Invalid!;
     }
@@ -83,12 +83,12 @@ pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
         return Errno::Invalid!;
     }
 
-    let aligned_len = page_aligned_len(len).?;
+    let alignedLen = pageAlignedLen(len).?;
     let mut extra = 0usize;
-    if align > page_size() {
-        extra = align - page_size();
+    if align > pageSize() {
+        extra = align - pageSize();
     }
-    let map_len = match aligned_len.checkedAdd(extra) {
+    let mapLen = match alignedLen.checkedAdd(extra) {
         ?value => {
             value
         },
@@ -96,32 +96,32 @@ pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
             return Errno::OutOfRange!;
         },
     };
-    let mapped = raw_map_pages(map_len).?;
-    let mapped_addr = mapped as usize;
-    match mapped_addr.checkedAdd(map_len) {
+    let mapped = rawMapPages(mapLen).?;
+    let mappedAddr = mapped as usize;
+    match mappedAddr.checkedAdd(mapLen) {
         ?value => { _ = value; },
         null => {
-            return reject_mapped_range(mapped, map_len);
+            return rejectMappedRange(mapped, mapLen);
         },
     }
-    let result_addr = match mapped_addr.alignForward(align) {
+    let resultAddr = match mappedAddr.alignForward(align) {
         ?value => value,
         null => {
-            return reject_mapped_range(mapped, map_len);
+            return rejectMappedRange(mapped, mapLen);
         },
     };
     !MappedPages {
-        ptr: result_addr as &mut u8,
+        ptr: resultAddr as &mut u8,
         releasePtr: mapped,
-        releaseSize: map_len,
+        releaseSize: mapLen,
     }
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!() {
+pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 {
         Errno::Invalid!
     } else {
-        let aligned_len = page_aligned_len(len).?;
-        raw_unmap_pages(ptr, aligned_len)
+        let alignedLen = pageAlignedLen(len).?;
+        rawUnmapPages(ptr, alignedLen)
     }
 }

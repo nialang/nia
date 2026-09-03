@@ -52,12 +52,12 @@ pub fn getcwd(buffer: &mut [u8]) Errno!&[u8] {
     fd::getcwd(buffer)
 }
 
-pub fn page_size() usize {
-    memory::page_size()
+pub fn pageSize() usize {
+    memory::pageSize()
 }
 
-pub fn page_aligned_len(len: usize) Errno!usize {
-    memory::page_aligned_len(len)
+pub fn pageAlignedLen(len: usize) Errno!usize {
+    memory::pageAlignedLen(len)
 }
 
 pub fn open_at(
@@ -132,8 +132,8 @@ pub fn rename_at_beneath(
     )
 }
 
-pub fn metadata_at_beneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
-    stat::metadata_at_beneath(dir, path, follow_symlinks)
+pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
+    stat::metadataAtBeneath(dir, path, follow_symlinks)
 }
 
 pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
@@ -144,12 +144,12 @@ pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
     fd::dir_entry_next_offset(buffer, offset)
 }
 
-pub fn map_pages(len: usize, align: usize) Errno!MappedPages {
-    memory::map_pages(len, align)
+pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
+    memory::mapPages(len, align)
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) Errno!() {
-    memory::unmap_pages(ptr, len)
+pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
+    memory::unmapPages(ptr, len)
 }
 
 pub fn random(bytes: &mut [u8]) Errno!() {
