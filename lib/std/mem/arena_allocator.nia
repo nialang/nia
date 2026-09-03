@@ -1,3 +1,4 @@
+using pkg::cmp;
 using pkg::math;
 using pkg::mem::allocator;
 using pkg::mem::types;
@@ -182,7 +183,7 @@ extend ArenaAllocator {
                 return Error::OutOfMemory!;
             },
         };
-        let blockAlign = maxUsize(std::builtin::align[ArenaChunk](), layout.align());
+        let blockAlign = cmp::max(std::builtin::align[ArenaChunk](), layout.align());
         let blockLayout = Layout::init(totalSize, blockAlign).?;
         let block = self.child.alloc(blockLayout).?;
         let mut chunk = block.ptr() as &mut ArenaChunk;
@@ -302,7 +303,7 @@ extend ArenaAllocator {
                 return false;
             },
         };
-        let blockAlign = maxUsize(chunk.block.align(), layout.align());
+        let blockAlign = cmp::max(chunk.block.align(), layout.align());
         let newLayout = match Layout::init(newSize, blockAlign) {
             !value => {
                 value
@@ -636,13 +637,5 @@ fn chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
         !grownWithSlop
     } else {
         !minWithPadding
-    }
-}
-
-fn maxUsize(left: usize, right: usize) usize {
-    if left > right {
-        left
-    } else {
-        right
     }
 }

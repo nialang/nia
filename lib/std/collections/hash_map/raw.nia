@@ -214,14 +214,6 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
     nextPowerOfTwo(adjusted)
 }
 
-pub fn maxUsize(left: usize, right: usize) usize {
-    if left > right {
-        left
-    } else {
-        right
-    }
-}
-
 pub fn nextPowerOfTwo(value: usize) mem::Error!usize {
     let mut n: usize = 1;
     while n < value {
