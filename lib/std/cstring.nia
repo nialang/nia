@@ -191,10 +191,10 @@ extend CStringView : fmt::Format {
     }
 
     fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
-        if spec.presentation() != fmt::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
+        if spec.presentation() != fmt::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
             return fmt::Error::InvalidTemplate!;
         }
-        let contentWidth = formatter.precision_width(self.len(), spec);
+        let contentWidth = formatter.precisionWidth(self.len(), spec);
         formatter.writePaddingBefore(contentWidth, spec).?;
         let bytes = self.bytes();
         let mut index: usize = 0;

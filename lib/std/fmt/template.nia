@@ -4,12 +4,12 @@ using pkg::math;
 
 struct ParsedSpec {
     spec: core::FormatSpec,
-    next_index: usize,
-    dynamic_width: bool,
-    dynamic_precision: bool,
+    nextIndex: usize,
+    dynamicWidth: bool,
+    dynamicPrecision: bool,
 }
 
-fn parse_presentation(ch: char) ?core::FormatPresentation {
+fn parsePresentation(ch: char) ?core::FormatPresentation {
     if ch == 'x' {
         ?core::FormatPresentation::LowerHex
     } else if ch == 'X' {
@@ -25,7 +25,7 @@ fn parse_presentation(ch: char) ?core::FormatPresentation {
     }
 }
 
-fn parse_alignment(ch: char) ?core::FormatAlignment {
+fn parseAlignment(ch: char) ?core::FormatAlignment {
     if ch == '<' {
         ?core::FormatAlignment::Left
     } else if ch == '>' {
@@ -37,7 +37,7 @@ fn parse_alignment(ch: char) ?core::FormatAlignment {
     }
 }
 
-fn digit_value(ch: char) ?usize {
+fn digitValue(ch: char) ?usize {
     if ch >= '0' and ch <= '9' {
         ?((ch as u32 - '0' as u32) as usize)
     } else {
@@ -45,7 +45,7 @@ fn digit_value(ch: char) ?usize {
     }
 }
 
-fn append_decimal_digit(value: usize, digit: usize) core::Error!usize {
+fn appendDecimalDigit(value: usize, digit: usize) core::Error!usize {
     let scaled = match value.checkedMul(10usize) {
         ?scaled => scaled,
         null => return core::Error::InvalidTemplate!,
@@ -56,51 +56,51 @@ fn append_decimal_digit(value: usize, digit: usize) core::Error!usize {
     }
 }
 
-fn parse_spec_end(
+fn parseSpecEnd(
     template: &[char],
     index: usize,
     presentation: core::FormatPresentation,
     width: usize,
     precision: ?usize,
-    dynamic_width: bool,
-    dynamic_precision: bool,
+    dynamicWidth: bool,
+    dynamicPrecision: bool,
     fill: char,
     alignment: core::FormatAlignment,
-    sign_plus: bool,
+    signPlus: bool,
     alternate: bool,
 ) core::Error!ParsedSpec {
     if index >= template.len() or template[index] != '}' {
         return core::Error::InvalidTemplate!;
     }
     !ParsedSpec {
-        spec: core::FormatSpec::init(presentation, width, precision, fill, alignment, sign_plus, alternate),
-        next_index: index + 1usize,
-        dynamic_width: dynamic_width,
-        dynamic_precision: dynamic_precision,
+        spec: core::FormatSpec::init(presentation, width, precision, fill, alignment, signPlus, alternate),
+        nextIndex: index + 1usize,
+        dynamicWidth: dynamicWidth,
+        dynamicPrecision: dynamicPrecision,
     }
 }
 
-fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
+fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
     let mut index = start;
     let mut fill = ' ';
     let mut alignment = core::FormatAlignment::None;
-    let mut sign_plus = false;
+    let mut signPlus = false;
     let mut alternate = false;
 
-    let mut parsing_flags = true;
-    while parsing_flags and index < template.len() {
+    let mut parsingFlags = true;
+    while parsingFlags and index < template.len() {
         let ch = template[index];
         if index + 1usize < template.len() {
-            if parse_alignment(template[index + 1usize]) is ?parsed_alignment {
+            if parseAlignment(template[index + 1usize]) is ?parsedAlignment {
                 fill = ch;
-                alignment = parsed_alignment;
+                alignment = parsedAlignment;
                 index += 2usize;
                 continue;
             }
         }
-        match parse_alignment(ch) {
-            ?parsed_alignment => {
-                alignment = parsed_alignment;
+        match parseAlignment(ch) {
+            ?parsedAlignment => {
+                alignment = parsedAlignment;
                 index += 1usize;
             },
             null => {
@@ -108,27 +108,27 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
                         fill = '0';
                         alignment = core::FormatAlignment::Right;
                         index += 1usize;
-                    } else if ch == '+' and not sign_plus {
-                        sign_plus = true;
+                    } else if ch == '+' and not signPlus {
+                        signPlus = true;
                         index += 1usize;
                     } else if ch == '#' and not alternate {
                         alternate = true;
                         index += 1usize;
                     } else {
-                        parsing_flags = false;
+                        parsingFlags = false;
                     }
             },
         }
     }
 
     let mut width = 0usize;
-    let mut dynamic_width = false;
+    let mut dynamicWidth = false;
     if index + 1usize < template.len() and template[index] == '{' and template[index + 1usize] == '}' {
-        dynamic_width = true;
+        dynamicWidth = true;
         index += 2usize;
     } else {
         while index < template.len() {
-            let digit = match digit_value(template[index]) {
+            let digit = match digitValue(template[index]) {
                 ?digit => {
                     digit
                 },
@@ -136,23 +136,23 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
                     break;
                 },
             };
-            width = append_decimal_digit(width, digit).?;
+            width = appendDecimalDigit(width, digit).?;
             index += 1usize;
         }
     }
 
     let mut precision: ?usize = null;
-    let mut dynamic_precision = false;
+    let mut dynamicPrecision = false;
     if index < template.len() and template[index] == '.' {
         index += 1usize;
         if index + 1usize < template.len() and template[index] == '{' and template[index + 1usize] == '}' {
-            dynamic_precision = true;
+            dynamicPrecision = true;
             index += 2usize;
         } else {
-            let mut parsed_precision = 0usize;
-            let mut has_digit = false;
+            let mut parsedPrecision = 0usize;
+            let mut hasDigit = false;
             while index < template.len() {
-                let digit = match digit_value(template[index]) {
+                let digit = match digitValue(template[index]) {
                     ?digit => {
                         digit
                     },
@@ -160,45 +160,45 @@ fn parse_extended_spec(template: &[char], start: usize) core::Error!ParsedSpec {
                         break;
                     },
                 };
-                parsed_precision = append_decimal_digit(parsed_precision, digit).?;
-                has_digit = true;
+                parsedPrecision = appendDecimalDigit(parsedPrecision, digit).?;
+                hasDigit = true;
                 index += 1usize;
             }
-            if not has_digit {
+            if not hasDigit {
                 return core::Error::InvalidTemplate!;
             }
-            precision = ?parsed_precision;
+            precision = ?parsedPrecision;
         }
     }
 
     let mut presentation = core::FormatPresentation::Display;
     if index < template.len() {
-        if parse_presentation(template[index]) is ?parsed {
+        if parsePresentation(template[index]) is ?parsed {
             presentation = parsed;
             index += 1usize;
         }
     }
 
-    parse_spec_end(
+    parseSpecEnd(
         template,
         index,
         presentation,
         width,
         precision,
-        dynamic_width,
-        dynamic_precision,
+        dynamicWidth,
+        dynamicPrecision,
         fill,
         alignment,
-        sign_plus,
+        signPlus,
         alternate,
     )
 }
 
-fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize) core::Error!usize {
-    if arg_index.* >= args.len() {
+fn nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize {
+    if argIndex.* >= args.len() {
         return core::Error::MissingArgument!;
     }
-    let value = match args[arg_index.*].formatUsizeArg() {
+    let value = match args[argIndex.*].formatUsizeArg() {
         ?value => {
             value
         },
@@ -206,22 +206,22 @@ fn next_usize_arg(args: &[&core::Format], arg_index: &mut usize) core::Error!usi
             return core::Error::InvalidTemplate!;
         },
     };
-    arg_index.* += 1usize;
+    argIndex.* += 1usize;
     !value
 }
 
-fn resolve_dynamic_spec(
+fn resolveDynamicSpec(
     parsed: ParsedSpec,
     args: &[&core::Format],
-    arg_index: &mut usize,
+    argIndex: &mut usize,
 ) core::Error!core::FormatSpec {
     let mut width = parsed.spec.width();
     let mut precision = parsed.spec.precision();
-    if parsed.dynamic_width {
-        width = next_usize_arg(args, arg_index).?;
+    if parsed.dynamicWidth {
+        width = nextUsizeArg(args, argIndex).?;
     }
-    if parsed.dynamic_precision {
-        precision = ?next_usize_arg(args, arg_index).?;
+    if parsed.dynamicPrecision {
+        precision = ?nextUsizeArg(args, argIndex).?;
     }
     !core::FormatSpec::init(
         parsed.spec.presentation(),
@@ -229,12 +229,12 @@ fn resolve_dynamic_spec(
         precision,
         parsed.spec.fill(),
         parsed.spec.alignment(),
-        parsed.spec.sign_plus(),
+        parsed.spec.signPlus(),
         parsed.spec.alternate(),
     )
 }
 
-fn print_template[W](
+fn printTemplate[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
@@ -243,7 +243,7 @@ where W: io::Writer
 {
     let mut formatter = core::Formatter::init(writer);
     let mut index = 0usize;
-    let mut arg_index = 0usize;
+    let mut argIndex = 0usize;
     while index < template.len() {
         let ch = template[index];
         if ch == '{' {
@@ -252,25 +252,25 @@ where W: io::Writer
             }
             let next = template[index + 1usize];
             if next == '}' {
-                if arg_index >= args.len() {
+                if argIndex >= args.len() {
                     return core::Error::MissingArgument!;
                 }
-                args[arg_index].formatSpec(&mut formatter, core::FormatSpec::display()).?;
-                arg_index += 1usize;
+                args[argIndex].formatSpec(&mut formatter, core::FormatSpec::display()).?;
+                argIndex += 1usize;
                 index += 2usize;
             } else if next == '{' {
                 formatter.writeChar('{').?;
                 index += 2usize;
             } else if next == ':' {
-                let parsed = parse_extended_spec(template, index + 2usize).?;
-                if arg_index >= args.len() {
+                let parsed = parseExtendedSpec(template, index + 2usize).?;
+                if argIndex >= args.len() {
                     return core::Error::MissingArgument!;
                 }
-                let value_index = arg_index;
-                arg_index += 1usize;
-                let spec = resolve_dynamic_spec(parsed, args, &mut arg_index).?;
-                args[value_index].formatSpec(&mut formatter, spec).?;
-                index = parsed.next_index;
+                let valueIndex = argIndex;
+                argIndex += 1usize;
+                let spec = resolveDynamicSpec(parsed, args, &mut argIndex).?;
+                args[valueIndex].formatSpec(&mut formatter, spec).?;
+                index = parsed.nextIndex;
             } else {
                 return core::Error::InvalidTemplate!;
             }
@@ -286,20 +286,20 @@ where W: io::Writer
             index += 1usize;
         }
     }
-    if arg_index != args.len() {
+    if argIndex != args.len() {
         return core::Error::ExtraArgument!;
     }
     !()
 }
 
-pub fn print_checked[W](
+pub fn printChecked[W](
     writer: &mut W,
     template: &[char],
     args: &[&core::Format],
 ) core::Error!()
 where W: io::Writer
 {
-    print_template(writer, template, args)
+    printTemplate(writer, template, args)
 }
 
 extend[W] W
@@ -310,6 +310,6 @@ where W: io::Writer
         template: &[char],
         args: &[&core::Format],
     ) core::Error!() {
-        print_checked(self, template, args)
+        printChecked(self, template, args)
     }
 }

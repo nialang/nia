@@ -40,7 +40,7 @@ where R: Reader
         self.end = 0;
     }
 
-    fn read_buffered(&mut self, bytes: &mut [u8]) usize {
+    fn readBuffered(&mut self, bytes: &mut [u8]) usize {
         let mut count = bytes.len();
         if count > self.len() {
             count = self.len();
@@ -72,7 +72,7 @@ where R: Reader
         if bytes.len() == 0 {
             !0
         } else if self.len() != 0 {
-            !self.read_buffered(bytes)
+            !self.readBuffered(bytes)
         } else if bytes.len() >= self.buffer.len() {
             let n = self.reader.read(bytes).?;
             if n > bytes.len() {
@@ -90,7 +90,7 @@ where R: Reader
             if self.end == 0 {
                 !0
             } else {
-                !self.read_buffered(bytes)
+                !self.readBuffered(bytes)
             }
         }
     }
@@ -115,7 +115,7 @@ where W: Writer
         & self.buffer[0..self.len]
     }
 
-    fn append_buffered(&mut self, bytes: &[u8]) () {
+    fn appendBuffered(&mut self, bytes: &[u8]) () {
         _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
     }
@@ -150,7 +150,7 @@ where W: Writer
                 self.flush().?;
             }
 
-            self.append_buffered(bytes);
+            self.appendBuffered(bytes);
             !bytes.len()
         }
     }
@@ -166,7 +166,7 @@ where W: Writer
             if bytes.len() > available {
                 self.flush().?;
             }
-            self.append_buffered(bytes);
+            self.appendBuffered(bytes);
             !()
         }
     }
