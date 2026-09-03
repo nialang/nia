@@ -38,10 +38,10 @@ pub using types::{
     WaitStatus,
 };
 
-pub const max_path_bytes: usize = types::max_path_bytes;
+pub const maxPathBytes: usize = types::maxPathBytes;
 
-pub fn sigterm() i32 {
-    types::sigterm
+pub fn sigTerm() i32 {
+    types::sigTerm
 }
 
 pub fn cwd() FileDescriptor {
@@ -169,7 +169,7 @@ pub fn try_wait(pid: ProcessId) Errno! ?WaitStatus {
 }
 
 pub fn kill(pid: ProcessId) Errno!() {
-    process::kill_with(pid, types::sigterm)
+    process::kill_with(pid, types::sigTerm)
 }
 
 pub fn kill_with(pid: ProcessId, signal: i32) Errno!() {

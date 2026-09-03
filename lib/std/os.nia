@@ -4,7 +4,7 @@ pub(pkg) module linux;
 using pkg::os::linux as platform;
 using pkg::error;
 
-pub(pkg) const maxPathBytes: usize = platform::max_path_bytes;
+pub(pkg) const maxPathBytes: usize = platform::maxPathBytes;
 
 pub(pkg) enum Error: i32 {
     PermissionDenied = 1,
@@ -418,7 +418,7 @@ extend platform::FileMetadata {
             ?self.nlink(),
             self.size(),
             self.mode() & 0o7777u32,
-            self.block_size(),
+            self.blockSize(),
             accessed,
             self.mtime().asOsTimestamp(),
             ?self.ctime().asOsTimestamp(),
@@ -694,7 +694,7 @@ extend WaitStatus {
     }
 
     pub(pkg) fn exitCode(&self) ?i32 {
-        self.platform().exit_code()
+        self.platform().exitCode()
     }
 
     pub(pkg) fn signal(&self) ?i32 {
@@ -702,7 +702,7 @@ extend WaitStatus {
     }
 
     pub(pkg) fn stopSignal(&self) ?i32 {
-        self.platform().stop_signal()
+        self.platform().stopSignal()
     }
 }
 
@@ -773,21 +773,21 @@ extend SpawnOptions {
     }
 
     pub(pkg) fn setStdin(&mut self, behavior: StdIo) Error!() {
-        self.platform.set_stdin(behavior.asPlatformStdio().?);
+        self.platform.setStdin(behavior.asPlatformStdio().?);
         !()
     }
 
     pub(pkg) fn setStdout(&mut self, behavior: StdIo) Error!() {
-        self.platform.set_stdout(behavior.asPlatformStdio().?);
+        self.platform.setStdout(behavior.asPlatformStdio().?);
         !()
     }
 
     pub(pkg) fn setStderr(&mut self, behavior: StdIo) Error!() {
-        self.platform.set_stderr(behavior.asPlatformStdio().?);
+        self.platform.setStderr(behavior.asPlatformStdio().?);
         !()
     }
 
     pub(pkg) fn setCwd(&mut self, path: &u8) () {
-        self.platform.set_cwd(path);
+        self.platform.setCwd(path);
     }
 }

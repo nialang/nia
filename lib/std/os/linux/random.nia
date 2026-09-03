@@ -9,7 +9,7 @@ pub fn random(bytes: &mut [u8]) Errno!() {
         let mut chunk = &mut bytes[done..];
         let ret = syscall::syscall3(syscall::getrandom, chunk.ptrMut() as usize, chunk.len(), 0);
         if ret < 0 {
-            let err = ret.syscall_error();
+            let err = ret.syscallError();
             if err == Errno::Interrupted {
                 continue;
             }
