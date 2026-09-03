@@ -20,7 +20,14 @@ fn with_signature_const_input<T>(
     let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let values = signature_const_value_resolution(db, module_id, &active_item_tree)?;
-    let locals = empty_local_resolution(db.context().node_store());
+    let symbols = db.context().symbols();
+    let locals = signature_const_local_resolution(
+        db.context().node_store(),
+        &active_item_tree,
+        &defs,
+        &values,
+        &symbols,
+    );
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id))?;
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
@@ -29,6 +36,7 @@ fn with_signature_const_input<T>(
         module_id,
         &active_item_tree,
         &values,
+        &locals,
         &type_resolution,
         &type_lowering,
     );
@@ -133,7 +141,6 @@ fn with_signature_const_input<T>(
         .map(|extensions| extensions.methods.clone())
     };
     let target = db.get(CompilerTargetQuery)?;
-    let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
         module: &module.module,
@@ -177,7 +184,14 @@ pub(super) fn provide_signature_const_module(
     let defs = module_defs_semantic(db, module_id)?;
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id))?;
     let values = signature_const_value_resolution(db, module_id, &active_item_tree)?;
-    let locals = empty_local_resolution(db.context().node_store());
+    let symbols = db.context().symbols();
+    let locals = signature_const_local_resolution(
+        db.context().node_store(),
+        &active_item_tree,
+        &defs,
+        &values,
+        &symbols,
+    );
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         db.context().node_store(),
@@ -185,12 +199,12 @@ pub(super) fn provide_signature_const_module(
         module_id,
         &active_item_tree,
         &values,
+        &locals,
         &type_resolution,
         &type_lowering,
     );
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
     let source_path = db.get(ModulePathQuery(module_id))?;
-    let symbols = db.context().symbols();
     let defs_for_module = |owner| module_defs_semantic(db, owner).ok();
     Ok(nia_const_check::lower_module_const(
         nia_const_check::ConstModuleInput {
@@ -356,10 +370,10 @@ fn signature_semantic_use_table_from_resolution_inputs(
     module_id: ModuleId,
     active_item_tree: &ActiveModuleItemTree,
     values: &ValueResolution,
+    locals: &LocalResolution,
     type_resolution: &TypeResolution,
     type_lowering: &TypeLowering,
 ) -> nia_sema_ir::SemanticUseTable {
-    let empty_locals = empty_local_resolution(node_store);
     semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
         node_store,
@@ -368,10 +382,28 @@ fn signature_semantic_use_table_from_resolution_inputs(
         values,
         const_expr_values: None,
         const_expr_value_ids: None,
-        locals: &empty_locals,
+        locals,
         type_resolution,
         type_lowering,
     })
+}
+
+fn signature_const_local_resolution(
+    node_store: &nia_node_id::NodeStore,
+    active_item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    symbols: &dyn nia_symbol::SymbolText,
+) -> LocalResolution {
+    let origins = nia_node_id::NodeOriginTable::with_store(node_store);
+    nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
+        active_item_tree,
+        defs,
+        values,
+        None,
+        &origins,
+        symbols,
+    )
 }
 
 fn collect_enum_discriminant_exprs(
@@ -412,10 +444,6 @@ fn item_tree_node_has_const_provider_values(item: &nia_item_tree::ItemTreeNode) 
 
 fn empty_value_resolution(node_store: &nia_node_id::NodeStore) -> ValueResolution {
     ValueResolution::with_store(node_store)
-}
-
-fn empty_local_resolution(node_store: &nia_node_id::NodeStore) -> LocalResolution {
-    LocalResolution::with_store(node_store)
 }
 
 pub(super) fn signature_layouts_for_types(
