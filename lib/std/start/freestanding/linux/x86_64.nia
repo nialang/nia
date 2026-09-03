@@ -3,7 +3,7 @@ using pkg::math;
 using pkg::os;
 using pkg::process;
 
-fn call_user_main(init: process::Init) process::ExitCode {
+fn callUserMain(init: process::Init) process::ExitCode {
     match entry::main(init) {
         !ok => {
             _ = ok;
@@ -49,7 +49,7 @@ extern fn nia_start_stack(stack: &usize) () {
     let argv = argvAddress as &&u8;
     let envp = envAddress as &&u8;
     let init = process::Init::init(argc, argv, envp);
-    let exit = call_user_main(init);
+    let exit = callUserMain(init);
     os::exit(exit as i32);
     loop {}
 }
