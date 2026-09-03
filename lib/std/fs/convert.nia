@@ -66,7 +66,7 @@ extend[T] PathError!T {
 }
 
 extend os::FileKind {
-    pub(pkg) fn as_fs_file_kind(self) FileKind {
+    pub(pkg) fn asFsFileKind(self) FileKind {
         match self {
             .BlockDevice => FileKind::BlockDevice,
             .CharacterDevice => FileKind::CharacterDevice,
@@ -81,37 +81,37 @@ extend os::FileKind {
 }
 
 extend os::Timestamp {
-    pub(pkg) fn as_fs_timestamp(&self) Timestamp {
+    pub(pkg) fn asFsTimestamp(&self) Timestamp {
         Timestamp::init(self.seconds(), self.nanos())
     }
 }
 
 extend os::FileMetadata {
-    pub(pkg) fn as_fs_metadata(&self) Metadata {
+    pub(pkg) fn asFsMetadata(&self) Metadata {
         let mut accessed: ?Timestamp = null;
         if self.accessed() is ?value {
-            accessed = ?value.as_fs_timestamp();
+            accessed = ?value.asFsTimestamp();
         }
-        let mut status_changed: ?Timestamp = null;
+        let mut statusChanged: ?Timestamp = null;
         if self.statusChanged() is ?value {
-            status_changed = ?value.as_fs_timestamp();
+            statusChanged = ?value.asFsTimestamp();
         }
         Metadata::init(
-            self.kind().as_fs_file_kind(),
+            self.kind().asFsFileKind(),
             self.fileId(),
             self.linkCount(),
             self.size(),
             self.permissions(),
             self.preferredBlockSize(),
             accessed,
-            self.modified().as_fs_timestamp(),
-            status_changed,
+            self.modified().asFsTimestamp(),
+            statusChanged,
         )
     }
 }
 
 extend os::DirectoryEntry {
-    pub(pkg) fn as_fs_dir_entry(&self) DirEntry {
-        DirEntry::init(self.kind().as_fs_file_kind(), self.name())
+    pub(pkg) fn asFsDirEntry(&self) DirEntry {
+        DirEntry::init(self.kind().asFsFileKind(), self.name())
     }
 }

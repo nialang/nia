@@ -26,7 +26,7 @@ pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
     !(os::getCwd(buffer).?)
 }
 
-const max_i64_as_u64: u64 = 9223372036854775807u64;
+const maxI64AsU64: u64 = 9223372036854775807u64;
 
 struct ParentSplit {
     end: usize,
@@ -332,7 +332,7 @@ extend Dir {
             path.ptr(),
             options.followSymlinks(),
         ).withOperation(Operation::Metadata).?;
-        !metadata.as_fs_metadata()
+        !metadata.asFsMetadata()
     }
 
 }
@@ -373,7 +373,7 @@ extend File {
     }
 
     pub fn seekTo(&self, offset: u64) Error!u64 {
-        if offset > max_i64_as_u64 {
+        if offset > maxI64AsU64 {
             return Error::OutOfRange!;
         }
         !(self.borrowHandle().?.seek(offset as i64, os::SeekWhence::Start).?)
@@ -394,11 +394,11 @@ extend File {
 
     pub fn metadata(&self) Error!Metadata {
         let metadata = self.borrowHandle().?.metadata().?;
-        !metadata.as_fs_metadata()
+        !metadata.asFsMetadata()
     }
 
     pub fn truncate(&self, len: u64) Error!() {
-        if len > max_i64_as_u64 {
+        if len > maxI64AsU64 {
             return Error::OutOfRange!;
         }
         !(self.borrowHandle().?.truncate(len).?)
