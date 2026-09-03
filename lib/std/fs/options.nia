@@ -32,29 +32,29 @@ extend OpenOptions {
 
 extend OpenDirOptions {
     pub fn init() OpenDirOptions {
-        Self { follow_symlinks: true }
+        Self { followSymlinks: true }
     }
 
     pub fn noFollow() OpenDirOptions {
-        Self { follow_symlinks: false }
+        Self { followSymlinks: false }
     }
 
     pub fn followSymlinks(&self) bool {
-        self.follow_symlinks
+        self.followSymlinks
     }
 }
 
 extend MetadataOptions {
     pub fn init() MetadataOptions {
-        Self { follow_symlinks: true }
+        Self { followSymlinks: true }
     }
 
     pub fn noFollow() MetadataOptions {
-        Self { follow_symlinks: false }
+        Self { followSymlinks: false }
     }
 
     pub fn followSymlinks(&self) bool {
-        self.follow_symlinks
+        self.followSymlinks
     }
 }
 

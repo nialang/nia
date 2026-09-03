@@ -129,14 +129,14 @@ pub struct Timestamp {
 
 pub struct Metadata {
     kind: FileKind,
-    file_id: ?u64,
-    link_count: ?u32,
+    fileId: ?u64,
+    linkCount: ?u32,
     size: u64,
     permissions: u32,
-    preferred_block_size: u32,
+    preferredBlockSize: u32,
     accessed: ?Timestamp,
     modified: Timestamp,
-    status_changed: ?Timestamp,
+    statusChanged: ?Timestamp,
 }
 
 pub struct OpenOptions {
@@ -144,11 +144,11 @@ pub struct OpenOptions {
 }
 
 pub struct OpenDirOptions {
-    follow_symlinks: bool,
+    followSymlinks: bool,
 }
 
 pub struct MetadataOptions {
-    follow_symlinks: bool,
+    followSymlinks: bool,
 }
 
 pub struct CreateOptions {
@@ -252,7 +252,7 @@ extend DirIterator : Iterator {
         match self.reader.next(handle) {
             ?result => {
                 match result {
-                    !value => ?(!value.as_fs_dir_entry()),
+                    !value => ?(!value.asFsDirEntry()),
                     err! => ?(err.intoError()!),
                 }
             },
@@ -280,25 +280,25 @@ extend Timestamp {
 extend Metadata {
     pub fn init(
         kind: FileKind,
-        file_id: ?u64,
-        link_count: ?u32,
+        fileId: ?u64,
+        linkCount: ?u32,
         size: u64,
         permissions: u32,
-        preferred_block_size: u32,
+        preferredBlockSize: u32,
         accessed: ?Timestamp,
         modified: Timestamp,
-        status_changed: ?Timestamp,
+        statusChanged: ?Timestamp,
     ) Metadata {
         Self {
             kind: kind,
-            file_id: file_id,
-            link_count: link_count,
+            fileId: fileId,
+            linkCount: linkCount,
             size: size,
             permissions: permissions,
-            preferred_block_size: preferred_block_size,
+            preferredBlockSize: preferredBlockSize,
             accessed: accessed,
             modified: modified,
-            status_changed: status_changed,
+            statusChanged: statusChanged,
         }
     }
 
@@ -307,11 +307,11 @@ extend Metadata {
     }
 
     pub fn fileId(&self) ?u64 {
-        self.file_id
+        self.fileId
     }
 
     pub fn linkCount(&self) ?u32 {
-        self.link_count
+        self.linkCount
     }
 
     pub fn size(&self) u64 {
@@ -323,7 +323,7 @@ extend Metadata {
     }
 
     pub fn preferredBlockSize(&self) u32 {
-        self.preferred_block_size
+        self.preferredBlockSize
     }
 
     pub fn accessed(&self) ?Timestamp {
@@ -335,6 +335,6 @@ extend Metadata {
     }
 
     pub fn statusChanged(&self) ?Timestamp {
-        self.status_changed
+        self.statusChanged
     }
 }
