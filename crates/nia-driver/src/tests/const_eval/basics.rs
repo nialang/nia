@@ -1162,7 +1162,7 @@ fn const_function_try_converts_errors_through_const_into_error() {
         &root.join("main.nia"),
         r#"
 trait IntoError[Target] {
-    const fn into_error(self) Target;
+    const fn intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -1177,7 +1177,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : IntoError[TargetError] {
-    const fn into_error(self) TargetError {
+    const fn intoError(self) TargetError {
         match self {
             SourceError::Failed => TargetError::Converted,
             _ => TargetError::Unknown,
@@ -1221,7 +1221,7 @@ fn const_function_try_instantiates_generic_into_error_witness() {
         &root.join("main.nia"),
         r#"
 trait IntoError[Target] {
-    const fn into_error(self) Target;
+    const fn intoError(self) Target;
 }
 
 struct SourceError[T] {
@@ -1234,7 +1234,7 @@ enum TargetError: i32 {
 }
 
 extend[T] SourceError[T] : IntoError[TargetError] {
-    const fn into_error(self) TargetError {
+    const fn intoError(self) TargetError {
         TargetError::Converted
     }
 }

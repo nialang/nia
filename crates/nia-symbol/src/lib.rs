@@ -214,7 +214,7 @@ pub mod known {
     known_symbol!(END, "end");
     known_symbol!(ITER_METHOD, "iter");
     known_symbol!(NEXT, "next");
-    known_symbol!(INTO_ERROR, "into_error");
+    known_symbol!(INTO_ERROR, "intoError");
     known_symbol!(MIN, "MIN");
     known_symbol!(MAX, "MAX");
 
@@ -374,7 +374,7 @@ pub mod known {
         (END, "end"),
         (ITER_METHOD, "iter"),
         (NEXT, "next"),
-        (INTO_ERROR, "into_error"),
+        (INTO_ERROR, "intoError"),
         (MIN, "MIN"),
         (MAX, "MAX"),
         (ERROR, "error"),

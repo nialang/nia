@@ -556,7 +556,7 @@ extend Widget : Hash {
         let summary = summary_for(
             r#"
 trait IntoError[Target] {
-    fn into_error(self) Target;
+    fn intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
@@ -568,7 +568,7 @@ where Source: IntoError[Target]
                 !ok
             },
             error! => {
-                error.into_error()!
+                error.intoError()!
             },
         }
     }
@@ -751,7 +751,7 @@ using error;
 struct SpawnError {}
 
 extend SpawnError : error::IntoError {
-    fn into_error(self) () {}
+    fn intoError(self) () {}
 }
 "#,
         );

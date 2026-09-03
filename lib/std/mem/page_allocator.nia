@@ -81,7 +81,7 @@ extend PageAllocator : Allocator {
 }
 
 extend os::Error : error::IntoError[types::Error] {
-    const fn into_error(self) types::Error {
+    const fn intoError(self) types::Error {
         match self {
             .Invalid => types::Error::Invalid,
             .OutOfMemory => types::Error::OutOfMemory,

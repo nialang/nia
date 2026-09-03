@@ -1157,7 +1157,7 @@ impl<'a> BodyChecker<'a> {
                 codes::TYPE_CHECK,
                 span,
                 format!(
-                    "malformed `IntoError` protocol while propagating `{}` to `{}`: expected `into_error(self) Target`",
+                    "malformed `IntoError` protocol while propagating `{}` to `{}`: expected `intoError(self) Target`",
                     self.ty_name(source_ty),
                     self.ty_name(target_ty)
                 ),

@@ -124,12 +124,12 @@ extend ErrorCause {
 
 extend[T] Error!T {
     pub fn exit(self) process::ExitCode!T {
-        self.mapError(&\cause: Error -> cause.into_error())
+        self.mapError(&\cause: Error -> cause.intoError())
     }
 }
 
 extend Error : error::IntoError[process::ExitCode] {
-    const fn into_error(self) process::ExitCode {
+    const fn intoError(self) process::ExitCode {
         self.asExitCode()
     }
 }

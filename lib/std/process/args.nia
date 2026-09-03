@@ -45,8 +45,8 @@ extend Arg : fmt::Format {
         self.text.format(formatter)
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
-        self.text.format_spec(formatter, spec)
+    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+        self.text.formatSpec(formatter, spec)
     }
 }
 

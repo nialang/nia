@@ -197,7 +197,7 @@ fn executable_checked_modules_include_trait_witnesses_required_by_generic_where_
         "main.nia",
         r#"
 trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
@@ -209,7 +209,7 @@ fn cast_error(self) Target!T {
             !ok
         },
         error! => {
-            error.into_error()!
+            error.intoError()!
         },
     }
 }
@@ -224,7 +224,7 @@ value: i32,
 }
 
 extend Source : IntoError[Target] {
-fn into_error(self) Target {
+fn intoError(self) Target {
     Target { value: self.value }
 }
 }
@@ -232,7 +232,7 @@ fn into_error(self) Target {
 struct Unused {}
 
 extend Unused : IntoError[Target] {
-fn into_error(self) Target {
+fn intoError(self) Target {
     missing_symbol
 }
 }
@@ -265,7 +265,7 @@ match value.cast_error() {
         .defs
         .iter()
         .filter_map(|(def_id, def)| {
-            (def.kind == nia_defs::DefKind::Method && def.name == sym("into_error"))
+            (def.kind == nia_defs::DefKind::Method && def.name == sym("intoError"))
                 .then_some(GlobalDefId { module_id, def_id })
         })
         .collect::<Vec<_>>();

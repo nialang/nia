@@ -228,7 +228,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : error::IntoError[TargetError] {
-    const fn into_error(self) TargetError {
+    const fn intoError(self) TargetError {
         match self {
             SourceError::Missing => TargetError::Wrapped,
             _ => TargetError::Unexpected,

@@ -164,7 +164,7 @@ module platform;
 using entry::platform;
 
 trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 enum Error: i32 {
@@ -173,7 +173,7 @@ _,
 }
 
 extend platform::Errno : IntoError[Error] {
-fn into_error(self) Error {
+fn intoError(self) Error {
     Error::Bad
 }
 }
@@ -222,7 +222,7 @@ module platform;
 using entry::platform;
 
 trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 enum Error: i32 {
@@ -231,7 +231,7 @@ _,
 }
 
 extend platform::Errno : IntoError[Error] {
-fn into_error(self) Error {
+fn intoError(self) Error {
     Error::Bad
 }
 }
@@ -291,7 +291,7 @@ module platform;
 using entry::platform;
 
 trait IntoError[Target] {
-fn into_error(self) Target;
+fn intoError(self) Target;
 }
 
 extend[T, Source, Target] Source!T
@@ -303,7 +303,7 @@ fn cast_error(self) Target!T {
             !ok
         },
         error! => {
-            error.into_error()!
+            error.intoError()!
         },
     }
 }
@@ -315,7 +315,7 @@ _,
 }
 
 extend platform::Errno : IntoError[Error] {
-fn into_error(self) Error {
+fn intoError(self) Error {
     Error::Bad
 }
 }
@@ -371,19 +371,19 @@ _,
         .defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
+            (def.name == sym("intoError") && def.kind == nia_defs::DefKind::Method).then_some(
                 GlobalDefId {
                     module_id: entry_id,
                     def_id,
                 },
             )
         })
-        .expect("into_error method should be defined");
+        .expect("intoError method should be defined");
     let body = module
         .body_ir
         .function_bodies
         .get(&into_error)
-        .expect("into_error should have a checked body");
+        .expect("intoError should have a checked body");
     let self_ty = body
         .locals
         .iter()
@@ -391,7 +391,7 @@ _,
             local.name.is_self_value() && local.kind == nia_body_ir::TypedLocalKind::Param
         })
         .map(|local| local.ty)
-        .expect("into_error should have a self param");
+        .expect("intoError should have a self param");
     assert!(
         !matches!(db.context().type_store.get(self_ty), Some(TyKind::Error)),
         "re-exported trait witness receiver should not collapse to error"

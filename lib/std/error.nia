@@ -11,7 +11,7 @@ using pkg::error::cleanup;
 pub using cleanup::CleanupAccumulator;
 
 pub trait IntoError[Target] {
-    const fn into_error(self) Target;
+    const fn intoError(self) Target;
 }
 
 extend[Value, Source, Target] Source!Value {

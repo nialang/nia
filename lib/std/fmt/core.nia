@@ -16,7 +16,7 @@ pub trait FormatWriter {
 pub trait Format {
     fn format(&self, formatter: &mut Formatter) Error!();
 
-    fn format_spec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+    fn formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
         spec.validate().?;
         if spec.presentation() == FormatPresentation::Display {
             self.format(formatter)
@@ -25,7 +25,7 @@ pub trait Format {
         }
     }
 
-    fn format_usize_arg(&self) ?usize {
+    fn formatUsizeArg(&self) ?usize {
         null
     }
 }

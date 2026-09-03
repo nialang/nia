@@ -428,7 +428,7 @@ fn probe(
     _ = fixed.is_last_allocation(block);
     _ = fixed.ownsBlock(block);
     _ = fixed.isLastAllocation(block);
-    let code: process::ExitCode = reallocError.into_error();
+    let code: process::ExitCode = reallocError.intoError();
     _ = code;
     _ = reallocError.asExitCode();
     _ = reallocResult.exit();
@@ -460,7 +460,7 @@ fn main() () {}
         "is_last_allocation",
         "ownsBlock",
         "isLastAllocation",
-        "into_error",
+        "intoError",
         "asExitCode",
         "exit",
     ] {

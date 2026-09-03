@@ -1160,7 +1160,7 @@ fn driver_invalidates_reused_loader_sources() {
 fn incremental_into_error_witness_body_invalidates_const_result() {
     let initial = r#"
 trait IntoError[Target] {
-    const fn into_error(self) Target;
+    const fn intoError(self) Target;
 }
 
 enum SourceError: i32 {
@@ -1175,7 +1175,7 @@ enum TargetError: i32 {
 }
 
 extend SourceError : IntoError[TargetError] {
-    const fn into_error(self) TargetError {
+    const fn intoError(self) TargetError {
         TargetError::First
     }
 }

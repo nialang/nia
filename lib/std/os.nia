@@ -292,7 +292,7 @@ pub(pkg) fn exit(code: i32) () {
 }
 
 extend platform::Errno : error::IntoError[Error] {
-    const fn into_error(self) Error {
+    const fn intoError(self) Error {
         match self {
             .PermissionDenied => Error::PermissionDenied,
             .NoEntry => Error::NotFound,
@@ -324,16 +324,16 @@ extend platform::Errno : error::IntoError[Error] {
 }
 
 extend platform::SpawnError : error::IntoError[SpawnError] {
-    const fn into_error(self) SpawnError {
+    const fn intoError(self) SpawnError {
         match self {
-            .Setup(cause) => SpawnError::Setup(cause.into_error()),
-            .Stdio(cause) => SpawnError::Stdio(cause.into_error()),
-            .Cwd(cause) => SpawnError::Cwd(cause.into_error()),
-            .Exec(cause) => SpawnError::Exec(cause.into_error()),
+            .Setup(cause) => SpawnError::Setup(cause.intoError()),
+            .Stdio(cause) => SpawnError::Stdio(cause.intoError()),
+            .Cwd(cause) => SpawnError::Cwd(cause.intoError()),
+            .Exec(cause) => SpawnError::Exec(cause.intoError()),
             .Reap { stage, primary, cause, pid } => SpawnError::Reap {
                 stage: stage.asSpawnStage(),
-                primary: primary.into_error(),
-                cause: cause.into_error(),
+                primary: primary.intoError(),
+                cause: cause.intoError(),
                 pid: ProcessId::fromPlatform(pid),
             },
         }

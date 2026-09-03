@@ -5,7 +5,7 @@ using pkg::os;
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
 
 extend os::Error : error::IntoError[Error] {
-    const fn into_error(self) Error {
+    const fn intoError(self) Error {
         match self {
             .PermissionDenied => Error::PermissionDenied,
             .NotFound => Error::NotFound,
@@ -50,7 +50,7 @@ extend[T] os::Error!T {
             !value => !value,
             cause! => OperationError::System {
                 operation: operation,
-                cause: cause.into_error(),
+                cause: cause.intoError(),
             }!,
         }
     }

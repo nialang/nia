@@ -774,7 +774,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 }
 
 extend os::Error : error::IntoError[HashMapInitError] {
-    const fn into_error(self) HashMapInitError {
+    const fn intoError(self) HashMapInitError {
         HashMapInitError::fromOs(self)
     }
 }

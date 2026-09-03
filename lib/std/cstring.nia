@@ -18,7 +18,7 @@ pub enum CStringBuildError {
 }
 
 extend mem::Error : error::IntoError[CStringBuildError] {
-    const fn into_error(self) CStringBuildError {
+    const fn intoError(self) CStringBuildError {
         CStringBuildError::Allocation(self)
     }
 }
@@ -180,8 +180,8 @@ extend CString : fmt::Format {
         self.view().format(formatter)
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
-        self.view().format_spec(formatter, spec)
+    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+        self.view().formatSpec(formatter, spec)
     }
 }
 
@@ -190,7 +190,7 @@ extend CStringView : fmt::Format {
         formatter.writeBytes(self.bytes())
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         if spec.presentation() != fmt::FormatPresentation::Display or spec.sign_plus() or spec.alternate() {
             return fmt::Error::InvalidTemplate!;
         }

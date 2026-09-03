@@ -128,7 +128,7 @@ enum FoldError: i32 {
 }
 
 extend FoldError : error::IntoError[process::ExitCode] {
-    const fn into_error(self) process::ExitCode {
+    const fn intoError(self) process::ExitCode {
         match self {
             FoldError::Rejected => {},
             _ => {},

@@ -35,7 +35,7 @@ pub enum Error {
 }
 
 extend os::Error : error::IntoError[SystemError] {
-    const fn into_error(self) SystemError {
+    const fn intoError(self) SystemError {
         match self {
             .PermissionDenied => SystemError::PermissionDenied,
             .NotFound => SystemError::NotFound,
@@ -64,7 +64,7 @@ extend os::Error : error::IntoError[SystemError] {
 }
 
 extend os::Error : error::IntoError[Error] {
-    const fn into_error(self) Error {
+    const fn intoError(self) Error {
         match self {
             .PermissionDenied => Error::System(SystemError::PermissionDenied),
             .NotFound => Error::System(SystemError::NotFound),

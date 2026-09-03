@@ -516,7 +516,7 @@ extend[T] os::Error!T {
 }
 
 extend mem::Error : error::IntoError[Error] {
-    const fn into_error(self) Error {
+    const fn intoError(self) Error {
         Error::Allocation(self)
     }
 }

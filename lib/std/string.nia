@@ -383,13 +383,13 @@ extend TextFormatWriter : io::Writer {
 }
 
 extend mem::Error : error::IntoError[TextError] {
-    const fn into_error(self) TextError {
+    const fn intoError(self) TextError {
         TextError::Allocation(self)
     }
 }
 
 extend TextError : error::IntoError[TextFormatError] {
-    const fn into_error(self) TextFormatError {
+    const fn intoError(self) TextFormatError {
         match self {
             .InvalidUtf8(error) => TextFormatError::InvalidUtf8(error),
             .Allocation(error) => TextFormatError::Allocation(error),
@@ -402,7 +402,7 @@ extend String : fmt::Format {
         self.text().format(formatter)
     }
 
-    fn format_spec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
-        self.text().format_spec(formatter, spec)
+    fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+        self.text().formatSpec(formatter, spec)
     }
 }
