@@ -41,8 +41,8 @@ struct TextFormatWriter {
 extend String {
     pub fn init() String {
         Self {
-            text: collections::ArrayList[char]::init(),
-            formatBytes: collections::ArrayList[u8]::init(),
+            text: .init(),
+            formatBytes: .init(),
         }
     }
 
@@ -50,7 +50,7 @@ extend String {
         let mut text = collections::ArrayList[char]::initCapacity(allocator, capacity).?;
         !String {
             text: text,
-            formatBytes: collections::ArrayList[u8]::init(),
+            formatBytes: .init(),
         }
     }
 
@@ -318,7 +318,7 @@ extend TextFormatWriter {
     fn init(allocator: &mut mem::Allocator) TextFormatWriter {
         Self {
             allocator: allocator,
-            bytes: collections::ArrayList[u8]::init(),
+            bytes: .init(),
             failure: null,
         }
     }
@@ -338,7 +338,7 @@ extend TextFormatWriter {
             },
             error! => {
                 out.formatBytes = self.bytes;
-                self.bytes = collections::ArrayList[u8]::init();
+                self.bytes = .init();
                 match primary {
                     ?cause => cause!,
                     null => TextFormatError::Allocation(error)!,

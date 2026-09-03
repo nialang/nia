@@ -765,7 +765,7 @@ extend StdIo {
 
 extend SpawnOptions {
     pub(pkg) fn init() SpawnOptions {
-        Self { platform: platform::SpawnOptions::init() }
+        Self { platform: .init() }
     }
 
     fn platform(&self) platform::SpawnOptions {

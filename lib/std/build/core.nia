@@ -186,7 +186,7 @@ extend Build {
     // Steps declare graph work only. Execution, process ownership, output
     // publication, caching, and cancellation belong to the Rust coordinator.
     pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
-        self.addStepRecord(name, StepKind::Aggregate, StepPayload { aggregate: AggregateStep::init() })
+        self.addStepRecord(name, StepKind::Aggregate, StepPayload { aggregate: .init() })
     }
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {

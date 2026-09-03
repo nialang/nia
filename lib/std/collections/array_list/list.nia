@@ -27,7 +27,7 @@ where T: Sized
     }
 
     pub fn initCapacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
-        let mut list = ArrayList[T]::init();
+        let mut list: ArrayList[T] = .init();
         list.ensureTotalCapacityPrecise(allocator, capacity).?;
         !list
     }

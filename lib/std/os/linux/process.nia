@@ -22,7 +22,7 @@ struct SpawnErrorRecord {
 }
 
 pub fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
-    let mut resources = SpawnResources::init();
+    let mut resources: SpawnResources = .init();
     let result = spawn_with_resources(path, argv, envp, options, &mut resources);
     resources.close_all();
     result
