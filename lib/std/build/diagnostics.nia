@@ -1,0 +1,21 @@
+// Build diagnostics output.
+//
+// Reporting is intentionally independent from Build state. Keeping the IO
+// boundary here lets graph declaration and validation remain pure of streams.
+
+using pkg::io;
+using pkg::build::error;
+
+using error::Error;
+using error::ErrorOperation as Operation;
+using error::ErrorSubject as Subject;
+
+pub(pkg) fn reportBuildError(error: Error) Error!() {
+    let mut buffer: [u8; 1024] = [0; 1024];
+    let mut stderr = io::FileWriter::stderr(&mut buffer);
+    stderr.print(
+        &"build error: {}\n",
+        &[&error],
+    ).withBuildContext(Operation::Report, Subject::Diagnostic).?;
+    stderr.flush().withBuildContext(Operation::Report, Subject::Diagnostic)
+}

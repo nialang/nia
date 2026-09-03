@@ -50,6 +50,7 @@ pub(pkg) module cleanup;
 pub(pkg) module commands;
 pub(pkg) module core;
 pub(pkg) module dependencies;
+pub(pkg) module diagnostics;
 pub(pkg) module error;
 pub(pkg) module handles;
 pub(pkg) module modules;

@@ -1,7 +1,6 @@
 using pkg::collections;
 using pkg::fmt;
 using pkg::fs;
-using pkg::io;
 using pkg::math;
 using pkg::mem;
 using pkg::os;
@@ -11,6 +10,7 @@ using pkg::build::error;
 using pkg::build::cleanup::{cleanupResult, rememberCleanupError};
 using pkg::build::commands::{validateExternalCommand, validateRunArguments};
 using pkg::build::dependencies::{findGeneratedSourceProducer, hasDependency};
+using pkg::build::diagnostics::reportBuildError;
 using pkg::build::handles;
 using pkg::build::modules::validateModuleImports;
 using pkg::build::ownership::allocateBuildOwnerId;
@@ -1454,13 +1454,7 @@ extend Build {
     }
 
     pub fn reportError(&mut self, error: Error) Error!() {
-        let mut buffer: [u8; 1024] = [0; 1024];
-        let mut stderr = io::FileWriter::stderr(&mut buffer);
-        stderr.print(
-            &"build error: {}\n",
-            &[&error],
-        ).withBuildContext(Operation::Report, Subject::Diagnostic).?;
-        stderr.flush().withBuildContext(Operation::Report, Subject::Diagnostic)
+        reportBuildError(error)
     }
 
     fn findStep(&self, name: &[char]) ?Step {
