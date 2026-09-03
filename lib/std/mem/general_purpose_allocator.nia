@@ -180,19 +180,16 @@ extend GeneralPurposeAllocator {
 
 extend GeneralPurposeAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
-        match self.pendingFree {
-            ?block => {
-                match self.child.free(block) {
-                    !ok => {
-                        _ = ok;
-                        self.pendingFree = null;
-                    },
-                    error! => {
-                        return error!;
-                    },
-                }
-            },
-            null => {},
+        if self.pendingFree is ?block {
+            match self.child.free(block) {
+                !ok => {
+                    _ = ok;
+                    self.pendingFree = null;
+                },
+                error! => {
+                    return error!;
+                },
+            }
         }
         if layout.isEmpty() {
             return !Block::empty(layout);

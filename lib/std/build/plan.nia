@@ -617,9 +617,8 @@ extend Build {
         // File::close consumes its handle before the syscall, even when the
         // syscall reports an error, so this close is attempted exactly once.
         rememberPrimary(&mut primary, file.close().withBuildContext(Operation::Release, Subject::BuildPlan));
-        match primary {
-            ?error => return error!,
-            null => {},
+        if primary is ?error {
+            return error!;
         }
         return self.cleanupPlanEncoding();
     }
