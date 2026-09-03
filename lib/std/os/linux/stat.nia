@@ -1,5 +1,6 @@
 using pkg::os::linux::syscall;
 using pkg::os::linux::types;
+using pkg::error;
 
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 using types::OpenHow;
@@ -95,7 +96,7 @@ pub fn metadataAtBeneath(dir: FileDescriptor, path: &u8, followSymlinks: bool) E
     } else {
         let handle = FileDescriptor::fromSyscall(ret).?;
         let result = metadataFd(handle);
-        result.closeAfter(handle.close())
+        result.cleanupAfter(handle.close())
     }
 }
 
