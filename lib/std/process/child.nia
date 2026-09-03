@@ -106,11 +106,8 @@ extend Child {
     }
 
     fn tryWaitStatus(&mut self) Error! ?os::WaitStatus {
-        match self.state.status() {
-            ?status => {
-                return !(?status);
-            },
-            null => {},
+        if self.state.status() is ?status {
+            return !(?status);
         }
         let pid = self.state.pid();
         let status = os::tryWait(self.state.osPid()).withTryWaitContext().?;

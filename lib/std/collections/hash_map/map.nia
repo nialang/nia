@@ -794,28 +794,22 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     // A failed release leaves the one combined ctrl/key/value owner attached
     // so a caller can retry deinit without losing or double-freeing storage.
     fn freeAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        match self.storageBlock {
-            ?block => {
-                allocator.free(block).?;
-                self.storageBlock = null;
-                self.ctrl = raw::danglingSlice[u8]();
-                self.keys = raw::danglingSlice[K]();
-                self.values = raw::danglingSlice[V]();
-                !()
-            },
-            null => !(),
+        if self.storageBlock is ?block {
+            allocator.free(block).?;
+            self.storageBlock = null;
+            self.ctrl = raw::danglingSlice[u8]();
+            self.keys = raw::danglingSlice[K]();
+            self.values = raw::danglingSlice[V]();
         }
+        !()
     }
 
     fn freeRetiredAllocations(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        match self.retiredStorageBlock {
-            ?block => {
-                allocator.free(block).?;
-                self.retiredStorageBlock = null;
-                !()
-            },
-            null => !(),
+        if self.retiredStorageBlock is ?block {
+            allocator.free(block).?;
+            self.retiredStorageBlock = null;
         }
+        !()
     }
 }
 
