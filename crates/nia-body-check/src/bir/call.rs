@@ -2,10 +2,10 @@
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{Expr, ExprKind, UnaryOp};
 use nia_body_ir::{BuiltinOperator, BuiltinPlaceMethod, TypedCallee, TypedExpr, TypedExprKind};
-use nia_ids::ReceiverKind;
+use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
 use nia_sema_ir::{BracketSuffixResolution, ResolvedCall};
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::TyKind;
+use nia_ty::{ConstGenericArg, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -560,6 +560,13 @@ impl<'a> BodyChecker<'a> {
                 const_args,
                 receiver_kind,
             } => {
+                let implementation_method = self.selected_trait_method_implementation(
+                    trait_id,
+                    method_name,
+                    self_ty,
+                    &trait_args,
+                    &trait_const_args,
+                );
                 let receiver_ty = self
                     .lowered_call_param_tys(ResolvedCall::TraitMethod {
                         trait_id,
@@ -576,6 +583,7 @@ impl<'a> BodyChecker<'a> {
                 TypedCallee::TraitMethod {
                     trait_id,
                     method_id,
+                    implementation_method,
                     method_name,
                     self_ty,
                     trait_args,
@@ -675,6 +683,36 @@ impl<'a> BodyChecker<'a> {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }
         }
+    }
+
+    fn selected_trait_method_implementation(
+        &mut self,
+        trait_id: GlobalDefId,
+        method_name: nia_symbol::SymbolId,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[ConstGenericArg],
+    ) -> Option<GlobalDefId> {
+        let resolution = self.current_context_resolve_trait_obligation_with_const_args(
+            self_ty,
+            nia_ty::TraitId::Source(trait_id),
+            trait_args.to_vec(),
+            trait_const_args.to_vec(),
+        );
+        let nia_trait_solve::TraitResolution::User(user_impl) = resolution else {
+            return None;
+        };
+        let implementation = self.program_trait_impls.get(user_impl.impl_index)?;
+        self.with_visible_extensions(|extensions| {
+            extensions.all_trait_witnesses_named(&method_name)
+        })
+        .into_iter()
+        .find_map(|(_, method)| {
+            (method.def_id.module_id == implementation.module_id
+                && method.impl_id == implementation.impl_id
+                && method.trait_id == Some(nia_ty::TraitId::Source(trait_id)))
+            .then_some(method.def_id)
+        })
     }
 
     fn lower_receiver_expr(&mut self, callee: &Expr) -> Option<TypedExpr> {

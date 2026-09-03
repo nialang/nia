@@ -74,6 +74,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
     {
         return process::exit(10)!;
     }
+    let mut caseRuns: usize = 0;
+    let stackCaseState = \[&mut caseRuns] -> {
+        caseRuns.* += 1;
+        test::expect(true)
+    };
+    let stackCase: &Fn() test::Error!() = &stackCaseState;
+    let stackCases: [test::Case; 1] = [.init(&"stack-backed", stackCase)];
+    let stackSummary = test::Runner::init(&stackCases[..]).run();
+    if stackSummary.total() != 1 or stackSummary.passed() != 1 or caseRuns != 1 {
+        return process::exit(14)!;
+    }
     let failFastCases: [test::Case; 2] = [
         .init(&"failing", &failingCase),
         .init(&"passing", &passingCase),

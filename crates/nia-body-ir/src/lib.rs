@@ -963,6 +963,8 @@ pub enum TypedCallee {
         trait_id: GlobalDefId,
         /// Method identity.
         method_id: GlobalDefId,
+        /// Statically selected source implementation, when one is known.
+        implementation_method: Option<GlobalDefId>,
         /// Method name.
         method_name: SymbolId,
         /// Concrete receiver type.
