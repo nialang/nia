@@ -40,6 +40,8 @@
 // their destination strings and producer dependency edge.
 // External-command steps attach argument and environment slots before retaining
 // their nested strings, and roll back all producer edges as one transaction.
+// addTestSuite creates one host executable, its compile step, and its test
+// step; the root module can import the complete suite through normal modules.
 // Simple aggregate/check/emit steps also use the pending slot, and all
 // multi-edge additions use explicit suffix rollback. Build contains no fallible
 // cleanup defer paths.

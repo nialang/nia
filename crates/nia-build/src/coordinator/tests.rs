@@ -69,6 +69,7 @@ fn test_invocation() -> BuildInvocation {
         step: crate::BuildStepSelection::Default,
         test_filter: None,
         test_list: false,
+        test_fail_fast: false,
         timings: nia_driver::TimingMode::Off,
         timing_format: nia_timing::TimingFormat::Text,
         max_parallel_actions: None,
@@ -108,6 +109,75 @@ fn aggregate_plan(
             .collect(),
         default_step: None,
         selected_step: Some(step(selected)),
+    })
+    .unwrap()
+}
+
+fn registered_test_plan() -> BuildPlan {
+    let package = PackageKey::root();
+    let test_kind = || ActionKind::TestExecutable {
+        resource_class: ActionResourceClass::Cpu,
+        environment_policy: CommandEnvironmentPolicy::Inherit,
+        cache_policy: CommandCachePolicy::Uncacheable,
+        program: CommandProgram::Search("test-suite".into()),
+        arguments: Vec::new(),
+        working_directory: LogicalPath::new(LogicalPathRoot::Package(package.clone()), "").unwrap(),
+        environment: Vec::new(),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+    };
+    BuildPlan::freeze(BuildPlanDraft {
+        root_package: package.clone(),
+        packages: vec![PlanPackage {
+            key: package.clone(),
+            root: String::new(),
+        }],
+        host_target: target(),
+        artifact_target: target(),
+        modules: Vec::new(),
+        artifacts: Vec::new(),
+        actions: vec![
+            PlanAction {
+                key: action("shared"),
+                kind: ActionKind::Aggregate,
+            },
+            PlanAction {
+                key: action("alpha"),
+                kind: test_kind(),
+            },
+            PlanAction {
+                key: action("beta"),
+                kind: test_kind(),
+            },
+            PlanAction {
+                key: action("default"),
+                kind: ActionKind::Aggregate,
+            },
+        ],
+        steps: vec![
+            PlanStep {
+                key: step("shared"),
+                action: action("shared"),
+                dependencies: Vec::new(),
+            },
+            PlanStep {
+                key: step("alpha"),
+                action: action("alpha"),
+                dependencies: vec![step("shared")],
+            },
+            PlanStep {
+                key: step("beta"),
+                action: action("beta"),
+                dependencies: vec![step("shared")],
+            },
+            PlanStep {
+                key: step("default"),
+                action: action("default"),
+                dependencies: Vec::new(),
+            },
+        ],
+        default_step: Some(step("default")),
+        selected_step: None,
     })
     .unwrap()
 }
@@ -257,6 +327,53 @@ fn selected_closure_is_iterative_deterministic_and_excludes_unselected_steps() {
 }
 
 #[test]
+fn test_closure_aggregates_failures_in_stable_suite_order() {
+    let plan = registered_test_plan();
+    let mut observed = Vec::new();
+    let error = execute_test_closure(&plan, None, |items| {
+        observed.extend(items.iter().map(|item| item.key.name().to_string()));
+        items
+            .iter()
+            .map(|item| {
+                if item.kind.is_test() {
+                    ActionOutcome::Failed(CoordinatorError::UnsupportedAction {
+                        action: item.key.clone(),
+                        kind: "forced-test-failure",
+                    })
+                } else {
+                    ActionOutcome::Succeeded(None)
+                }
+            })
+            .collect()
+    })
+    .unwrap_err();
+
+    assert_eq!(observed, ["shared", "alpha", "beta"]);
+    assert!(matches!(
+        error,
+        CoordinatorError::TestFailures(failures)
+            if failures.iter().map(|failure| failure.action.name()).collect::<Vec<_>>()
+                == ["alpha", "beta"]
+    ));
+}
+
+#[test]
+fn test_closure_filter_selects_suite_and_shared_dependencies() {
+    let plan = registered_test_plan();
+    let mut observed = Vec::new();
+    execute_test_closure(&plan, Some("alpha"), |items| {
+        observed.extend(items.iter().map(|item| item.key.name().to_string()));
+        items
+            .iter()
+            .map(|_| ActionOutcome::Succeeded(None))
+            .collect()
+    })
+    .unwrap();
+
+    assert_eq!(observed, ["shared", "alpha"]);
+}
+
+#[test]
 fn shared_action_executes_once_across_multiple_steps() {
     let plan = aggregate_plan(
         &["shared", "final"],
@@ -315,14 +432,17 @@ fn cancellation_preserves_earlier_canonical_failure_candidates() {
     let earlier = ActionCancellation {
         earliest_failure: Arc::clone(&earliest_failure),
         position: 0,
+        enabled: true,
     };
     let first_failure = ActionCancellation {
         earliest_failure: Arc::clone(&earliest_failure),
         position: 1,
+        enabled: true,
     };
     let later = ActionCancellation {
         earliest_failure,
         position: 2,
+        enabled: true,
     };
 
     first_failure.cancel_later_actions();
@@ -2960,6 +3080,7 @@ fn external_command_cancellation_terminates_owned_process_group() {
     let cancellation = ActionCancellation {
         earliest_failure: Arc::clone(&earliest_failure),
         position: 1,
+        enabled: true,
     };
     let working_directory = invocation.package_root.clone();
     let action = external_action();

@@ -63,6 +63,7 @@ extend Build {
         defaultOptimization: OptimizationMode,
         planSchemaVersion: u32,
         requestedStep: ?&[char],
+        testMode: bool,
     ) BuildInitAttempt {
         let ownerId = match allocateBuildOwnerId() {
             ?value => value,
@@ -80,6 +81,7 @@ extend Build {
             hasRequestedStep: false,
             defaultStep: null,
             selectedStep: null,
+            testMode: testMode,
             planValidated: false,
             steps: .init(),
             pendingStep: Step::initAggregate(0),

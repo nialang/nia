@@ -100,6 +100,7 @@ enum CliCommand {
         root: Option<PathBuf>,
         filter: Option<String>,
         list: bool,
+        fail_fast: bool,
         jobs: Option<NonZeroUsize>,
     },
     Check {
@@ -188,11 +189,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             root,
             filter,
             list,
+            fail_fast,
             jobs,
         } => run_test(
             root,
             filter,
             list,
+            fail_fast,
             jobs,
             cli.optimization,
             cli.timings,
@@ -643,6 +646,7 @@ fn parse_test_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let mut root = None;
     let mut filter = None;
     let mut list = false;
+    let mut fail_fast = false;
     let mut jobs = None;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -658,11 +662,11 @@ fn parse_test_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             continue;
         }
         if let Some(value) = arg.strip_prefix("--jobs=") {
-            jobs = Some(parse_build_jobs(value)?);
+            jobs = Some(parse_test_jobs(value)?);
             continue;
         }
         if let Some(value) = arg.strip_prefix("-j").filter(|value| !value.is_empty()) {
-            jobs = Some(parse_build_jobs(value)?);
+            jobs = Some(parse_test_jobs(value)?);
             continue;
         }
         match arg.as_str() {
@@ -685,6 +689,7 @@ fn parse_test_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 filter = Some(value);
             }
             "--list" => list = true,
+            "--fail-fast" => fail_fast = true,
             "--jobs" | "-j" => {
                 let Some(value) = iter.next() else {
                     return Err(CliError::new(
@@ -692,7 +697,7 @@ fn parse_test_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                         HelpTopic::Test,
                     ));
                 };
-                jobs = Some(parse_build_jobs(&value)?);
+                jobs = Some(parse_test_jobs(&value)?);
             }
             _ if arg.starts_with('-') => {
                 return Err(CliError::new(
@@ -712,8 +717,22 @@ fn parse_test_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         root,
         filter,
         list,
+        fail_fast,
         jobs,
     })
+}
+
+fn parse_test_jobs(value: &str) -> Result<NonZeroUsize, CliError> {
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(NonZeroUsize::new)
+        .ok_or_else(|| {
+            CliError::new(
+                format!("invalid test job count `{value}`; expected a positive integer"),
+                HelpTopic::Test,
+            )
+        })
 }
 
 fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -1240,6 +1259,7 @@ fn run_test(
     root: Option<PathBuf>,
     filter: Option<String>,
     list: bool,
+    fail_fast: bool,
     jobs: Option<NonZeroUsize>,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
@@ -1258,6 +1278,7 @@ fn run_test(
     }
     request = request
         .with_test_list(list)
+        .with_test_fail_fast(fail_fast)
         .with_optimization(build_optimization(optimization))
         .with_timings(timings)
         .with_timing_format(timing_format);
@@ -1814,10 +1835,18 @@ mod tests {
     #[test]
     fn test_command_parses_selection_controls() {
         let command = parse_test_command(
-            ["--root", "tests", "--filter", "parser", "--list", "-j4"]
-                .into_iter()
-                .map(ToString::to_string)
-                .collect(),
+            [
+                "--root",
+                "tests",
+                "--filter",
+                "parser",
+                "--list",
+                "--fail-fast",
+                "-j4",
+            ]
+            .into_iter()
+            .map(ToString::to_string)
+            .collect(),
         )
         .unwrap_or_else(|error| panic!("parse test command: {}", error.message));
         assert!(matches!(
@@ -1826,6 +1855,7 @@ mod tests {
                 root: Some(root),
                 filter: Some(filter),
                 list: true,
+                fail_fast: true,
                 jobs: Some(jobs),
             } if root == PathBuf::from("tests") && filter == "parser" && jobs.get() == 4
         ));
