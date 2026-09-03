@@ -29,6 +29,7 @@ pub module process;
 pub module result;
 pub module slice;
 pub module string;
+pub module test;
 pub module unicode;
 
 pub using atomic::Atomic;

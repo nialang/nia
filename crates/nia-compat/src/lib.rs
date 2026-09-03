@@ -26,7 +26,7 @@ pub mod toolchain {
     /// Standard-library source compatibility version.
     pub const STANDARD_LIBRARY: u32 = 1;
     /// Build plan protocol shared with compiled build runners.
-    pub const BUILD_PROTOCOL: u32 = 10;
+    pub const BUILD_PROTOCOL: u32 = 11;
 }
 
 /// Binary payload identity consisting of a diagnostic name, magic, and schema.

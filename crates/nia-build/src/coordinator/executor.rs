@@ -97,6 +97,17 @@ impl DriverActionExecutor {
                 environment,
                 inputs,
                 outputs,
+            }
+            | ActionKind::TestExecutable {
+                resource_class: _,
+                environment_policy,
+                cache_policy,
+                program,
+                arguments,
+                working_directory,
+                environment,
+                inputs,
+                outputs,
             } => {
                 return self.execute_external_command_action(
                     action,
@@ -825,7 +836,8 @@ impl DriverActionExecutor {
             ActionKind::CompilerEmit { artifact, .. } => {
                 vec![&self.artifact(action, artifact)?.output]
             }
-            ActionKind::ExternalCommand { outputs, .. } => outputs.iter().collect(),
+            ActionKind::ExternalCommand { outputs, .. }
+            | ActionKind::TestExecutable { outputs, .. } => outputs.iter().collect(),
             ActionKind::GeneratedFile { output, .. } => vec![output],
             ActionKind::InstallArtifact { destination, .. } => vec![destination],
             _ => Vec::new(),

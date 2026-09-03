@@ -1,0 +1,43 @@
+// Small, composable assertions for explicit test executables.
+//
+// A failed assertion is an ordinary typed error. Test runners can attach
+// context, accumulate failures, or convert it to their own suite result
+// without requiring a language-level test attribute or process trap.
+
+using pkg::builtin::ops::Eq;
+
+pub enum Error: i32 {
+    AssertionFailed = 1,
+    ValuesEqual = 2,
+    ValuesNotEqual = 3,
+    _
+}
+
+pub fn expect(condition: bool) Error!() {
+    if not condition {
+        return Error::AssertionFailed!;
+    }
+    !()
+}
+
+pub fn expectEqual[T](actual: T, expected: T) Error!()
+where T: Eq[T]
+{
+    if actual != expected {
+        return Error::ValuesNotEqual!;
+    }
+    !()
+}
+
+pub fn expectNotEqual[T](actual: T, expected: T) Error!()
+where T: Eq[T]
+{
+    if actual == expected {
+        return Error::ValuesEqual!;
+    }
+    !()
+}
+
+pub fn fail() Error!() {
+    Error::AssertionFailed!
+}

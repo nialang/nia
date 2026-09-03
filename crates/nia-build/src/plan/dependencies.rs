@@ -24,6 +24,12 @@ pub(super) fn validate_artifact_dependencies(
                 working_directory,
                 inputs,
                 ..
+            })
+            | Some(ActionKind::TestExecutable {
+                program,
+                working_directory,
+                inputs,
+                ..
             }) => {
                 if let CommandProgram::Path(program) = program
                     && let LogicalPathRoot::Artifact(artifact) = program.root()
@@ -133,12 +139,18 @@ pub(super) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
     let step_by_key: BTreeMap<_, _> = draft.steps.iter().map(|step| (&step.key, step)).collect();
 
     for action in &draft.actions {
-        let ActionKind::ExternalCommand {
+        let (ActionKind::ExternalCommand {
             program,
             working_directory,
             inputs,
             ..
-        } = &action.kind
+        }
+        | ActionKind::TestExecutable {
+            program,
+            working_directory,
+            inputs,
+            ..
+        }) = &action.kind
         else {
             continue;
         };
@@ -221,7 +233,8 @@ pub(super) fn validate_generated_source_dependencies(
             ActionKind::GeneratedFile { output, .. } => {
                 producers.insert(output, &action.key);
             }
-            ActionKind::ExternalCommand { outputs, .. } => {
+            ActionKind::ExternalCommand { outputs, .. }
+            | ActionKind::TestExecutable { outputs, .. } => {
                 for output in outputs {
                     producers.insert(output, &action.key);
                 }
@@ -377,7 +390,8 @@ fn action_outputs<'a>(
                 is_directory: emitted.kind == PlanArtifactKind::ObjectSet,
             }])
         }
-        ActionKind::ExternalCommand { outputs, .. } => Ok(outputs
+        ActionKind::ExternalCommand { outputs, .. }
+        | ActionKind::TestExecutable { outputs, .. } => Ok(outputs
             .iter()
             .map(|path| ActionOutput {
                 path,

@@ -69,6 +69,12 @@ pub struct BuildRequest {
     pub max_parallel_actions: Option<NonZeroUsize>,
     /// Optimization mode passed to compiler actions.
     pub optimization: OptimizationMode,
+    /// Select test executable actions instead of the declared default step.
+    pub test_mode: bool,
+    /// Optional substring filter applied to test step names.
+    pub test_filter: Option<String>,
+    /// List matching test steps without executing them.
+    pub test_list: bool,
 }
 
 impl BuildRequest {
@@ -82,6 +88,9 @@ impl BuildRequest {
             timing_format: TimingFormat::Text,
             max_parallel_actions: None,
             optimization: OptimizationMode::O0,
+            test_mode: false,
+            test_filter: None,
+            test_list: false,
         }
     }
 
@@ -120,6 +129,24 @@ impl BuildRequest {
         self.optimization = optimization;
         self
     }
+
+    /// Selects the test action set for this invocation.
+    pub fn with_test_mode(mut self, enabled: bool) -> Self {
+        self.test_mode = enabled;
+        self
+    }
+
+    /// Restricts test mode to steps whose stable name contains `filter`.
+    pub fn with_test_filter(mut self, filter: impl Into<String>) -> Self {
+        self.test_filter = Some(filter.into());
+        self
+    }
+
+    /// Lists matching test steps without executing actions.
+    pub fn with_test_list(mut self, enabled: bool) -> Self {
+        self.test_list = enabled;
+        self
+    }
 }
 
 /// Fully resolved, invocation-local paths and build policies.
@@ -147,6 +174,10 @@ pub struct BuildInvocation {
     pub plan_path: PathBuf,
     /// Selected build-step policy.
     pub step: BuildStepSelection,
+    /// Optional test step-name filter.
+    pub test_filter: Option<String>,
+    /// Whether this invocation only lists test steps.
+    pub test_list: bool,
     /// Timing policy inherited from the request.
     pub timings: TimingMode,
     /// Timing format inherited from the request.
@@ -162,6 +193,8 @@ pub struct BuildInvocation {
 pub enum BuildStepSelection {
     /// Use the plan's declared default step.
     Default,
+    /// Select all steps whose action is a test executable.
+    Tests,
     /// Use the named step after semantic validation.
     Named(String),
 }
@@ -470,6 +503,12 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
                 nia_timing::emit_counter("build.runner_failures", 1);
             }
             let plan = plan?;
+            if invocation.test_list {
+                for name in test_step_names(&plan, invocation.test_filter.as_deref()) {
+                    println!("{name}");
+                }
+                return Ok(());
+            }
             if let Some(limit) = invocation.max_parallel_actions {
                 nia_timing::emit_counter("build.action_parallelism_limit", limit.get() as u64);
             }
@@ -490,6 +529,24 @@ pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
             result.map(|_| ())
         },
     )
+}
+
+fn test_step_names(plan: &BuildPlan, filter: Option<&str>) -> Vec<String> {
+    let mut names = plan
+        .steps()
+        .iter()
+        .filter(|step| {
+            let is_test = plan
+                .actions()
+                .iter()
+                .find(|action| action.key == step.action)
+                .is_some_and(|action| action.kind.is_test());
+            is_test && filter.is_none_or(|filter| step.key.name().contains(filter))
+        })
+        .map(|step| step.key.name().to_string())
+        .collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 fn emit_action_cache_counters(report: &ExecutionReport) {
@@ -639,10 +696,16 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         build_dir,
         package_root,
         build_script,
-        step: request
-            .step
-            .map(BuildStepSelection::Named)
-            .unwrap_or(BuildStepSelection::Default),
+        step: if request.test_mode {
+            BuildStepSelection::Tests
+        } else {
+            request
+                .step
+                .map(BuildStepSelection::Named)
+                .unwrap_or(BuildStepSelection::Default)
+        },
+        test_filter: request.test_filter,
+        test_list: request.test_list,
         timings: request.timings,
         timing_format: request.timing_format,
         max_parallel_actions: request.max_parallel_actions,

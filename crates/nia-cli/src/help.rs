@@ -59,6 +59,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "run a package build graph from build.nia",
                 },
                 HelpRow {
+                    left: "test",
+                    right: "build and run registered host test suites",
+                },
+                HelpRow {
                     left: "check <file.nia>",
                     right: "run semantic checks",
                 },
@@ -113,6 +117,36 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
                 "The build runner lives in the Nia toolchain instead of a separate paw binary or C API bridge.",
             ],
+        },
+        HelpTopic::Test => HelpDoc {
+            title: "nia test",
+            about: "Build and run explicitly registered host test executables.",
+            usage: &["nia test [--root <dir>] [--filter <text>] [--list] [--jobs <count>]"],
+            commands: &[],
+            options: &[
+                HelpRow {
+                    left: "--root <dir>",
+                    right: "select the package root search start",
+                },
+                HelpRow {
+                    left: "--filter <text>",
+                    right: "run or list test steps whose stable name contains text",
+                },
+                HelpRow {
+                    left: "--list",
+                    right: "list matching test steps without executing them",
+                },
+                HelpRow {
+                    left: "-j, --jobs <count>",
+                    right: "limit concurrent ready test and build actions",
+                },
+                HelpRow {
+                    left: "-h, --help",
+                    right: "show this help text",
+                },
+            ],
+            examples: &["nia test", "nia test --list", "nia test --filter parser"],
+            notes: &["Tests are registered as explicit build steps and run on the host target."],
         },
         HelpTopic::Check => HelpDoc {
             title: "nia check",

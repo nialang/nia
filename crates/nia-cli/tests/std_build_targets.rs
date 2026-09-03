@@ -898,6 +898,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
         nia_build::ActionKind::ExternalCommand {
             program: nia_build::CommandProgram::Path(path),
             ..
+        }
+        | nia_build::ActionKind::TestExecutable {
+            program: nia_build::CommandProgram::Path(path),
+            ..
         } if matches!(
             path.root(),
             nia_build::LogicalPathRoot::Artifact(artifact) if artifact.name() == "host-app"
