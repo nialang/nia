@@ -318,7 +318,7 @@ fn second(counter: &mut usize) Failure!() {
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut counter: usize = 0;
-    let mut cleanup = error::CleanupAccumulator[Failure]::init();
+    let mut cleanup = error::cleanup::CleanupAccumulator[Failure]::init();
     cleanup.attempt(first(&mut counter));
     cleanup.attempt(second(&mut counter));
     if counter != 2usize or cleanup.isClean() {

@@ -1,0 +1,43 @@
+// Non-short-circuiting cleanup error accumulation.
+//
+//     attempt(a); attempt(b); finish()
+//       run a       run b       report first failure
+//
+// The accumulator keeps only the first failure and never allocates while
+// recording it. It does not own resources: each operation must retain a
+// failed owner so a later deinit can retry that operation.
+
+pub struct CleanupAccumulator[Failure] {
+    firstFailure: ?Failure,
+}
+
+extend[Failure] CleanupAccumulator[Failure] {
+    // Start an empty, allocation-free cleanup report.
+    pub fn init() CleanupAccumulator[Failure] {
+        .{ firstFailure: null }
+    }
+
+    // Record a failure while always allowing the caller to attempt later work.
+    pub fn attempt(&mut self, result: Failure!()) () {
+        if result is err! {
+            if self.firstFailure is null {
+                self.firstFailure = ?err;
+            }
+        }
+    }
+
+    // Query whether every attempted cleanup has succeeded so far.
+    pub fn isClean(&self) bool {
+        if self.firstFailure is ?failure {
+            _ = failure;
+            false
+        } else {
+            true
+        }
+    }
+
+    // Return the first recorded failure after all cleanup attempts are complete.
+    pub fn finish(self) Failure!() {
+        if self.firstFailure is ?err { err! } else { !() }
+    }
+}
