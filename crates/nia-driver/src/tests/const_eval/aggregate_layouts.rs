@@ -126,9 +126,20 @@ const fn nested_score(cause: Cause) usize {
     }
 }
 
+extend Color {
+    const fn method_score(self) usize {
+        match self {
+            .Red => 4usize,
+            .Data(value) => value,
+            .Resize { value } => value,
+        }
+    }
+}
+
 const n: usize = score(Color::Data(7usize))
     + nested_score(Cause::Memory(Color::Red))
-    + nested_score(Cause::Nested { cause: Color::Red });
+    + nested_score(Cause::Nested { cause: Color::Red })
+    + Color::Red.method_score();
 
 fn main() i32 {
     n as i32
