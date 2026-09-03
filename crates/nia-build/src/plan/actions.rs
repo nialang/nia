@@ -69,6 +69,14 @@ pub(super) fn canonicalize_actions(
             )));
         }
         match &mut action.kind {
+            ActionKind::TestExecutable { cache_policy, .. }
+                if *cache_policy != CommandCachePolicy::Uncacheable =>
+            {
+                return Err(PlanError::InvalidCommand {
+                    action: action.key.clone(),
+                    reason: "test executable actions cannot be cached",
+                });
+            }
             ActionKind::CompilerCheck { module, .. } if !module_keys.contains(module) => {
                 return Err(PlanError::MissingModule {
                     owner: format!("action {}", action.key.name()),

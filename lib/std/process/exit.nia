@@ -2,6 +2,7 @@ using pkg::cstring;
 using pkg::debug;
 using pkg::error;
 using pkg::result;
+using pkg::test;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;
@@ -9,6 +10,17 @@ using pkg::mem;
 using pkg::process::types;
 
 using types::{Error, ExitCode, SpawnError, SystemError};
+
+extend test::Error : error::IntoError[ExitCode] {
+    const fn intoError(self) ExitCode {
+        match self {
+            .AssertionFailed => exit(1),
+            .ValuesEqual => exit(1),
+            .ValuesNotEqual => exit(1),
+            _ => exit(1),
+        }
+    }
+}
 
 extend debug::Error : error::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
