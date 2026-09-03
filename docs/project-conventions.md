@@ -96,3 +96,11 @@ Call `.iter()` when an iterator must be named or passed to an adapter, and call
 `.iterMut()` when mutation of borrowed elements is the intended contract. Do
 not make ordinary collection scans spell out a provider method that `for`
 already expresses.
+
+Use an effect-only if-pattern when an optional or error-union branch performs
+one action and the other case is intentionally empty. For example, duplicate
+validation should use `if find(name) is ?_ { return invalid!; }` rather than a
+two-arm `match` with an empty `null` arm. Keep `match` when multiple cases are
+meaningful or when the expression produces a value; use `.?`, `mapError`, or
+`orElse` for error-union propagation and transformation rather than manually
+destructuring a single error path.
