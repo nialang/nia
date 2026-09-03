@@ -185,6 +185,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let FunctionCallee::Callable(receiver) = callee else {
             return Err(self.error(expr.span, "internal callable dispatch mismatch"));
         };
+        self.emit_callable_dispatch(expr, receiver, args, None, true)?
+            .ok_or_else(|| self.error(expr.span, "unit callable call cannot be used as a value"))
+    }
+
+    fn emit_callable_dispatch(
+        &mut self,
+        expr: &FunctionExpr,
+        receiver: &FunctionExpr,
+        args: &[FunctionExpr],
+        destination: Option<nia_llvm::values::PointerValue<'ctx>>,
+        load_result: bool,
+    ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
         let (params, return_type) = match self.module.ty_kind(receiver.ty) {
             Some(TyKind::Callable {
                 params,
@@ -232,16 +244,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .context
             .append_basic_block(self.llvm_function, "callable.merge")?;
-        let abi_return = self.module.classify_function_return(expr.ty);
+        let abi_return = self.module.classify_function_return(return_type);
         let result_ptr = match abi_return {
-            AbiReturn::Direct(ty) => Some(self.builder.build_alloca(
+            AbiReturn::Direct(ty) if load_result => Some(self.builder.build_alloca(
                 self.module.llvm_basic_type(ty, expr.span)?,
                 "callable.result",
             )?),
-            AbiReturn::IndirectOut(ty) => Some(self.builder.build_alloca(
-                self.module.llvm_basic_type(ty, expr.span)?,
-                "callable.result",
-            )?),
+            AbiReturn::IndirectOut(ty) => Some(match destination {
+                Some(destination) => destination,
+                None => self.builder.build_alloca(
+                    self.module.llvm_basic_type(ty, expr.span)?,
+                    "callable.result",
+                )?,
+            }),
+            AbiReturn::Direct(_) => None,
             AbiReturn::Void | AbiReturn::Never => None,
         };
         let call_out_ptr = result_ptr.filter(|_| matches!(abi_return, AbiReturn::IndirectOut(_)));
@@ -268,12 +284,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     format!("failed to call function callable: {error:?}"),
                 )
             })?;
-        if let Some(result_ptr) = result_ptr {
-            if matches!(abi_return, AbiReturn::Direct(_)) {
-                if let Some(value) = function_call.try_as_basic_value().basic() {
-                    self.builder.build_store(result_ptr, value?)?;
-                }
-            }
+        if let Some(result_ptr) = result_ptr
+            && matches!(abi_return, AbiReturn::Direct(_))
+            && let Some(value) = function_call.try_as_basic_value().basic()
+        {
+            self.builder.build_store(result_ptr, value?)?;
         }
         self.builder.build_unconditional_branch(merge_block)?;
 
@@ -283,11 +298,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .callable_entry_function_type_in(&params, return_type, receiver.span)?;
         let mut closure_args =
             self.emit_call_args(expr.span, args, params.iter().copied(), call_out_ptr, false)?;
-        let state_index = usize::from(call_out_ptr.is_some());
-        if state_index == 1 {
-            closure_args.insert(0, call_out_ptr.unwrap().into());
-        }
-        closure_args.insert(state_index, state.into());
+        closure_args.insert(usize::from(call_out_ptr.is_some()), state.into());
         let closure_call = self
             .builder
             .build_indirect_call(closure_type, entry, &closure_args, "callable.call")
@@ -297,15 +308,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     format!("failed to call closure callable: {error:?}"),
                 )
             })?;
-        if let Some(result_ptr) = result_ptr {
-            if matches!(abi_return, AbiReturn::Direct(_)) {
-                if let Some(value) = closure_call.try_as_basic_value().basic() {
-                    self.builder.build_store(result_ptr, value?)?;
-                }
-            }
+        if let Some(result_ptr) = result_ptr
+            && matches!(abi_return, AbiReturn::Direct(_))
+            && let Some(value) = closure_call.try_as_basic_value().basic()
+        {
+            self.builder.build_store(result_ptr, value?)?;
         }
         self.builder.build_unconditional_branch(merge_block)?;
         self.builder.position_at_end(merge_block);
+        if !load_result {
+            return Ok(None);
+        }
         match abi_return {
             AbiReturn::Direct(ty) | AbiReturn::IndirectOut(ty) => self
                 .builder
@@ -314,11 +327,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     result_ptr.unwrap(),
                     "callable.result",
                 )
+                .map(Some)
                 .map_err(|_| self.error(expr.span, "failed to load callable result")),
-            AbiReturn::Void | AbiReturn::Never => {
-                Err(self.error(expr.span, "unit callable call cannot be used as a value"))
-            }
+            AbiReturn::Void | AbiReturn::Never => Ok(None),
         }
+    }
+
+    pub(super) fn emit_call_to_destination(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+        destination: Option<nia_llvm::values::PointerValue<'ctx>>,
+    ) -> Result<(), Diagnostic> {
+        if let FunctionCallee::Callable(receiver) = callee {
+            let _ = self.emit_callable_dispatch(expr, receiver, args, destination, false)?;
+        } else {
+            let _ = self.emit_call_raw_with_out(expr, callee, args, destination)?;
+        }
+        Ok(())
     }
 
     fn emit_builtin_len_method(
@@ -398,15 +425,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to load builtin method receiver"));
         }
         Ok(receiver_value)
-    }
-
-    pub(super) fn emit_call_raw(
-        &mut self,
-        expr: &FunctionExpr,
-        callee: &FunctionCallee,
-        args: &[FunctionExpr],
-    ) -> Result<nia_llvm::values::CallSiteValue<'ctx>, Diagnostic> {
-        self.emit_call_raw_with_out(expr, callee, args, None)
     }
 
     pub(super) fn emit_call_raw_with_out(
@@ -671,44 +689,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "builtin operator cannot be emitted as a raw call",
             )),
-            FunctionCallee::Callable(receiver) => {
-                let (params, return_type) = match self.module.ty_kind(receiver.ty) {
-                    Some(TyKind::Callable {
-                        params,
-                        return_type,
-                        ..
-                    }) => (params.clone(), *return_type),
-                    _ => return Err(self.error(receiver.span, "callee is not a callable view")),
-                };
-                let callable = self
-                    .emit_expr(receiver)?
-                    .into_struct_value()
-                    .map_err(|_| self.error(receiver.span, "callable callee is not a view"))?;
-                let state = self
-                    .builder
-                    .build_extract_value(callable, 0, "callable.state")
-                    .map_err(|_| self.error(receiver.span, "failed to extract callable state"))?
-                    .into_pointer_value()?;
-                let entry = self
-                    .builder
-                    .build_extract_value(callable, 1, "callable.entry")
-                    .map_err(|_| self.error(receiver.span, "failed to extract callable entry"))?
-                    .into_pointer_value()?;
-                let function_type = self.module.callable_entry_function_type_in(
-                    &params,
-                    return_type,
-                    receiver.span,
-                )?;
-                let mut llvm_args = self.emit_call_args(expr.span, args, params, None, false)?;
-                let state_index = usize::from(out_ptr.is_some());
-                if let Some(out_ptr) = out_ptr {
-                    llvm_args.insert(0, out_ptr.into());
-                }
-                llvm_args.insert(state_index, state.into());
-                self.builder
-                    .build_indirect_call(function_type, entry, &llvm_args, "callable.call")
-                    .map_err(|_| self.error(expr.span, "failed to build callable view call"))
-            }
+            FunctionCallee::Callable(_) => Err(self.error(
+                expr.span,
+                "dynamic callable call bypassed callable dispatch",
+            )),
             FunctionCallee::FunctionPointer(callee) => {
                 let Some(TyKind::FunctionPointer {
                     params,
@@ -1102,7 +1086,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .builder
                     .build_alloca(ty, "arg.copy")
                     .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                let _ = self.emit_call_raw_with_out(arg, callee, args, Some(ptr))?;
+                self.emit_call_to_destination(arg, callee, args, Some(ptr))?;
                 Ok(ptr)
             }
             _ => {

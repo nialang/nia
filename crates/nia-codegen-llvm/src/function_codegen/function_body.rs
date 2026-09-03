@@ -1231,7 +1231,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         {
             return Ok(false);
         }
-        let _ = self.emit_call_raw_with_out(value, callee, args, Some(out_ptr))?;
+        self.emit_call_to_destination(value, callee, args, Some(out_ptr))?;
         self.builder
             .build_return(None)
             .map_err(|_| self.error(span, "failed to build aggregate return"))?;
@@ -1338,7 +1338,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(value.span, "failed to store aggregate call result"))?;
             return Ok(true);
         }
-        let _ = self.emit_call_raw_with_out(value, callee, args, Some(ptr))?;
+        self.emit_call_to_destination(value, callee, args, Some(ptr))?;
         Ok(true)
     }
 
@@ -1367,7 +1367,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     self.module.classify_function_return(expr.ty)
                 {
                     if callee_is_extern(self, callee) {
-                        let _ = self.emit_call_raw(expr, callee, args)?;
+                        self.emit_call_to_destination(expr, callee, args, None)?;
                     } else {
                         let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
                         let result_ptr = self
@@ -1376,11 +1376,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             .map_err(|_| {
                             self.error(expr.span, "failed to allocate discarded call result")
                         })?;
-                        let _ =
-                            self.emit_call_raw_with_out(expr, callee, args, Some(result_ptr))?;
+                        self.emit_call_to_destination(expr, callee, args, Some(result_ptr))?;
                     }
                 } else {
-                    let _ = self.emit_call_raw(expr, callee, args)?;
+                    self.emit_call_to_destination(expr, callee, args, None)?;
                 }
                 Ok(())
             }

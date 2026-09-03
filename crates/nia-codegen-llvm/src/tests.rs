@@ -222,6 +222,50 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn callable_effect_codegen_dispatches_functions_and_mutable_captures() {
+    let root = common::temp_dir("callable_effect_codegen_dynamic_dispatch");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn ignore(value: i32) () {
+    _ = value;
+    ()
+}
+
+fn apply(callback: &mut Fn(i32) (), value: i32) () {
+    callback(value);
+}
+
+fn main() i32 {
+    let mut total = 0;
+    apply(&ignore, 1);
+    apply(&mut \[&mut total] value: i32 -> {
+        total.* += value;
+        ()
+    }, 2);
+    total
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = common::codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = common::emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = common::source_module_ir(&output, "main.nia");
+    assert!(
+        ir.contains("callable.is_function")
+            && ir.contains("callable.function:")
+            && ir.contains("callable.closure:")
+            && ir.contains("call void %callable.entry(i32")
+            && ir.contains("call void %callable.entry(ptr %callable.context, i32"),
+        "LLVM IR omitted effect-call dynamic dispatch: {ir}"
+    );
+}
+
+#[test]
 fn function_pointer_callable_codegen_materializes_function_branch() {
     let root = common::temp_dir("function_pointer_callable_codegen");
     let main = root.join("main.nia");
@@ -282,7 +326,10 @@ fn main(flag: bool) bool!i32 {
     let ir = common::source_module_ir(&output, "main.nia");
 
     assert!(
-        ir.contains("call void %callable.entry") && ir.contains("(ptr %0, ptr %callable.state"),
+        ir.contains("callable.function:")
+            && ir.contains("callable.closure:")
+            && ir.contains("(ptr %0, i32")
+            && ir.contains("(ptr %0, ptr %callable.context, i32"),
         "LLVM IR omitted callable indirect return storage: {ir}"
     );
 }
