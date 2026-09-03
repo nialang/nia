@@ -23,7 +23,7 @@ using types::{
 };
 
 pub fn getCwd(buffer: &mut [u8]) Error!&[u8] {
-    !(os::getcwd(buffer).?)
+    !(os::getCwd(buffer).?)
 }
 
 const max_i64_as_u64: u64 = 9223372036854775807u64;
