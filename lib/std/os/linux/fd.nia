@@ -3,7 +3,7 @@ using pkg::os::linux::stat;
 using pkg::os::linux::types;
 using pkg::error;
 using pkg::math;
-using pkg::optional;
+using pkg::option;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 

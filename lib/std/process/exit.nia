@@ -1,6 +1,7 @@
 using pkg::cstring;
 using pkg::debug;
 using pkg::error;
+using pkg::result;
 using pkg::fmt;
 using pkg::fs;
 using pkg::io;

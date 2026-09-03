@@ -1,9 +1,4 @@
-// Optional value queries and transformations.
-//
-// Nia spells the two cases `?value` and `null`, so the query vocabulary is
-// `isPresent`/`isNull` rather than names borrowed from another sum type. Use an
-// `if value is ...` pattern when the payload is needed immediately; these
-// methods are intended for boolean composition and callback pipelines.
+// Transformations and queries for Nia optional values (`?Value`).
 
 extend[Value] ?Value {
     pub fn isPresent(&self) bool {
@@ -16,7 +11,6 @@ extend[Value] ?Value {
         if value is null { true } else { false }
     }
 
-    // Transform a present payload and leave the null case unchanged.
     pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) ?Mapped {
         if self is ?value {
             ?mapper(value)
@@ -25,7 +19,6 @@ extend[Value] ?Value {
         }
     }
 
-    // Continue a present value with another optional-producing operation.
     pub fn andThen[Mapped](self, next: &Fn(Value) ?Mapped) ?Mapped {
         if self is ?value {
             next(value)

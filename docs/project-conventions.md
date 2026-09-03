@@ -118,7 +118,7 @@ meaningful or when the expression produces a value; use `.?`, `mapError`, or
 `orElse` for error-union propagation and transformation rather than manually
 destructuring a single error path.
 
-Use `std::optional::{isPresent,isNull}` only when a boolean must be composed or
+Use `std::option::{isPresent,isNull}` only when a boolean must be composed or
 returned; use `if value is ?payload` when the branch consumes the payload. Use
 optional/error-union `map` and `andThen` when a callback pipeline makes the
 data flow shorter and clearer, not merely to replace an already direct branch.

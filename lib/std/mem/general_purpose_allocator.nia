@@ -3,7 +3,7 @@ using pkg::math;
 using pkg::iter::range;
 using pkg::mem::allocator;
 using pkg::mem::types;
-using pkg::optional;
+using pkg::option;
 using pkg::os;
 
 using allocator::Allocator;

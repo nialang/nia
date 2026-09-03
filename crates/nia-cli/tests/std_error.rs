@@ -14,6 +14,7 @@ fn emit_exe_std_error_map_error_maps_only_failure_arm() {
         &main,
         r#"
 using std::error;
+using std::result;
 using std::process;
 
 enum SourceError: i32 {
@@ -106,6 +107,7 @@ fn emit_exe_std_error_or_else_recovers_or_replaces_failure() {
         &main,
         r#"
 using std::error;
+using std::result;
 using std::process;
 
 enum SourceError: i32 {
@@ -213,6 +215,7 @@ fn emit_exe_std_error_map_and_then_transform_success_only() {
         &main,
         r#"
 using std::error;
+using std::result;
 using std::process;
 
 enum Failure: i32 {

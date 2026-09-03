@@ -1,6 +1,7 @@
 using pkg::error;
 using pkg::fs::types;
-using pkg::optional;
+using pkg::option;
+using pkg::result;
 using pkg::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};

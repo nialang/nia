@@ -3,7 +3,7 @@ using pkg::error;
 using pkg::hash;
 using pkg::iter::range;
 using pkg::mem;
-using pkg::optional;
+using pkg::option;
 using pkg::os;
 using pkg::collections::hash_map::context;
 using pkg::collections::hash_map::entries;

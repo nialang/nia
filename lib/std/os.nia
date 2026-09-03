@@ -3,7 +3,7 @@ pub(pkg) module linux;
 @[if os == "linux"]
 using pkg::os::linux as platform;
 using pkg::error;
-using pkg::optional;
+using pkg::option;
 
 pub(pkg) const maxPathBytes: usize = platform::maxPathBytes;
 

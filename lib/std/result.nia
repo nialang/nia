@@ -1,0 +1,46 @@
+// Transformations for Nia error unions (`Failure!Value`).
+//
+// These are result-like operations on the language's native error-union
+// representation; no wrapper type is introduced.
+
+extend[Value, Source] Source!Value {
+    pub fn isSuccess(&self) bool {
+        let result = self.*;
+        if result is !_ { true } else { false }
+    }
+
+    pub fn isError(&self) bool {
+        let result = self.*;
+        if result is _! { true } else { false }
+    }
+
+    pub fn map[Mapped](self, mapper: &Fn(Value) Mapped) Source!Mapped {
+        match self {
+            !value => !mapper(value),
+            error! => error!,
+        }
+    }
+
+    pub fn andThen[Mapped](self, next: &Fn(Value) Source!Mapped) Source!Mapped {
+        match self {
+            !value => next(value),
+            error! => error!,
+        }
+    }
+}
+
+extend[Value, Source, Target] Source!Value {
+    pub fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+
+    pub fn orElse(self, fallback: &Fn(Source) Target!Value) Target!Value {
+        match self {
+            !value => !value,
+            error! => fallback(error),
+        }
+    }
+}

@@ -1236,6 +1236,7 @@ fn main() () {
 fn incremental_error_recovery_closure_body_matches_clean_recomputation() {
     let initial = r#"
 using std::error;
+using std::result;
 
 enum SourceError: i32 {
     Failed = 1,

@@ -13,7 +13,7 @@ fn emit_exe_std_optional_queries_and_transforms() {
     std::fs::write(
         &main,
         r#"
-using std::optional;
+using std::option;
 using std::process;
 
 fn double(value: ?i32) ?i32 {
