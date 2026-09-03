@@ -449,7 +449,7 @@ mod tests {
             );
         }
         assert_eq!(
-            read_builtin_function(&mut Cursor::new([26].as_slice())),
+            read_builtin_function(&mut Cursor::new([27].as_slice())),
             None
         );
 

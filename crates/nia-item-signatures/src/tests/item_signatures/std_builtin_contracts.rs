@@ -359,11 +359,12 @@ fn std_builtin_source_declarations() -> SourceBuiltinDeclarations {
 }
 
 fn std_builtin_source_files() -> Vec<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let std_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
-        .join("lib/std/builtin");
-    let mut files = fs::read_dir(&root)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()))
+        .join("lib/std");
+    let builtin_root = std_root.join("builtin");
+    let mut files = fs::read_dir(&builtin_root)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", builtin_root.display()))
         .map(|entry| {
             entry
                 .unwrap_or_else(|error| panic!("failed to read builtin entry: {error}"))
@@ -371,6 +372,7 @@ fn std_builtin_source_files() -> Vec<PathBuf> {
         })
         .filter(|path| path.extension().is_some_and(|extension| extension == "nia"))
         .collect::<Vec<_>>();
+    files.push(std_root.join("source.nia"));
     files.sort();
     files
 }

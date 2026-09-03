@@ -370,7 +370,7 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .filter_map(|attribute| match attribute {
                     FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
-                    FunctionAttribute::Builtin(_) => None,
+                    FunctionAttribute::Builtin(_) | FunctionAttribute::TrackCaller => None,
                 })
                 .collect(),
             local_names: function_body

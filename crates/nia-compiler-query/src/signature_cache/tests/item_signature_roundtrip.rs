@@ -79,9 +79,10 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         is_extern: false,
         is_const: true,
         is_variadic: false,
-        attributes: vec![item_signatures::FunctionAttribute::Builtin(
-            BuiltinFunction::SizeOf,
-        )],
+        attributes: vec![
+            item_signatures::FunctionAttribute::Builtin(BuiltinFunction::SizeOf),
+            item_signatures::FunctionAttribute::TrackCaller,
+        ],
         has_body: true,
         span,
     };

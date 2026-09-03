@@ -338,6 +338,7 @@ impl<'a> BodyChecker<'a> {
                 span,
                 expr,
                 builtin,
+                Some(signature.return_type),
                 BuiltinCallTypeArgs::Bracket(&[]),
                 args,
             );
@@ -385,6 +386,7 @@ impl<'a> BodyChecker<'a> {
                 bracket_expr.span,
                 expr,
                 builtin,
+                None,
                 BuiltinCallTypeArgs::Bracket(type_args),
                 args,
             );
@@ -410,6 +412,7 @@ impl<'a> BodyChecker<'a> {
                     bracket_expr.span,
                     expr,
                     builtin,
+                    Some(resolved.signature.return_type),
                     BuiltinCallTypeArgs::Bracket(type_args),
                     args,
                 );
@@ -434,6 +437,7 @@ impl<'a> BodyChecker<'a> {
                     bracket_expr.span,
                     expr,
                     builtin,
+                    Some(resolved.signature.return_type),
                     BuiltinCallTypeArgs::Bracket(type_args),
                     args,
                 );
@@ -3096,6 +3100,6 @@ pub(super) fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinF
         .iter()
         .find_map(|attribute| match attribute {
             FunctionAttribute::Builtin(builtin) => Some(*builtin),
-            FunctionAttribute::Naked => None,
+            FunctionAttribute::Naked | FunctionAttribute::TrackCaller => None,
         })
 }

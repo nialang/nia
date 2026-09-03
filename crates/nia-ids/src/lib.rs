@@ -501,11 +501,13 @@ pub enum BuiltinFunction {
     CharFromU32,
     /// Returns the length of a slice.
     SliceLen,
+    /// Returns the lexical or forwarded caller source location.
+    CallerLocation,
 }
 
 impl BuiltinFunction {
     /// All builtin functions in canonical registry order.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 27] = [
         Self::ConstError,
         Self::Trap,
         Self::SizeOf,
@@ -532,6 +534,7 @@ impl BuiltinFunction {
         Self::Embed,
         Self::CharFromU32,
         Self::SliceLen,
+        Self::CallerLocation,
     ];
 
     /// Parses a canonical builtin function name.
@@ -563,6 +566,7 @@ impl BuiltinFunction {
             "embed" => Some(Self::Embed),
             "charFromU32" => Some(Self::CharFromU32),
             "sliceLen" => Some(Self::SliceLen),
+            "callerLocation" => Some(Self::CallerLocation),
             _ => None,
         }
     }
@@ -596,6 +600,7 @@ impl BuiltinFunction {
             Self::Embed => "embed",
             Self::CharFromU32 => "charFromU32",
             Self::SliceLen => "sliceLen",
+            Self::CallerLocation => "callerLocation",
         }
     }
 
@@ -610,6 +615,7 @@ impl BuiltinFunction {
             | Self::Embed
             | Self::CharFromU32
             | Self::SliceLen
+            | Self::CallerLocation
             | Self::Splat
             | Self::Extract
             | Self::Insert

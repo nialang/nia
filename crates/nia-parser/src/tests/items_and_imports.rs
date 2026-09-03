@@ -181,6 +181,7 @@ struct Header {
     @[note(config.target.os)]
     flags: u16,
 }
+
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -220,6 +221,43 @@ struct Header {
         AttributeKind::Meta(meta)
             if meta.path == [sym("note")] && matches!(meta.args[0].kind, ExprKind::Field { .. })
     ));
+}
+
+#[test]
+fn parses_trait_and_extend_method_attributes() {
+    let (module, errors) = parse_module(
+        r#"
+trait Report {
+    @[trackCaller]
+    fn report(&self) ();
+}
+
+struct Value {}
+
+extend Value {
+    @[trackCaller]
+    pub fn report(&self) () {}
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    let ItemKind::Trait(item_trait) = &module.items[0].kind else {
+        panic!("expected trait");
+    };
+    assert!(matches!(
+        &item_trait.methods[0].attributes[0].kind,
+        AttributeKind::Meta(meta) if meta.path == [sym("trackCaller")]
+    ));
+
+    let ItemKind::Extend(extend) = &module.items[2].kind else {
+        panic!("expected extend");
+    };
+    assert!(matches!(
+        &extend.methods[0].attributes[0].kind,
+        AttributeKind::Meta(meta) if meta.path == [sym("trackCaller")]
+    ));
+    assert_eq!(extend.methods[0].vis, Visibility::Public);
 }
 
 #[test]

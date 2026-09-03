@@ -3,6 +3,16 @@ fn sym(text: &str) -> SymbolId {
 }
 
 fn signatures_ok(source: &str) -> ItemSignatures {
+    let signatures = signatures(source);
+    assert!(
+        signatures.diagnostics.is_empty(),
+        "{:?}",
+        signatures.diagnostics
+    );
+    signatures
+}
+
+fn signatures(source: &str) -> ItemSignatures {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let mut module_ids = ModuleIdAllocator::new();
@@ -30,19 +40,13 @@ fn signatures_ok(source: &str) -> ItemSignatures {
         ),
     );
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-    let signatures = collect_item_signatures(ItemSignatureInput {
+    collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
         lowered: &lowered,
         type_store: &type_store,
         symbols: None,
-    });
-    assert!(
-        signatures.diagnostics.is_empty(),
-        "{:?}",
-        signatures.diagnostics
-    );
-    signatures
+    })
 }
 
 struct BoolResolver(bool);

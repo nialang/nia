@@ -22,6 +22,61 @@ pub fn trap() never;
 }
 
 #[test]
+fn records_track_caller_on_functions_and_methods() {
+    let signatures = signatures_ok(
+        r#"
+@[trackCaller]
+fn top() () {}
+
+trait Report {
+    @[trackCaller]
+    fn report(&self) ();
+}
+
+struct Value {}
+
+extend Value {
+    @[trackCaller]
+    fn report(&self) () {}
+}
+"#,
+    );
+
+    let tracked = signatures
+        .functions
+        .values()
+        .filter(|signature| signature.attributes == [FunctionAttribute::TrackCaller])
+        .count();
+    assert_eq!(tracked, 3);
+}
+
+#[test]
+fn rejects_invalid_track_caller_attributes() {
+    let signatures = signatures(
+        r#"
+@[trackCaller]
+extern fn foreign() ();
+
+@[trackCaller(1)]
+fn withArgument() () {}
+
+@[trackCaller]
+@[trackCaller]
+fn duplicate() () {}
+"#,
+    );
+
+    let summaries = signatures
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(summaries.contains(&"`@[trackCaller]` is not valid on `extern fn`"));
+    assert!(summaries.contains(&"`@[trackCaller]` does not take arguments"));
+    assert!(summaries.contains(&"duplicate `@[trackCaller]` function attribute"));
+}
+
+#[test]
 fn records_builtin_trait_attributes() {
     let signatures = signatures_ok(
         r#"

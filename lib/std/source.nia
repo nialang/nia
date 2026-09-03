@@ -1,0 +1,29 @@
+// Stable source coordinates produced by the compiler.
+//
+// The file is a logical UTF-8 source identity, not an absolute host path.
+// Lines and columns are one-based; columns count Unicode scalar values.
+
+pub struct SourceLocation {
+    file: &[u8],
+    line: u32,
+    column: u32,
+}
+
+extend SourceLocation {
+    pub fn file(&self) &[u8] {
+        self.file
+    }
+
+    pub fn line(&self) u32 {
+        self.line
+    }
+
+    pub fn column(&self) u32 {
+        self.column
+    }
+}
+
+// Returns this expression's lexical location, or the outermost tracked call
+// site when evaluated in a `@[trackCaller]` function.
+@[builtin("callerLocation")]
+pub const fn callerLocation() SourceLocation;

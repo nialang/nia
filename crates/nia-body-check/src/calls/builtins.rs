@@ -52,6 +52,7 @@ impl<'a> BodyChecker<'a> {
         builtin_span: Span,
         value_node: &Expr,
         builtin: BuiltinFunction,
+        declared_return_type: Option<InternedTyId>,
         type_args: BuiltinCallTypeArgs<'_>,
         args: &[Expr],
     ) -> InternedTyId {
@@ -278,6 +279,28 @@ impl<'a> BodyChecker<'a> {
                 type_args,
                 args,
             ),
+            BuiltinFunction::CallerLocation => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
+                if !args.is_empty() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        call_span,
+                        "builtin `callerLocation` does not take value arguments",
+                    ));
+                    for arg in args {
+                        self.check_expr(arg);
+                    }
+                }
+                declared_return_type.unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        codes::TYPE_CHECK,
+                        call_span,
+                        "builtin `callerLocation` call is missing its declared return type",
+                    ));
+                    self.error()
+                })
+            }
         }
     }
 

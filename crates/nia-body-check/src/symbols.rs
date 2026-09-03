@@ -50,6 +50,7 @@ pub(crate) fn builtin_function_symbol(name: SymbolId) -> Option<BuiltinFunction>
         known::EMBED => Some(BuiltinFunction::Embed),
         known::CHAR_FROM_U32 => Some(BuiltinFunction::CharFromU32),
         known::SLICE_LEN => Some(BuiltinFunction::SliceLen),
+        known::CALLER_LOCATION => Some(BuiltinFunction::CallerLocation),
         _ => None,
     }
 }
