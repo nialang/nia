@@ -36,6 +36,7 @@ impl<'a> BodyChecker<'a> {
                 callee.span,
                 expr,
                 builtin,
+                None,
                 BuiltinCallTypeArgs::Bracket(&[]),
                 args,
             );
@@ -61,6 +62,7 @@ impl<'a> BodyChecker<'a> {
                     callee.span,
                     expr,
                     builtin,
+                    Some(resolved.signature.return_type),
                     BuiltinCallTypeArgs::Bracket(&[]),
                     args,
                 );
@@ -105,6 +107,7 @@ impl<'a> BodyChecker<'a> {
                     callee.span,
                     expr,
                     builtin,
+                    Some(resolved.signature.return_type),
                     BuiltinCallTypeArgs::Bracket(&[]),
                     args,
                 );
@@ -149,4 +152,5 @@ pub(super) fn std_builtin_function(expr: &Expr) -> Option<BuiltinFunction> {
     (*root == known::STD && *builtin_segment == known::BUILTIN)
         .then(|| crate::symbols::builtin_function_symbol(*name))
         .flatten()
+        .filter(|builtin| *builtin != BuiltinFunction::CallerLocation)
 }

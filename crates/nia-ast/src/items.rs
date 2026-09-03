@@ -285,6 +285,8 @@ pub struct TraitAssociatedValue {
 /// Trait method declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitMethod {
+    /// Attributes attached to the method declaration.
+    pub attributes: Vec<Attribute>,
     /// Function signature and body.
     pub function: FunctionItem,
 }
@@ -335,6 +337,8 @@ pub struct ExtendAssociatedValue {
 /// Method definition in an extension.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtendMethod {
+    /// Attributes attached to the method definition.
+    pub attributes: Vec<Attribute>,
     /// Method visibility.
     pub vis: Visibility,
     /// Method function declaration.

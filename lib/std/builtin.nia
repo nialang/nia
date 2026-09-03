@@ -29,6 +29,7 @@ using pkg::builtin::place;
 using pkg::builtin::primitive;
 using pkg::builtin::simd;
 using pkg::builtin::target;
+using pkg::source;
 
 pub using atomic::{
     atomicLoad,
@@ -72,3 +73,4 @@ pub using place::{
 };
 pub using primitive::charFromU32;
 pub using simd::{bitmask, extract, insert, splat};
+pub using source::callerLocation;

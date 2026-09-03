@@ -141,6 +141,13 @@ struct SignatureCollector<'a> {
     duplicate_impl_identities: HashMap<TraitImplIdentity, u32>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FunctionAttributeContext {
+    TopLevel,
+    TraitMethod,
+    ExtensionMethod,
+}
+
 impl<'a> SignatureCollector<'a> {
     fn symbol_debug_text(&self, symbol: SymbolId) -> String {
         symbol_debug_text_with_symbols(self.symbols, symbol)
@@ -269,7 +276,7 @@ impl<'a> SignatureCollector<'a> {
             .iter()
             .filter_map(|method| {
                 self.check_method_generic_shadowing(&extend.generics, &method.function);
-                self.collect_method(signatures, &method.function)
+                self.collect_method(signatures, &method.attributes, &method.function)
                     .map(|def_id| TraitImplMethodSignature {
                         def_id,
                         name: method.function.name,
@@ -384,7 +391,12 @@ impl<'a> SignatureCollector<'a> {
             ) else {
                 continue;
             };
-            let signature = self.function_signature(&method.function);
+            let attributes = self.function_attributes(
+                &method.attributes,
+                &method.function,
+                FunctionAttributeContext::TraitMethod,
+            );
+            let signature = self.function_signature_with_attributes(&method.function, attributes);
             methods.push(TraitMethodSignature {
                 def_id: method_id,
                 name: method.function.name,
@@ -422,12 +434,19 @@ impl<'a> SignatureCollector<'a> {
     fn collect_method(
         &mut self,
         signatures: &mut ItemSignatures,
+        attributes: &[Attribute],
         method: &FunctionItem,
     ) -> Option<DefId> {
         let def_id = self.def_id_for_node(&method.node_key, method.span, DefKind::Method)?;
-        signatures
-            .functions
-            .insert(def_id, self.function_signature(method));
+        let attributes = self.function_attributes(
+            attributes,
+            method,
+            FunctionAttributeContext::ExtensionMethod,
+        );
+        signatures.functions.insert(
+            def_id,
+            self.function_signature_with_attributes(method, attributes),
+        );
         Some(def_id)
     }
 
@@ -582,7 +601,11 @@ impl<'a> SignatureCollector<'a> {
         else {
             return;
         };
-        let attributes = self.function_attributes(&item.attributes, function);
+        let attributes = self.function_attributes(
+            &item.attributes,
+            function,
+            FunctionAttributeContext::TopLevel,
+        );
         signatures.functions.insert(
             def_id,
             self.function_signature_with_attributes(function, attributes),
@@ -805,6 +828,7 @@ impl<'a> SignatureCollector<'a> {
         &mut self,
         attributes: &[Attribute],
         function: &FunctionItem,
+        context: FunctionAttributeContext,
     ) -> Vec<FunctionAttribute> {
         let mut out = Vec::new();
         for attribute in attributes {
@@ -851,6 +875,34 @@ impl<'a> SignatureCollector<'a> {
                         ));
                     }
                 }
+                [name] if *name == known::TRACK_CALLER => {
+                    if !meta.args.is_empty() {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            attribute.span,
+                            "`@[trackCaller]` does not take arguments",
+                        ));
+                    }
+                    if function.is_extern {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            attribute.span,
+                            "`@[trackCaller]` is not valid on `extern fn`",
+                        ));
+                    }
+                    if out
+                        .iter()
+                        .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
+                    {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::ITEM_SIGNATURE,
+                            attribute.span,
+                            "duplicate `@[trackCaller]` function attribute",
+                        ));
+                    } else {
+                        out.push(FunctionAttribute::TrackCaller);
+                    }
+                }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
@@ -863,7 +915,8 @@ impl<'a> SignatureCollector<'a> {
                 }
             }
         }
-        if !function.is_extern
+        if context == FunctionAttributeContext::TopLevel
+            && !function.is_extern
             && function.body.is_none()
             && !out
                 .iter()

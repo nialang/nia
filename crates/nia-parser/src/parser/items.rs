@@ -414,10 +414,14 @@ impl Parser {
         let mut associated_values = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            let attributes = self.parse_attributes()?;
             if self.eat(TokenKind::Pub).is_some() {
                 self.error_here("trait members cannot be marked `pub`");
             }
             if self.at(TokenKind::Type) {
+                if !attributes.is_empty() {
+                    self.error_here("attributes on trait associated types are not supported");
+                }
                 let checkpoint = self.checkpoint();
                 if let Some(associated_type) = self.parse_trait_associated_type() {
                     associated_types.push(associated_type);
@@ -427,11 +431,17 @@ impl Parser {
             } else if self.at(TokenKind::Fn) || self.at_const_fn() {
                 let checkpoint = self.checkpoint();
                 if let Some(function) = self.parse_function(false, self.at_const_fn()) {
-                    methods.push(TraitMethod { function });
+                    methods.push(TraitMethod {
+                        attributes,
+                        function,
+                    });
                 } else {
                     self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Const) {
+                if !attributes.is_empty() {
+                    self.error_here("attributes on trait associated values are not supported");
+                }
                 let checkpoint = self.checkpoint();
                 if let Some(associated_value) = self.parse_trait_associated_value() {
                     associated_values.push(associated_value);
@@ -527,12 +537,16 @@ impl Parser {
         let mut associated_values = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            let attributes = self.parse_attributes()?;
             let vis = if self.eat(TokenKind::Pub).is_some() {
                 self.parse_pub_visibility_suffix()?
             } else {
                 Visibility::Private
             };
             if self.at(TokenKind::Type) {
+                if !attributes.is_empty() {
+                    self.error_here("attributes on extend associated types are not supported");
+                }
                 if vis == Visibility::Public {
                     self.error_here("trait associated type definitions cannot be marked `pub`");
                 }
@@ -545,11 +559,18 @@ impl Parser {
             } else if self.at(TokenKind::Fn) || self.at_const_fn() {
                 let checkpoint = self.checkpoint();
                 if let Some(function) = self.parse_function(false, self.at_const_fn()) {
-                    methods.push(ExtendMethod { vis, function });
+                    methods.push(ExtendMethod {
+                        attributes,
+                        vis,
+                        function,
+                    });
                 } else {
                     self.origins.rollback(checkpoint.origin);
                 }
             } else if self.at(TokenKind::Const) {
+                if !attributes.is_empty() {
+                    self.error_here("attributes on extend associated values are not supported");
+                }
                 let start = self.peek().span.start;
                 let checkpoint = self.checkpoint();
                 if let Some(binding) = self.parse_extend_associated_value_binding(is_builtin_extend)

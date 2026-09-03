@@ -190,6 +190,7 @@ pub(crate) fn write_function_signature(
                 encoded.push(1);
                 encoded.push(builtin_function_tag(*builtin));
             }
+            item_signatures::FunctionAttribute::TrackCaller => encoded.push(2),
         }
     }
     write_bool(encoded, signature.has_body);
@@ -227,6 +228,7 @@ pub(crate) fn read_function_signature(
         attributes.push(match read_u8(cursor)? {
             0 => item_signatures::FunctionAttribute::Naked,
             1 => item_signatures::FunctionAttribute::Builtin(read_builtin_function(cursor)?),
+            2 => item_signatures::FunctionAttribute::TrackCaller,
             _ => return None,
         });
     }
@@ -1044,6 +1046,7 @@ pub(crate) fn builtin_function_tag(value: BuiltinFunction) -> u8 {
         BuiltinFunction::Embed => 23,
         BuiltinFunction::CharFromU32 => 24,
         BuiltinFunction::SliceLen => 25,
+        BuiltinFunction::CallerLocation => 26,
     }
 }
 
@@ -1075,6 +1078,7 @@ pub(crate) fn read_builtin_function(cursor: &mut Cursor<&[u8]>) -> Option<Builti
         23 => BuiltinFunction::Embed,
         24 => BuiltinFunction::CharFromU32,
         25 => BuiltinFunction::SliceLen,
+        26 => BuiltinFunction::CallerLocation,
         _ => return None,
     })
 }

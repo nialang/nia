@@ -129,6 +129,7 @@ pub mod known {
     known_symbol!(BUILTIN, "builtin");
     known_symbol!(STD, "std");
     known_symbol!(NAKED, "naked");
+    known_symbol!(TRACK_CALLER, "trackCaller");
 
     known_symbol!(MAIN, "main");
     known_symbol!(START_ENTRY, "_start");
@@ -218,6 +219,8 @@ pub mod known {
     known_symbol!(MIN, "MIN");
     known_symbol!(MAX, "MAX");
 
+    known_symbol!(CALLER_LOCATION, "callerLocation");
+
     known_symbol!(ERROR, "error");
     known_symbol!(TRAP, "trap");
     known_symbol!(SIZE, "size");
@@ -294,6 +297,7 @@ pub mod known {
         (BUILTIN, "builtin"),
         (STD, "std"),
         (NAKED, "naked"),
+        (TRACK_CALLER, "trackCaller"),
         (MAIN, "main"),
         (START_ENTRY, "_start"),
         (START, "start"),
@@ -377,6 +381,7 @@ pub mod known {
         (INTO_ERROR, "intoError"),
         (MIN, "MIN"),
         (MAX, "MAX"),
+        (CALLER_LOCATION, "callerLocation"),
         (ERROR, "error"),
         (TRAP, "trap"),
         (SIZE, "size"),
@@ -523,6 +528,7 @@ impl ToSymbolId for nia_ids::BuiltinFunction {
             Self::Embed => known::EMBED,
             Self::CharFromU32 => known::CHAR_FROM_U32,
             Self::SliceLen => known::SLICE_LEN,
+            Self::CallerLocation => known::CALLER_LOCATION,
         }
     }
 }

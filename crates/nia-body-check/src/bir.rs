@@ -1459,7 +1459,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .find_map(|attribute| match attribute {
                 FunctionAttribute::Builtin(builtin) => Some(*builtin),
-                FunctionAttribute::Naked => None,
+                FunctionAttribute::Naked | FunctionAttribute::TrackCaller => None,
             })
     }
 

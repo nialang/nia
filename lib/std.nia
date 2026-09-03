@@ -28,6 +28,7 @@ pub module parse;
 pub module process;
 pub module result;
 pub module slice;
+pub module source;
 pub module string;
 pub module test;
 pub module unicode;
@@ -36,6 +37,7 @@ pub using atomic::Atomic;
 pub using collections::{ArrayList, HashMap, HashMapInitError};
 pub using cstring::{CString, CStringBuildError, CStringError, CStringView};
 pub using fs::{Path, PathView};
+pub using source::{SourceLocation, callerLocation};
 pub using string::{String, TextError, TextFormatError};
 
 using pkg::iter::range;

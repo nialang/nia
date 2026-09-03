@@ -68,6 +68,7 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::Embed
                 | BuiltinFunction::CharFromU32
                 | BuiltinFunction::SliceLen
+                | BuiltinFunction::CallerLocation
                 | BuiltinFunction::Splat
                 | BuiltinFunction::Extract
                 | BuiltinFunction::Insert

@@ -332,6 +332,8 @@ pub enum FunctionAttribute {
     Naked,
     /// Mark a compiler-provided builtin.
     Builtin(BuiltinFunction),
+    /// Forward the outer tracked call site's source location.
+    TrackCaller,
 }
 
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};
