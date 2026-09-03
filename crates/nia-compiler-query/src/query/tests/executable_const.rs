@@ -195,3 +195,62 @@ pub const LEN: usize = 4usize;
         "filtered executable const should evaluate local forwarded method-body array length"
     );
 }
+
+#[test]
+fn signature_const_resolves_receiver_locals_for_omitted_patterns() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+module palette;
+using entry::palette;
+
+fn main() i32 {
+    let values: [u8; palette::SIZE] = [0; palette::SIZE];
+    values[0] as i32
+}
+"#,
+    );
+    let entry_id = fixture.entry_id();
+    fixture.add_child(
+        entry_id,
+        "palette",
+        "palette.nia",
+        r#"
+pub enum Color { Red, Data(usize) }
+
+extend Color {
+    const fn score(self) usize {
+        match self {
+            .Red => 4usize,
+            .Data(value) => value,
+        }
+    }
+}
+
+pub const SIZE: usize = Color::Red.score();
+"#,
+    );
+    let mut loaded = fixture.program();
+    loaded.runtime = RuntimeModel::FreestandingExecutable;
+    let db = query_db(loaded);
+
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let entry = modules
+        .iter()
+        .find(|module| module.id == entry_id)
+        .expect("entry module should be executable-reachable");
+
+    assert!(
+        entry.body_diagnostics.is_empty(),
+        "signature const evaluation should resolve method receivers: {:?}",
+        entry.body_diagnostics
+    );
+    assert!(
+        entry
+            .const_eval
+            .array_lengths
+            .values()
+            .any(|length| *length == 4),
+        "signature const evaluation should preserve the receiver method result"
+    );
+}
