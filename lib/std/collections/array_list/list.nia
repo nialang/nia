@@ -253,7 +253,7 @@ where T: Sized
         if start > len {
             return mem::Error::Invalid!;
         }
-        let end = match start.checked_add(count) {
+        let end = match start.checkedAdd(count) {
             ?value => {
                 value
             },
@@ -334,7 +334,7 @@ where T: Sized
         if start > self.len() {
             return mem::Error::Invalid!;
         }
-        let end = match start.checked_add(count) {
+        let end = match start.checkedAdd(count) {
             ?value => {
                 value
             },
@@ -422,7 +422,7 @@ where T: Sized
         }
 
         let added = replacementLen - count;
-        let newLen = match len.checked_add(added) {
+        let newLen = match len.checkedAdd(added) {
             ?value => {
                 value
             },
@@ -446,7 +446,7 @@ where T: Sized
 
     pub fn reserveExact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
-        let needed = match len.checked_add(additional) {
+        let needed = match len.checkedAdd(additional) {
             ?value => {
                 value
             },
@@ -459,7 +459,7 @@ where T: Sized
 
     fn ensureUnusedCapacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!() {
         let len = self.len();
-        let needed = match len.checked_add(additional) {
+        let needed = match len.checkedAdd(additional) {
             ?value => {
                 value
             },
@@ -554,7 +554,7 @@ where T: Sized
 
     fn addManyUninitialized(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
         let oldLen = self.len();
-        let newLen = match oldLen.checked_add(count) {
+        let newLen = match oldLen.checkedAdd(count) {
             ?value => {
                 value
             },
@@ -569,7 +569,7 @@ where T: Sized
 
     fn addManyUninitializedAssumeCapacity(&mut self, count: usize) &mut [T] {
         let oldLen = self.len();
-        let newLen = match oldLen.checked_add(count) {
+        let newLen = match oldLen.checkedAdd(count) {
             ?value => {
                 value
             },
@@ -589,7 +589,7 @@ where T: Sized
         if index > self.len() {
             return mem::Error::Invalid!;
         }
-        let newLen = match self.len().checked_add(count) {
+        let newLen = match self.len().checkedAdd(count) {
             ?value => {
                 value
             },
@@ -609,7 +609,7 @@ where T: Sized
         if index > len {
             std::builtin::trap()
         }
-        let newLen = match len.checked_add(count) {
+        let newLen = match len.checkedAdd(count) {
             ?value => {
                 value
             },
@@ -702,7 +702,7 @@ where T: Sized
             initCapacity = 1;
         }
         let half = needed / 2;
-        let extra = match half.checked_add(initCapacity) {
+        let extra = match half.checkedAdd(initCapacity) {
             ?value => {
                 value
             },
@@ -710,7 +710,7 @@ where T: Sized
                 return mem::Error::OutOfMemory!;
             },
         };
-        match needed.checked_add(extra) {
+        match needed.checkedAdd(extra) {
             ?capacity => {
                 !capacity
             },
@@ -855,7 +855,7 @@ where T: Sized
         }
 
         let byteOffset = ptr - base;
-        let allocBytes = match self.capacity.checked_mul(itemSize) {
+        let allocBytes = match self.capacity.checkedMul(itemSize) {
             ?value => {
                 value
             },
@@ -863,7 +863,7 @@ where T: Sized
                 return false;
             },
         };
-        let itemBytes = match items.len().checked_mul(itemSize) {
+        let itemBytes = match items.len().checkedMul(itemSize) {
             ?value => {
                 value
             },

@@ -36,7 +36,7 @@ extend FixedBufferAllocator {
             return true;
         }
         let base = self.buffer.ptr() as usize;
-        let limit = match base.checked_add(self.buffer.len()) {
+        let limit = match base.checkedAdd(self.buffer.len()) {
             ?value => {
                 value
             },
@@ -48,7 +48,7 @@ extend FixedBufferAllocator {
         if addr < base {
             return false;
         }
-        let end = match addr.checked_add(block.size()) {
+        let end = match addr.checkedAdd(block.size()) {
             ?value => {
                 value
             },
@@ -64,7 +64,7 @@ extend FixedBufferAllocator {
             return false;
         }
         let base = self.buffer.ptr() as usize;
-        let cursor = match base.checked_add(self.endIndex) {
+        let cursor = match base.checkedAdd(self.endIndex) {
             ?value => {
                 value
             },
@@ -72,7 +72,7 @@ extend FixedBufferAllocator {
                 return false;
             },
         };
-        let blockEnd = match (block.ptr() as usize).checked_add(block.size()) {
+        let blockEnd = match (block.ptr() as usize).checkedAdd(block.size()) {
             ?value => {
                 value
             },
@@ -91,7 +91,7 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let base = self.buffer.ptrMut() as usize;
-        let current = match base.checked_add(self.endIndex) {
+        let current = match base.checkedAdd(self.endIndex) {
             ?value => {
                 value
             },
@@ -99,7 +99,7 @@ extend FixedBufferAllocator : Allocator {
                 return Error::OutOfMemory!;
             },
         };
-        let aligned = match current.align_forward(layout.align()) {
+        let aligned = match current.alignForward(layout.align()) {
             ?value => {
                 value
             },
@@ -108,7 +108,7 @@ extend FixedBufferAllocator : Allocator {
             },
         };
         let offset = aligned - base;
-        let newEnd = match offset.checked_add(layout.size()) {
+        let newEnd = match offset.checkedAdd(layout.size()) {
             ?value => {
                 value
             },
@@ -143,7 +143,7 @@ extend FixedBufferAllocator : Allocator {
         }
 
         let add = newLayout.size() - block.size();
-        let newEnd = match self.endIndex.checked_add(add) {
+        let newEnd = match self.endIndex.checkedAdd(add) {
             ?value => {
                 value
             },

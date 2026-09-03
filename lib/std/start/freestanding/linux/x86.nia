@@ -23,14 +23,14 @@ extern fn nia_start_stack(stack: &usize) () {
             0
         },
     };
-    let envWordCount = match argc.checked_add(2) {
+    let envWordCount = match argc.checkedAdd(2) {
         ?count => count,
         null => {
             os::exit(127);
             0
         },
     };
-    let envOffset = match wordSize.checked_mul(envWordCount) {
+    let envOffset = match wordSize.checkedMul(envWordCount) {
         ?offset => offset,
         null => {
             os::exit(127);
@@ -50,7 +50,7 @@ extern fn nia_start_stack(stack: &usize) () {
 }
 
 fn startupAddress(stack: &usize, offset: usize) ?usize {
-    (stack as usize).checked_add(offset)
+    (stack as usize).checkedAdd(offset)
 }
 
 @[naked]

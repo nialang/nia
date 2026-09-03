@@ -106,7 +106,7 @@ extend Build {
 
     pub fn addPackage(&mut self, options: PackageOptions) Error!PackageHandle {
         self.cleanupPendingPackage().?;
-        let packageIndex = match self.packages.len().checked_add(1) {
+        let packageIndex = match self.packages.len().checkedAdd(1) {
             ?value => value,
             null => return Error::Failure {
                 operation: Operation::Retain,
@@ -935,7 +935,7 @@ extend Build {
         let mut index: usize = 0;
         while index < self.steps.len() {
             let missing = self.missingGeneratedDependenciesForStep(index).?;
-            missingCount = match missingCount.checked_add(missing) {
+            missingCount = match missingCount.checkedAdd(missing) {
                 ?value => value,
                 null => return Error::Invalid {
                     operation: Operation::Validate,
@@ -992,7 +992,7 @@ extend Build {
                 moduleIndex,
             ).?;
             if not hasDependency(self.dependencies.asSlice(), index, producer.index()) {
-                count = match count.checked_add(1) {
+                count = match count.checkedAdd(1) {
                     ?value => value,
                     null => return Error::Invalid {
                         operation: Operation::Validate,
@@ -1009,7 +1009,7 @@ extend Build {
                     moduleIndex,
                 ).?;
                 if not hasDependency(self.dependencies.asSlice(), index, producer.index()) {
-                    count = match count.checked_add(1) {
+                    count = match count.checkedAdd(1) {
                         ?value => value,
                         null => return Error::Invalid {
                             operation: Operation::Validate,
@@ -1095,7 +1095,7 @@ extend Build {
         }
         for &edge in self.dependencies.iter() {
             let slot = &mut self.validationIndegree.asMutSlice()[edge.step.index()];
-            slot.* = match slot.*.checked_add(1) {
+            slot.* = match slot.*.checkedAdd(1) {
                 ?value => value,
                 null => return Error::Invalid {
                     operation: Operation::Validate,

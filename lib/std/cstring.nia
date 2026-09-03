@@ -45,7 +45,7 @@ extend CString {
                 return CStringBuildError::ContainsNul!;
             }
         }
-        let capacity = match bytes.len().checked_add(1) {
+        let capacity = match bytes.len().checkedAdd(1) {
             ?value => value,
             null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
@@ -65,12 +65,12 @@ extend CString {
             if ch.codepoint() == 0 {
                 return CStringBuildError::ContainsNul!;
             }
-            byteLen = match byteLen.checked_add(ch.encodeUtf8().byteLen()) {
+            byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
                 ?value => value,
                 null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
             };
         }
-        let capacity = match byteLen.checked_add(1) {
+        let capacity = match byteLen.checkedAdd(1) {
             ?value => value,
             null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };

@@ -44,27 +44,27 @@ fn storagePlan[K, V](capacity: usize) mem::Error!StoragePlan
 where K: Sized, V: Sized
 {
     let ctrlLen = raw::ctrlAllocationLen(capacity).?;
-    let keyBytes = match std::builtin::size[K]().checked_mul(capacity) {
+    let keyBytes = match std::builtin::size[K]().checkedMul(capacity) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let valueBytes = match std::builtin::size[V]().checked_mul(capacity) {
+    let valueBytes = match std::builtin::size[V]().checkedMul(capacity) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let keysOffset = match ctrlLen.align_forward(std::builtin::align[K]()) {
+    let keysOffset = match ctrlLen.alignForward(std::builtin::align[K]()) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let afterKeys = match keysOffset.checked_add(keyBytes) {
+    let afterKeys = match keysOffset.checkedAdd(keyBytes) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let valuesOffset = match afterKeys.align_forward(std::builtin::align[V]()) {
+    let valuesOffset = match afterKeys.alignForward(std::builtin::align[V]()) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
-    let totalSize = match valuesOffset.checked_add(valueBytes) {
+    let totalSize = match valuesOffset.checkedAdd(valueBytes) {
         ?value => value,
         null => return mem::Error::OutOfMemory!,
     };
@@ -599,7 +599,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if additional <= self.growthLeft {
             return !();
         }
-        let needed = match self.len.checked_add(additional) {
+        let needed = match self.len.checkedAdd(additional) {
             ?value => {
                 value
             },

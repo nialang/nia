@@ -114,7 +114,7 @@ extend DiscardingWriter : Writer {
     }
 
     pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
-        self.len = match self.len.checked_add(bytes.len()) {
+        self.len = match self.len.checkedAdd(bytes.len()) {
             ?value => value,
             null => usize::MAX,
         };

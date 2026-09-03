@@ -239,7 +239,7 @@ extend GeneralPurposeAllocator : Allocator {
                 if newPtr as usize != block.ptr() as usize {
                     return false;
                 }
-                let slotEnd = match (slot as usize).checked_add(page.slotSize) {
+                let slotEnd = match (slot as usize).checkedAdd(page.slotSize) {
                     ?value => {
                         value
                     },
@@ -247,7 +247,7 @@ extend GeneralPurposeAllocator : Allocator {
                         return false;
                     },
                 };
-                let blockEnd = match (newPtr as usize).checked_add(newLayout.size()) {
+                let blockEnd = match (newPtr as usize).checkedAdd(newLayout.size()) {
                     ?value => {
                         value
                     },
@@ -330,7 +330,7 @@ extend GeneralPurposeAllocator {
                 return Error::OutOfMemory!;
             },
         };
-        let usedCount = match page.usedCount.checked_add(1usize) {
+        let usedCount = match page.usedCount.checkedAdd(1usize) {
             ?value => {
                 value
             },
@@ -486,7 +486,7 @@ extend GeneralPurposeAllocator {
 
     fn allocLarge(&mut self, layout: Layout) Error!Block {
         let headerSize = std::builtin::size[LargeHeader]();
-        let withHeader = match headerSize.checked_add(layout.align()) {
+        let withHeader = match headerSize.checkedAdd(layout.align()) {
             ?value => {
                 value
             },
@@ -494,7 +494,7 @@ extend GeneralPurposeAllocator {
                 return Error::OutOfMemory!;
             },
         };
-        let totalSize = match withHeader.checked_add(layout.size()) {
+        let totalSize = match withHeader.checkedAdd(layout.size()) {
             ?value => {
                 value
             },
@@ -506,14 +506,14 @@ extend GeneralPurposeAllocator {
         let backingLayout = Layout::init(totalSize, blockAlign).?;
         let backing = self.child.alloc(backingLayout).?;
         let base = backing.ptr() as usize;
-        let afterHeader = match base.checked_add(headerSize) {
+        let afterHeader = match base.checkedAdd(headerSize) {
             ?value => value,
             null => {
                 self.releaseOrRetain(backing);
                 return Error::OutOfMemory!;
             },
         };
-        let userAddr = match afterHeader.align_forward(layout.align()) {
+        let userAddr = match afterHeader.alignForward(layout.align()) {
             ?value => {
                 value
             },
@@ -749,7 +749,7 @@ fn smallSlotSize(layout: Layout) ?usize {
         return null;
     }
     let mut slotSize = minSlotSize;
-    let withHeader = match std::builtin::size[SmallSlot]().checked_add(layout.align()) {
+    let withHeader = match std::builtin::size[SmallSlot]().checkedAdd(layout.align()) {
         ?value => {
             value
         },
@@ -757,7 +757,7 @@ fn smallSlotSize(layout: Layout) ?usize {
             return null;
         },
     };
-    let neededSize = match withHeader.checked_add(layout.size()) {
+    let neededSize = match withHeader.checkedAdd(layout.size()) {
         ?value => {
             value
         },
@@ -767,7 +767,7 @@ fn smallSlotSize(layout: Layout) ?usize {
     };
     let needed = maxUsize(neededSize, layout.align());
     while slotSize < needed {
-        slotSize = match slotSize.checked_mul(2usize) {
+        slotSize = match slotSize.checkedMul(2usize) {
             ?value => {
                 value
             },
@@ -785,7 +785,7 @@ fn smallSlotSize(layout: Layout) ?usize {
 
 fn smallPagePayloadBase(page: &mut SmallPage) ?usize {
     let base = page.block.ptr() as usize;
-    let afterHeader = match base.checked_add(std::builtin::size[SmallPage]()) {
+    let afterHeader = match base.checkedAdd(std::builtin::size[SmallPage]()) {
         ?value => {
             value
         },
@@ -793,7 +793,7 @@ fn smallPagePayloadBase(page: &mut SmallPage) ?usize {
             return null;
         },
     };
-    afterHeader.align_forward(page.slotSize)
+    afterHeader.alignForward(page.slotSize)
 }
 
 fn smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
@@ -809,11 +809,11 @@ fn smallPageContainsPtr(page: &mut SmallPage, ptr: &mut u8) bool {
     if addr < payloadBase {
         return false;
     }
-    let slotBytes = match page.slotCount.checked_mul(page.slotSize) {
+    let slotBytes = match page.slotCount.checkedMul(page.slotSize) {
         ?value => value,
         null => return false,
     };
-    let pageEnd = match payloadBase.checked_add(slotBytes) {
+    let pageEnd = match payloadBase.checkedAdd(slotBytes) {
         ?value => {
             value
         },
@@ -842,11 +842,11 @@ fn smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
     if index >= page.slotCount {
         null
     } else {
-        let slotOffset = match index.checked_mul(page.slotSize) {
+        let slotOffset = match index.checkedMul(page.slotSize) {
             ?value => value,
             null => return null,
         };
-        let slotAddr = match payloadBase.checked_add(slotOffset) {
+        let slotAddr = match payloadBase.checkedAdd(slotOffset) {
             ?value => value,
             null => return null,
         };
@@ -855,7 +855,7 @@ fn smallPageSlotForPtr(page: &mut SmallPage, ptr: &mut u8) ?&mut SmallSlot {
 }
 
 fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
-    let addr = match (slot as usize).checked_add(std::builtin::size[SmallSlot]()) {
+    let addr = match (slot as usize).checkedAdd(std::builtin::size[SmallSlot]()) {
         ?value => {
             value
         },
@@ -863,7 +863,7 @@ fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
             return null;
         },
     };
-    match addr.align_forward(align) {
+    match addr.alignForward(align) {
         ?value => {
             ?(value as &mut u8)
         },
@@ -929,7 +929,7 @@ fn isNullBlock(block: ?Block) bool {
 
 fn largeHeaderUserPtr(header: &mut LargeHeader) ?&mut u8 {
     let headerAddr = header as usize;
-    match headerAddr.checked_add(std::builtin::size[LargeHeader]()) {
+    match headerAddr.checkedAdd(std::builtin::size[LargeHeader]()) {
         ?value => ?(value as &mut u8),
         null => null,
     }
@@ -944,7 +944,7 @@ fn maxUsize(left: usize, right: usize) usize {
 }
 
 fn saturatingAdd(left: usize, right: usize) usize {
-    match left.checked_add(right) {
+    match left.checkedAdd(right) {
         ?value => {
             value
         },

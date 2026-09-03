@@ -38,7 +38,7 @@ extend ProbeGroup {
 
 extend ProbeCursor {
     pub fn init(valueHash: u64, capacity: usize) ProbeCursor {
-        if capacity < groupWidth or not capacity.is_power_of_two() {
+        if capacity < groupWidth or not capacity.isPowerOfTwo() {
             return Self {
                 pos: 0,
                 stride: 0,
@@ -72,7 +72,7 @@ extend ProbeCursor {
         }
         self.stride = addMod(self.stride, groupWidth, self.capacity);
         self.pos = addMod(self.pos, self.stride, self.capacity);
-        self.visited = match self.visited.checked_add(groupWidth) {
+        self.visited = match self.visited.checkedAdd(groupWidth) {
             ?value => {
                 if value > self.capacity { self.capacity } else { value }
             },
@@ -148,7 +148,7 @@ pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
     if capacity == 0 {
         return !0;
     }
-    match capacity.checked_add(groupWidth - 1) {
+    match capacity.checkedAdd(groupWidth - 1) {
         ?value => {
             !value
         },
@@ -194,7 +194,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
         return !16;
     }
 
-    let multiplied = match capacity.checked_mul(8) {
+    let multiplied = match capacity.checkedMul(8) {
         ?value => {
             value
         },
@@ -202,7 +202,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
             return mem::Error::OutOfMemory!;
         },
     };
-    let biased = match multiplied.checked_add(6) {
+    let biased = match multiplied.checkedAdd(6) {
         ?value => {
             value
         },
@@ -225,7 +225,7 @@ pub fn maxUsize(left: usize, right: usize) usize {
 pub fn nextPowerOfTwo(value: usize) mem::Error!usize {
     let mut n: usize = 1;
     while n < value {
-        n = match n.checked_mul(2) {
+        n = match n.checkedMul(2) {
             ?next => {
                 next
             },

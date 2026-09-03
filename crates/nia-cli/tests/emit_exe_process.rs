@@ -3375,41 +3375,41 @@ using std::process;
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
     let max = usize::MAX;
-    if 0usize.is_power_of_two() {
+    if 0usize.isPowerOfTwo() {
         return process::exit(1)!;
     }
-    if not 4096usize.is_power_of_two() {
+    if not 4096usize.isPowerOfTwo() {
         return process::exit(2)!;
     }
-    match 10usize.checked_add(5usize) {
+    match 10usize.checkedAdd(5usize) {
         ?value => { if value != 15usize {
                     return process::exit(3)!;
                 } },
         null => { return process::exit(4)!; },
     }
-    match max.checked_add(1usize) {
+    match max.checkedAdd(1usize) {
         ?value => { _ = value;
                 return process::exit(5)!; },
         null => { },
     }
-    match 12usize.checked_mul(3usize) {
+    match 12usize.checkedMul(3usize) {
         ?value => { if value != 36usize {
                     return process::exit(6)!;
                 } },
         null => { return process::exit(7)!; },
     }
-    match (max / 2usize + 1usize).checked_mul(4usize) {
+    match (max / 2usize + 1usize).checkedMul(4usize) {
         ?value => { _ = value;
                 return process::exit(8)!; },
         null => { },
     }
-    match 17usize.align_forward(8usize) {
+    match 17usize.alignForward(8usize) {
         ?value => { if value != 24usize {
                     return process::exit(9)!;
                 } },
         null => { return process::exit(10)!; },
     }
-    match 17usize.align_forward(3usize) {
+    match 17usize.alignForward(3usize) {
         ?value => { _ = value;
                 return process::exit(11)!; },
         null => { },
@@ -3452,7 +3452,7 @@ using std::process;
 fn add_checked_same[T](lhs: T, rhs: T) ?T
 where T: math::CheckedAdd[T, Output = T]
 {
-    lhs.checked_add(rhs)
+    lhs.checkedAdd(rhs)
 }
 
 pub fn main(init: process::Init) process::ExitCode!() {
@@ -3462,96 +3462,96 @@ pub fn main(init: process::Init) process::ExitCode!() {
         ?value => { if value != 255u8 { return process::exit(1)!; } },
         null => { return process::exit(2)!; },
     }
-    match 255u8.checked_add(1u8) {
+    match 255u8.checkedAdd(1u8) {
         ?value => { _ = value; return process::exit(3)!; },
         null => { },
     }
-    match 10u16.checked_sub(3u16) {
+    match 10u16.checkedSub(3u16) {
         ?value => { if value != 7u16 { return process::exit(4)!; } },
         null => { return process::exit(5)!; },
     }
-    match 0u16.checked_sub(1u16) {
+    match 0u16.checkedSub(1u16) {
         ?value => { _ = value; return process::exit(6)!; },
         null => { },
     }
-    match 70000u32.checked_mul(60000u32) {
+    match 70000u32.checkedMul(60000u32) {
         ?value => { if value != 4200000000u32 { return process::exit(7)!; } },
         null => { return process::exit(8)!; },
     }
-    match 0xffffffffu32.checked_mul(2u32) {
+    match 0xffffffffu32.checkedMul(2u32) {
         ?value => { _ = value; return process::exit(9)!; },
         null => { },
     }
-    match 100u64.checked_div(4u64) {
+    match 100u64.checkedDiv(4u64) {
         ?value => { if value != 25u64 { return process::exit(10)!; } },
         null => { return process::exit(11)!; },
     }
-    match 100u64.checked_div(0u64) {
+    match 100u64.checkedDiv(0u64) {
         ?value => { _ = value; return process::exit(12)!; },
         null => { },
     }
-    match 100u128.checked_rem(7u128) {
+    match 100u128.checkedRem(7u128) {
         ?value => { if value != 2u128 { return process::exit(13)!; } },
         null => { return process::exit(14)!; },
     }
-    match 100u128.checked_rem(0u128) {
+    match 100u128.checkedRem(0u128) {
         ?value => { _ = value; return process::exit(15)!; },
         null => { },
     }
-    match 9usize.checked_sub(4usize) {
+    match 9usize.checkedSub(4usize) {
         ?value => { if value != 5usize { return process::exit(16)!; } },
         null => { return process::exit(17)!; },
     }
 
-    match (-5i8).checked_neg() {
+    match (-5i8).checkedNeg() {
         ?value => { if value != 5i8 { return process::exit(18)!; } },
         null => { return process::exit(19)!; },
     }
-    match i8::MIN.checked_neg() {
+    match i8::MIN.checkedNeg() {
         ?value => { _ = value; return process::exit(20)!; },
         null => { },
     }
-    match (-123i16).checked_abs() {
+    match (-123i16).checkedAbs() {
         ?value => { if value != 123i16 { return process::exit(21)!; } },
         null => { return process::exit(22)!; },
     }
-    match i16::MIN.checked_abs() {
+    match i16::MIN.checkedAbs() {
         ?value => { _ = value; return process::exit(23)!; },
         null => { },
     }
-    match i32::MAX.checked_add(1i32) {
+    match i32::MAX.checkedAdd(1i32) {
         ?value => { _ = value; return process::exit(24)!; },
         null => { },
     }
-    match (-10i32).checked_add(5i32) {
+    match (-10i32).checkedAdd(5i32) {
         ?value => { if value != -5i32 { return process::exit(25)!; } },
         null => { return process::exit(26)!; },
     }
-    match i64::MIN.checked_sub(1i64) {
+    match i64::MIN.checkedSub(1i64) {
         ?value => { _ = value; return process::exit(27)!; },
         null => { },
     }
-    match 10i64.checked_sub(-5i64) {
+    match 10i64.checkedSub(-5i64) {
         ?value => { if value != 15i64 { return process::exit(28)!; } },
         null => { return process::exit(29)!; },
     }
-    match i128::MIN.checked_mul(-1i128) {
+    match i128::MIN.checkedMul(-1i128) {
         ?value => { _ = value; return process::exit(30)!; },
         null => { },
     }
-    match 12i128.checked_mul(-3i128) {
+    match 12i128.checkedMul(-3i128) {
         ?value => { if value != -36i128 { return process::exit(31)!; } },
         null => { return process::exit(32)!; },
     }
-    match isize::MIN.checked_div(-1isize) {
+    match isize::MIN.checkedDiv(-1isize) {
         ?value => { _ = value; return process::exit(33)!; },
         null => { },
     }
-    match (-9isize).checked_div(3isize) {
+    match (-9isize).checkedDiv(3isize) {
         ?value => { if value != -3isize { return process::exit(34)!; } },
         null => { return process::exit(35)!; },
     }
-    match (-9isize).checked_rem(0isize) {
+    match (-9isize).checkedRem(0isize) {
         ?value => { _ = value; return process::exit(36)!; },
         null => { },
     }
