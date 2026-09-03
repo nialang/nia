@@ -377,8 +377,25 @@ impl Writer {
                 environment,
                 inputs,
                 outputs,
+            }
+            | ActionKind::TestExecutable {
+                resource_class,
+                environment_policy,
+                cache_policy,
+                program,
+                arguments,
+                working_directory,
+                environment,
+                inputs,
+                outputs,
             } => {
-                self.u8(2);
+                self.u8(
+                    if matches!(&action.kind, ActionKind::TestExecutable { .. }) {
+                        7
+                    } else {
+                        2
+                    },
+                );
                 self.resource_class(*resource_class);
                 self.command_environment_policy(*environment_policy);
                 self.command_cache_policy(*cache_policy);
@@ -742,7 +759,7 @@ impl<'a> Reader<'a> {
                 target: self.target()?,
                 static_archives: self.list(|reader| reader.artifact_key())?,
             },
-            2 => {
+            2 | 7 => {
                 let resource_class = self.resource_class()?;
                 let environment_policy = self.command_environment_policy()?;
                 let cache_policy = self.command_cache_policy()?;
@@ -759,34 +776,53 @@ impl<'a> Reader<'a> {
                         });
                     }
                 };
-                ActionKind::ExternalCommand {
-                    resource_class,
-                    environment_policy,
-                    cache_policy,
-                    program,
-                    arguments: self.list(|reader| {
-                        let offset = reader.offset;
-                        let tag = reader.u8()?;
-                        match tag {
-                            0 => Ok(CommandArgument::Literal(reader.string()?)),
-                            1 => Ok(CommandArgument::InputPath(reader.logical_path()?)),
-                            2 => Ok(CommandArgument::OutputPath(reader.logical_path()?)),
-                            _ => Err(PlanCodecError::InvalidTag {
-                                kind: "command argument",
-                                tag,
-                                offset,
-                            }),
-                        }
-                    })?,
-                    working_directory: self.logical_path()?,
-                    environment: self.list(|reader| {
-                        Ok(EnvironmentInput {
-                            name: reader.string()?,
-                            value: reader.option_string()?,
-                        })
-                    })?,
-                    inputs: self.list(Reader::logical_path)?,
-                    outputs: self.list(Reader::logical_path)?,
+                let arguments = self.list(|reader| {
+                    let offset = reader.offset;
+                    let tag = reader.u8()?;
+                    match tag {
+                        0 => Ok(CommandArgument::Literal(reader.string()?)),
+                        1 => Ok(CommandArgument::InputPath(reader.logical_path()?)),
+                        2 => Ok(CommandArgument::OutputPath(reader.logical_path()?)),
+                        _ => Err(PlanCodecError::InvalidTag {
+                            kind: "command argument",
+                            tag,
+                            offset,
+                        }),
+                    }
+                })?;
+                let working_directory = self.logical_path()?;
+                let environment = self.list(|reader| {
+                    Ok(EnvironmentInput {
+                        name: reader.string()?,
+                        value: reader.option_string()?,
+                    })
+                })?;
+                let inputs = self.list(Reader::logical_path)?;
+                let outputs = self.list(Reader::logical_path)?;
+                if tag == 7 {
+                    ActionKind::TestExecutable {
+                        resource_class,
+                        environment_policy,
+                        cache_policy,
+                        program,
+                        arguments,
+                        working_directory,
+                        environment,
+                        inputs,
+                        outputs,
+                    }
+                } else {
+                    ActionKind::ExternalCommand {
+                        resource_class,
+                        environment_policy,
+                        cache_policy,
+                        program,
+                        arguments,
+                        working_directory,
+                        environment,
+                        inputs,
+                        outputs,
+                    }
                 }
             }
             3 => {
@@ -1111,6 +1147,38 @@ mod tests {
                 .iter()
                 .any(|artifact| artifact.kind == PlanArtifactKind::StaticArchive)
         );
+    }
+
+    #[test]
+    fn test_executable_action_has_distinct_protocol_identity() {
+        let mut value = draft(false);
+        let package = PackageKey::root();
+        let action = ActionKey::new(package.clone(), "tests").unwrap();
+        let step = StepKey::new(package.clone(), "tests").unwrap();
+        value.actions.push(PlanAction {
+            key: action.clone(),
+            kind: ActionKind::TestExecutable {
+                resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                program: CommandProgram::Search("test-runner".into()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(LogicalPathRoot::Package(package.clone()), "")
+                    .unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            },
+        });
+        value.steps.push(PlanStep {
+            key: step.clone(),
+            action,
+            dependencies: Vec::new(),
+        });
+        value.default_step = Some(step);
+        let plan = BuildPlan::freeze(value).unwrap();
+        let decoded = BuildPlan::decode(&plan.encode().unwrap()).unwrap();
+        assert!(decoded.actions().iter().any(|action| action.kind.is_test()));
     }
 
     #[test]

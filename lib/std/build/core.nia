@@ -332,6 +332,15 @@ extend Build {
         self.addRunStepRecord(name, options, StepKind::TestExecutable, producer)
     }
 
+    // A suite is one host executable whose root module may import any number
+    // of test modules. Registering the executable and its test action together
+    // keeps build scripts declarative while leaving file organization to Nia's
+    // ordinary module system.
+    pub fn addTestSuite(&mut self, name: &[char], rootModule: ModuleHandle) Error!StepHandle {
+        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forHost()).?;
+        self.addTestExecutableStep(name, RunOptions::init(executable))
+    }
+
     fn addRunStepRecord(
         &mut self,
         name: &[char],

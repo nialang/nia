@@ -446,6 +446,29 @@ pub enum ActionKind {
         /// Declared logical outputs.
         outputs: Vec<LogicalPath>,
     },
+    /// Run a host test executable. This deliberately remains distinct from
+    /// `ExternalCommand` so test selection and reporting cannot be inferred
+    /// from an incidental command shape.
+    TestExecutable {
+        /// Scheduler resource class reserved by the test.
+        resource_class: ActionResourceClass,
+        /// Whether the test inherits or clears the parent environment.
+        environment_policy: CommandEnvironmentPolicy,
+        /// Persistent cache policy for the test result.
+        cache_policy: CommandCachePolicy,
+        /// Program identity resolved at execution time.
+        program: CommandProgram,
+        /// Ordered command-line arguments.
+        arguments: Vec<CommandArgument>,
+        /// Logical working directory.
+        working_directory: LogicalPath,
+        /// Explicit environment declarations.
+        environment: Vec<EnvironmentInput>,
+        /// Declared logical inputs.
+        inputs: Vec<LogicalPath>,
+        /// Declared logical outputs.
+        outputs: Vec<LogicalPath>,
+    },
     /// Materialize an in-memory payload as a generated file.
     GeneratedFile {
         /// Logical output path.
@@ -469,6 +492,13 @@ pub enum ActionKind {
     },
 }
 
+impl ActionKind {
+    /// Returns whether this action is an explicitly registered test process.
+    pub fn is_test(&self) -> bool {
+        matches!(self, Self::TestExecutable { .. })
+    }
+}
+
 /// Stable action key paired with its typed operation.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanAction {
@@ -482,7 +512,8 @@ impl PlanAction {
     /// Returns the scheduler resource class implied by this action kind.
     pub fn resource_class(&self) -> ActionResourceClass {
         match &self.kind {
-            ActionKind::ExternalCommand { resource_class, .. } => *resource_class,
+            ActionKind::ExternalCommand { resource_class, .. }
+            | ActionKind::TestExecutable { resource_class, .. } => *resource_class,
             ActionKind::CompilerCheck { .. } | ActionKind::CompilerEmit { .. } => {
                 ActionResourceClass::Cpu
             }
@@ -897,6 +928,13 @@ fn validate_package_references(draft: &BuildPlanDraft) -> Result<(), PlanError> 
                 }
             }
             ActionKind::ExternalCommand {
+                program,
+                working_directory,
+                inputs,
+                outputs,
+                ..
+            }
+            | ActionKind::TestExecutable {
                 program,
                 working_directory,
                 inputs,

@@ -167,6 +167,17 @@ pub(super) fn canonicalize_actions(
                 inputs,
                 outputs,
                 ..
+            }
+            | ActionKind::TestExecutable {
+                program,
+                arguments,
+                working_directory,
+                environment_policy,
+                cache_policy,
+                environment,
+                inputs,
+                outputs,
+                ..
             } => {
                 validate_external_command_artifacts(
                     &action.key,

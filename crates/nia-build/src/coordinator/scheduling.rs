@@ -2,6 +2,7 @@
 //! Canonical selected-step closure construction and resource-aware scheduling.
 
 use super::*;
+use crate::BuildStepSelection;
 
 /// Validates invocation targets, recovers interrupted output transactions, and
 /// executes the selected dependency closure in deterministic readiness waves.
@@ -18,28 +19,66 @@ pub fn execute_build_plan(
         "build.action_resource_capacity",
         action_resource_capacity(&session, invocation.max_parallel_actions) as u64,
     );
-    execute_selected_closure(plan, |actions| {
-        // Positions follow canonical wave order. Recording the earliest failed
-        // position makes cancellation deterministic even when later workers
-        // observe their failures first.
-        let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
-        let tasks = actions
-            .iter()
-            .enumerate()
-            .map(|(position, action)| {
-                let executor = executor.clone();
-                let cancellation = ActionCancellation {
-                    earliest_failure: Arc::clone(&earliest_failure),
-                    position,
-                };
-                let action = (*action).clone();
-                (action.resource_class(), move || {
-                    execute_scheduled_action(&executor, &action, &cancellation)
-                })
+    let execute = if matches!(&invocation.step, BuildStepSelection::Tests) {
+        execute_test_closure(plan, invocation.test_filter.as_deref(), |actions| {
+            execute_action_batch(&executor, &session, invocation, actions)
+        })
+    } else {
+        execute_selected_closure(plan, |actions| {
+            execute_action_batch(&executor, &session, invocation, actions)
+        })
+    };
+    execute
+}
+
+fn execute_action_batch(
+    executor: &DriverActionExecutor,
+    session: &QuerySession,
+    invocation: &BuildInvocation,
+    actions: &[&PlanAction],
+) -> Vec<ActionOutcome> {
+    // Positions follow canonical wave order. Recording the earliest failed
+    // position makes cancellation deterministic even when later workers
+    // observe their failures first.
+    let earliest_failure = Arc::new(AtomicUsize::new(usize::MAX));
+    let tasks = actions
+        .iter()
+        .enumerate()
+        .map(|(position, action)| {
+            let executor = executor.clone();
+            let cancellation = ActionCancellation {
+                earliest_failure: Arc::clone(&earliest_failure),
+                position,
+            };
+            let action = (*action).clone();
+            (action.resource_class(), move || {
+                execute_scheduled_action(&executor, &action, &cancellation)
             })
-            .collect::<Vec<_>>();
-        run_action_tasks(&session, invocation.max_parallel_actions, tasks)
-    })
+        })
+        .collect::<Vec<_>>();
+    run_action_tasks(session, invocation.max_parallel_actions, tasks)
+}
+
+pub(super) fn execute_test_closure(
+    plan: &BuildPlan,
+    filter: Option<&str>,
+    mut execute_batch: impl FnMut(&[&PlanAction]) -> Vec<ActionOutcome>,
+) -> Result<ExecutionReport, CoordinatorError> {
+    let roots = plan
+        .steps()
+        .iter()
+        .filter(|step| {
+            plan.actions()
+                .iter()
+                .find(|action| action.key == step.action)
+                .is_some_and(|action| {
+                    action.kind.is_test()
+                        && filter.is_none_or(|filter| step.key.name().contains(filter))
+                })
+        })
+        .map(|step| &step.key)
+        .collect::<Vec<_>>();
+    execute_roots_closure(plan, roots, &mut execute_batch)
 }
 
 pub(super) fn run_action_tasks<T, O>(
@@ -140,13 +179,32 @@ pub(super) fn execute_selected_closure(
         });
     };
 
+    execute_roots_closure(plan, vec![selected], &mut execute_batch)
+}
+
+fn execute_roots_closure(
+    plan: &BuildPlan,
+    roots: Vec<&StepKey>,
+    execute_batch: &mut impl FnMut(&[&PlanAction]) -> Vec<ActionOutcome>,
+) -> Result<ExecutionReport, CoordinatorError> {
+    if roots.is_empty() {
+        return Ok(ExecutionReport {
+            steps: Vec::new(),
+            actions: Vec::new(),
+            action_cache: Vec::new(),
+        });
+    }
     let steps = plan.steps();
     // Discover only the selected step's transitive dependency closure. An
     // iterative walk avoids coupling valid plan depth to the process stack.
     let mut closure = BTreeSet::new();
-    let selected_index = find_step(steps, selected)
-        .ok_or_else(|| inconsistent("plan selection", format!("step `{}`", selected.name())))?;
-    let mut pending = vec![selected_index];
+    let mut pending = Vec::with_capacity(roots.len());
+    for root in roots {
+        pending
+            .push(find_step(steps, root).ok_or_else(|| {
+                inconsistent("plan selection", format!("step `{}`", root.name()))
+            })?);
+    }
     while let Some(index) = pending.pop() {
         if !closure.insert(index) {
             continue;

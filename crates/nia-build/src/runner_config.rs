@@ -35,7 +35,7 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
     write_u32(&mut payload, BUILD_PLAN.schema);
     write_path(&mut payload, "build-plan draft", &invocation.plan_draft)?;
     match &invocation.step {
-        BuildStepSelection::Default => payload.push(0),
+        BuildStepSelection::Default | BuildStepSelection::Tests => payload.push(0),
         BuildStepSelection::Named(step) => {
             payload.push(1);
             write_text(&mut payload, "requested step", step)?;
@@ -244,6 +244,8 @@ mod tests {
             plan_draft: PathBuf::from("/workspace/package/.nia-build/.plan.draft"),
             plan_path: PathBuf::from("/workspace/package/.nia-build/build-plan.bin"),
             step,
+            test_filter: None,
+            test_list: false,
             timings: nia_driver::TimingMode::Off,
             timing_format: nia_timing::TimingFormat::Text,
             max_parallel_actions: None,

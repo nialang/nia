@@ -96,6 +96,12 @@ enum CliCommand {
         step: Option<String>,
         jobs: Option<NonZeroUsize>,
     },
+    Test {
+        root: Option<PathBuf>,
+        filter: Option<String>,
+        list: bool,
+        jobs: Option<NonZeroUsize>,
+    },
     Check {
         path: String,
         opt_report: bool,
@@ -130,6 +136,7 @@ enum CliAction {
 enum HelpTopic {
     Main,
     Build,
+    Test,
     Check,
     Emit,
 }
@@ -171,6 +178,21 @@ fn run_cli(cli: Cli) -> ExitCode {
         CliCommand::Build { root, step, jobs } => run_build(
             root,
             step,
+            jobs,
+            cli.optimization,
+            cli.timings,
+            timing_format,
+            toolchain,
+        ),
+        CliCommand::Test {
+            root,
+            filter,
+            list,
+            jobs,
+        } => run_test(
+            root,
+            filter,
+            list,
             jobs,
             cli.optimization,
             cli.timings,
@@ -516,6 +538,7 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
     match command.as_str() {
         "help" => Ok(ParsedCommand::Help(help_topic_from_args(&rest))),
         "build" => parse_build_command(rest).map(ParsedCommand::Run),
+        "test" => parse_test_command(rest).map(ParsedCommand::Run),
         "check" => parse_check_command(rest).map(ParsedCommand::Run),
         "emit" => parse_emit_command(rest).map(ParsedCommand::Run),
         _ => Err(CliError::new(
@@ -529,6 +552,7 @@ fn help_topic_from_args(args: &[String]) -> HelpTopic {
     match args {
         [] => HelpTopic::Main,
         [command] if command == "build" => HelpTopic::Build,
+        [command] if command == "test" => HelpTopic::Test,
         [command] if command == "check" => HelpTopic::Check,
         [command] if command == "emit" => HelpTopic::Emit,
         [command, target] if command == "emit" && emit_target_flag(target).is_some() => {
@@ -610,6 +634,86 @@ fn parse_build_jobs(value: &str) -> Result<NonZeroUsize, CliError> {
                 HelpTopic::Build,
             )
         })
+}
+
+fn parse_test_command(args: Vec<String>) -> Result<CliCommand, CliError> {
+    if has_help_flag(&args) {
+        return Err(CliError::help(HelpTopic::Test));
+    }
+    let mut root = None;
+    let mut filter = None;
+    let mut list = false;
+    let mut jobs = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--root=") {
+            if value.is_empty() {
+                return Err(CliError::new("`--root` cannot be empty", HelpTopic::Test));
+            }
+            root = Some(PathBuf::from(value));
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--filter=") {
+            filter = Some(value.to_string());
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--jobs=") {
+            jobs = Some(parse_build_jobs(value)?);
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("-j").filter(|value| !value.is_empty()) {
+            jobs = Some(parse_build_jobs(value)?);
+            continue;
+        }
+        match arg.as_str() {
+            "--root" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing path after `--root`",
+                        HelpTopic::Test,
+                    ));
+                };
+                root = Some(PathBuf::from(value));
+            }
+            "--filter" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing value after `--filter`",
+                        HelpTopic::Test,
+                    ));
+                };
+                filter = Some(value);
+            }
+            "--list" => list = true,
+            "--jobs" | "-j" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        format!("missing count after `{arg}`"),
+                        HelpTopic::Test,
+                    ));
+                };
+                jobs = Some(parse_build_jobs(&value)?);
+            }
+            _ if arg.starts_with('-') => {
+                return Err(CliError::new(
+                    format!("unknown `nia test` option `{arg}`"),
+                    HelpTopic::Test,
+                ));
+            }
+            _ => {
+                return Err(CliError::new(
+                    format!("unexpected argument `{arg}` for `nia test`"),
+                    HelpTopic::Test,
+                ));
+            }
+        }
+    }
+    Ok(CliCommand::Test {
+        root,
+        filter,
+        list,
+        jobs,
+    })
 }
 
 fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -1120,6 +1224,40 @@ fn run_build(
         request = request.with_max_parallel_actions(jobs);
     }
     request = request
+        .with_optimization(build_optimization(optimization))
+        .with_timings(timings)
+        .with_timing_format(timing_format);
+    match nia_build::run_build(request) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_test(
+    root: Option<PathBuf>,
+    filter: Option<String>,
+    list: bool,
+    jobs: Option<NonZeroUsize>,
+    optimization: NiaOptimizationLevel,
+    timings: nia_driver::TimingMode,
+    timing_format: TimingFormat,
+    toolchain: Arc<nia_toolchain::ToolchainLayout>,
+) -> ExitCode {
+    let mut request = nia_build::BuildRequest::new(toolchain).with_test_mode(true);
+    if let Some(root) = root {
+        request = request.with_root(root);
+    }
+    if let Some(filter) = filter {
+        request = request.with_test_filter(filter);
+    }
+    if let Some(jobs) = jobs {
+        request = request.with_max_parallel_actions(jobs);
+    }
+    request = request
+        .with_test_list(list)
         .with_optimization(build_optimization(optimization))
         .with_timings(timings)
         .with_timing_format(timing_format);
@@ -1671,5 +1809,25 @@ mod tests {
             .expect_err("invalid build jobs must fail");
             assert!(error.message.contains(expected), "{}", error.message);
         }
+    }
+
+    #[test]
+    fn test_command_parses_selection_controls() {
+        let command = parse_test_command(
+            ["--root", "tests", "--filter", "parser", "--list", "-j4"]
+                .into_iter()
+                .map(ToString::to_string)
+                .collect(),
+        )
+        .unwrap_or_else(|error| panic!("parse test command: {}", error.message));
+        assert!(matches!(
+            command,
+            CliCommand::Test {
+                root: Some(root),
+                filter: Some(filter),
+                list: true,
+                jobs: Some(jobs),
+            } if root == PathBuf::from("tests") && filter == "parser" && jobs.get() == 4
+        ));
     }
 }

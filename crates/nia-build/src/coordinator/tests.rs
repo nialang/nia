@@ -67,6 +67,8 @@ fn test_invocation() -> BuildInvocation {
         build_dir,
         package_root,
         step: crate::BuildStepSelection::Default,
+        test_filter: None,
+        test_list: false,
         timings: nia_driver::TimingMode::Off,
         timing_format: nia_timing::TimingFormat::Text,
         max_parallel_actions: None,
