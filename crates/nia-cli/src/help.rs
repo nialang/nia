@@ -179,7 +179,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map a module root; may appear anywhere; `entry`, `pkg`, and `builtin` are reserved",
+                    right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
                 },
                 HelpRow {
                     left: TIMINGS_OPTION_HELP,
@@ -203,6 +203,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia check src/main.nia --runtime freestanding",
                 "nia -O1 check src/main.nia --opt-report",
                 "nia check src/main.nia -M std=/usr/share/nia/std.nia",
+                "nia check src/main.nia -M math=vendor/math",
             ],
             notes: &["Timing reports are written to stderr."],
         },
@@ -302,7 +303,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map a module root; may appear anywhere; `entry`, `pkg`, and `builtin` are reserved",
+                    right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
                 },
                 HelpRow {
                     left: TIMINGS_OPTION_HELP,
@@ -358,7 +359,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     },
     HelpRow {
         left: "-M, --module <name=path>",
-        right: "map a module root; may appear anywhere; `entry`, `pkg`, and `builtin` are reserved",
+        right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
     },
     HelpRow {
         left: TIMINGS_OPTION_HELP,

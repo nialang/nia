@@ -3810,7 +3810,9 @@ rendering is reserved for compiler bugs and remains actionable for reporting.
 
 Each source file is one module. Child files are loaded only through explicit
 `module name;` or `pub module name;` declarations in the parent module. One
-`-M name=path` entry is one pkg root.
+`-M name=path` entry is one package root. When the path names a directory, the
+CLI resolves its required `pkg.nia` source root before constructing the module
+map; explicit source-file mappings remain a compatibility form.
 
 Cross-module references should go through using aliases, public surfaces,
 qualified paths, and stable `GlobalDefId`s. Phases should avoid storing direct

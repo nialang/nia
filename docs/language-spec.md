@@ -3430,9 +3430,11 @@ module-map pkg root; it does not implicitly discover files.
 A compilation has one reserved entry package named `root`. The reserved
 `pkg` root names the current module's own package. The CLI also provides a
 default `std` pkg root and accepts additional package roots with
-`-M name=path` or `--module name=path`. One `-M` entry is one package. Package
-roots are lazy: they are loaded when referenced by `using`, or when executable
-emission injects the standard startup contract.
+`-M name=path` or `--module name=path`. One `-M` entry is one package. A mapped
+directory is resolved through its required `pkg.nia` source root; a mapped file
+is retained as an explicit compatibility form while package roots migrate to
+that convention. Package roots are lazy: they are loaded when referenced by
+`using`, or when executable emission injects the standard startup contract.
 
 ### 12.1 Module Declarations
 
@@ -3484,10 +3486,14 @@ using math;
 using pkg::internal;
 ```
 
-A mapped root file is the pkg root module. Tail segments select declared
+A mapped package root file is the pkg root module. Tail segments select declared
 child modules below that root. If `std` maps to `/usr/share/nia/std.nia`, then
 `using std::io;` refers to the `io` child declared by that root and backed by
 `/usr/share/nia/std/io.nia`.
+
+For a package directory mapping, the equivalent form is
+`-M std=/usr/share/nia/std`; the CLI resolves it to
+`/usr/share/nia/std/pkg.nia`.
 
 Within a loaded module, `self` names the current module and `super` names the
 parent module. `pkg` names the current pkg root, while `root` still
