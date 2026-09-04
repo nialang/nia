@@ -104,15 +104,24 @@ extend CaseResult {
     }
 
     pub fn isPassed(&self) bool {
-        if self.status is .Passed { true } else { false }
+        if self.status is .Passed {
+            return true;
+        }
+        false
     }
 
     pub fn isFailed(&self) bool {
-        if self.status is .Failed { true } else { false }
+        if self.status is .Failed {
+            return true;
+        }
+        false
     }
 
     pub fn isSkipped(&self) bool {
-        if self.status is .Skipped { true } else { false }
+        if self.status is .Skipped {
+            return true;
+        }
+        false
     }
 }
 
