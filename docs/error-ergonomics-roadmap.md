@@ -23,6 +23,19 @@ closes, durable decisions move to `docs/language-spec.md`, `docs/architecture.md
 `docs/project-conventions.md`, and the relevant `lib/README.md` or std facade;
 this file is then deleted.
 
+## Review Findings So Far
+
+- Omitted `.init(...)` is stable in ordinary runtime return positions and in
+  nested runtime error constructors when the enclosing result type is known.
+- Nested omitted enum constructors are not yet accepted by all `const fn`
+  paths. Until const-context propagation is fixed and tested, those paths keep
+  explicit constructors; this is a compiler boundary, not a new language rule.
+- Generic error-union returns still keep explicit error constructors where
+  provider selection or the enclosing error type is not locally unambiguous.
+- `match` remains intentional for rollback, retained-owner cleanup, error
+  accumulation, and multi-value decoding. Pure extraction branches are the
+  only candidates for migration to `if ... is` during the std audit.
+
 ## 1. Existing Contracts
 
 - `E!T` is Nia's native error-union value. `.?` propagates its error and
@@ -182,4 +195,3 @@ binding rules if real code requires it.
 - `cargo fmt --all -- --check`, workspace check/clippy/tests, focused CLI and
   std integration tests, relevant full-driver tests, and `git diff --check`
   pass before retirement.
-
