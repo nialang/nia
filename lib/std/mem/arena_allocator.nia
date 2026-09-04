@@ -192,14 +192,10 @@ extend ArenaAllocator {
     }
 
     fn allocFromOptionalChunk(&mut self, maybeChunk: ?&mut ArenaChunk, layout: Layout) ?Block {
-        match maybeChunk {
-            ?chunk => {
-                allocFromChunk(chunk, layout)
-            },
-            null => {
-                null
-            },
+        if maybeChunk is ?chunk {
+            return allocFromChunk(chunk, layout);
         }
+        null
     }
 
     fn popFreeChunk(&mut self, layout: Layout) ?&mut ArenaChunk {

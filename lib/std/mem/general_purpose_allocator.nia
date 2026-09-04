@@ -183,15 +183,10 @@ extend GeneralPurposeAllocator {
 extend GeneralPurposeAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
         if self.pendingFree is ?block {
-            match self.child.free(block) {
-                !ok => {
-                    _ = ok;
-                    self.pendingFree = null;
-                },
-                error! => {
-                    return error!;
-                },
+            if self.child.free(block) is error! {
+                return error!;
             }
+            self.pendingFree = null;
         }
         if layout.isEmpty() {
             return !Block::empty(layout);
@@ -464,16 +459,12 @@ extend GeneralPurposeAllocator {
                                 self.smallPages = next;
                             },
                         }
-                        match self.child.free(item.block) {
-                            !ok => {
-                                return !ok;
-                            },
-                            err! => {
-                                item.next = self.smallPages;
-                                self.smallPages = ?item;
-                                return err!;
-                            },
+                        if self.child.free(item.block) is err! {
+                            item.next = self.smallPages;
+                            self.smallPages = ?item;
+                            return err!;
                         }
+                        return !();
                     }
                     previous = ?item;
                     current = next;
@@ -564,16 +555,12 @@ extend GeneralPurposeAllocator {
                                 self.largeAllocations = next;
                             },
                         }
-                        match self.child.free(header.backing) {
-                            !ok => {
-                                return !ok;
-                            },
-                            err! => {
-                                header.next = self.largeAllocations;
-                                self.largeAllocations = ?header;
-                                return err!;
-                            },
+                        if self.child.free(header.backing) is err! {
+                            header.next = self.largeAllocations;
+                            self.largeAllocations = ?header;
+                            return err!;
                         }
+                        return !();
                     }
                     previous = ?header;
                     current = next;
@@ -650,13 +637,8 @@ extend GeneralPurposeAllocator {
     }
 
     fn releaseOrRetain(&mut self, block: Block) () {
-        match self.child.free(block) {
-            !ok => {
-                _ = ok;
-            },
-            error! => {
-                self.pendingFree = ?block;
-            },
+        if self.child.free(block) is error! {
+            self.pendingFree = ?block;
         }
     }
 
