@@ -73,7 +73,7 @@ fn parseSpecEnd(
         return .InvalidTemplate!;
     }
     !ParsedSpec {
-        spec: core::FormatSpec::init(presentation, width, precision, fill, alignment, signPlus, alternate),
+        spec: .init(presentation, width, precision, fill, alignment, signPlus, alternate),
         nextIndex: index + 1,
         dynamicWidth: dynamicWidth,
         dynamicPrecision: dynamicPrecision,
@@ -207,7 +207,7 @@ fn resolveDynamicSpec(
     if parsed.dynamicPrecision {
         precision = ?nextUsizeArg(args, argIndex).?;
     }
-    !core::FormatSpec::init(
+    !.init(
         parsed.spec.presentation(),
         width,
         precision,
