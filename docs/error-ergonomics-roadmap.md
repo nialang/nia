@@ -36,6 +36,10 @@ this file is then deleted.
   omitted enum member, even when the concrete implementation sets that type;
   concrete methods can use the omission, while trait-facing methods retain the
   qualified constructor.
+- An omitted enum member does not provide enough expected type information for
+  an associated-function call nested inside it (for example,
+  `.Setup(.fromOs(cause))`). Keep the receiver qualified in that shape until
+  contextual typing can propagate through both products.
 - `match` remains intentional for rollback, retained-owner cleanup, error
   accumulation, and multi-value decoding. Pure extraction branches are the
   only candidates for migration to `if ... is` during the std audit.
