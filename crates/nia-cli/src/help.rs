@@ -63,12 +63,12 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "build and run registered host test suites",
                 },
                 HelpRow {
-                    left: "check <file.nia>",
-                    right: "run semantic checks",
+                    left: "check <file.nia|dir>",
+                    right: "run semantic checks; directories select main.nia or pkg.nia",
                 },
                 HelpRow {
-                    left: "emit --<target> <file.nia>",
-                    right: "write compiler output or inspection data",
+                    left: "emit --<target> <file.nia|dir>",
+                    right: "write compiler output or inspection data; directories select main.nia or pkg.nia",
                 },
             ],
             options: GLOBAL_OPTIONS,
@@ -159,7 +159,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Check => HelpDoc {
             title: "nia check",
             about: "Run the frontend and semantic checking pipeline.",
-            usage: &["nia check <file.nia> [--runtime <runtime>] [--opt-report] [options]"],
+            usage: &["nia check <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]"],
             commands: &[],
             options: &[
                 HelpRow {
@@ -201,6 +201,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             examples: &[
                 "nia check src/main.nia",
+                "nia check .",
                 "nia check src/main.nia --runtime freestanding",
                 "nia -O1 check src/main.nia --opt-report",
                 "nia check src/main.nia -M std=/usr/share/nia/std.nia",
@@ -212,13 +213,13 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             title: "nia emit",
             about: "Run a selected compiler output stage.",
             usage: &[
-                "nia emit --tokens <file.nia> [options]",
-                "nia emit --ast <file.nia> [options]",
-                "nia emit --checked <file.nia> [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --backend <file.nia> [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --llvm <file.nia> [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --obj <file.nia> [-o <file.o> | --out-dir <dir>] [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --exe <file.nia> [-o <executable>] [--runtime freestanding] [link options] [--opt-report] [options]",
+                "nia emit --tokens <file.nia|dir> [options]",
+                "nia emit --ast <file.nia|dir> [options]",
+                "nia emit --checked <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --backend <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --llvm <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --obj <file.nia|dir> [-o <file.o> | --out-dir <dir>] [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --exe <file.nia|dir> [-o <executable>] [--runtime freestanding] [link options] [--opt-report] [options]",
             ],
             commands: &[],
             options: &[
