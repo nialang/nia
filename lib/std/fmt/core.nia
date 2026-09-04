@@ -69,15 +69,7 @@ extend FormatSpec {
         signPlus: bool,
         alternate: bool,
     ) FormatSpec {
-        Self {
-            presentation: presentation,
-            width: width,
-            precision: precision,
-            fill: fill,
-            alignment: alignment,
-            signPlus: signPlus,
-            alternate: alternate,
-        }
+        .{ presentation, width, precision, fill, alignment, signPlus, alternate }
     }
 
     pub fn display() FormatSpec {
@@ -171,7 +163,7 @@ fn validateRadix(radix: u128) Error!() {
 
 extend Formatter {
     pub fn init(writer: &mut FormatWriter) Formatter {
-        Self { writer }
+        .{ writer }
     }
 
     pub fn writeBytes(&mut self, bytes: &[u8]) Error!() {
