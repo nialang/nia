@@ -82,7 +82,7 @@ extend String {
         let oldLen = self.len();
         let newLen = match oldLen.checkedAdd(view.scalarCount()) {
             ?value => value,
-            null => return mem::Error::OutOfMemory!,
+            null => return .OutOfMemory!,
         };
         self.text.ensureTotalCapacity(allocator, newLen).?;
         for scalar in view {
@@ -237,12 +237,12 @@ extend [&[char]] {
         let separatorCount = if self.isEmpty() { 0 } else { self.len() - 1 };
         let mut outputLen = match separator.len().checkedMul(separatorCount) {
             ?value => value,
-            null => return mem::Error::OutOfMemory!,
+            null => return .OutOfMemory!,
         };
         for &part in self {
             outputLen = match outputLen.checkedAdd(part.len()) {
                 ?value => value,
-                null => return mem::Error::OutOfMemory!,
+                null => return .OutOfMemory!,
             };
         }
 
@@ -266,15 +266,15 @@ fn replaceAllText(
     let matchCount = source.split(needle).count() - 1;
     let removed = match needle.len().checkedMul(matchCount) {
         ?value => value,
-        null => return mem::Error::OutOfMemory!,
+        null => return .OutOfMemory!,
     };
     let added = match replacement.len().checkedMul(matchCount) {
         ?value => value,
-        null => return mem::Error::OutOfMemory!,
+        null => return .OutOfMemory!,
     };
     let outputLen = match (source.len() - removed).checkedAdd(added) {
         ?value => value,
-        null => return mem::Error::OutOfMemory!,
+        null => return .OutOfMemory!,
     };
 
     let mut out = String::initCapacity(allocator, outputLen).?;
@@ -331,10 +331,10 @@ extend TextFormatWriter {
     fn textError(&self, error: fmt::Error) TextFormatError {
         if error == fmt::Error::Write {
             if self.failure is ?failure {
-                return TextFormatError::Allocation(failure);
+                return .Allocation(failure);
             }
         }
-        TextFormatError::Format(error)
+        .Format(error)
     }
 }
 
@@ -342,7 +342,7 @@ extend TextFormatWriter : io::Writer {
     type Error = mem::Error;
 
     fn shortWrite(&self) mem::Error {
-        mem::Error::OutOfMemory
+        .OutOfMemory
     }
 
     fn write(&mut self, bytes: &[u8]) mem::Error!usize {
