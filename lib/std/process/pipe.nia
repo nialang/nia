@@ -5,29 +5,25 @@ using pkg::process::types;
 using types::{ChildStderr, ChildStdin, ChildStdout};
 
 fn readHandle(handle: ?os::FileHandle, bytes: &mut [u8]) io::Error!usize {
-    match handle {
-        ?value => {
-            let n = value.readSome(bytes).?;
-            if n > bytes.len() {
-                return io::Error::EndOfStream!;
-            }
-            !n
-        },
-        null => io::Error::Closed!,
+    if handle is ?value {
+        let n = value.readSome(bytes).?;
+        if n > bytes.len() {
+            return .EndOfStream!;
+        }
+        return !n;
     }
+    .Closed!
 }
 
 fn writeHandle(handle: ?os::FileHandle, bytes: &[u8]) io::Error!usize {
-    match handle {
-        ?value => {
-            let n = value.writeSome(bytes).?;
-            if n > bytes.len() {
-                return io::Error::ShortWrite!;
-            }
-            !n
-        },
-        null => io::Error::Closed!,
+    if handle is ?value {
+        let n = value.writeSome(bytes).?;
+        if n > bytes.len() {
+            return .ShortWrite!;
+        }
+        return !n;
     }
+    .Closed!
 }
 
 fn closeHandle(handle: &mut ?os::FileHandle) io::Error!() {
