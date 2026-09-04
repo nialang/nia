@@ -41,15 +41,11 @@ where I: Iterator
         if self.remaining == 0 {
             return null;
         }
-        match self.iter.next() {
-            ?value => {
-                self.remaining -= 1;
-                ?value
-            },
-            null => {
-                null
-            },
+        if self.iter.next() is ?value {
+            self.remaining -= 1;
+            return ?value;
         }
+        null
     }
 }
 
@@ -89,16 +85,11 @@ where I: Iterator
     pub fn count(self) usize {
         let mut iter = self;
         let mut total: usize = 0;
-        let mut done = false;
-        while done == false {
-            match iter.next() {
-                ?value => {
-                    _ = value;
-                    total += 1;
-                },
-                null => {
-                    done = true;
-                },
+        while true {
+            if iter.next() is ?_ {
+                total += 1;
+            } else {
+                break;
             }
         }
         total
@@ -106,15 +97,11 @@ where I: Iterator
 
     pub fn forEach(self, callback: &Fn([I as Iterator]::Item) ()) () {
         let mut iter = self;
-        let mut done = false;
-        while done == false {
-            match iter.next() {
-                ?value => {
-                    callback(value);
-                },
-                null => {
-                    done = true;
-                },
+        while true {
+            if iter.next() is ?value {
+                callback(value);
+            } else {
+                break;
             }
         }
     }
@@ -126,15 +113,11 @@ where I: Iterator
     ) Accumulator {
         let mut iter = self;
         let mut accumulator = initial;
-        let mut done = false;
-        while done == false {
-            match iter.next() {
-                ?value => {
-                    accumulator = callback(accumulator, value);
-                },
-                null => {
-                    done = true;
-                },
+        while true {
+            if iter.next() is ?value {
+                accumulator = callback(accumulator, value);
+            } else {
+                break;
             }
         }
         accumulator
@@ -147,15 +130,11 @@ where I: Iterator
     ) Error!Accumulator {
         let mut iter = self;
         let mut accumulator = initial;
-        let mut done = false;
-        while done == false {
-            match iter.next() {
-                ?value => {
-                    accumulator = callback(accumulator, value).?;
-                },
-                null => {
-                    done = true;
-                },
+        while true {
+            if iter.next() is ?value {
+                accumulator = callback(accumulator, value).?;
+            } else {
+                break;
             }
         }
         !accumulator
@@ -164,18 +143,14 @@ where I: Iterator
     pub fn position(self, predicate: &Fn([I as Iterator]::Item) bool) ?usize {
         let mut iter = self;
         let mut index: usize = 0;
-        let mut done = false;
-        while done == false {
-            match iter.next() {
-                ?value => {
-                    if predicate(value) {
-                        return ?index;
-                    }
-                    index += 1;
-                },
-                null => {
-                    done = true;
-                },
+        while true {
+            if iter.next() is ?value {
+                if predicate(value) {
+                    return ?index;
+                }
+                index += 1;
+            } else {
+                break;
             }
         }
         null
