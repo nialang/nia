@@ -11,21 +11,11 @@ pub fn print(template: &[char], args: &[&fmt::Format]) Error!() {
     let mut buffer: [u8; 512] = [0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer);
 
-    match stderr.print(template, args) {
-        !ok => {
-            _ = ok;
-        },
-        cause! => {
-            return Error::Format(cause)!;
-        },
+    if stderr.print(template, args) is cause! {
+        return .Format(cause)!;
     }
-    match stderr.flush() {
-        !ok => {
-            _ = ok;
-        },
-        cause! => {
-            return Error::Flush(cause)!;
-        },
+    if stderr.flush() is cause! {
+        return .Flush(cause)!;
     }
     !()
 }

@@ -113,12 +113,9 @@ extend String {
         };
 
         let mut writer = TextFormatWriter::init(allocator);
-        match fmt::printChecked(&mut writer, template, args) {
-            !ok => { _ = ok; },
-            error! => {
-                let primary = writer.textError(error);
-                return writer.finish(self, ?primary);
-            },
+        if fmt::printChecked(&mut writer, template, args) is error! {
+            let primary = writer.textError(error);
+            return writer.finish(self, ?primary);
         }
         if writer.appendTo(self) is error! {
             return writer.finish(self, ?error);
