@@ -65,14 +65,10 @@ pub fn pageSize() usize {
 }
 
 pub fn pageAlignedLen(len: usize) Errno!usize {
-    match len.alignForward(pageSize()) {
-        ?value => {
-            !value
-        },
-        null => {
-            Errno::OutOfRange!
-        },
+    if len.alignForward(pageSize()) is ?value {
+        return !value;
     }
+    Errno::OutOfRange!
 }
 
 pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
@@ -98,11 +94,8 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     };
     let mapped = rawMapPages(mapLen).?;
     let mappedAddr = mapped as usize;
-    match mappedAddr.checkedAdd(mapLen) {
-        ?value => { _ = value; },
-        null => {
-            return rejectMappedRange(mapped, mapLen);
-        },
+    if mappedAddr.checkedAdd(mapLen) is null {
+        return rejectMappedRange(mapped, mapLen);
     }
     let resultAddr = match mappedAddr.alignForward(align) {
         ?value => value,
