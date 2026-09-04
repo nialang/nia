@@ -62,23 +62,13 @@ fn spawnWithResources(
         SpawnAttempt::failure(SpawnError::Setup(ret.syscallError()))
     } else if ret == 0 {
         resources.error.closeRead();
-        match applyStdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) {
-            !ok => {
-                _ = ok;
-            },
-            error! => {
-                reportSpawnError(&resources.error, SpawnStage::Stdio, error);
-                exit(127);
-            },
+        if applyStdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) is error! {
+            reportSpawnError(&resources.error, .Stdio, error);
+            exit(127);
         }
-        match applyCwd(options) {
-            !ok => {
-                _ = ok;
-            },
-            error! => {
-                reportSpawnError(&resources.error, SpawnStage::Cwd, error);
-                exit(127);
-            },
+        if applyCwd(options) is error! {
+            reportSpawnError(&resources.error, .Cwd, error);
+            exit(127);
         }
         let execRet = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
         reportSpawnError(&resources.error, SpawnStage::Exec, execRet.syscallError());

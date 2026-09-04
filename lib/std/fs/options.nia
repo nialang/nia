@@ -5,15 +5,15 @@ using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, 
 
 extend OpenOptions {
     pub fn readOnly() OpenOptions {
-        Self { mode: OpenMode::ReadOnly }
+        .{ mode: .ReadOnly }
     }
 
     pub fn writeOnly() OpenOptions {
-        Self { mode: OpenMode::WriteOnly }
+        .{ mode: .WriteOnly }
     }
 
     pub fn readWrite() OpenOptions {
-        Self { mode: OpenMode::ReadWrite }
+        .{ mode: .ReadWrite }
     }
 
     pub fn mode(&self) OpenMode {
@@ -32,11 +32,11 @@ extend OpenOptions {
 
 extend OpenDirOptions {
     pub fn init() OpenDirOptions {
-        Self { followSymlinks: true }
+        .{ followSymlinks: true }
     }
 
     pub fn noFollow() OpenDirOptions {
-        Self { followSymlinks: false }
+        .{ followSymlinks: false }
     }
 
     pub fn followSymlinks(&self) bool {
@@ -46,11 +46,11 @@ extend OpenDirOptions {
 
 extend MetadataOptions {
     pub fn init() MetadataOptions {
-        Self { followSymlinks: true }
+        .{ followSymlinks: true }
     }
 
     pub fn noFollow() MetadataOptions {
-        Self { followSymlinks: false }
+        .{ followSymlinks: false }
     }
 
     pub fn followSymlinks(&self) bool {
@@ -60,15 +60,15 @@ extend MetadataOptions {
 
 extend CreateOptions {
     pub fn init() CreateOptions {
-        Self { read: false, truncate: true, exclusive: false, permissions: 0o666 }
+        .{ read: false, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
     pub fn readWrite() CreateOptions {
-        Self { read: true, truncate: true, exclusive: false, permissions: 0o666 }
+        .{ read: true, truncate: true, exclusive: false, permissions: 0o666 }
     }
 
     pub fn exclusive() CreateOptions {
-        Self { read: false, truncate: true, exclusive: true, permissions: 0o666 }
+        .{ read: false, truncate: true, exclusive: true, permissions: 0o666 }
     }
 
     pub fn read(&self) bool {
@@ -98,7 +98,7 @@ extend CreateOptions {
 
 extend CreateDirOptions {
     pub fn init() CreateDirOptions {
-        Self { permissions: 0o777 }
+        .{ permissions: 0o777 }
     }
 
     pub fn permissions(&self) u32 {

@@ -235,14 +235,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Item = &mut V;
 
     pub fn next(&mut self) ?&mut V {
-        match self.iter.next() {
-            mut ?entry => {
-                ?entry.valueMut()
-            },
-            null => {
-                null
-            },
-        }
+        self.iter.next().map(&mut \entry -> entry.valueMut())
     }
 }
 
