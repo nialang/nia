@@ -1,4 +1,5 @@
 using pkg::mem::types;
+using pkg::result;
 using pkg::slice;
 
 using types::{Block, Error, Layout};
