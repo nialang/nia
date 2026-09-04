@@ -8,7 +8,13 @@
 //! and become a failed process exit rather than unwinding through the CLI.
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
-use std::{env, num::NonZeroUsize, path::PathBuf, process::ExitCode, sync::Arc};
+use std::{
+    env, fs, io,
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::Arc,
+};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
 use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
@@ -1030,7 +1036,45 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
     if path.is_empty() {
         return Err(format!("module map `{name}` has empty path"));
     }
-    map.try_insert(name, SourcePath::new(path))
+    let path = resolve_package_root_path(path)?;
+    map.try_insert(name, SourcePath::new(path.to_string_lossy().into_owned()))
+}
+
+/// Resolves the user-facing package mapping shorthand.
+///
+/// A directory is a package only when it owns the conventional `pkg.nia`
+/// source root. Explicit source files remain accepted during the package-root
+/// migration so installed resources and generated packages can move together.
+fn resolve_package_root_path(path: &str) -> Result<PathBuf, String> {
+    let candidate = Path::new(path);
+    match fs::metadata(candidate) {
+        Ok(metadata) if metadata.is_dir() => {
+            let package_root = candidate.join("pkg.nia");
+            if package_root.is_file() {
+                Ok(package_root)
+            } else {
+                Err(format!(
+                    "module map package directory `{path}` does not contain `pkg.nia`"
+                ))
+            }
+        }
+        Ok(metadata) if metadata.is_file() => Ok(candidate.to_path_buf()),
+        Ok(_) => Err(format!(
+            "module map package path `{path}` is neither a file nor a directory"
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            // Preserve useful loader diagnostics for paths that will be
+            // generated before compilation, while applying directory syntax.
+            if candidate.extension().is_none() {
+                Ok(candidate.join("pkg.nia"))
+            } else {
+                Ok(candidate.to_path_buf())
+            }
+        }
+        Err(error) => Err(format!(
+            "cannot inspect module map package `{path}`: {error}"
+        )),
+    }
 }
 
 fn run_lex(source: &str) -> ExitCode {
@@ -1789,6 +1833,41 @@ fn print_optimization_report_to_stderr(program: &nia_driver::CodegenProgram) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn module_map_directory_resolves_package_root() {
+        let directory = nia_test_support::test_dir("module-map-package-root");
+        let package_root = directory.join("pkg.nia");
+        fs::write(&package_root, "").expect("write package root");
+
+        assert_eq!(
+            resolve_package_root_path(directory.to_string_lossy().as_ref())
+                .expect("resolve package directory"),
+            package_root
+        );
+    }
+
+    #[test]
+    fn module_map_directory_requires_package_root() {
+        let directory = nia_test_support::test_dir("module-map-missing-package-root");
+
+        let error = resolve_package_root_path(directory.to_string_lossy().as_ref())
+            .expect_err("directory without pkg.nia must fail");
+
+        assert!(error.contains("does not contain `pkg.nia`"), "{error}");
+    }
+
+    #[test]
+    fn unresolved_module_map_directory_uses_package_root_convention() {
+        assert_eq!(
+            resolve_package_root_path("vendor/math").expect("resolve directory spelling"),
+            PathBuf::from("vendor/math/pkg.nia")
+        );
+        assert_eq!(
+            resolve_package_root_path("vendor/math.nia").expect("preserve source spelling"),
+            PathBuf::from("vendor/math.nia")
+        );
+    }
 
     #[test]
     fn ice_boundary_converts_panic_to_failure() {
