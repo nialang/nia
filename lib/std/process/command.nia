@@ -339,7 +339,7 @@ fn appendPath(
         allocator,
         bytes,
         path.text(),
-        Error::Path(fs::PathError::ContainsNul),
+        .Path(.ContainsNul),
     )
 }
 
@@ -356,7 +356,7 @@ fn appendText(
         }
         byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
-            null => return Error::Allocation(mem::Error::OutOfMemory)!,
+            null => return .Allocation(.OutOfMemory)!,
         };
     }
     bytes.reserve(allocator, byteLen).?;
@@ -410,18 +410,18 @@ fn appendEnvironmentEntry(
     for &ch in entry.name() {
         byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
-            null => return Error::Allocation(mem::Error::OutOfMemory)!,
+            null => return .Allocation(.OutOfMemory)!,
         };
     }
     for &ch in entry.value() {
         byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
-            null => return Error::Allocation(mem::Error::OutOfMemory)!,
+            null => return .Allocation(.OutOfMemory)!,
         };
     }
     let needed = match byteLen.checkedAdd(1) {
         ?value => value,
-        null => return Error::Allocation(mem::Error::OutOfMemory)!,
+        null => return .Allocation(.OutOfMemory)!,
     };
     bytes.reserve(allocator, needed).?;
     for &ch in entry.name() {
@@ -457,19 +457,19 @@ fn appendCStringPointers(
 fn commandSpawnError(cause: os::SpawnError) Error {
     match cause {
         .Setup(system) => {
-            Error::Spawn(SpawnError::Setup(SystemError::fromOs(system)))
+            .Spawn(.Setup(SystemError::fromOs(system)))
         },
         .Stdio(system) => {
-            Error::Spawn(SpawnError::Stdio(SystemError::fromOs(system)))
+            .Spawn(.Stdio(SystemError::fromOs(system)))
         },
         .Cwd(system) => {
-            Error::Spawn(SpawnError::Cwd(SystemError::fromOs(system)))
+            .Spawn(.Cwd(SystemError::fromOs(system)))
         },
         .Exec(system) => {
-            Error::Spawn(SpawnError::Exec(SystemError::fromOs(system)))
+            .Spawn(.Exec(SystemError::fromOs(system)))
         },
         .Reap { stage, primary, cause, pid } => {
-            Error::Spawn(SpawnError::Reap {
+            .Spawn(.Reap {
                 stage: commandSpawnStage(stage),
                 primary: SystemError::fromOs(primary),
                 cause: SystemError::fromOs(cause),
@@ -491,7 +491,7 @@ fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
 
 extend[T] os::Error!T {
     fn withSpawnSetupContext(self) Error!T {
-        self.mapError(&\cause: os::Error -> Error::SpawnSetup(SystemError::fromOs(cause)))
+        self.mapError(&\cause: os::Error -> .SpawnSetup(SystemError::fromOs(cause)))
     }
 }
 

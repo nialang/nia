@@ -47,7 +47,7 @@ extend CString {
         }
         let capacity = match bytes.len().checkedAdd(1) {
             ?value => value,
-            null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
+            null => return .Allocation(.OutOfMemory)!,
         };
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         output.appendSliceAssumeCapacity(bytes);
@@ -67,12 +67,12 @@ extend CString {
             }
             byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
                 ?value => value,
-                null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
+                null => return .Allocation(.OutOfMemory)!,
             };
         }
         let capacity = match byteLen.checkedAdd(1) {
             ?value => value,
-            null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
+            null => return .Allocation(.OutOfMemory)!,
         };
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         for &ch in text {
