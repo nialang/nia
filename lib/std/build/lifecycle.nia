@@ -65,10 +65,7 @@ extend Build {
         requestedStep: ?&[char],
         testMode: bool,
     ) BuildInitAttempt {
-        let ownerId = match allocateBuildOwnerId() {
-            ?value => value,
-            null => 0,
-        };
+        let ownerId = if allocateBuildOwnerId() is ?value { value } else { 0 };
         let build: Build = .{
             ownerId: ownerId,
             allocator: allocator,
