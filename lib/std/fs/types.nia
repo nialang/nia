@@ -164,14 +164,10 @@ pub struct CreateDirOptions {
 
 extend Dir {
     pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
-        match self.handle {
-            ?handle => {
-                !handle
-            },
-            null => {
-                Error::BadFd!
-            },
+        if self.handle is ?handle {
+            return !handle;
         }
+        Error::BadFd!
     }
 
     pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
@@ -188,14 +184,10 @@ extend Dir {
 
 extend File {
     pub(pkg) fn borrowHandle(&self) Error!os::FileHandle {
-        match self.handle {
-            ?handle => {
-                !handle
-            },
-            null => {
-                Error::BadFd!
-            },
+        if self.handle is ?handle {
+            return !handle;
         }
+        Error::BadFd!
     }
 
     pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
