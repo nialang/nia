@@ -685,35 +685,25 @@ where T: Sized
     }
 
     fn freeItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let block = match self.storageBlock {
-            ?value => value,
-            null => return !(),
-        };
-        match allocator.free(block) {
-            !ok => {
-                _ = ok;
-                self.items = raw::danglingSlice[T](0);
-                self.capacity = 0;
-                self.storageBlock = null;
-                !()
-            },
-            err! => err!,
+        if self.storageBlock is ?block {
+            if allocator.free(block) is error! {
+                return error!;
+            }
+            self.items = raw::danglingSlice[T](0);
+            self.capacity = 0;
+            self.storageBlock = null;
         }
+        !()
     }
 
     fn freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let block = match self.replacementBlock {
-            ?value => value,
-            null => return !(),
-        };
-        match allocator.free(block) {
-            !ok => {
-                _ = ok;
-                self.replacementBlock = null;
-                !()
-            },
-            err! => err!,
+        if self.replacementBlock is ?block {
+            if allocator.free(block) is error! {
+                return error!;
+            }
+            self.replacementBlock = null;
         }
+        !()
     }
 
     fn freePendingItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
@@ -722,18 +712,13 @@ where T: Sized
     }
 
     fn freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
-        let block = match self.aliasBlock {
-            ?value => value,
-            null => return !(),
-        };
-        match allocator.free(block) {
-            !ok => {
-                _ = ok;
-                self.aliasBlock = null;
-                !()
-            },
-            err! => err!,
+        if self.aliasBlock is ?block {
+            if allocator.free(block) is error! {
+                return error!;
+            }
+            self.aliasBlock = null;
         }
+        !()
     }
 
     fn retainReplacementBlock(&mut self, block: mem::Block) () {
@@ -767,16 +752,13 @@ where T: Sized
     }
 
     fn allocatedBlock(&self) mem::Error!mem::Block {
-        match self.storageBlock {
-            ?block => !block,
-            null => {
-                if self.capacity == 0 {
-                    !mem::Block::empty(mem::Layout::array[T](0).?)
-                } else {
-                    mem::Error::Invalid!
-                }
-            },
+        if self.storageBlock is ?block {
+            return !block;
         }
+        if self.capacity == 0 {
+            return !mem::Block::empty(mem::Layout::array[T](0).?);
+        }
+        mem::Error::Invalid!
     }
 
     fn setAllocatedBlock(&mut self, block: mem::Block, capacity: usize) () {
