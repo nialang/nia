@@ -101,7 +101,7 @@ extend Build {
     }
 
     pub fn rootPackage(&self) PackageHandle {
-        PackageHandle::init(self.ownerId, 0)
+        .init(self.ownerId, 0)
     }
 
     pub fn addPackage(&mut self, options: PackageOptions) Error!PackageHandle {

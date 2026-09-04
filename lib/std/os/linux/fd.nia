@@ -121,7 +121,7 @@ extend FileDescriptor {
 }
 
 pub fn cwd() FileDescriptor {
-    FileDescriptor::init(types::atFdCwd)
+    .init(types::atFdCwd)
 }
 
 pub fn pipeCloseOnExec() Errno!Pipe {
