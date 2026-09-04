@@ -83,7 +83,7 @@ pub struct GeneralPurposeAllocator {
 
 extend GeneralPurposeAllocator {
     pub fn init(child: &mut Allocator) GeneralPurposeAllocator {
-        Self { child, smallPages: null, largeAllocations: null, pendingFree: null }
+        .{ child, smallPages: null, largeAllocations: null, pendingFree: null }
     }
 
     pub fn deinit(&mut self) Error!DeinitStatus {

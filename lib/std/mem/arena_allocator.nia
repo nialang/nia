@@ -20,7 +20,7 @@ pub struct ArenaAllocator {
 
 extend ArenaAllocator {
     pub fn init(child: &mut Allocator) ArenaAllocator {
-        Self { child, usedList: null, freeList: null }
+        .{ child, usedList: null, freeList: null }
     }
 
     pub fn deinit(&mut self) Error!() {
