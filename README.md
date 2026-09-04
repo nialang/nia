@@ -142,7 +142,7 @@ for that installed layout.
 The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text
-nia build [step] [--root dir]
+nia build [step|dir] [--root dir]
 nia check <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
@@ -155,10 +155,13 @@ nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg a
 
 `nia build` discovers and runs the package's `build.nia`, creates `.nia-build/`
 for outputs and `.nia-cache/` for reusable entries, and executes the selected or
-default step. For example:
+default step. A directory argument such as `nia build .` is shorthand for
+`--root .`; package discovery stops at a `pkg.nia` boundary, so a child package
+cannot silently inherit a parent package's build script. For example:
 
 ```sh
 nia --resource-root "$PWD/lib" build --root .
+nia --resource-root "$PWD/lib" build .
 ```
 
 The build-script API is documented beside [`lib/std/build.nia`](lib/std/build.nia).
