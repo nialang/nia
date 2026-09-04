@@ -1,4 +1,5 @@
 using pkg::cmp;
+using pkg::error;
 using pkg::math;
 using pkg::iter::range;
 using pkg::mem::allocator;
@@ -641,8 +642,7 @@ extend GeneralPurposeAllocator {
         large: ?&mut LargeHeader,
         pending: ?Block,
     ) Error!() {
-        let mut failed = false;
-        let mut firstError = Error::Invalid;
+        let mut cleanup: error::CleanupAccumulator[Error] = .init();
 
         let mut page = small;
         while true {
@@ -653,10 +653,7 @@ extend GeneralPurposeAllocator {
                     if self.child.free(item.block) is err! {
                         item.next = self.smallPages;
                         self.smallPages = ?item;
-                        if not failed {
-                            firstError = err;
-                            failed = true;
-                        }
+                        cleanup.attempt(err!);
                     }
                     page = next;
                 },
@@ -675,10 +672,7 @@ extend GeneralPurposeAllocator {
                     if self.child.free(item.backing) is err! {
                         item.next = self.largeAllocations;
                         self.largeAllocations = ?item;
-                        if not failed {
-                            firstError = err;
-                            failed = true;
-                        }
+                        cleanup.attempt(err!);
                     }
                     header = next;
                 },
@@ -686,16 +680,10 @@ extend GeneralPurposeAllocator {
                     if pending is ?block {
                         if self.child.free(block) is err! {
                             self.pendingFree = ?block;
-                            if not failed {
-                                firstError = err;
-                                failed = true;
-                            }
+                            cleanup.attempt(err!);
                         }
                     }
-                    if failed {
-                        return firstError!;
-                    }
-                    return !();
+                    return cleanup.finish();
                 },
             }
         }
