@@ -144,7 +144,7 @@ pub fn ctrlAllocationLen(capacity: usize) mem::Error!usize {
             !value
         },
         null => {
-            mem::Error::OutOfMemory!
+            .OutOfMemory!
         },
     }
 }
@@ -190,7 +190,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
             value
         },
         null => {
-            return mem::Error::OutOfMemory!;
+            return .OutOfMemory!;
         },
     };
     let biased = match multiplied.checkedAdd(6) {
@@ -198,7 +198,7 @@ pub fn capacityToBuckets(capacity: usize) mem::Error!usize {
             value
         },
         null => {
-            return mem::Error::OutOfMemory!;
+            return .OutOfMemory!;
         },
     };
     let adjusted = biased / 7;
@@ -213,7 +213,7 @@ pub fn nextPowerOfTwo(value: usize) mem::Error!usize {
                 next
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
     }
