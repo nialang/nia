@@ -42,12 +42,12 @@ extend CString {
     pub fn fromBytes(allocator: &mut mem::Allocator, bytes: &[u8]) CStringBuildError!CString {
         for &byte in bytes {
             if byte == 0 {
-                return .ContainsNul!;
+                return CStringBuildError::ContainsNul!;
             }
         }
         let capacity = match bytes.len().checkedAdd(1) {
             ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
+            null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         output.appendSliceAssumeCapacity(bytes);
@@ -63,16 +63,16 @@ extend CString {
         let mut byteLen: usize = 0;
         for &ch in text {
             if ch.codepoint() == 0 {
-                return .ContainsNul!;
+                return CStringBuildError::ContainsNul!;
             }
             byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
                 ?value => value,
-                null => return .Allocation(.OutOfMemory)!,
+                null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
             };
         }
         let capacity = match byteLen.checkedAdd(1) {
             ?value => value,
-            null => return .Allocation(.OutOfMemory)!,
+            null => return CStringBuildError::Allocation(mem::Error::OutOfMemory)!,
         };
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         for &ch in text {
@@ -129,14 +129,14 @@ extend CStringView {
 
     pub fn fromBytes(bytes: &[u8]) CStringError!CStringView {
         if bytes.len() == 0 {
-            return .EmptyInput!;
+            return CStringError::EmptyInput!;
         }
         if bytes[bytes.len() - 1] != 0 {
-            return .MissingTerminator!;
+            return CStringError::MissingTerminator!;
         }
         for &byte in &bytes[0..bytes.len() - 1] {
             if byte == 0 {
-                return .InteriorNul!;
+                return CStringError::InteriorNul!;
             }
         }
         !CStringView::fromParts(bytes.ptr(), bytes.len() - 1)
@@ -192,7 +192,7 @@ extend CStringView : fmt::Format {
 
     fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         if spec.presentation() != fmt::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
-            return .InvalidTemplate!;
+            return fmt::Error::InvalidTemplate!;
         }
         let contentWidth = formatter.precisionWidth(self.len(), spec);
         formatter.writePaddingBefore(contentWidth, spec).?;
