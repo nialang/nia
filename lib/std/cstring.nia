@@ -42,7 +42,7 @@ extend CString {
     pub fn fromBytes(allocator: &mut mem::Allocator, bytes: &[u8]) CStringBuildError!CString {
         for &byte in bytes {
             if byte == 0 {
-                return CStringBuildError::ContainsNul!;
+                return .ContainsNul!;
             }
         }
         let capacity = match bytes.len().checkedAdd(1) {
@@ -63,7 +63,7 @@ extend CString {
         let mut byteLen: usize = 0;
         for &ch in text {
             if ch.codepoint() == 0 {
-                return CStringBuildError::ContainsNul!;
+                return .ContainsNul!;
             }
             byteLen = match byteLen.checkedAdd(ch.encodeUtf8().byteLen()) {
                 ?value => value,
