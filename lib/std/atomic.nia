@@ -27,7 +27,7 @@ extend[T] Atomic[T]
 where T: Sized
 {
     pub fn init(value: T) Atomic[T] {
-        Self { value }
+        .{ value }
     }
 
     pub fn ptr(&mut self) &mut T {

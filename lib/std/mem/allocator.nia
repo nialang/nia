@@ -79,7 +79,7 @@ extend Allocator {
     {
         let layout = Layout::array[T](len).?;
         let block = self.alloc(layout).?;
-        !SliceAllocation[T] { block, len }
+        !.{ block, len }
     }
 }
 
@@ -87,7 +87,7 @@ extend[T] SliceAllocation[T]
 where T: Sized
 {
     pub(pkg) fn fromBlock(block: Block, len: usize) SliceAllocation[T] {
-        Self { block, len }
+        .{ block, len }
     }
 
     pub fn len(&self) usize {

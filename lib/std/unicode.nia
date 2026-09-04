@@ -34,7 +34,7 @@ pub enum Utf8DecodeError: i32 {
 
 extend Utf8Scalar {
     fn init(bytes: [u8; 4], byteLen: usize) Utf8Scalar {
-        Self { bytes, byteLen }
+        .{ bytes, byteLen }
     }
 
     pub fn byteLen(&self) usize {
@@ -48,7 +48,7 @@ extend Utf8Scalar {
 
 extend DecodedUtf8Scalar {
     fn init(scalar: char, byteLen: usize) DecodedUtf8Scalar {
-        Self { scalar, byteLen }
+        .{ scalar, byteLen }
     }
 
     pub fn scalar(&self) char {
