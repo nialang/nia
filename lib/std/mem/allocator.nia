@@ -51,10 +51,8 @@ pub trait Allocator {
         if self.remap(block, newLayout) is ?newBlock {
             return !newBlock;
         }
-        let newBlock = match self.alloc(newLayout) {
-            !value => value,
-            error! => return ReallocError::Allocation(error)!,
-        };
+        let newBlock = self.alloc(newLayout)
+            .mapError(&\cause: Error -> ReallocError::Allocation(cause)).?;
         block.copyPrefixTo(newBlock);
         if self.free(block) is oldError! {
             if self.free(newBlock) is replacementError! {
