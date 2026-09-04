@@ -201,3 +201,27 @@ failed `Block`, path, descriptor, or nested owner. Use
 `CleanupAccumulator[Failure]` when independent releases must all be attempted;
 retain each failed owner in its type-specific slot and return the first cleanup
 error after the pass completes.
+
+### Deferred Result Combinator: `inspectError`
+
+The current result surface already covers propagation (`.?`), value
+transformation (`map`/`andThen`), error transformation (`mapError`), and
+recovery (`orElse`). A possible future addition is an `inspectError` combinator
+for the narrower case of observing an error and returning that exact error:
+
+```nia
+operation()
+    .inspectError(&cause -> log(cause))
+    .?;
+```
+
+This remains a design candidate, not a current API. Before adding it, an std
+audit must show repeated infallible error-observation branches that are clearer
+as a combinator. Its contract would need to be: evaluate the receiver once,
+call a borrowed synchronous `&Fn(Source) ()` only on failure, allocate nothing,
+and return the original error unchanged. It must not be used for cleanup,
+rollback, or error accumulation; fallible callbacks would require an explicit
+error-priority and owner-retention policy and belong to the existing cleanup
+APIs instead. A generic associated-type `Try` protocol is intentionally not a
+prerequisite for this candidate: Nia's optional and error-union forms remain
+native language values with compiler-level `.?` propagation.
