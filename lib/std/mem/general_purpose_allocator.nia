@@ -258,7 +258,6 @@ extend GeneralPurposeAllocator : Allocator {
                 slot.align = newLayout.align();
                 return true;
             }
-        }
         match self.findLargeHeader(block.ptr()) {
             mut ?header => {
                 if newLayout.isEmpty() {
