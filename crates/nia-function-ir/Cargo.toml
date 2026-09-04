@@ -9,6 +9,7 @@ license.workspace = true
 nia-ast.workspace = true
 nia-ids.workspace = true
 nia-ir-names.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true
 nia-ty.workspace = true

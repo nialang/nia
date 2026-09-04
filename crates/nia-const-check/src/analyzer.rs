@@ -114,6 +114,8 @@ pub struct TypedConstQueryInput<'a> {
     pub target: &'a TargetConfig,
     /// Source path attached to diagnostics from this module.
     pub source_path: &'a SourcePath,
+    /// Exact source text used to materialize source coordinates.
+    pub source_text: &'a str,
     /// Optional cross-module providers used by const evaluation.
     pub program: ConstProgramContext<'a>,
     /// Values already computed for the current module.
@@ -379,6 +381,7 @@ pub(crate) struct ConstCallFrame {
     is_execution_frame: bool,
     module_id: Option<ModuleId>,
     function_id: Option<GlobalDefId>,
+    caller_location: Option<nia_source::SourceLocation>,
     return_type: Option<InternedTyId>,
     locals: HashMap<LocalId, ConstValue>,
     allocation_ids: HashMap<LocalId, ConstAllocationId>,
@@ -397,6 +400,7 @@ impl From<TypedConstFrame> for ConstCallFrame {
             is_execution_frame: false,
             module_id: frame.module_id,
             function_id: frame.function_id,
+            caller_location: None,
             return_type: None,
             locals: HashMap::new(),
             allocation_ids: HashMap::new(),
@@ -458,6 +462,7 @@ impl Analyzer<'_> {
                 normalization: input.normalization,
                 target: input.target,
                 source_path: input.source_path,
+                source_text: input.source_text,
                 program: input.program,
             },
             values: HashMap::new(),

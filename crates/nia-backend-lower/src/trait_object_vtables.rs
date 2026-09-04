@@ -357,6 +357,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
@@ -402,6 +403,9 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<BackendTraitObjectVtableKey>,
     ) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => {
+                self.collect_trait_object_vtables_from_callee(callee, out, seen)
+            }
             FunctionCallee::ClosureEntry {
                 state: receiver, ..
             }

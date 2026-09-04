@@ -1487,6 +1487,13 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
     ) -> TypedExprKind {
         match (builtin, args) {
+            (nia_ids::BuiltinFunction::CallerLocation, []) => {
+                TypedExprKind::CallerLocation(nia_source::SourceLocation::at(
+                    &self.source_path.identity(),
+                    self.source_text,
+                    expr.span.start,
+                ))
+            }
             (nia_ids::BuiltinFunction::Trap, []) => TypedExprKind::Trap,
             (nia_ids::BuiltinFunction::SizeOf | nia_ids::BuiltinFunction::AlignOf, []) => {
                 self.lower_builtin_value_expr(expr)

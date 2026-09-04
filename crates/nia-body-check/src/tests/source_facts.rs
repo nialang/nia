@@ -160,6 +160,7 @@ fn main() i32 {
         },
         target: &target,
         source_path: &source_path,
+        source_text: "",
         program: nia_const_check::ConstProgramContext::empty(),
     };
     let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
@@ -193,6 +194,7 @@ fn main() i32 {
         type_store: &type_store,
         source_version: Some(version),
         source_path: &source_path,
+        source_text: "",
         symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,
@@ -341,6 +343,7 @@ fn main() i32 {
         },
         target: &target,
         source_path: &source_path,
+        source_text: "",
         program: nia_const_check::ConstProgramContext::empty(),
     };
     let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
@@ -382,6 +385,7 @@ fn main() i32 {
         type_store: &type_store,
         source_version: Some(version),
         source_path: &source_path,
+        source_text: "",
         symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,

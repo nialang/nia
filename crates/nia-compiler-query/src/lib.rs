@@ -10,6 +10,8 @@ mod program_diagnostic_bundle;
 mod query;
 mod signature_cache;
 
+use std::sync::Arc;
+
 use nia_abi_check::AbiCheck;
 use nia_backend_lower::BackendLowering;
 use nia_body_ir::BodyIr;
@@ -258,6 +260,11 @@ pub trait LoaderFactProvider: Send + Sync {
         &self,
         module_id: ModuleId,
     ) -> nia_query::QueryResult<Option<(SourceContentFingerprint, usize)>>;
+    /// Returns the exact source text for source-coordinate materialization.
+    fn module_source_text(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<Arc<str>>> {
+        let _ = module_id;
+        Ok(None)
+    }
     /// Returns provider-summary facts for a module.
     fn module_provider_summary(
         &self,
@@ -399,6 +406,14 @@ impl LoaderFactProvider for LoadedProgram {
         Ok(None)
     }
 
+    fn module_source_text(&self, module_id: ModuleId) -> nia_query::QueryResult<Option<Arc<str>>> {
+        Ok(self
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.source_text.clone()))
+    }
+
     fn module_provider_summary(
         &self,
         module_id: ModuleId,
@@ -507,6 +522,8 @@ pub struct LoadedModule {
     pub source_identity: SourceIdentity,
     /// Source revision represented by the facts.
     pub source_version: SourceVersion,
+    /// Exact source text represented by this snapshot.
+    pub source_text: Arc<str>,
     /// Parsed source item tree.
     pub item_tree: ModuleItemTree,
     /// Target-active projection of the item tree.

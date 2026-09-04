@@ -100,6 +100,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         normalization: &normalization,
         target: &target,
         source_path: &source_path,
+        source_text: source,
         program: nia_const_check::ConstProgramContext::empty(),
     };
     let const_eval = nia_const_check::check_module_const(const_input);
@@ -147,6 +148,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         type_store: &type_store,
         source_version: None,
         source_path: &source_path,
+        source_text: source,
         symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,

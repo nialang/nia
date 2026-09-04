@@ -419,6 +419,13 @@ fn const_inputs_for_body_check(
         capture_query_failure(&query_failure, db.get(ModulePathQuery(module_id)))
             .map(|path| path.as_ref().clone())
     };
+    let program_source_text = |module_id| {
+        capture_query_failure(
+            &query_failure,
+            db.context().loader_facts().module_source_text(module_id),
+        )
+        .flatten()
+    };
     let program_defs =
         |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let program_type_normalization = |module_id| {
@@ -536,6 +543,11 @@ fn const_inputs_for_body_check(
     };
     let target = db.get(CompilerTargetQuery)?;
     let symbols = db.context().symbols();
+    let source_text = db
+        .context()
+        .loader_facts()
+        .module_source_text(module_id)?
+        .unwrap_or_else(|| Arc::from(""));
     let const_input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
         module: &module.module,
@@ -549,9 +561,11 @@ fn const_inputs_for_body_check(
         normalization,
         target: &target,
         source_path,
+        source_text: &source_text,
         program: nia_const_check::ConstProgramContext {
             module: Some(&program_module),
             source_path: Some(&program_source_path),
+            source_text: Some(&program_source_text),
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
             signatures: Some(&item_signatures_for_module),
@@ -774,6 +788,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let inputs = &filtered_inputs;
     let source_path = db.get(ModulePathQuery(module_id))?;
+    let source_text = db
+        .context()
+        .loader_facts()
+        .module_source_text(module_id)?
+        .unwrap_or_else(|| Arc::from(""));
     let signatures = body_local_item_signatures(db, module_id, &lowered)?;
     let normalization = db.get(TypeNormalizationQuery(module_id))?;
     let extension_method_normalization = |module_id| {
@@ -1273,6 +1292,13 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         )
         .flatten()
     };
+    let program_module_source_text = |module_id| {
+        capture_query_failure(
+            &query_failure,
+            db.context().loader_facts().module_source_text(module_id),
+        )
+        .flatten()
+    };
     let target = db.get(CompilerTargetQuery)?;
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
@@ -1285,6 +1311,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     type_store: &db.context().type_store,
                     source_version: Some(source_version),
                     source_path: &source_path,
+                    source_text: &source_text,
                     symbols: &db.context().symbols(),
                     origins: &origins,
                     active_item_tree: &inputs.active_item_tree,
@@ -1309,6 +1336,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     program: nia_body_check::BodyProgramContext {
                         defs: Some(&program_defs),
                         module_source_path: Some(&program_module_source_path),
+                        module_source_text: Some(&program_module_source_text),
                         type_normalizations: Some(&program_type_normalization),
                         extension_type_normalizations: Some(&extension_method_normalization),
                         signatures: Some(&item_signatures_for_module),

@@ -578,6 +578,7 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::Function(_)
             | TypedExprKind::FunctionInstance { .. }
             | TypedExprKind::BuiltinValue(_)
+            | TypedExprKind::CallerLocation(_)
             | TypedExprKind::Trap
             | TypedExprKind::ClosureFunctionPointer { .. } => ValueProvenance::default(),
             TypedExprKind::FunctionCallable { function } => self.analyze_expr(function, env),
@@ -969,6 +970,7 @@ impl<'a> Analyzer<'a> {
         // before explicit arguments. Preserve that order here because either
         // side may contain assignments that change later provenance reads.
         match callee {
+            TypedCallee::Tracked { callee, .. } => self.analyze_call(callee, args, call, env),
             TypedCallee::Function(def_id) | TypedCallee::FunctionInstance { def_id, .. } => {
                 let args = self.analyze_call_args(args, env);
                 self.apply_summary(

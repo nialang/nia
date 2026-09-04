@@ -357,6 +357,14 @@ impl ConstCommonEnv for Analyzer<'_> {
         substitutions: Vec<(SymbolId, InternedTyId)>,
         const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ConstError> {
+        let caller_location = function_id
+            .filter(|function_id| self.function_tracks_caller(*function_id))
+            .map(|_| {
+                self.current_caller_location()
+                    .map(Ok)
+                    .unwrap_or_else(|| self.source_location_at(span))
+            })
+            .transpose()?;
         let resolved_const_substitutions = const_substitutions
             .into_iter()
             .map(|(name, arg)| (name, self.resolve_const_const_generic_arg(arg)))
@@ -369,6 +377,7 @@ impl ConstCommonEnv for Analyzer<'_> {
         };
         frame.module_id = Some(module_id);
         frame.function_id = function_id;
+        frame.caller_location = caller_location;
         frame.type_substitutions.extend(substitutions);
         frame
             .const_substitutions
@@ -1661,6 +1670,19 @@ impl Analyzer<'_> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         match builtin {
+            BuiltinFunction::CallerLocation => {
+                if !type_args.is_empty() || !args.is_empty() {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `callerLocation` does not take arguments".to_string(),
+                    });
+                }
+                let location = self
+                    .current_caller_location()
+                    .map(Ok)
+                    .unwrap_or_else(|| self.source_location_at(span))?;
+                self.const_source_location_value(span, location).map(Some)
+            }
             BuiltinFunction::ConstError => {
                 if !type_args.is_empty() || args.len() != 1 {
                     return Err(ConstError {
@@ -1894,6 +1916,82 @@ impl Analyzer<'_> {
                 ),
             }),
         }
+    }
+}
+
+impl Analyzer<'_> {
+    fn function_tracks_caller(&self, function_id: GlobalDefId) -> bool {
+        self.function_signatures_for_module(function_id.module_id)
+            .and_then(|signatures| {
+                signatures
+                    .as_ref()
+                    .functions
+                    .get(&function_id.def_id)
+                    .cloned()
+            })
+            .is_some_and(|signature| {
+                signature
+                    .attributes
+                    .contains(&FunctionAttribute::TrackCaller)
+            })
+    }
+
+    fn source_location_at(&self, span: Span) -> Result<nia_source::SourceLocation, ConstError> {
+        let source_path = self
+            .current_execution_source_path()
+            .ok_or_else(|| ConstError {
+                span,
+                message: "source path is unavailable while evaluating `callerLocation`".to_string(),
+            })?;
+        let source_text = self
+            .current_execution_source_text()
+            .ok_or_else(|| ConstError {
+                span,
+                message: "source text is unavailable while evaluating `callerLocation`".to_string(),
+            })?;
+        Ok(nia_source::SourceLocation::at(
+            &source_path.identity(),
+            &source_text,
+            span.start,
+        ))
+    }
+
+    fn const_source_location_value(
+        &self,
+        span: Span,
+        location: nia_source::SourceLocation,
+    ) -> Result<ConstValue, ConstError> {
+        let field = |name| {
+            self.input
+                .symbols
+                .intern(name)
+                .map_err(|collision| ConstError {
+                    span,
+                    message: collision.to_string(),
+                })
+        };
+        let file = ConstValue::Pointer(ConstPointerValue::Frozen {
+            origin: ConstAllocationOrigin::new(Some(self.current_execution_module_id()), span),
+            is_readonly: true,
+            pointee: Box::new(ConstValue::Array(
+                location
+                    .file
+                    .bytes()
+                    .map(|byte| ConstValue::Int(IntConst::unsigned(u128::from(byte))))
+                    .collect(),
+            )),
+        });
+        Ok(ConstValue::Struct(BTreeMap::from([
+            (field("file")?, file),
+            (
+                field("line")?,
+                ConstValue::Int(IntConst::unsigned(u128::from(location.line))),
+            ),
+            (
+                field("column")?,
+                ConstValue::Int(IntConst::unsigned(u128::from(location.column))),
+            ),
+        ])))
     }
 }
 

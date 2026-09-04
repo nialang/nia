@@ -107,7 +107,7 @@ pub(super) fn codegen_freestanding_executable_with_options(
     )
 }
 
-fn codegen_program_request(
+pub(super) fn codegen_program_request(
     request: nia_loader_query::LoadRequest,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {

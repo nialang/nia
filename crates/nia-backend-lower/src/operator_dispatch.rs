@@ -234,6 +234,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text),
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
                 FunctionExprKind::Null => FunctionExprKind::Null,
+                FunctionExprKind::CallerLocation(location) => {
+                    FunctionExprKind::CallerLocation(location)
+                }
                 FunctionExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg),
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
@@ -607,6 +610,10 @@ impl<'a> ModuleLowerer<'a> {
         callee: FunctionCallee,
     ) -> FunctionCallee {
         match callee {
+            FunctionCallee::Tracked { callee, location } => FunctionCallee::Tracked {
+                callee: Box::new(self.resolve_builtin_operator_calls_in_callee(*callee)),
+                location,
+            },
             FunctionCallee::ClosureEntry { closure_id, state } => FunctionCallee::ClosureEntry {
                 closure_id,
                 state: Box::new(self.resolve_builtin_operator_calls_in_expr(*state)),

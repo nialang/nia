@@ -1548,6 +1548,7 @@ impl<'a> BodyChecker<'a> {
             program_const_array_lengths: self.program_const_array_lengths,
             program_const_module: self.program_const_module,
             source_path: self.source_path,
+            source_text: self.source_text,
             symbols: self.symbols,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             extension_method_lookup_cache: self.extension_method_lookup_cache.clone(),

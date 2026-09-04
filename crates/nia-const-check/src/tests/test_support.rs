@@ -102,6 +102,7 @@ pub(super) fn check_source_for_target(
         },
         target: &target,
         source_path: &source_path,
+        source_text: source,
         program: ConstProgramContext::empty(),
     };
     let checked = check_module_const(input);

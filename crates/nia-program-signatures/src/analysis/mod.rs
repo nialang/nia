@@ -1726,6 +1726,18 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
     };
     let mut solver =
         context.solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
+    let required_tracks_caller = input.required.attributes.iter().any(|attribute| {
+        matches!(
+            attribute,
+            nia_item_signatures::FunctionAttribute::TrackCaller
+        )
+    });
+    let actual_tracks_caller = input.actual.attributes.iter().any(|attribute| {
+        matches!(
+            attribute,
+            nia_item_signatures::FunctionAttribute::TrackCaller
+        )
+    });
     input.required.generics == input.actual.generics
         && input.required.where_predicates == input.actual.where_predicates
         && input.required.params.len() == input.actual.params.len()
@@ -1740,6 +1752,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
             })
         && solver.types_equivalent(input.required.return_type, input.actual.return_type)
         && input.required.is_variadic == input.actual.is_variadic
+        && (!actual_tracks_caller || required_tracks_caller)
 }
 
 #[derive(Clone, Copy)]

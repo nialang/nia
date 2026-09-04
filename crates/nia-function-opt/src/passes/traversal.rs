@@ -143,7 +143,8 @@ where
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)
-        | FunctionExprKind::BuiltinValue(_) => false,
+        | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::CallerLocation(_) => false,
         FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
             let mut changed = false;
             for relocation in relocations {
@@ -307,6 +308,7 @@ where
     F: FnMut(&mut FunctionExpr) -> bool,
 {
     match callee {
+        FunctionCallee::Tracked { callee, .. } => rewrite_callee_exprs(callee, rewrite_expr),
         FunctionCallee::ClosureEntry {
             state: receiver, ..
         }

@@ -73,6 +73,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         self.builder.position_at_end(physical_entry);
         self.out_ptr = self.function_out_ptr()?;
+        self.caller_location = self.function_caller_location()?;
         self.alloc_function_locals(body)?;
         self.store_params()?;
         for scope in &body.scopes {

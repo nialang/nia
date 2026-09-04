@@ -1083,6 +1083,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::FunctionInstance { .. }
                 | TypedExprKind::ClosureFunctionPointer { .. }
                 | TypedExprKind::BuiltinValue(_)
+                | TypedExprKind::CallerLocation(_)
                 | TypedExprKind::Trap => {}
                 TypedExprKind::Closure { captures, body, .. } => {
                     for capture in captures {
@@ -1130,6 +1131,7 @@ impl FunctionLowerer<'_> {
 
         pub(super) fn visit_callee(callee: &TypedCallee, max_id: &mut u32) {
             match callee {
+                TypedCallee::Tracked { callee, .. } => visit_callee(callee, max_id),
                 TypedCallee::Closure(callee) => visit_expr(callee, max_id),
                 TypedCallee::Method { receiver, .. }
                 | TypedCallee::TraitMethod { receiver, .. }

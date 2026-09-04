@@ -18,6 +18,60 @@ use nia_ty::TyKind;
 pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
 
 impl<'a> ModuleLowerer<'a> {
+    pub(crate) fn backend_function_attributes(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        attributes: &[FunctionAttribute],
+    ) -> Vec<BackendFunctionAttribute> {
+        let mut out = attributes
+            .iter()
+            .filter_map(|attribute| match attribute {
+                FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
+                FunctionAttribute::TrackCaller => Some(BackendFunctionAttribute::TrackCaller),
+                FunctionAttribute::Builtin(_) => None,
+            })
+            .collect::<Vec<_>>();
+        if !out.contains(&BackendFunctionAttribute::TrackCaller)
+            && self.trait_method_tracks_caller(def_id)
+        {
+            out.push(BackendFunctionAttribute::TrackCaller);
+        }
+        out
+    }
+
+    fn trait_method_tracks_caller(&self, def_id: nia_ids::GlobalDefId) -> bool {
+        let Some(impl_index) = self.trait_impl_index_for_method(def_id) else {
+            return false;
+        };
+        let Some(implementation) = self.input.program.trait_impls().get(impl_index) else {
+            return false;
+        };
+        let nia_ty::TraitId::Source(trait_id) = implementation.trait_id else {
+            return false;
+        };
+        let Some(method_name) = self.method_symbol_for_def(def_id) else {
+            return false;
+        };
+        self.input
+            .program
+            .traits()
+            .get(&trait_id)
+            .and_then(|trait_signature| {
+                trait_signature
+                    .signature
+                    .methods
+                    .iter()
+                    .find(|method| method.name == method_name)
+            })
+            .is_some_and(|method| {
+                method
+                    .signature
+                    .attributes
+                    .iter()
+                    .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
+            })
+    }
+
     pub(crate) fn lower_struct(
         &mut self,
         node_key: &VersionedNodeKey,
@@ -365,14 +419,7 @@ impl<'a> ModuleLowerer<'a> {
             return_type: self.instantiate_ty(signature.return_type, &SymbolMap::default()),
             is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
-            attributes: signature
-                .attributes
-                .iter()
-                .filter_map(|attribute| match attribute {
-                    FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
-                    FunctionAttribute::Builtin(_) | FunctionAttribute::TrackCaller => None,
-                })
-                .collect(),
+            attributes: self.backend_function_attributes(global_def_id, &signature.attributes),
             local_names: function_body
                 .as_ref()
                 .map(|body| self.function_local_names(body))

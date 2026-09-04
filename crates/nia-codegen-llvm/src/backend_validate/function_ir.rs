@@ -32,6 +32,7 @@ struct DynamicTraitCallContract<'a> {
     receiver: &'a FunctionExpr,
     args: &'a [FunctionExpr],
     result_ty: nia_ids::InternedTyId,
+    tracks_caller: bool,
     span: Span,
 }
 
@@ -1214,6 +1215,7 @@ impl BackendValidator<'_> {
             } => {
                 self.validate_enum_payload_field(expr.ty, value, *variant, *field, expr.span);
             }
+            FunctionExprKind::CallerLocation(_) => {}
         }
     }
 
@@ -3145,7 +3147,36 @@ impl BackendValidator<'_> {
         call_result_ty: nia_ids::InternedTyId,
         span: Span,
     ) {
+        self.validate_callee_with_tracking(callee, call_args, call_result_ty, span, false);
+    }
+
+    fn validate_callee_with_tracking(
+        &mut self,
+        callee: &FunctionCallee,
+        call_args: &[FunctionExpr],
+        call_result_ty: nia_ids::InternedTyId,
+        span: Span,
+        has_tracked_metadata: bool,
+    ) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => {
+                if matches!(callee.as_ref(), FunctionCallee::Tracked { .. }) {
+                    self.invalid_call_contract(
+                        span,
+                        "tracked-caller",
+                        "tracked-caller metadata cannot be nested",
+                    );
+                    return;
+                }
+                if !self.callee_uses_tracked_caller_abi(callee) {
+                    self.invalid_call_contract(
+                        span,
+                        "tracked-caller",
+                        "tracked-caller metadata targets a function without the tracked-caller ABI",
+                    );
+                }
+                self.validate_callee_with_tracking(callee, call_args, call_result_ty, span, true)
+            }
             FunctionCallee::ClosureEntry { closure_id, state } => {
                 self.validate_expr(state);
                 let Some(owner) = self.current_closure_owner.clone() else {
@@ -3189,6 +3220,13 @@ impl BackendValidator<'_> {
                 });
             }
             FunctionCallee::Function(def_id) => {
+                if !has_tracked_metadata && self.callee_uses_tracked_caller_abi(callee) {
+                    self.invalid_call_contract(
+                        span,
+                        "tracked-caller",
+                        "tracked-caller function call is missing caller metadata",
+                    );
+                }
                 self.validate_function_ref(
                     *def_id,
                     span,
@@ -3211,6 +3249,13 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
+                if !has_tracked_metadata && self.callee_uses_tracked_caller_abi(callee) {
+                    self.invalid_call_contract(
+                        span,
+                        "tracked-caller",
+                        "tracked-caller function call is missing caller metadata",
+                    );
+                }
                 let instance = FunctionInstanceRef {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
@@ -3242,6 +3287,13 @@ impl BackendValidator<'_> {
                 receiver_kind,
                 receiver,
             } => {
+                if !has_tracked_metadata && self.callee_uses_tracked_caller_abi(callee) {
+                    self.invalid_call_contract(
+                        span,
+                        "tracked-caller",
+                        "tracked-caller method call is missing caller metadata",
+                    );
+                }
                 self.validate_expr(receiver);
                 let signature = if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
                     self.validate_function_ref(
@@ -3307,6 +3359,7 @@ impl BackendValidator<'_> {
                     receiver,
                     args: call_args,
                     result_ty: call_result_ty,
+                    tracks_caller: has_tracked_metadata,
                     span,
                 });
             }
@@ -3632,6 +3685,72 @@ impl BackendValidator<'_> {
             })
     }
 
+    fn callee_uses_tracked_caller_abi(&self, callee: &FunctionCallee) -> bool {
+        use nia_backend_ir::BackendFunctionAttribute::TrackCaller;
+
+        match callee {
+            FunctionCallee::Function(def_id) => self
+                .index
+                .function(*def_id)
+                .is_some_and(|function| function.attributes.contains(&TrackCaller)),
+            FunctionCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+            } => self
+                .index
+                .function_instance(*def_id, *arg_module_id, *self_arg, args, const_args)
+                .or_else(|| {
+                    self.index.function_instances_for(*def_id).find(|item| {
+                        self.same_optional_type(item.self_arg, *self_arg)
+                            && self.same_type_args(&item.args, args)
+                            && self.same_const_args(&item.const_args, const_args)
+                    })
+                })
+                .is_some_and(|function| function.attributes.contains(&TrackCaller)),
+            FunctionCallee::Method {
+                def_id,
+                self_arg,
+                args,
+                const_args,
+                ..
+            } if self_arg.is_none() && args.is_empty() && const_args.is_empty() => self
+                .index
+                .function(*def_id)
+                .is_some_and(|function| function.attributes.contains(&TrackCaller)),
+            FunctionCallee::Method {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                ..
+            } => self
+                .index
+                .function_instance(*def_id, *arg_module_id, *self_arg, args, const_args)
+                .or_else(|| {
+                    self.index.function_instances_for(*def_id).find(|item| {
+                        self.same_optional_type(item.self_arg, *self_arg)
+                            && self.same_type_args(&item.args, args)
+                            && self.same_const_args(&item.const_args, const_args)
+                    })
+                })
+                .is_some_and(|function| function.attributes.contains(&TrackCaller)),
+            FunctionCallee::DynamicTraitMethod { .. } => true,
+            FunctionCallee::Tracked { .. }
+            | FunctionCallee::ClosureEntry { .. }
+            | FunctionCallee::TraitMethod { .. }
+            | FunctionCallee::TraitAssociatedFunction { .. }
+            | FunctionCallee::BuiltinPlaceMethod { .. }
+            | FunctionCallee::BuiltinMethod { .. }
+            | FunctionCallee::BuiltinOperator(_)
+            | FunctionCallee::Callable(_)
+            | FunctionCallee::FunctionPointer(_) => false,
+        }
+    }
+
     fn function_instance_call_signature(
         &self,
         instance: FunctionInstanceRef<'_>,
@@ -3953,6 +4072,7 @@ impl BackendValidator<'_> {
             receiver,
             args,
             result_ty,
+            tracks_caller,
             span,
         } = call;
         if !matches!(
@@ -4010,7 +4130,37 @@ impl BackendValidator<'_> {
             return;
         };
         for target in targets {
+            if self.dynamic_trait_target_tracks_caller(&target) != Some(tracks_caller) {
+                self.invalid_dynamic_trait_call(
+                    span,
+                    "caller metadata does not match the vtable target ABI",
+                );
+            }
             self.validate_dynamic_trait_target(&target, params, return_type, receiver_kind, span);
+        }
+    }
+
+    fn dynamic_trait_target_tracks_caller(
+        &self,
+        target: &nia_backend_ir::BackendTraitObjectVtableFunction,
+    ) -> Option<bool> {
+        use nia_backend_ir::BackendFunctionAttribute::TrackCaller;
+
+        match target {
+            nia_backend_ir::BackendTraitObjectVtableFunction::Function(def_id) => self
+                .index
+                .function(*def_id)
+                .map(|function| function.attributes.contains(&TrackCaller)),
+            nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+            } => self
+                .index
+                .function_instance(*def_id, *arg_module_id, *self_arg, args, const_args)
+                .map(|function| function.attributes.contains(&TrackCaller)),
         }
     }
 

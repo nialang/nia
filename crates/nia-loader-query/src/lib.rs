@@ -609,6 +609,21 @@ impl LoaderFactProvider for LoaderDatabase {
         )))
     }
 
+    fn module_source_text(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> QueryResult<Option<Arc<str>>> {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .db
+            .get(queries::SourceTextQuery(source_id))?
+            .file
+            .as_ref()
+            .map(|file| file.text.clone()))
+    }
+
     fn module_provider_summary(
         &self,
         module_id: nia_imports::ModuleId,

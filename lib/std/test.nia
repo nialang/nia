@@ -5,12 +5,32 @@
 // without requiring a language-level test attribute or process trap.
 
 using pkg::builtin::ops::Eq;
+using pkg::fmt;
+using pkg::source::{SourceLocation, callerLocation};
 
-pub enum Error: i32 {
-    AssertionFailed = 1,
-    ValuesEqual = 2,
-    ValuesNotEqual = 3,
-    _
+pub enum Error {
+    AssertionFailed(SourceLocation) = 1,
+    ValuesEqual(SourceLocation) = 2,
+    ValuesNotEqual(SourceLocation) = 3,
+}
+
+extend Error : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+        match self.* {
+            .AssertionFailed(location) => {
+                location.format(formatter).?;
+                formatter.writeText(&": assertion failed")
+            },
+            .ValuesEqual(location) => {
+                location.format(formatter).?;
+                formatter.writeText(&": values are equal")
+            },
+            .ValuesNotEqual(location) => {
+                location.format(formatter).?;
+                formatter.writeText(&": values are not equal")
+            },
+        }
+    }
 }
 
 pub enum CaseStatus: i32 {
@@ -174,31 +194,35 @@ extend Runner {
     }
 }
 
+@[trackCaller]
 pub fn expect(condition: bool) Error!() {
     if not condition {
-        return Error::AssertionFailed!;
+        return Error::AssertionFailed(callerLocation())!;
     }
     !()
 }
 
+@[trackCaller]
 pub fn expectEqual[T](actual: T, expected: T) Error!()
 where T: Eq[T]
 {
     if actual != expected {
-        return Error::ValuesNotEqual!;
+        return Error::ValuesNotEqual(callerLocation())!;
     }
     !()
 }
 
+@[trackCaller]
 pub fn expectNotEqual[T](actual: T, expected: T) Error!()
 where T: Eq[T]
 {
     if actual == expected {
-        return Error::ValuesEqual!;
+        return Error::ValuesEqual(callerLocation())!;
     }
     !()
 }
 
+@[trackCaller]
 pub fn fail() Error!() {
-    Error::AssertionFailed!
+    Error::AssertionFailed(callerLocation())!
 }

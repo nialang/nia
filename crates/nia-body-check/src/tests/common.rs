@@ -380,6 +380,7 @@ fn pipeline_with_options_and_trait_impls(
         },
         target: &target,
         source_path: &source_path,
+        source_text: source,
         program: nia_const_check::ConstProgramContext::empty(),
     };
     let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
@@ -444,6 +445,7 @@ fn pipeline_with_options_and_trait_impls(
         type_store: &type_store,
         source_version: None,
         source_path: &source_path,
+        source_text: source,
         symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,

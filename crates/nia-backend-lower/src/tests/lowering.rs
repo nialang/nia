@@ -101,6 +101,7 @@ fn main() i32 {
         normalization: &normalization,
         target: &target,
         source_path: &source_path,
+        source_text: source,
         program: nia_const_check::ConstProgramContext::empty(),
     };
     let const_eval = nia_const_check::check_module_const(const_input);
@@ -195,6 +196,7 @@ fn main() i32 {
         type_store: &type_store,
         source_version: None,
         source_path: &source_path,
+        source_text: source,
         symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,

@@ -51,6 +51,13 @@ fn with_signature_const_input<T>(
         capture_query_failure(&query_failure, db.get(ModulePathQuery(module_id)))
             .map(|path| path.as_ref().clone())
     };
+    let program_source_text = |module_id| {
+        capture_query_failure(
+            &query_failure,
+            db.context().loader_facts().module_source_text(module_id),
+        )
+        .flatten()
+    };
     let program_defs =
         |module_id| capture_query_failure(&query_failure, module_defs_semantic(db, module_id));
     let program_type_normalization = |module_id| {
@@ -141,6 +148,11 @@ fn with_signature_const_input<T>(
         .map(|extensions| extensions.methods.clone())
     };
     let target = db.get(CompilerTargetQuery)?;
+    let source_text = db
+        .context()
+        .loader_facts()
+        .module_source_text(module_id)?
+        .unwrap_or_else(|| Arc::from(""));
     let input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
         module: &module.module,
@@ -154,9 +166,11 @@ fn with_signature_const_input<T>(
         normalization: &type_normalization,
         target: &target,
         source_path: &source_path,
+        source_text: &source_text,
         program: nia_const_check::ConstProgramContext {
             module: Some(&program_module),
             source_path: Some(&program_source_path),
+            source_text: Some(&program_source_text),
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
             signatures: Some(&item_signatures_for_module),

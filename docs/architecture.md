@@ -375,6 +375,13 @@ Owns source identity for compiler sessions:
 - `SourceRevision` identifies a concrete version of that source;
 - `SourceFile` carries id, path, revision, and text.
 
+`SourceLocation` is the compiler-side canonical source coordinate embedded in
+programs. It uses a `SourcePath`'s logical identity, one-based lines, and
+one-based Unicode-scalar columns. Body checking and const evaluation receive
+exact source text explicitly; cross-module const execution resolves both path
+and text from the active execution module instead of consulting host paths or
+global runtime state.
+
 All filesystem-backed compiler source reads use the `nia-source` 64 MiB stream
 budget before UTF-8 decoding. Metadata rejects an already oversized input
 without allocating from its length, and a `max + 1` read rejects growth after
@@ -1188,6 +1195,13 @@ runtime code. Constant expressions reject ordinary `fn`; runtime expressions
 may call either function kind. Receiver and associated calls use the shared
 visible-extension index, including target generic substitutions, so const
 execution does not maintain a name-based method whitelist.
+
+`callerLocation()` is evaluated as an ordinary structured const value. The
+const analyzer materializes a frozen UTF-8 byte allocation plus `u32` line and
+column fields. Const call frames carry forwarded caller metadata only for
+`@[trackCaller]` functions, using the same outermost-call semantics as runtime
+lowering. This state is compiler-owned evaluation context, not a synthetic
+source parameter and not runtime allocation.
 
 Const capability is validated eagerly for every lowered `const fn`, including
 unused functions and unselected source branches. This declaration pass checks

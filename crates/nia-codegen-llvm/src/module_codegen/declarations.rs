@@ -38,6 +38,14 @@ impl<'a> AdapterFunction<'a> {
             AdapterFunction::Instance(instance) => instance.return_type,
         }
     }
+
+    fn tracks_caller(&self) -> bool {
+        let attributes = match self {
+            AdapterFunction::Function(function) => &function.attributes,
+            AdapterFunction::Instance(instance) => &instance.attributes,
+        };
+        attributes.contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller)
+    }
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
@@ -371,6 +379,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return_type: instance.return_type,
                 is_extern: instance.is_extern,
                 is_variadic: instance.is_variadic,
+                tracks_caller: instance
+                    .attributes
+                    .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
                 span: instance.span,
             })?;
             let is_definition =
@@ -435,6 +446,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return_type: entry.abi.return_type,
                 is_extern: false,
                 is_variadic: false,
+                tracks_caller: false,
                 span: entry.span,
             })?;
             let value = self
@@ -464,6 +476,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         );
                     }
                 }
+                nia_backend_ir::BackendFunctionAttribute::TrackCaller => {}
             }
         }
         Ok(())
@@ -762,8 +775,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .skip(1)
             .map(|param| param.passing_ty)
             .collect::<Vec<_>>();
-        let function_ty =
-            self.dynamic_trait_method_type(self_ty, &value_params, item.return_type(), span)?;
+        let function_ty = self.dynamic_trait_method_type(
+            self_ty,
+            &value_params,
+            item.return_type(),
+            item.tracks_caller(),
+            span,
+        )?;
         let name = format!(
             "nia__traitobj_adapter__{}__s{:016x}__{}__{}",
             self.mangle_ty(self_ty),
@@ -811,6 +829,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 AbiParam::Omit => {}
             }
+        }
+        if item.tracks_caller() {
+            let caller_location = adapter
+                .get_nth_param(param_index)
+                .ok_or_else(|| self.error(span, "missing vtable adapter caller location"))?
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            call_args.push(caller_location);
         }
         let call = builder
             .build_call(target, &call_args, "traitobj.call")

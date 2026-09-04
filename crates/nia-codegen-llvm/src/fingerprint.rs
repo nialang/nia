@@ -469,6 +469,7 @@ impl<'a> Encoder<'a> {
         for attribute in attributes {
             self.tag(match attribute {
                 BackendFunctionAttribute::Naked => 0,
+                BackendFunctionAttribute::TrackCaller => 1,
             });
         }
     }
@@ -689,6 +690,12 @@ impl<'a> Encoder<'a> {
                 self.bool(*value);
             }
             FunctionExprKind::Null => self.tag(8),
+            FunctionExprKind::CallerLocation(location) => {
+                self.tag(51);
+                self.builder.write_str(&location.file);
+                self.u32(location.line);
+                self.u32(location.column);
+            }
             FunctionExprKind::Local(local) => {
                 self.tag(9);
                 self.local(*local);
@@ -1116,6 +1123,13 @@ impl<'a> Encoder<'a> {
 
     fn callee(&mut self, callee: &FunctionCallee) {
         match callee {
+            FunctionCallee::Tracked { callee, location } => {
+                self.tag(12);
+                self.builder.write_str(&location.file);
+                self.u32(location.line);
+                self.u32(location.column);
+                self.callee(callee);
+            }
             FunctionCallee::ClosureEntry { closure_id, state } => {
                 self.tag(10);
                 self.global_def(closure_id.owner);

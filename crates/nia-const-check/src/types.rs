@@ -201,6 +201,8 @@ pub struct ConstInput<'a> {
     pub target: &'a TargetConfig,
     /// Source path for diagnostics.
     pub source_path: &'a SourcePath,
+    /// Exact source text used to materialize source coordinates.
+    pub source_text: &'a str,
     /// Optional cross-module providers.
     pub program: ConstProgramContext<'a>,
 }
@@ -255,6 +257,8 @@ pub struct ConstProgramContext<'a> {
     pub module: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>>,
     /// Lazily loads another module's source path.
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
+    /// Lazily loads another module's exact source text.
+    pub source_text: Option<&'a dyn Fn(ModuleId) -> Option<Arc<str>>>,
     /// Lazily loads another module's definitions.
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     /// Lazily loads another module's type normalization.
@@ -284,6 +288,7 @@ impl fmt::Debug for ConstProgramContext<'_> {
         f.debug_struct("ConstProgramContext")
             .field("module", &self.module.is_some())
             .field("source_path", &self.source_path.is_some())
+            .field("source_text", &self.source_text.is_some())
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field("signatures", &self.signatures.is_some())
@@ -306,6 +311,7 @@ impl<'a> ConstProgramContext<'a> {
         Self {
             module: None,
             source_path: None,
+            source_text: None,
             defs: None,
             type_normalizations: None,
             signatures: None,

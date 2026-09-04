@@ -247,6 +247,7 @@ fn collect_expr_closures<'a>(
         | TypedExprKind::Function(_)
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::BuiltinValue(_)
+        | TypedExprKind::CallerLocation(_)
         | TypedExprKind::Trap
         | TypedExprKind::ClosureFunctionPointer { .. } => {}
     }
@@ -304,6 +305,7 @@ fn collect_callee_closures<'a>(
     callables: &mut HashMap<CallableKey, CallableBody<'a>>,
 ) {
     match callee {
+        TypedCallee::Tracked { callee, .. } => collect_callee_closures(callee, callables),
         TypedCallee::Closure(expr)
         | TypedCallee::Callable(expr)
         | TypedCallee::FunctionPointer(expr) => collect_expr_closures(expr, callables),

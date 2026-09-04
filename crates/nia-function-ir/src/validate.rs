@@ -664,6 +664,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::ClosureFunctionPointer { .. }
             | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::Trap => {}
         }
         Ok(())
@@ -692,6 +693,7 @@ impl<'a> FunctionIrValidator<'a> {
 
     fn validate_callee(&self, callee: &FunctionCallee) -> Result<(), FunctionIrError> {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => self.validate_callee(callee),
             FunctionCallee::ClosureEntry {
                 state: receiver, ..
             }

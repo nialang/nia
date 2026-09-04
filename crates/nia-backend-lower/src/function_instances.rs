@@ -6,15 +6,14 @@ use crate::{
     backend_function_instance_key,
 };
 use nia_backend_ir::{
-    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionAttribute,
-    BackendFunctionInstance, BackendParam,
+    BackendClosureEntry, BackendClosureEntryOwner, BackendFunction, BackendFunctionInstance,
+    BackendParam,
 };
 use nia_function_ir::{
     FunctionBody, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal, FunctionLocalKind,
     GlobalInstanceRef,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
-use nia_item_signatures::FunctionAttribute;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind};
 
@@ -633,15 +632,7 @@ impl<'a> ModuleLowerer<'a> {
                 .normalized_type_from_module(def_id.module_id, signature.signature.return_type),
             is_extern: signature.signature.is_extern,
             is_variadic: signature.signature.is_variadic,
-            attributes: signature
-                .signature
-                .attributes
-                .iter()
-                .filter_map(|attribute| match attribute {
-                    FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
-                    FunctionAttribute::Builtin(_) | FunctionAttribute::TrackCaller => None,
-                })
-                .collect(),
+            attributes: self.backend_function_attributes(def_id, &signature.signature.attributes),
             local_names: function_body
                 .as_ref()
                 .map(|body| self.function_local_names(body))

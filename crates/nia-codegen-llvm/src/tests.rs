@@ -3,6 +3,7 @@ mod common;
 
 mod basic;
 mod calls_and_slices;
+mod const_source_locations;
 mod control_flow;
 mod cross_module;
 mod function_ir;
@@ -11,6 +12,7 @@ mod layouts_and_literals;
 mod low_level_and_const;
 mod operators;
 mod smoke;
+mod source_locations;
 mod structural_extensions;
 mod traits;
 mod values_and_assignments;

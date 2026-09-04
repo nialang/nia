@@ -88,6 +88,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return_type: function.return_type,
             is_extern: function.is_extern,
             is_variadic: function.is_variadic,
+            tracks_caller: function
+                .attributes
+                .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
             span: function.span,
         })
     }
@@ -121,6 +124,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 AbiParam::Omit => {}
             }
+        }
+        if signature.tracks_caller {
+            llvm_params.push(self.context.ptr_type(Default::default()).into());
         }
         match self.classify_return_in(signature.return_type) {
             AbiReturn::Direct(ty) => self
@@ -234,6 +240,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         _object_ty: InternedTyId,
         params: &[InternedTyId],
         return_type: InternedTyId,
+        tracks_caller: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
@@ -251,6 +258,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 AbiParam::Omit => {}
             }
+        }
+        if tracks_caller {
+            llvm_params.push(self.context.ptr_type(Default::default()).into());
         }
         match self.classify_function_return(return_type) {
             AbiReturn::Direct(ty) => self

@@ -125,6 +125,18 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
+        if signature
+            .attributes
+            .iter()
+            .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                "tracked-caller functions cannot be used as ordinary function pointers or callable values",
+            ));
+            return Some(self.error());
+        }
         let (substitutions, const_substitutions) = self.generic_substitutions_for_function_ref(
             expr,
             item.resolved.def_id,
