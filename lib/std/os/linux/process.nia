@@ -407,7 +407,7 @@ pub fn exit(code: i32) () {
 
 extend SpawnErrorRecord {
     fn init(stage: SpawnStage, errno: Errno) SpawnErrorRecord {
-        Self { stage: stage as i32, code: errno as i32 }
+        .{ stage: stage as i32, code: errno as i32 }
     }
 
     fn stage(&self) SpawnStage {
@@ -421,11 +421,11 @@ extend SpawnErrorRecord {
 
 extend SpawnPipe {
     fn closed() SpawnPipe {
-        Self { read: null, write: null }
+        .{ read: null, write: null }
     }
 
     fn init(read: types::FileDescriptor, write: types::FileDescriptor) SpawnPipe {
-        Self { read: ?read, write: ?write }
+        .{ read: ?read, write: ?write }
     }
 
     fn fromPipe(pipe: Pipe) SpawnPipe {
@@ -438,25 +438,11 @@ extend SpawnPipe {
     }
 
     fn read(&self) Errno!types::FileDescriptor {
-        match self.read {
-            ?fd => {
-                !fd
-            },
-            null => {
-                Errno::Invalid!
-            },
-        }
+        if self.read is ?fd { !fd } else { Errno::Invalid! }
     }
 
     fn write(&self) Errno!types::FileDescriptor {
-        match self.write {
-            ?fd => {
-                !fd
-            },
-            null => {
-                Errno::Invalid!
-            },
-        }
+        if self.write is ?fd { !fd } else { Errno::Invalid! }
     }
 
     fn takeRead(&mut self) ?types::FileDescriptor {
@@ -510,7 +496,7 @@ fn isStandardTarget(fd: types::FileDescriptor, options: SpawnOptions) bool {
 
 extend SpawnResources {
     fn init() SpawnResources {
-        Self {
+        .{
             stdin: SpawnPipe::closed(),
             stdout: SpawnPipe::closed(),
             stderr: SpawnPipe::closed(),
