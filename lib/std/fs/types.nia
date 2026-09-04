@@ -204,7 +204,7 @@ extend File {
 
 extend DirEntry {
     pub fn init(kind: FileKind, name: &[u8]) DirEntry {
-        Self { kind: kind, name: name }
+        .{ kind, name }
     }
 
     pub fn kind(&self) FileKind {
@@ -226,7 +226,7 @@ extend DirEntry {
 
 extend DirIterator {
     pub(pkg) fn init(dir: &Dir, reader: os::DirectoryReader) DirIterator {
-        Self { dir: dir, reader: reader }
+        .{ dir, reader }
     }
 }
 
@@ -255,7 +255,7 @@ extend DirIterator : Iterator {
 
 extend Timestamp {
     pub fn init(seconds: i64, nanos: u32) Timestamp {
-        Self { seconds: seconds, nanos: nanos }
+        .{ seconds, nanos }
     }
 
     pub fn seconds(&self) i64 {

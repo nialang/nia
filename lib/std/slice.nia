@@ -36,7 +36,7 @@ extend[T] SliceIter[T]
 where T: Sized
 {
     fn fromRawParts(ptr: &T, len: usize) SliceIter[T] {
-        Self { ptr, len, index: 0 }
+        .{ ptr, len, index: 0 }
     }
 
     pub fn len(&self) usize {
@@ -52,7 +52,7 @@ extend[T] SliceIterMut[T]
 where T: Sized
 {
     fn fromRawParts(ptr: &mut T, len: usize) SliceIterMut[T] {
-        Self { ptr, len, index: 0 }
+        .{ ptr, len, index: 0 }
     }
 
     pub fn len(&self) usize {
@@ -68,7 +68,7 @@ extend[T] SliceSplit[T]
 where T: Sized + Eq[T]
 {
     fn init(items: &[T], separator: &[T]) SliceSplit[T] {
-        Self { remaining: items, separator, done: false }
+        .{ remaining: items, separator, done: false }
     }
 }
 

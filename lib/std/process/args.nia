@@ -8,7 +8,7 @@ using types::{Arg, Args, ArgsIter};
 
 extend Arg {
     fn init(ptr: &u8) Arg {
-        Self { text: cstring::CStringView::fromTerminatedPtr(ptr) }
+        .{ text: cstring::CStringView::fromTerminatedPtr(ptr) }
     }
 
     pub fn cstring(&self) cstring::CStringView {
@@ -73,7 +73,7 @@ where T: parse::FromRadix[cstring::CStringView]
 extend Args {
     pub(pkg) fn init(len: usize, ptr: &&u8) Args {
         let actualLen = if ptr as usize == 0 { 0 } else { len };
-        Self { len: actualLen, ptr }
+        .{ len: actualLen, ptr }
     }
 
     pub fn len(&self) usize {
@@ -117,7 +117,7 @@ extend ArgsIter {
         if start > args.len() {
             start = args.len();
         }
-        Self { args: args, index: start }
+        .{ args, index: start }
     }
 
     pub fn remaining(&self) usize {
