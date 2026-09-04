@@ -274,14 +274,10 @@ pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
     let status = platform::tryWait(pid.platform()).?;
-    match status {
-        ?value => {
-            !(?WaitStatus::fromPlatform(value))
-        },
-        null => {
-            !null
-        },
+    if status is ?value {
+        return !(?WaitStatus::fromPlatform(value));
     }
+    !null
 }
 
 pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
@@ -409,10 +405,6 @@ extend platform::Timestamp {
 
 extend platform::FileMetadata {
     fn asOsMetadata(&self) FileMetadata {
-        let mut accessed: ?Timestamp = null;
-        if self.atime() is ?value {
-            accessed = ?value.asOsTimestamp();
-        }
         FileMetadata::init(
             self.kind().asOsFileKind(),
             ?self.inode(),
@@ -420,7 +412,7 @@ extend platform::FileMetadata {
             self.size(),
             self.mode() & 0o7777,
             self.blockSize(),
-            accessed,
+            self.atime().map(&\value -> value.asOsTimestamp()),
             self.mtime().asOsTimestamp(),
             ?self.ctime().asOsTimestamp(),
         )

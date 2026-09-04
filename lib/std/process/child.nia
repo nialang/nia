@@ -105,16 +105,12 @@ extend Child {
         }
         let pid = self.state.pid();
         let status = os::tryWait(self.state.osPid()).withTryWaitContext().?;
-        match status {
-            ?value => {
-                self.state = ChildState::exited(pid, value);
-                self.closePipes().?;
-                !(?value)
-            },
-            null => {
-                !null
-            },
+        if status is ?value {
+            self.state = ChildState::exited(pid, value);
+            self.closePipes().?;
+            return !(?value);
         }
+        !null
     }
 
     pub fn wait(&mut self) Error!Term {
@@ -124,14 +120,10 @@ extend Child {
 
     pub fn tryWait(&mut self) Error! ?Term {
         let status = self.tryWaitStatus().?;
-        match status {
-            ?value => {
-                !(?Term::fromWaitStatus(value))
-            },
-            null => {
-                !null
-            },
+        if status is ?value {
+            return !(?Term::fromWaitStatus(value));
         }
+        !null
     }
 
     pub fn kill(&mut self) Error!Term {
