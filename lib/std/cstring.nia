@@ -36,7 +36,7 @@ extend CString {
     pub fn init(allocator: &mut mem::Allocator) CStringBuildError!CString {
         let mut bytes = collections::ArrayList[u8]::initCapacity(allocator, 1).?;
         bytes.appendAssumeCapacity(0);
-        !CString { bytes: bytes }
+        !.{ bytes }
     }
 
     pub fn fromBytes(allocator: &mut mem::Allocator, bytes: &[u8]) CStringBuildError!CString {
@@ -52,7 +52,7 @@ extend CString {
         let mut output = collections::ArrayList[u8]::initCapacity(allocator, capacity).?;
         output.appendSliceAssumeCapacity(bytes);
         output.appendAssumeCapacity(0);
-        !CString { bytes: output }
+        !.{ bytes: output }
     }
 
     pub fn fromView(allocator: &mut mem::Allocator, view: CStringView) CStringBuildError!CString {
@@ -79,7 +79,7 @@ extend CString {
             output.appendSliceAssumeCapacity(ch.encodeUtf8().bytes());
         }
         output.appendAssumeCapacity(0);
-        !CString { bytes: output }
+        !.{ bytes: output }
     }
 
     pub fn view(&self) CStringView {
@@ -113,7 +113,7 @@ extend CString {
 
 extend CStringView {
     fn fromParts(ptr: &u8, len: usize) CStringView {
-        Self { ptr: ptr, len: len }
+        .{ ptr, len }
     }
 
     // The process startup ABI guarantees each argv/envp entry is NUL-terminated.
