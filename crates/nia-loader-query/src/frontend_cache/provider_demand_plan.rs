@@ -312,9 +312,18 @@ pub(super) fn resolve_cached_source_path(
         .iter()
         .filter_map(|root| {
             let root_identity = root.identity();
-            let logical_root = root_identity.normalized_path().strip_suffix(".nia")?;
+            let (logical_root, physical_root) =
+                if let Some(prefix) = root_identity.normalized_path().strip_suffix("/pkg.nia") {
+                    (prefix, root.as_str().strip_suffix("/pkg.nia")?)
+                } else if root_identity.normalized_path() == "pkg.nia" {
+                    ("", root.as_str().strip_suffix("pkg.nia")?)
+                } else {
+                    (
+                        root_identity.normalized_path().strip_suffix(".nia")?,
+                        root.as_str().strip_suffix(".nia")?,
+                    )
+                };
             let suffix = logical.strip_prefix(logical_root)?.strip_prefix('/')?;
-            let physical_root = root.as_str().strip_suffix(".nia")?;
             Some((
                 logical_root.len(),
                 SourcePath::with_identity(format!("{physical_root}/{suffix}"), logical),

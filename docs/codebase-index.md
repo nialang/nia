@@ -77,7 +77,7 @@ backends directly.
 
 ## 4. Standard Library
 
-`lib/std.nia` is the facade. The implementation is organized as:
+`lib/std/pkg.nia` is the package facade. The implementation is organized as:
 
 - compiler contracts in `lib/std/builtin/`;
 - allocation and memory in `lib/std/mem/`;

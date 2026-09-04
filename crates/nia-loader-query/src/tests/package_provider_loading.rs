@@ -47,9 +47,9 @@ value.score()
 "#;
     write(&main_path, main_source);
     write(&pkg_root, "pub module facade;");
-    fs::create_dir_all(root.join("pkg").join("facade")).expect("create package dir");
+    fs::create_dir_all(root.join("facade")).expect("create package dir");
     write(
-        &root.join("pkg/facade.nia"),
+        &root.join("facade.nia"),
         r#"
 pub(pkg) module providers;
 pub(pkg) module types;
@@ -59,11 +59,11 @@ pub using types::Widget;
 "#,
     );
     write(
-        &root.join("pkg/facade/types.nia"),
+        &root.join("facade/types.nia"),
         r#"pub struct Widget { value: i32 }"#,
     );
     write(
-        &root.join("pkg/facade/providers.nia"),
+        &root.join("facade/providers.nia"),
         r#"
 using self::types;
 
@@ -116,19 +116,14 @@ pub fn score(&self) i32 {
             identity.normalized_path()
         );
     }
+    assert_module_loaded(&program, root.join("facade.nia").to_string_lossy().as_ref());
     assert_module_loaded(
         &program,
-        root.join("pkg/facade.nia").to_string_lossy().as_ref(),
+        root.join("facade/types.nia").to_string_lossy().as_ref(),
     );
     assert_module_loaded(
         &program,
-        root.join("pkg/facade/types.nia").to_string_lossy().as_ref(),
-    );
-    assert_module_loaded(
-        &program,
-        root.join("pkg/facade/providers.nia")
-            .to_string_lossy()
-            .as_ref(),
+        root.join("facade/providers.nia").to_string_lossy().as_ref(),
     );
     let provider_entry = program.graph.entry();
 
@@ -136,5 +131,5 @@ pub fn score(&self) i32 {
     let reset = database.load_program().expect("reset program load");
 
     assert_ne!(reset.graph.entry(), provider_entry);
-    assert_module_not_loaded(&reset, "pkg/facade/providers.nia");
+    assert_module_not_loaded(&reset, "facade/providers.nia");
 }

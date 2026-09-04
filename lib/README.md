@@ -1,6 +1,6 @@
 # Nia Standard Library
 
-`std.nia` is the public root facade. Public submodule facades re-export the
+`std/pkg.nia` is the public package root facade. Public submodule facades re-export the
 supported API, while provider and implementation modules remain package-private.
 Importing a facade does not by itself select every provider; loader tests keep
 that dependency closure explicit.

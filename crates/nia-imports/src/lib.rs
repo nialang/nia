@@ -1169,8 +1169,13 @@ fn declared_child_path_text(
     child: &str,
     entry_module: bool,
 ) -> String {
+    let package_root_file = parent_path
+        .rsplit_once('/')
+        .map_or(parent_path, |(_, file)| file)
+        == "pkg.nia";
     let base = if entry_module
-        || (parent_module_path.is_entry_package() && parent_module_path.is_package_root())
+        || (parent_module_path.is_package_root()
+            && (parent_module_path.is_entry_package() || package_root_file))
     {
         parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
     } else {
@@ -1405,6 +1410,11 @@ mod tests {
         let second_path = declared_child_source_path_for(&source, &parent, second);
         assert_eq!(first_path.as_str(), "src/sym:0000000000001111.nia");
         assert_ne!(first_path.identity(), second_path.identity());
+
+        let package_root = ModulePath::root("std");
+        let package_path = SourcePath::new("lib/std/pkg.nia");
+        let child_path = declared_child_source_path_for(&package_path, &package_root, known::START);
+        assert_eq!(child_path.as_str(), "lib/std/start.nia");
     }
 
     #[test]

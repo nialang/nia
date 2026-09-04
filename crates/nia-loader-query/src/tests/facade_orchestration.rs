@@ -125,9 +125,9 @@ fn second(value: facade::Widget) i32 {
 "#,
     );
     write(&pkg_root, "pub module facade;");
-    fs::create_dir_all(root.join("pkg").join("facade")).expect("create facade dir");
+    fs::create_dir_all(root.join("facade")).expect("create facade dir");
     write(
-        &root.join("pkg/facade.nia"),
+        &root.join("facade.nia"),
         r#"
 pub(pkg) module providers;
 pub(pkg) module types;
@@ -137,11 +137,11 @@ pub using types::Widget;
 "#,
     );
     write(
-        &root.join("pkg/facade/types.nia"),
+        &root.join("facade/types.nia"),
         "pub struct Widget { value: i32 }",
     );
     write(
-        &root.join("pkg/facade/providers.nia"),
+        &root.join("facade/providers.nia"),
         r#"
 using self::types;
 
@@ -171,9 +171,7 @@ extend types::Widget {
     assert_no_error_diagnostics(&program);
     assert_module_loaded(
         &program,
-        root.join("pkg/facade/providers.nia")
-            .to_string_lossy()
-            .as_ref(),
+        root.join("facade/providers.nia").to_string_lossy().as_ref(),
     );
 
     let trace = database.query_trace();
