@@ -37,7 +37,7 @@ extend FixedBufferWriter {
 
     pub fn writeAll(&mut self, bytes: &[u8]) BufferError!() {
         if bytes.len() > self.buffer.len() - self.len {
-            return BufferError::NoSpace!;
+            return .NoSpace!;
         }
         _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
@@ -49,7 +49,7 @@ extend FixedBufferWriter : Writer {
     type Error = BufferError;
 
     pub fn shortWrite(&self) BufferError {
-        BufferError::NoSpace
+        .NoSpace
     }
 
     pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
@@ -79,7 +79,7 @@ extend FixedBufferReader : Reader {
     type Error = BufferError;
 
     pub fn endOfStream(&self) BufferError {
-        BufferError::EndOfStream
+        .EndOfStream
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) BufferError!usize {
@@ -110,7 +110,7 @@ extend DiscardingWriter : Writer {
 
     pub fn shortWrite(&self) BufferError {
         _ = self;
-        BufferError::ShortWrite
+        .ShortWrite
     }
 
     pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
