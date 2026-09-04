@@ -73,7 +73,7 @@ fn spawnWithResources(
         let execRet = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
         reportSpawnError(&resources.error, SpawnStage::Exec, execRet.syscallError());
         exit(127);
-        SpawnAttempt::failure(SpawnError::Setup(Errno::Io))
+        SpawnAttempt::failure(.Setup(.Io))
     } else {
         resources.stdin.closeRead();
         resources.stdout.closeWrite();
@@ -88,7 +88,7 @@ fn spawnWithResources(
                 fd
             },
             null => {
-                return failedSpawnAttempt(pid, SpawnError::Setup(Errno::Io));
+                return failedSpawnAttempt(pid, .Setup(.Io));
             },
         };
         match readSpawnError(errorRead) {
@@ -169,7 +169,7 @@ fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
             if readLen == 0 {
                 return finishSpawnError(fd, !null);
             }
-            return finishSpawnError(fd, SpawnError::Setup(Errno::Io)!);
+                return finishSpawnError(fd, .Setup(.Io)!);
         }
         readLen += amount;
     }
@@ -240,7 +240,7 @@ extend SpawnAttempt {
             null => {
                 let error = match self.error {
                     ?cause => cause,
-                    null => SpawnError::Setup(Errno::Invalid),
+                    null => .Setup(.Invalid),
                 };
                 self.error = null;
                 error!
@@ -251,7 +251,7 @@ extend SpawnAttempt {
     fn reapError(&self, pid: ProcessId, cause: Errno) SpawnError {
         let primary = match self.error {
             ?error => error,
-            null => SpawnError::Setup(Errno::Invalid),
+            null => .Setup(.Invalid),
         };
         SpawnError::Reap {
             stage: primary.stage(),
