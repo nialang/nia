@@ -29,8 +29,8 @@ using types::{
 
 extend Command {
     pub fn init(path: fs::PathView, env: Env) Command {
-        Self {
-            path: path,
+        .{
+            path,
             arguments: null,
             environment: .Inherit(env),
             stdin: .Inherit,
@@ -65,7 +65,7 @@ extend Command {
     }
 
     pub fn withArguments(self, arguments: &[&[char]]) Command {
-        Self {
+        .{
             path: self.path,
             arguments: ?arguments,
             environment: self.environment,
@@ -77,7 +77,7 @@ extend Command {
     }
 
     pub fn withStdin(self, behavior: StdIo) Command {
-        Self {
+        .{
             path: self.path,
             arguments: self.arguments,
             environment: self.environment,
@@ -89,7 +89,7 @@ extend Command {
     }
 
     pub fn withStdout(self, behavior: StdIo) Command {
-        Self {
+        .{
             path: self.path,
             arguments: self.arguments,
             environment: self.environment,
@@ -101,7 +101,7 @@ extend Command {
     }
 
     pub fn withStderr(self, behavior: StdIo) Command {
-        Self {
+        .{
             path: self.path,
             arguments: self.arguments,
             environment: self.environment,
@@ -113,7 +113,7 @@ extend Command {
     }
 
     pub fn withCwd(self, cwd: fs::PathView) Command {
-        Self {
+        .{
             path: self.path,
             arguments: self.arguments,
             environment: self.environment,
@@ -125,7 +125,7 @@ extend Command {
     }
 
     pub fn withEnvironment(self, entries: &[EnvEntry]) Command {
-        Self {
+        .{
             path: self.path,
             arguments: self.arguments,
             environment: .Exact(entries),
@@ -137,7 +137,7 @@ extend Command {
     }
 
     pub fn withoutEnvironment(self) Command {
-        Self {
+        .{
             path: self.path,
             arguments: self.arguments,
             environment: .Empty,
