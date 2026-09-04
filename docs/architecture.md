@@ -3800,6 +3800,10 @@ letting backend-specific lowering fail later.
 Diagnostics describe current language rules. Unsupported syntax receives
 ordinary current-rule diagnostics rather than a reserved compatibility path.
 
+The CLI accepts either a source file or a package directory for checking and
+emission. Directory inputs select `main.nia` when present and otherwise
+`pkg.nia`, keeping package-root discovery explicit at the command boundary.
+
 `nia-ice` is the explicit invariant-failure boundary. `catch_ice` converts
 panic payloads into a structured internal diagnostic, while its thread-local
 panic hook records file/line/column context without leaking panic state across

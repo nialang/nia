@@ -153,6 +153,9 @@ nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestandi
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
 
+`nia check` and `nia emit` also accept a package directory. They select
+`main.nia` when present and otherwise use `pkg.nia` for a library-only package.
+
 `nia build` discovers and runs the package's `build.nia`, creates `.nia-build/`
 for outputs and `.nia-cache/` for reusable entries, and executes the selected or
 default step. A directory argument such as `nia build .` is shorthand for
