@@ -230,12 +230,11 @@ extend Build {
         while archiveIndex < archiveCount {
             let archive = self.executables.asSlice()[target.index()]
                 .staticArchives.asSlice()[archiveIndex];
-            match self.findEmitStaticArchiveStep(archive) {
-                ?producer => _ = producer,
-                null => return Error::Invalid {
+            if self.findEmitStaticArchiveStep(archive) is null {
+                return Error::Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Step(self.steps.len()),
-                }!,
+                }!;
             }
             archiveIndex += 1;
         }
@@ -245,19 +244,14 @@ extend Build {
             StepPayload { executable: ExecutableStep::init(target) },
         ).?;
         let dependencyStart = self.dependencies.len();
-        match self.addExecutableArchiveDependencies(result, target) {
-            !ok => {
-                _ = ok;
-                !result
-            },
-            primary! => {
-                while self.dependencies.len() > dependencyStart {
-                    _ = self.dependencies.pop();
-                }
-                _ = self.rollbackLastStep();
-                primary!
-            },
+        if self.addExecutableArchiveDependencies(result, target) is primary! {
+            while self.dependencies.len() > dependencyStart {
+                _ = self.dependencies.pop();
+            }
+            _ = self.rollbackLastStep();
+            return primary!;
         }
+        !result
     }
 
     fn addExecutableArchiveDependencies(
@@ -393,16 +387,13 @@ extend Build {
             }!,
         };
         self.prepareInstallExecutableStep(name, target).?;
-        match self.pendingStep.initializeInstallExecutable(
+        if self.pendingStep.initializeInstallExecutable(
             self.allocator,
             name,
             destination,
-        ) {
-            !ok => _ = ok,
-            primary! => {
-                _ = self.cleanupPendingStep();
-                return primary!;
-            },
+        ) is primary! {
+            _ = self.cleanupPendingStep();
+            return primary!;
         }
         let result = self.commitPendingStep().?;
         self.finishStepDependency(result, producer)
@@ -429,16 +420,13 @@ extend Build {
             }!,
         };
         self.prepareInstallStaticArchiveStep(name, target).?;
-        match self.pendingStep.initializeInstallStaticArchive(
+        if self.pendingStep.initializeInstallStaticArchive(
             self.allocator,
             name,
             destination,
-        ) {
-            !ok => _ = ok,
-            primary! => {
-                _ = self.cleanupPendingStep();
-                return primary!;
-            },
+        ) is primary! {
+            _ = self.cleanupPendingStep();
+            return primary!;
         }
         let result = self.commitPendingStep().?;
         self.finishStepDependency(result, producer)
@@ -492,28 +480,20 @@ extend Build {
             artifactInputCount,
         ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         self.prepareExternalCommandStep(name, options).?;
-        match self.pendingStep.initializeExternalCommand(self.allocator, name, options) {
-            !ok => _ = ok,
-            primary! => {
-                _ = self.cleanupPendingStep();
-                return primary!;
-            },
+        if self.pendingStep.initializeExternalCommand(self.allocator, name, options) is primary! {
+            _ = self.cleanupPendingStep();
+            return primary!;
         }
         let result = self.commitPendingStep().?;
         let dependencyStart = self.dependencies.len();
-        match self.addExternalCommandDependencies(result, options.arguments) {
-            !ok => {
-                _ = ok;
-                !result
-            },
-            primary! => {
-                while self.dependencies.len() > dependencyStart {
-                    _ = self.dependencies.pop();
-                }
-                _ = self.rollbackLastStep();
-                primary!
-            },
+        if self.addExternalCommandDependencies(result, options.arguments) is primary! {
+            while self.dependencies.len() > dependencyStart {
+                _ = self.dependencies.pop();
+            }
+            _ = self.rollbackLastStep();
+            return primary!;
         }
+        !result
     }
 
     fn addExternalCommandDependencies(
@@ -1077,16 +1057,7 @@ extend Build {
         self.cleanupValidationScratch().?;
         let operation = self.validateDependencyGraphWithScratch();
         let cleanup = self.cleanupValidationScratch();
-        match operation {
-            !ok => {
-                _ = ok;
-                cleanup
-            },
-            primary! => {
-                _ = cleanup;
-                primary!
-            },
-        }
+        operation.cleanupAfter(cleanup)
     }
 
     fn validateDependencyGraphWithScratch(&mut self) Error!() {
@@ -1360,16 +1331,11 @@ extend Build {
         step: StepHandle,
         dependency: StepHandle,
     ) Error!StepHandle {
-        match self.dependOn(step, dependency) {
-            !ok => {
-                _ = ok;
-                !step
-            },
-            primary! => {
-                _ = self.rollbackLastStep();
-                primary!
-            },
+        if self.dependOn(step, dependency) is primary! {
+            _ = self.rollbackLastStep();
+            return primary!;
         }
+        !step
     }
 
     pub(pkg) fn cleanupPendingStep(&mut self) Error!() {
