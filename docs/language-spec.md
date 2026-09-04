@@ -3476,7 +3476,7 @@ The reserved path roots are:
 Examples:
 
 ```bash
-nia check src/main.nia -M std=/usr/share/nia/std.nia -M math=vendor/math.nia
+nia check src/main.nia -M std=/usr/share/nia/std/pkg.nia -M math=vendor/math.nia
 ```
 
 ```nia
@@ -3487,7 +3487,7 @@ using pkg::internal;
 ```
 
 A mapped package root file is the pkg root module. Tail segments select declared
-child modules below that root. If `std` maps to `/usr/share/nia/std.nia`, then
+child modules below that root. If `std` maps to `/usr/share/nia/std/pkg.nia`, then
 `using std::io;` refers to the `io` child declared by that root and backed by
 `/usr/share/nia/std/io.nia`.
 

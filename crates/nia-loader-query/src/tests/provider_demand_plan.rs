@@ -13,7 +13,7 @@ fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
         &resources.join("toolchain.meta"),
         include_str!("../../../../lib/toolchain.meta"),
     );
-    write(&resources.join("std.nia"), "pub module unicode;");
+    write(&resources.join("std/pkg.nia"), "pub module unicode;");
     write(&resources.join("std/start.nia"), "");
     write(
         &resources.join("std/unicode.nia"),

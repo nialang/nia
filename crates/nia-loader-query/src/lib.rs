@@ -930,7 +930,7 @@ fn effective_module_map(
     };
     module_map.with_default_std(SourcePath::with_identity(
         toolchain.std_module().to_string_lossy().into_owned(),
-        "toolchain:/std.nia",
+        "toolchain:/std/pkg.nia",
     ))
 }
 

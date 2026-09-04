@@ -135,7 +135,7 @@ cargo build --release -p nia-cli
 
 `cargo install` installs only the compiler binary, so it is not a complete Nia
 installation. An installed toolchain resolves resources as `../lib/nia`
-relative to `bin/nia`; that tree must contain `toolchain.meta`, `std.nia`, and
+relative to `bin/nia`; that tree must contain `toolchain.meta`, `std/pkg.nia`, and
 the std/runtime sources. The repository does not provide packaging automation
 for that installed layout.
 

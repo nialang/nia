@@ -155,7 +155,7 @@ impl ToolchainLayout {
         let identity = parse_manifest(&manifest_path, &manifest)?;
         validate_identity(&manifest_path, &identity)?;
 
-        let std_module = resource_root.join("std.nia");
+        let std_module = resource_root.join("std/pkg.nia");
         validate_file(&std_module, ResourceRole::StandardLibrary)?;
         let freestanding_start_module = resource_root.join("std/start.nia");
         validate_file(
@@ -667,7 +667,7 @@ mod tests {
             nia_compat::toolchain_manifest(),
         )
         .expect("write manifest");
-        fs::write(resources.join("std.nia"), "pub module start;").expect("write std root");
+        fs::write(resources.join("std/pkg.nia"), "pub module start;").expect("write std root");
         fs::write(resources.join("std/start.nia"), "").expect("write runtime");
         executable
     }

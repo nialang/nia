@@ -119,9 +119,9 @@ _ = value;
 "#,
     );
     write(&pkg_root, "pub module facade;");
-    fs::create_dir_all(root.join("pkg").join("facade")).expect("create package dir");
+    fs::create_dir_all(root.join("facade")).expect("create package dir");
     write(
-        &root.join("pkg/facade.nia"),
+        &root.join("facade.nia"),
         r#"
 pub(pkg) module providers;
 pub(pkg) module types;
@@ -130,11 +130,11 @@ pub using types::Widget;
 "#,
     );
     write(
-        &root.join("pkg/facade/types.nia"),
+        &root.join("facade/types.nia"),
         r#"pub struct Widget { value: i32 }"#,
     );
     write(
-        &root.join("pkg/facade/providers.nia"),
+        &root.join("facade/providers.nia"),
         r#"
 using self::types;
 
@@ -145,7 +145,7 @@ pub fn score(&self) i32 {
 }
 "#,
     );
-    let provider_path = root.join("pkg/facade/providers.nia");
+    let provider_path = root.join("facade/providers.nia");
     let mut module_map = ModuleMap::new();
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
