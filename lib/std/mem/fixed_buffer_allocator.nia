@@ -96,7 +96,7 @@ extend FixedBufferAllocator : Allocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let aligned = match current.alignForward(layout.align()) {
@@ -104,7 +104,7 @@ extend FixedBufferAllocator : Allocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let offset = aligned - base;
@@ -113,11 +113,11 @@ extend FixedBufferAllocator : Allocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         if newEnd > self.buffer.len() {
-            return Error::OutOfMemory!;
+            return .OutOfMemory!;
         }
 
         self.endIndex = newEnd;
@@ -173,7 +173,7 @@ extend FixedBufferAllocator : Allocator {
             return !();
         }
         if not self.ownsBlock(block) {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         if self.isLastAllocation(block) {
             self.endIndex -= block.size();
