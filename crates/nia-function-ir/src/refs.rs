@@ -460,6 +460,7 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::Trap => {}
         FunctionExprKind::Global(def_id) => {
             refs.globals.insert(*def_id);
@@ -521,6 +522,9 @@ fn collect_function_refs_from_callee(
     refs: &mut FunctionBodyRefs,
 ) {
     match callee {
+        FunctionCallee::Tracked { callee, .. } => {
+            collect_function_refs_from_callee(span, callee, types, refs)
+        }
         FunctionCallee::ClosureEntry { state, .. } => {
             collect_function_refs_from_expr(state, types, refs);
         }

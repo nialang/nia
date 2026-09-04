@@ -103,6 +103,8 @@ pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     /// Loads another module's source path.
     pub module_source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
+    /// Loads another module's exact source text.
+    pub module_source_text: Option<&'a dyn Fn(ModuleId) -> Option<Arc<str>>>,
     /// Loads normalized types for another module.
     pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
     /// Loads extension-module normalized types.
@@ -126,6 +128,7 @@ impl BodyProgramContext<'_> {
         Self {
             defs: None,
             module_source_path: None,
+            module_source_text: None,
             type_normalizations: None,
             extension_type_normalizations: None,
             signatures: None,
@@ -142,6 +145,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
         f.debug_struct("BodyProgramContext")
             .field("defs", &self.defs.is_some())
             .field("module_source_path", &self.module_source_path.is_some())
+            .field("module_source_text", &self.module_source_text.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field(
                 "extension_type_normalizations",
@@ -179,6 +183,8 @@ pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
     /// Source path for diagnostics.
     pub source_path: &'a SourcePath,
+    /// Exact source text used to resolve stable line and scalar-column coordinates.
+    pub source_text: &'a str,
     /// Symbol table for names and diagnostics.
     pub symbols: &'a SymbolTable,
     /// Node-origin table for versioned AST keys.
@@ -289,6 +295,8 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
     /// Source path for diagnostics.
     pub source_path: &'a SourcePath,
+    /// Exact source text.
+    pub source_text: &'a str,
     /// Symbol table.
     pub symbols: &'a SymbolTable,
     /// Node-origin table.

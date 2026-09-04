@@ -101,6 +101,10 @@ fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProg
                     .module_source_version(module_id)
                     .expect("test module source version query")
                     .expect("test module source version"),
+                source_text: facts
+                    .module_source_text(module_id)
+                    .expect("test module source text query")
+                    .unwrap_or_else(|| Arc::from("")),
                 item_tree: facts
                     .module_item_tree(module_id)
                     .expect("test module item tree query")

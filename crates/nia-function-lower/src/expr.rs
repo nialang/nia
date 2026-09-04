@@ -430,6 +430,9 @@ impl FunctionLowerer<'_> {
             TypedExprKind::BuiltinValue(value) => {
                 FunctionExprKind::BuiltinValue(Self::lower_builtin_value(value))
             }
+            TypedExprKind::CallerLocation(location) => {
+                FunctionExprKind::CallerLocation(location.clone())
+            }
             TypedExprKind::Trap => FunctionExprKind::Trap,
         };
         FunctionExpr {
@@ -1319,6 +1322,10 @@ impl FunctionLowerer<'_> {
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionCallee {
         match callee {
+            TypedCallee::Tracked { callee, location } => FunctionCallee::Tracked {
+                callee: Box::new(self.lower_callee(callee, scope, current, ops, blocks)),
+                location: location.clone(),
+            },
             TypedCallee::Closure(callee) => {
                 let closure_id = match self.types.get(callee.ty) {
                     Some(TyKind::ClosureState { closure_id, .. }) => *closure_id,

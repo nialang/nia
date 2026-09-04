@@ -111,6 +111,7 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::EnumTag { .. }
         | FunctionExprKind::EnumPayloadField { .. }
         | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::Discard(_)
         | FunctionExprKind::Range(_)
         | FunctionExprKind::RangeBound { .. }

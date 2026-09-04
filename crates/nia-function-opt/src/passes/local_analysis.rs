@@ -203,7 +203,8 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::ClosureFunctionPointer { .. }
             | FunctionExprKind::EnumVariantTag(_)
-            | FunctionExprKind::BuiltinValue(_) => {}
+            | FunctionExprKind::BuiltinValue(_)
+            | FunctionExprKind::CallerLocation(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
                     self.collect_expr(&relocation.pointee);
@@ -256,6 +257,7 @@ impl<'a> LocalUseCollector<'a> {
 
     fn collect_callee(&mut self, callee: &FunctionCallee) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => self.collect_callee(callee),
             FunctionCallee::ClosureEntry {
                 state: receiver, ..
             }

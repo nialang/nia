@@ -542,6 +542,31 @@ Indirect readonly address means the caller passes an address of a value whose
 contents are observed by the callee. The callee must treat this address as the
 by-value parameter's storage and must not mutate it.
 
+### 15.1.1 Tracked Caller Metadata
+
+A function marked `@[trackCaller]` appends one compiler-owned pointer after all
+source-visible parameters. If the return is indirect, the complete order is:
+
+```text
+hidden result pointer -> source parameters -> caller-location pointer
+```
+
+The pointer addresses immutable storage with the `std::SourceLocation` layout:
+
+```text
+{ file: &[u8], line: u32, column: u32 }
+```
+
+An untracked caller passes a pointer to a link-time deduplicable constant for
+the lexical call site. A tracked caller forwards its incoming pointer unchanged.
+Trait-object entries and receiver adapters use the same final pointer position.
+This pointer is an internal Nia ABI detail: it is not a parameter in semantic
+function types, local numbering, reflection, or source arity.
+
+Tracked functions cannot use the C ABI and cannot be represented by ordinary
+function pointers or callable views. Optimizers, monomorphization, inlining,
+and vtable lowering must preserve the tracked/untracked ABI distinction.
+
 ### 15.2 Nia Function Returns
 
 The Nia function ABI classifies returns as follows:

@@ -899,6 +899,22 @@ impl Analyzer<'_> {
         }
     }
 
+    pub(super) fn current_execution_source_text(&self) -> Option<std::sync::Arc<str>> {
+        let module_id = self.current_execution_module_id();
+        if module_id == self.input.defs.module_id {
+            Some(std::sync::Arc::from(self.input.source_text))
+        } else {
+            (self.input.program.source_text?)(module_id)
+        }
+    }
+
+    pub(super) fn current_caller_location(&self) -> Option<nia_source::SourceLocation> {
+        self.call_locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.caller_location.clone())
+    }
+
     pub(super) fn primitive_ty_for_module(
         &self,
         module_id: ModuleId,

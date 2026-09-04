@@ -499,6 +499,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
@@ -548,6 +549,9 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendStructInstance>,
     ) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => {
+                self.collect_struct_instances_callee(callee, seen, out)
+            }
             FunctionCallee::ClosureEntry { state, .. } => {
                 self.collect_struct_instances_expr(state, seen, out);
             }
@@ -1199,6 +1203,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
@@ -1248,6 +1253,9 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => {
+                self.collect_union_instances_callee(callee, seen, out)
+            }
             FunctionCallee::ClosureEntry { state, .. } => {
                 self.collect_union_instances_expr(state, seen, out);
             }

@@ -206,6 +206,9 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text),
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
                 FunctionExprKind::Null => FunctionExprKind::Null,
+                FunctionExprKind::CallerLocation(location) => {
+                    FunctionExprKind::CallerLocation(location)
+                }
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::ConstGeneric(arg) => {
                     let arg = self.instantiate_const_generic_arg(&arg, substitutions);
@@ -751,6 +754,10 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
     ) -> FunctionCallee {
         match callee {
+            FunctionCallee::Tracked { callee, location } => FunctionCallee::Tracked {
+                callee: Box::new(self.instantiate_callee(*callee, substitutions)),
+                location,
+            },
             FunctionCallee::ClosureEntry { closure_id, state } => FunctionCallee::ClosureEntry {
                 closure_id,
                 state: Box::new(self.instantiate_expr(*state, substitutions)),

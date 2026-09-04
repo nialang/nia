@@ -29,6 +29,7 @@ struct DynamicTraitMethodCall<'a, 'ctx> {
     receiver: &'a FunctionExpr,
     args: &'a [FunctionExpr],
     out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+    caller_location: Option<nia_llvm::values::PointerValue<'ctx>>,
 }
 
 /// Checks source arity against the ABI's fixed prefix.
@@ -434,8 +435,36 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         args: &[FunctionExpr],
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
+        self.emit_call_raw_with_caller(expr, callee, args, out_ptr, None)
+    }
+
+    fn emit_call_raw_with_caller(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+        out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+        caller_location: Option<nia_llvm::values::PointerValue<'ctx>>,
+    ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
         match callee {
+            FunctionCallee::Tracked { callee, location } => {
+                if caller_location.is_some() {
+                    return Err(self.error(expr.span, "nested tracked-caller metadata"));
+                }
+                let caller_location = match self.caller_location {
+                    Some(pointer) => pointer,
+                    None => self
+                        .module
+                        .materialize_source_location(location, expr.span)?,
+                };
+                self.emit_call_raw_with_caller(expr, callee, args, out_ptr, Some(caller_location))
+            }
             FunctionCallee::ClosureEntry { closure_id, state } => {
+                if caller_location.is_some() {
+                    return Err(
+                        self.error(expr.span, "closure entry cannot use tracked-caller ABI")
+                    );
+                }
                 let key = BackendClosureEntryKey {
                     closure_id: *closure_id,
                     owner: self.function.closure_owner.clone(),
@@ -466,7 +495,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(function_item) = self.module.function_item(*def_id) else {
                     return Err(self.error(expr.span, "missing callee function metadata"));
                 };
-                let llvm_args = if function_item.is_extern {
+                let mut llvm_args = if function_item.is_extern {
                     self.emit_c_call_args(
                         expr.span,
                         args,
@@ -477,6 +506,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let param_tys = function_item.params.iter().map(|param| param.passing_ty);
                     self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
                 };
+                if let Some(caller_location) = caller_location {
+                    llvm_args.push(caller_location.into());
+                }
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build call"))
@@ -497,7 +529,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ) else {
                     return Err(self.error(expr.span, "missing callee function instance"));
                 };
-                let llvm_args = if instance.is_extern {
+                let mut llvm_args = if instance.is_extern {
                     self.emit_c_call_args(
                         expr.span,
                         args,
@@ -508,6 +540,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let param_tys = instance.params.iter().map(|param| param.passing_ty);
                     self.emit_call_args(expr.span, args, param_tys, out_ptr, false)?
                 };
+                if let Some(caller_location) = caller_location {
+                    llvm_args.push(caller_location.into());
+                }
                 self.builder
                     .build_call(
                         self.module
@@ -592,7 +627,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(param_tys) = param_tys else {
                     return Err(self.error(expr.span, "missing method metadata"));
                 };
-                let llvm_args = if is_extern {
+                let mut llvm_args = if is_extern {
                     let mut call_args = Vec::with_capacity(args.len() + 1);
                     call_args.push(receiver.as_ref());
                     call_args.extend(args.iter());
@@ -641,6 +676,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     )?);
                     llvm_args
                 };
+                if let Some(caller_location) = caller_location {
+                    llvm_args.push(caller_location.into());
+                }
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build method call"))
@@ -677,6 +715,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 receiver,
                 args,
                 out_ptr,
+                caller_location,
             }),
             FunctionCallee::BuiltinPlaceMethod { .. } => Err(self.error(
                 expr.span,
@@ -694,6 +733,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 "dynamic callable call bypassed callable dispatch",
             )),
             FunctionCallee::FunctionPointer(callee) => {
+                if caller_location.is_some() {
+                    return Err(
+                        self.error(expr.span, "function pointer cannot use tracked-caller ABI")
+                    );
+                }
                 let Some(TyKind::FunctionPointer {
                     params,
                     return_type,
@@ -799,6 +843,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             call.object_ty,
             call.params,
             call.return_type,
+            call.caller_location.is_some(),
             call.expr.span,
         )?;
         let mut llvm_args = Vec::new();
@@ -813,6 +858,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             None,
             false,
         )?);
+        if let Some(caller_location) = call.caller_location {
+            llvm_args.push(caller_location.into());
+        }
         self.builder
             .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
             .map_err(|_| self.error(call.expr.span, "failed to build dynamic trait call"))

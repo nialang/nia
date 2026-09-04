@@ -890,7 +890,8 @@ fn collect_typed_expr_refs(
                 collect_typed_expr_refs(module, field, refs);
             }
         }
-        TypedExprKind::BuiltinValue(_) | TypedExprKind::Trap => {}
+        TypedExprKind::BuiltinValue(_) | TypedExprKind::CallerLocation(_) | TypedExprKind::Trap => {
+        }
     }
 }
 
@@ -901,6 +902,9 @@ fn collect_typed_callee_refs(
     refs: &mut ExecutableItemRefs,
 ) {
     match callee {
+        TypedCallee::Tracked { callee, .. } => {
+            collect_typed_callee_refs(module, callee, args, refs)
+        }
         TypedCallee::Closure(callee) => collect_typed_expr_refs(module, callee, refs),
         TypedCallee::Function(def_id) => {
             refs.functions.insert(*def_id);

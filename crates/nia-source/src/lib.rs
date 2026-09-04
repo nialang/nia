@@ -78,6 +78,48 @@ pub struct SourceIdentity {
     normalized_path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable logical source coordinate embedded in generated programs.
+pub struct SourceLocation {
+    /// Relocation-stable UTF-8 source identity.
+    pub file: String,
+    /// One-based source line.
+    pub line: u32,
+    /// One-based Unicode-scalar column.
+    pub column: u32,
+}
+
+impl SourceLocation {
+    /// Resolves a byte offset using the same scalar-column convention as diagnostics.
+    pub fn at(identity: &SourceIdentity, source: &str, offset: usize) -> Self {
+        let offset = clamp_to_char_boundary(source, offset.min(source.len()));
+        let mut line = 1_u32;
+        let mut line_start = 0;
+        for (index, ch) in source.char_indices() {
+            if index >= offset {
+                break;
+            }
+            if ch == '\n' {
+                line = line.saturating_add(1);
+                line_start = index + ch.len_utf8();
+            }
+        }
+        let column = source[line_start..offset].chars().count().saturating_add(1);
+        Self {
+            file: identity.normalized_path().to_owned(),
+            line,
+            column: u32::try_from(column).unwrap_or(u32::MAX),
+        }
+    }
+}
+
+fn clamp_to_char_boundary(source: &str, mut offset: usize) -> usize {
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
 impl SourceIdentity {
     /// Creates an identity after normalizing the supplied path text.
     pub fn new(path: impl AsRef<str>) -> Self {
@@ -465,6 +507,24 @@ mod tests {
                 "/relocated/lib/nia/std/collections.nia",
                 "toolchain:/std/collections.nia",
             )
+        );
+    }
+
+    #[test]
+    fn source_locations_use_one_based_unicode_scalar_columns() {
+        let identity = SourceIdentity::new("package:demo:/main.nia");
+        let source = "first\n    let 文 = callerLocation();\n";
+        let offset = source
+            .find("callerLocation")
+            .expect("caller location offset");
+
+        assert_eq!(
+            SourceLocation::at(&identity, source, offset),
+            SourceLocation {
+                file: "package:demo:/main.nia".to_string(),
+                line: 2,
+                column: 13,
+            }
         );
     }
 

@@ -327,6 +327,7 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::ClosureFunctionPointer { .. }
             | FunctionExprKind::EnumVariantTag(_)
             | FunctionExprKind::BuiltinValue(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::Trap => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
@@ -442,6 +443,7 @@ impl CompilerBuiltinCollector {
         args: &[FunctionExpr],
     ) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => self.collect_callee(index, callee, args),
             FunctionCallee::BuiltinOperator(operator) => {
                 if let FunctionBuiltinOperatorOp::Binary(op) = operator.op
                     && let Some(lhs) = args.first()

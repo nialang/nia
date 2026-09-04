@@ -602,6 +602,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
+        | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::BuiltinValue(_) => {}
         FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
             for relocation in relocations {
@@ -662,6 +663,11 @@ fn propagate_cross_function_constants_in_callee(
     instance_constants: &HashMap<FunctionInstanceKey, FunctionExpr>,
 ) -> bool {
     match callee {
+        FunctionCallee::Tracked { callee, .. } => propagate_cross_function_constants_in_callee(
+            callee,
+            function_constants,
+            instance_constants,
+        ),
         FunctionCallee::ClosureEntry {
             state: receiver, ..
         }
@@ -759,7 +765,8 @@ fn cross_function_constant_for_callee<'a>(
             args: args.clone(),
             const_args: const_args.clone(),
         }),
-        FunctionCallee::ClosureEntry { .. }
+        FunctionCallee::Tracked { .. }
+        | FunctionCallee::ClosureEntry { .. }
         | FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::TraitAssociatedFunction { .. }

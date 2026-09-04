@@ -1522,6 +1522,8 @@ pub struct BackendFunction {
 pub enum BackendFunctionAttribute {
     /// Emit without a compiler-generated prologue or epilogue.
     Naked,
+    /// Accept and forward an implicit caller-location pointer.
+    TrackCaller,
 }
 
 /// Concrete generic function definition.

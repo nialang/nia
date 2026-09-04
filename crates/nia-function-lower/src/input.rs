@@ -305,6 +305,7 @@ impl BodyInputValidator<'_, '_> {
             | TypedExprKind::ClosureFunctionPointer { .. }
             | TypedExprKind::FunctionCallable { .. }
             | TypedExprKind::BuiltinValue(_)
+            | TypedExprKind::CallerLocation(_)
             | TypedExprKind::Trap
             | TypedExprKind::MemoryIntrinsic(_)
             | TypedExprKind::Discard(_)
@@ -442,6 +443,7 @@ impl BodyInputValidator<'_, '_> {
 
     fn validate_callee(&self, callee: &TypedCallee) -> Result<(), FunctionLoweringDiagnostic> {
         match callee {
+            TypedCallee::Tracked { callee, .. } => self.validate_callee(callee),
             TypedCallee::Closure(callee) => {
                 self.validate_value_expr(callee)?;
                 if !matches!(self.types.get(callee.ty), Some(TyKind::ClosureState { .. })) {

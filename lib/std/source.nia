@@ -3,6 +3,8 @@
 // The file is a logical UTF-8 source identity, not an absolute host path.
 // Lines and columns are one-based; columns count Unicode scalar values.
 
+using pkg::fmt;
+
 pub struct SourceLocation {
     file: &[u8],
     line: u32,
@@ -20,6 +22,16 @@ extend SourceLocation {
 
     pub fn column(&self) u32 {
         self.column
+    }
+}
+
+extend SourceLocation : fmt::Format {
+    fn format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+        formatter.writeBytes(self.file).?;
+        formatter.writeByte(b':').?;
+        formatter.writeUnsigned(self.line as u128).?;
+        formatter.writeByte(b':').?;
+        formatter.writeUnsigned(self.column as u128)
     }
 }
 

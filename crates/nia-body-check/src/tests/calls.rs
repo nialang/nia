@@ -816,6 +816,61 @@ fn main() () {
 }
 
 #[test]
+fn rejects_tracked_caller_function_pointers() {
+    let checked = pipeline(
+        r#"
+@[trackCaller]
+fn tracked() i32 { 1 }
+
+fn main() () {
+    _ = &tracked;
+}
+
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic.summary.contains(
+            "tracked-caller functions cannot be used as ordinary function pointers or callable values"
+        )),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn records_exact_tracked_callsite_location_in_typed_ir() {
+    let checked =
+        pipeline("@[trackCaller]\nfn tracked() i32 { 1 }\n\nfn main() i32 {\n    tracked()\n}\n");
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let main = checked
+        .ir
+        .function_bodies
+        .values()
+        .find(|body| {
+            body.tail.as_deref().is_some_and(|tail| {
+                matches!(
+                    tail.kind,
+                    nia_body_ir::TypedExprKind::Call {
+                        callee: nia_body_ir::TypedCallee::Tracked { .. },
+                        ..
+                    }
+                )
+            })
+        })
+        .expect("main body with tracked call");
+    let nia_body_ir::TypedExprKind::Call {
+        callee: nia_body_ir::TypedCallee::Tracked { location, .. },
+        ..
+    } = &main.tail.as_deref().expect("main tail").kind
+    else {
+        unreachable!()
+    };
+    assert_eq!(location.line, 5);
+    assert_eq!(location.column, 5);
+}
+
+#[test]
 fn checks_direct_call_argument_count_and_types() {
     let checked = pipeline(
         r#"

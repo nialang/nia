@@ -467,6 +467,8 @@ pub enum FunctionExprKind {
     },
     /// Target-independent builtin value construction.
     BuiltinValue(FunctionBuiltinValue),
+    /// Compiler-resolved source position, forwarded by tracked functions.
+    CallerLocation(nia_source::SourceLocation),
     /// Deliberate trap expression.
     Trap,
     /// Constructs a range whose bound presence and types follow its `RangeTyKind`.
@@ -977,6 +979,13 @@ pub struct FunctionFieldInit {
 /// Callee shape selected after method, trait, and closure resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionCallee {
+    /// Source callsite metadata for a function using the tracked-caller ABI.
+    Tracked {
+        /// Underlying statically or dynamically resolved callee.
+        callee: Box<FunctionCallee>,
+        /// Lexical location of this call expression.
+        location: nia_source::SourceLocation,
+    },
     /// Generated closure entry plus its captured state pointer.
     ClosureEntry {
         /// Source closure identity.

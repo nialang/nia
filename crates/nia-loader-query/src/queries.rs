@@ -244,12 +244,18 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
                 db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
             })?;
         let parsed = db.get(parsed_module_query_for_id(db, self.0)?)?;
+        let source = db.get(SourceTextQuery(self.0))?;
         let provider_summary = db.get(provider_summary_query_for_id(db, self.0)?)?;
         Ok(LoadedModule {
             id,
             path: path.as_ref().clone(),
             source_identity: path.identity(),
             source_version: parsed.semantic.source_version,
+            source_text: source
+                .file
+                .as_ref()
+                .map(|file| file.text.clone())
+                .unwrap_or_else(|| Arc::<str>::from("")),
             item_tree: parsed.semantic.item_tree.clone(),
             active_item_tree: parsed.semantic.active_item_tree.clone(),
             provider_summary: provider_summary.as_ref().clone(),

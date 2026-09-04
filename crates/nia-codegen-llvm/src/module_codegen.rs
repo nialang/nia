@@ -34,6 +34,8 @@ use nia_llvm::{
 use nia_mangle::{
     MangleModuleId, MangleResolvers, mangle_base_symbol_id, mangle_symbol_id, mangle_type_with,
 };
+use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
+use nia_source::SourceLocation;
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
@@ -81,11 +83,28 @@ type TraitObjectAdapterKey = (
 type PromotedAllocationKey = (PromotedAllocationId, Option<FunctionInstanceKey>);
 type PromotedAllocationEntry<'ctx> = (InternedTyId, BasicValueEnum<'ctx>);
 
+const SOURCE_FILE_GLOBAL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.source-file-global.v1");
+const SOURCE_LOCATION_GLOBAL_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.llvm.source-location-global.v1");
+
+fn source_global_symbol(
+    prefix: &str,
+    domain: FingerprintDomain,
+    write: impl FnOnce(&mut QueryFingerprintBuilder),
+) -> String {
+    let mut fingerprint = QueryFingerprintBuilder::new(domain);
+    write(&mut fingerprint);
+    let [first, second] = fingerprint.finish().parts();
+    format!("{prefix}__{first:016x}{second:016x}")
+}
+
 struct FunctionSignature<P> {
     param_tys: P,
     return_type: InternedTyId,
     is_extern: bool,
     is_variadic: bool,
+    tracks_caller: bool,
     span: Span,
 }
 
@@ -120,6 +139,8 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
     promoted_allocations: RefCell<HashMap<PromotedAllocationKey, PromotedAllocationEntry<'ctx>>>,
+    source_files: RefCell<HashMap<String, GlobalValue<'ctx>>>,
+    source_locations: RefCell<HashMap<SourceLocation, GlobalValue<'ctx>>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
@@ -168,6 +189,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             globals: HashMap::new(),
             global_instances: HashMap::new(),
             promoted_allocations: RefCell::new(HashMap::new()),
+            source_files: RefCell::new(HashMap::new()),
+            source_locations: RefCell::new(HashMap::new()),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
             mangled_types: RefCell::new(HashMap::new()),
@@ -178,6 +201,96 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             trait_object_adapters: RefCell::new(HashMap::new()),
             timings: options.timings,
         })
+    }
+
+    pub(super) fn materialize_source_location(
+        &self,
+        location: &SourceLocation,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        if let Some(global) = self.source_locations.borrow().get(location).copied() {
+            return Ok(global.as_pointer_value());
+        }
+
+        let file_global =
+            if let Some(global) = self.source_files.borrow().get(&location.file).copied() {
+                global
+            } else {
+                let initializer = self
+                    .context
+                    .const_string(location.file.as_bytes(), true)
+                    .map_err(Self::diagnostic_from_llvm_error)?;
+                let initializer_value: BasicValueEnum<'ctx> = initializer.into();
+                let file_ty = initializer_value
+                    .get_type()
+                    .map_err(Self::diagnostic_from_llvm_error)?;
+                let symbol = source_global_symbol(
+                    "nia__source_file",
+                    SOURCE_FILE_GLOBAL_DOMAIN,
+                    |fingerprint| fingerprint.write_str(&location.file),
+                );
+                let global = self
+                    .module
+                    .add_global(file_ty, None, &symbol)
+                    .map_err(Self::diagnostic_from_llvm_error)?;
+                global.set_linkage(Linkage::LinkOnceOdr);
+                global.set_constant(true);
+                global
+                    .set_initializer(&initializer)
+                    .map_err(Self::diagnostic_from_llvm_error)?;
+                self.source_files
+                    .borrow_mut()
+                    .insert(location.file.clone(), global);
+                global
+            };
+
+        let usize_ty = self.usize_llvm_type(span)?;
+        let file_len = u64::try_from(location.file.len())
+            .map_err(|_| self.error(span, "source identity is too long for LLVM"))?;
+        let file_slice = self
+            .slice_type(span)?
+            .const_named_struct(&[
+                file_global.as_pointer_value().into(),
+                usize_ty.const_int(file_len, false)?.into(),
+            ])
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        let u32_ty = self.context.i32_type();
+        let location_ty = self
+            .context
+            .struct_type(
+                &[self.slice_type(span)?.into(), u32_ty.into(), u32_ty.into()],
+                false,
+            )
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        let initializer = location_ty
+            .const_named_struct(&[
+                file_slice.into(),
+                u32_ty.const_int(u64::from(location.line), false)?.into(),
+                u32_ty.const_int(u64::from(location.column), false)?.into(),
+            ])
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        let symbol = source_global_symbol(
+            "nia__source_location",
+            SOURCE_LOCATION_GLOBAL_DOMAIN,
+            |fingerprint| {
+                fingerprint.write_str(&location.file);
+                fingerprint.write_u64(u64::from(location.line));
+                fingerprint.write_u64(u64::from(location.column));
+            },
+        );
+        let global = self
+            .module
+            .add_global(location_ty.into(), None, &symbol)
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        global.set_linkage(Linkage::LinkOnceOdr);
+        global.set_constant(true);
+        global
+            .set_initializer(&initializer)
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        self.source_locations
+            .borrow_mut()
+            .insert(location.clone(), global);
+        Ok(global.as_pointer_value())
     }
 
     pub(super) fn emit_ir(&mut self) -> Result<String, Diagnostic> {
@@ -677,6 +790,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                             const_args: instance.const_args.clone(),
                         },
                     ),
+                    tracks_caller: instance
+                        .attributes
+                        .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
                 },
                 llvm_function,
             )?;
@@ -714,6 +830,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     local_names: &entry.local_names,
                     span: entry.span,
                     closure_owner: entry.key.owner.clone(),
+                    tracks_caller: false,
                 },
                 llvm_function,
             )?;

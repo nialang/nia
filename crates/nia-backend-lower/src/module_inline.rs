@@ -456,6 +456,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
@@ -505,6 +506,9 @@ impl<'a> ModuleLowerer<'a> {
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => {
+                self.inline_leaf_calls_in_callee(callee, function_candidates, instance_candidates);
+            }
             FunctionCallee::ClosureEntry {
                 state: receiver, ..
             }
@@ -603,7 +607,8 @@ fn inline_candidate_for_callee<'a>(
             args: args.clone(),
             const_args: const_args.clone(),
         }),
-        FunctionCallee::ClosureEntry { .. }
+        FunctionCallee::Tracked { .. }
+        | FunctionCallee::ClosureEntry { .. }
         | FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::TraitAssociatedFunction { .. }
@@ -979,6 +984,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
+        | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::BuiltinValue(_) => {}
         FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
             for relocation in relocations {
@@ -1081,6 +1087,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
+        | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::BuiltinValue(_) => 1,
         FunctionExprKind::EnumVariant { fields, .. } => {
             1 + fields

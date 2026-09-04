@@ -225,6 +225,7 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
         | TypedExprKind::Function(_)
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::BuiltinValue(_)
+        | TypedExprKind::CallerLocation(_)
         | TypedExprKind::Trap
         | TypedExprKind::ClosureFunctionPointer { .. } => {}
     }
@@ -271,6 +272,7 @@ fn walk_place<'a>(place: &'a TypedPlace, visit: &mut impl FnMut(&'a TypedBody)) 
 
 fn walk_callee<'a>(callee: &'a TypedCallee, visit: &mut impl FnMut(&'a TypedBody)) {
     match callee {
+        TypedCallee::Tracked { callee, .. } => walk_callee(callee, visit),
         TypedCallee::Closure(expr)
         | TypedCallee::Callable(expr)
         | TypedCallee::FunctionPointer(expr) => walk_expr(expr, visit),

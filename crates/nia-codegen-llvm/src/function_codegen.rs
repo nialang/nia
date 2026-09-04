@@ -43,6 +43,7 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     local_tys: HashMap<LocalId, InternedTyId>,
     zst_locals: HashMap<LocalId, PointerValue<'ctx>>,
     out_ptr: Option<PointerValue<'ctx>>,
+    caller_location: Option<PointerValue<'ctx>>,
     defer_scopes: Vec<DeferScope>,
     function_defer_scopes: HashMap<FunctionScopeId, usize>,
     active_function_scope: Option<FunctionScopeId>,
@@ -55,6 +56,7 @@ pub(super) struct FunctionCodegenInput<'a> {
     pub(super) local_names: &'a HashMap<LocalId, String>,
     pub(super) span: Span,
     pub(super) closure_owner: BackendClosureEntryOwner,
+    pub(super) tracks_caller: bool,
 }
 
 impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
@@ -65,6 +67,9 @@ impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
             local_names: &function.local_names,
             span: function.span,
             closure_owner: BackendClosureEntryOwner::Source(function.def_id),
+            tracks_caller: function
+                .attributes
+                .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
         }
     }
 }
@@ -89,6 +94,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             local_tys: HashMap::new(),
             zst_locals: HashMap::new(),
             out_ptr: None,
+            caller_location: None,
             defer_scopes: Vec::new(),
             function_defer_scopes: HashMap::new(),
             active_function_scope: None,
@@ -229,6 +235,35 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(Some(value?.into_pointer_value()?))
     }
 
+    fn function_caller_location(&self) -> Result<Option<PointerValue<'ctx>>, Diagnostic> {
+        if !self.function.tracks_caller {
+            return Ok(None);
+        }
+        let direct_params = self
+            .module
+            .classify_function_params(self.function.params.iter().map(|param| param.passing_ty))
+            .into_iter()
+            .filter(|param| !matches!(param, AbiParam::Omit))
+            .count();
+        let index = usize::from(matches!(
+            self.module
+                .classify_function_return(self.function.return_type),
+            AbiReturn::IndirectOut(_)
+        )) + direct_params;
+        let index = u32::try_from(index).map_err(|_| {
+            self.error(
+                self.function.span,
+                "caller-location parameter index is too large",
+            )
+        })?;
+        let value = self
+            .llvm_function
+            .get_nth_param(index)
+            .ok_or_else(|| self.error(self.function.span, "missing caller-location parameter"))?
+            .map_err(ModuleCodegen::diagnostic_from_llvm_error)?;
+        Ok(Some(value.into_pointer_value()?))
+    }
+
     pub(super) fn emit_return_value(
         &mut self,
         span: Span,
@@ -288,6 +323,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .bool_type()
                 .const_int(u64::from(*value), false)?
                 .into()),
+            FunctionExprKind::CallerLocation(location) => {
+                let pointer = match self.caller_location {
+                    Some(pointer) => pointer,
+                    None => self
+                        .module
+                        .materialize_source_location(location, expr.span)?,
+                };
+                self.builder
+                    .build_load(
+                        self.module.llvm_basic_type(expr.ty, expr.span)?,
+                        pointer,
+                        "caller.location",
+                    )
+                    .map_err(|_| self.error(expr.span, "failed to load caller location"))
+            }
             FunctionExprKind::ConstGeneric(_) => {
                 Err(self.error(expr.span, "const generic value reached LLVM codegen"))
             }
@@ -1398,6 +1448,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
 fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCallee) -> bool {
     match callee {
+        FunctionCallee::Tracked { callee, .. } => callee_is_extern(codegen, callee),
         FunctionCallee::ClosureEntry { .. } => false,
         FunctionCallee::Function(def_id) => codegen
             .module

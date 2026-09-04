@@ -381,6 +381,8 @@ pub enum TypedExprKind {
     },
     /// Target-independent builtin value.
     BuiltinValue(BuiltinConst),
+    /// Compiler-resolved source position, forwarded by tracked functions.
+    CallerLocation(nia_source::SourceLocation),
     /// Deliberate trap expression.
     Trap,
     /// Range construction.
@@ -929,6 +931,13 @@ pub struct TypedFieldInit {
 /// Callee shape selected by semantic call resolution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedCallee {
+    /// Source callsite metadata for a function using the tracked-caller ABI.
+    Tracked {
+        /// Underlying statically or dynamically resolved callee.
+        callee: Box<TypedCallee>,
+        /// Lexical location of this call expression.
+        location: nia_source::SourceLocation,
+    },
     /// Closure value call.
     Closure(Box<TypedExpr>),
     /// Monomorphic function call.

@@ -1565,6 +1565,25 @@ The initial `builtin` surface exposes `arch`, `vendor`, `os`, `env`, `abi`,
 `endian`, and `pointer_width` as public const values. These values share the
 same target facts used by `@[if ...]`.
 
+`@[trackCaller]` may be attached to a non-`extern` function or trait method.
+Within such a function, `std::callerLocation()` returns the outermost call site
+that entered a contiguous chain of tracked functions. A call from an ordinary
+function materializes that call expression's location; a tracked function
+forwards the location it received. Trait implementations inherit this contract
+from the trait declaration and need not repeat the attribute. An implementation
+cannot add the attribute when the declared trait method does not have it.
+
+`std::SourceLocation` contains a logical UTF-8 source identity and one-based
+line and column numbers. Columns count Unicode scalar values. In an ordinary
+function, `std::callerLocation()` returns its own lexical expression location.
+It is const-capable, including calls through tracked `const fn` chains. Source
+locations never require a runtime registry, stack walk, unwind information, or
+heap allocation.
+
+Tracked functions have a distinct internal ABI and cannot be converted to an
+ordinary `&fn(...)` or `&Fn(...)` value. This avoids hiding caller metadata in
+a source-level function type that cannot carry it.
+
 The parser accepts attributes on top-level items and on `struct`/`union` fields.
 An unknown attribute is reserved and has no language-defined effect until this
 specification assigns one. Unknown attributes do not change visibility, ABI,

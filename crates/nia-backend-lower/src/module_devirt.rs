@@ -286,6 +286,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::EnumVariantTag(_)
+            | FunctionExprKind::CallerLocation(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::UnionStorageLiteral { relocations, .. } => {
                 for relocation in relocations {
@@ -326,6 +327,9 @@ impl<'a> ModuleLowerer<'a> {
 
     fn devirtualize_direct_trait_calls_in_callee(&mut self, callee: &mut FunctionCallee) -> bool {
         match callee {
+            FunctionCallee::Tracked { callee, .. } => {
+                self.devirtualize_direct_trait_calls_in_callee(callee)
+            }
             FunctionCallee::ClosureEntry {
                 state: receiver, ..
             }

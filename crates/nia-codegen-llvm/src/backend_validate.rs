@@ -1221,6 +1221,17 @@ impl BackendValidator<'_> {
                     "backend IR `naked` attribute is only valid on extern function definitions",
                 ));
             }
+            if matches!(
+                attribute,
+                nia_backend_ir::BackendFunctionAttribute::TrackCaller
+            ) && is_extern
+            {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "backend IR `trackCaller` attribute is not valid on extern functions",
+                ));
+            }
         }
     }
 

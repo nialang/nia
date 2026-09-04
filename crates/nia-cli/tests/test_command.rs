@@ -68,6 +68,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
         return process::exit(9)!;
     }
     _ = first.name();
+    let failed = cases[1].run();
+    match failed.error() {
+        ?error => match error {
+            .AssertionFailed(location) => {
+                if location.line() != 10 or location.column() != 5 {
+                    return process::exit(15)!;
+                }
+            },
+            .ValuesEqual(_) => return process::exit(16)!,
+            .ValuesNotEqual(_) => return process::exit(17)!,
+        },
+        null => return process::exit(18)!,
+    }
     let summary = test::Runner::init(&cases[..]).run();
     if summary.total() != 2 or summary.passed() != 1 or summary.failed() != 1
         or summary.skipped() != 0 or summary.isSuccessful()

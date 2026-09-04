@@ -167,6 +167,7 @@ struct BodyChecker<'a> {
     program_const_array_lengths: &'a dyn Fn(ModuleId) -> Option<Arc<ConstArrayLengths>>,
     program_const_module: &'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>,
     source_path: &'a SourcePath,
+    source_text: &'a str,
     symbols: &'a SymbolTable,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     extension_method_lookup_cache: HashMap<GlobalDefId, ExtensionMethodLookup>,

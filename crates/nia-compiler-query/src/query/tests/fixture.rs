@@ -180,6 +180,7 @@ pub(super) fn loaded_module_with_source_version(
         path: SourcePath::new(path),
         source_identity: SourcePath::new(path).identity(),
         source_version,
+        source_text: Arc::from(source),
         item_tree: item_tree.clone(),
         active_item_tree,
         provider_summary,
