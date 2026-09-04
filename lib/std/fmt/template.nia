@@ -98,26 +98,21 @@ fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
                 continue;
             }
         }
-        match parseAlignment(ch) {
-            ?parsedAlignment => {
-                alignment = parsedAlignment;
-                index += 1;
-            },
-            null => {
-                if ch == '0' {
-                        fill = '0';
-                        alignment = core::FormatAlignment::Right;
-                        index += 1;
-                    } else if ch == '+' and not signPlus {
-                        signPlus = true;
-                        index += 1;
-                    } else if ch == '#' and not alternate {
-                        alternate = true;
-                        index += 1;
-                    } else {
-                        parsingFlags = false;
-                    }
-            },
+        if parseAlignment(ch) is ?parsedAlignment {
+            alignment = parsedAlignment;
+            index += 1;
+        } else if ch == '0' {
+            fill = '0';
+            alignment = core::FormatAlignment::Right;
+            index += 1;
+        } else if ch == '+' and not signPlus {
+            signPlus = true;
+            index += 1;
+        } else if ch == '#' and not alternate {
+            alternate = true;
+            index += 1;
+        } else {
+            parsingFlags = false;
         }
     }
 
@@ -128,16 +123,12 @@ fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
         index += 2;
     } else {
         while index < template.len() {
-            let digit = match digitValue(template[index]) {
-                ?digit => {
-                    digit
-                },
-                null => {
-                    break;
-                },
-            };
-            width = appendDecimalDigit(width, digit).?;
-            index += 1;
+            if digitValue(template[index]) is ?digit {
+                width = appendDecimalDigit(width, digit).?;
+                index += 1;
+            } else {
+                break;
+            }
         }
     }
 
@@ -152,17 +143,13 @@ fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
             let mut parsedPrecision: usize = 0;
             let mut hasDigit = false;
             while index < template.len() {
-                let digit = match digitValue(template[index]) {
-                    ?digit => {
-                        digit
-                    },
-                    null => {
-                        break;
-                    },
-                };
-                parsedPrecision = appendDecimalDigit(parsedPrecision, digit).?;
-                hasDigit = true;
-                index += 1;
+                if digitValue(template[index]) is ?digit {
+                    parsedPrecision = appendDecimalDigit(parsedPrecision, digit).?;
+                    hasDigit = true;
+                    index += 1;
+                } else {
+                    break;
+                }
             }
             if not hasDigit {
                 return core::Error::InvalidTemplate!;
@@ -198,13 +185,10 @@ fn nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize 
     if argIndex.* >= args.len() {
         return core::Error::MissingArgument!;
     }
-    let value = match args[argIndex.*].formatUsizeArg() {
-        ?value => {
-            value
-        },
-        null => {
-            return core::Error::InvalidTemplate!;
-        },
+    let value = if args[argIndex.*].formatUsizeArg() is ?value {
+        value
+    } else {
+        return core::Error::InvalidTemplate!;
     };
     argIndex.* += 1;
     !value
