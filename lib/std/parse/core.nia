@@ -123,13 +123,13 @@ fn parseSign[U](input: &[U], allowSign: bool) Error!ParsedSign
 where U: AsciiUnit
 {
     if input.len() == 0 {
-        return Error::Empty!;
+        return .Empty!;
     }
 
     let first = input[0];
     if asciiIs[U](first, '-') or asciiIs[U](first, '+') {
         if not allowSign {
-            return Error::InvalidSign!;
+            return .InvalidSign!;
         }
         !ParsedSign { negative: asciiIs[U](first, '-'), digitsStart: 1 }
     } else {
@@ -141,7 +141,7 @@ fn parseDigits[U](input: &[U], start: usize, radix: u32, negative: bool) Error!P
 where U: AsciiUnit
 {
     if start == input.len() {
-        return Error::InvalidDigit!;
+        return .InvalidDigit!;
     }
     let mut value: u128 = 0;
     let wideRadix = radix as u128;
@@ -150,14 +150,14 @@ where U: AsciiUnit
         if digitValue[U](unit) is ?value {
             digit = value;
         } else {
-            return Error::InvalidDigit!;
+            return .InvalidDigit!;
         }
         if digit >= radix {
-            return Error::InvalidDigit!;
+            return .InvalidDigit!;
         }
         let wideDigit = digit as u128;
         if value > (u128::MAX - wideDigit) / wideRadix {
-            return Error::Overflow!;
+            return .Overflow!;
         }
         value = value * wideRadix + wideDigit;
     }
@@ -169,7 +169,7 @@ fn parseIntegerRadix[U](input: &[U], radix: u32, allowSign: bool) Error!ParsedIn
 where U: AsciiUnit
 {
     if radix < 2 or radix > 36 {
-        return Error::InvalidRadix!;
+        return .InvalidRadix!;
     }
     let sign = parseSign[U](input, allowSign).?;
     parseDigits[U](input, sign.digitsStart, radix, sign.negative)
@@ -205,18 +205,18 @@ where U: AsciiUnit
     } else if asciiEquals[U](input, &"false") {
         !false
     } else if input.len() == 0 {
-        Error::Empty!
+        .Empty!
     } else {
-        Error::InvalidValue!
+        .InvalidValue!
     }
 }
 
 fn finishUnsigned(parsed: ParsedInteger, max: u128) Error!u128 {
     if parsed.negative {
-        return Error::InvalidSign!;
+        return .InvalidSign!;
     }
     if parsed.abs > max {
-        return Error::Overflow!;
+        return .Overflow!;
     }
     !parsed.abs
 }
@@ -225,7 +225,7 @@ fn finishSigned(parsed: ParsedInteger, min: i128, max: i128) Error!i128 {
     let negativeLimit = ((0 - (min + 1)) as u128) + 1;
     if parsed.negative {
         if parsed.abs > negativeLimit {
-            return Error::Overflow!;
+            return .Overflow!;
         }
         if parsed.abs == negativeLimit {
             return !min;
@@ -233,7 +233,7 @@ fn finishSigned(parsed: ParsedInteger, min: i128, max: i128) Error!i128 {
         return !(0 - parsed.abs as i128);
     }
     if parsed.abs > max as u128 {
-        return Error::Overflow!;
+        return .Overflow!;
     }
     !(parsed.abs as i128)
 }
