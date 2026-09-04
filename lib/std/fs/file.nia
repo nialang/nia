@@ -214,14 +214,12 @@ extend Dir {
         let split = parentSplit(bytes, true);
         let current = b".";
         let mut parentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let parent = match split.separator {
-            ?index => lowerNativeBytes(&bytes[0..index], &mut parentStorage[..], Operation::CreateDir).?,
-            null => lowerNativeBytes(&current[..], &mut parentStorage[..], Operation::CreateDir).?,
+        let parent = if split.separator is ?index {
+            lowerNativeBytes(&bytes[0..index], &mut parentStorage[..], Operation::CreateDir).?
+        } else {
+            lowerNativeBytes(&current[..], &mut parentStorage[..], Operation::CreateDir).?
         };
-        let nameStart = match split.separator {
-            ?index => index + 1,
-            null => 0,
-        };
+        let nameStart = if split.separator is ?index { index + 1 } else { 0 };
         let mut nameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let name = lowerNativeBytes(
             &bytes[nameStart..split.end],
@@ -255,14 +253,12 @@ extend Dir {
         let split = parentSplit(bytes, trimTrailingSeparators);
         let current = b".";
         let mut parentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let parent = match split.separator {
-            ?index => lowerNativeBytes(&bytes[0..index], &mut parentStorage[..], operation).?,
-            null => lowerNativeBytes(&current[..], &mut parentStorage[..], operation).?,
+        let parent = if split.separator is ?index {
+            lowerNativeBytes(&bytes[0..index], &mut parentStorage[..], operation).?
+        } else {
+            lowerNativeBytes(&current[..], &mut parentStorage[..], operation).?
         };
-        let nameStart = match split.separator {
-            ?index => index + 1,
-            null => 0,
-        };
+        let nameStart = if split.separator is ?index { index + 1 } else { 0 };
         let mut nameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let name = lowerNativeBytes(&bytes[nameStart..split.end], &mut nameStorage[..], operation).?;
         os::deleteAtBeneath(
@@ -283,14 +279,12 @@ extend Dir {
         let oldSplit = parentSplit(oldBytes, false);
         let current = b".";
         let mut oldParentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let oldParent = match oldSplit.separator {
-            ?index => lowerNativeBytes(&oldBytes[0..index], &mut oldParentStorage[..], Operation::Rename).?,
-            null => lowerNativeBytes(&current[..], &mut oldParentStorage[..], Operation::Rename).?,
+        let oldParent = if oldSplit.separator is ?index {
+            lowerNativeBytes(&oldBytes[0..index], &mut oldParentStorage[..], Operation::Rename).?
+        } else {
+            lowerNativeBytes(&current[..], &mut oldParentStorage[..], Operation::Rename).?
         };
-        let oldNameStart = match oldSplit.separator {
-            ?index => index + 1,
-            null => 0,
-        };
+        let oldNameStart = if oldSplit.separator is ?index { index + 1 } else { 0 };
         let mut oldNameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let oldName = lowerNativeBytes(
             &oldBytes[oldNameStart..oldSplit.end],
@@ -301,14 +295,12 @@ extend Dir {
         let newBytes = newPath.bytes();
         let newSplit = parentSplit(newBytes, false);
         let mut newParentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let newParent = match newSplit.separator {
-            ?index => lowerNativeBytes(&newBytes[0..index], &mut newParentStorage[..], Operation::Rename).?,
-            null => lowerNativeBytes(&current[..], &mut newParentStorage[..], Operation::Rename).?,
+        let newParent = if newSplit.separator is ?index {
+            lowerNativeBytes(&newBytes[0..index], &mut newParentStorage[..], Operation::Rename).?
+        } else {
+            lowerNativeBytes(&current[..], &mut newParentStorage[..], Operation::Rename).?
         };
-        let newNameStart = match newSplit.separator {
-            ?index => index + 1,
-            null => 0,
-        };
+        let newNameStart = if newSplit.separator is ?index { index + 1 } else { 0 };
         let mut newNameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let newName = lowerNativeBytes(
             &newBytes[newNameStart..newSplit.end],
