@@ -68,31 +68,31 @@ extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn iter(&self) HashMapIterWithContext[K, V, C] {
-        HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
+        .{ map: self, index: 0, remaining: self.len }
     }
 
     pub fn iterMut(&mut self) HashMapIterMutWithContext[K, V, C] {
-        HashMapIterMutWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
+        .{ map: self, index: 0, remaining: self.len }
     }
 
     pub fn keys(&self) HashMapKeysWithContext[K, V, C] {
-        HashMapKeysWithContext[K, V, C] {
-            iter: HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len },
+        .{
+            iter: .{ map: self, index: 0, remaining: self.len },
         }
     }
 
     pub fn values(&self) HashMapValuesWithContext[K, V, C] {
-        HashMapValuesWithContext[K, V, C] {
-            iter: HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len },
+        .{
+            iter: .{ map: self, index: 0, remaining: self.len },
         }
     }
 
     pub fn valuesMut(&mut self) HashMapValuesMutWithContext[K, V, C] {
-        HashMapValuesMutWithContext[K, V, C] { iter: self.iterMut() }
+        .{ iter: self.iterMut() }
     }
 
     pub fn drain(&mut self) HashMapDrainWithContext[K, V, C] {
-        HashMapDrainWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
+        .{ map: self, index: 0, remaining: self.len }
     }
 }
 
@@ -103,7 +103,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     type Iter = HashMapIterWithContext[K, V, C];
 
     pub fn iter(&self) HashMapIterWithContext[K, V, C] {
-        HashMapIterWithContext[K, V, C] { map: self, index: 0, remaining: self.len }
+        .{ map: self, index: 0, remaining: self.len }
     }
 }
 
