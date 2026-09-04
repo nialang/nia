@@ -4,10 +4,10 @@ using pkg::os;
 using pkg::process;
 
 fn callUserMain(init: process::Init) process::ExitCode {
-    match entry::main(init) {
-        !_ => .Success,
-        error! => error,
+    if entry::main(init) is error! {
+        return error;
     }
+    .Success
 }
 
 extern fn nia_start_stack(stack: &usize) () {
