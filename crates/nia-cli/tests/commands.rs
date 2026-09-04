@@ -385,7 +385,10 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&build_help.stderr)
     );
     let build_stdout = String::from_utf8_lossy(&build_help.stdout);
-    assert!(build_stdout.contains("nia build [step|dir]"), "{build_stdout}");
+    assert!(
+        build_stdout.contains("nia build [step|dir]"),
+        "{build_stdout}"
+    );
     assert!(build_stdout.contains("--root <dir>"), "{build_stdout}");
     assert!(build_stdout.contains("--jobs <count>"), "{build_stdout}");
     assert!(build_stdout.contains("build.nia"), "{build_stdout}");
