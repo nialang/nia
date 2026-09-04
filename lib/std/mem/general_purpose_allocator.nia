@@ -827,14 +827,7 @@ fn smallSlotUserPtr(slot: &mut SmallSlot, align: usize) ?&mut u8 {
             return null;
         },
     };
-    match addr.alignForward(align) {
-        ?value => {
-            ?(value as &mut u8)
-        },
-        null => {
-            null
-        },
-    }
+    addr.alignForward(align).map(&\value -> value as &mut u8)
 }
 
 fn smallSlotMatches(slot: &mut SmallSlot, block: Block) bool {
