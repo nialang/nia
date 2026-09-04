@@ -27,7 +27,7 @@ extend Layout {
         } else if not align.isPowerOfTwo() {
             Error::InvalidAlignment!
         } else {
-            !Self { size, align }
+            !.{ size, align }
         }
     }
 
@@ -67,12 +67,7 @@ extend Layout {
 
 extend Block {
     pub fn init(ptr: &mut u8, layout: Layout) Block {
-        Self {
-            ptr: ptr,
-            layout: layout,
-            releasePtr: ptr,
-            releaseSize: layout.size(),
-        }
+        .{ ptr, layout, releasePtr: ptr, releaseSize: layout.size() }
     }
 
     pub(pkg) fn initWithRelease(
