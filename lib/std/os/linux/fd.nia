@@ -379,14 +379,13 @@ pub fn renameAtBeneath(
 }
 
 pub fn dirEntryAt(buffer: &[u8], offset: usize) ?DirectoryEntry {
-    let parsed = match parseDirent(buffer, offset) {
-        ?value => value,
-        null => return null,
-    };
-    ?DirectoryEntry::init(
-        direntKind(buffer[parsed.typeIndex]),
-        &buffer[parsed.nameStart..parsed.nameEnd],
-    )
+    if parseDirent(buffer, offset) is ?parsed {
+        return ?DirectoryEntry::init(
+            direntKind(buffer[parsed.typeIndex]),
+            &buffer[parsed.nameStart..parsed.nameEnd],
+        );
+    }
+    null
 }
 
 pub fn dirEntryNextOffset(buffer: &[u8], offset: usize) ?usize {
