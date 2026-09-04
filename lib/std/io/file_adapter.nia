@@ -35,12 +35,12 @@ extend FileSource {
 extend fs::File {
     pub fn writer(&self, buffer: &mut [u8]) fs::Error!FileWriter {
         _ = self.borrowHandle().?;
-        !FileWriter::init(FileSource::Borrowed(self), buffer)
+        !FileWriter::init(.Borrowed(self), buffer)
     }
 
     pub fn reader(&self, buffer: &mut [u8]) fs::Error!FileReader {
         _ = self.borrowHandle().?;
-        !FileReader::init(FileSource::Borrowed(self), buffer)
+        !FileReader::init(.Borrowed(self), buffer)
     }
 }
 
@@ -50,11 +50,11 @@ extend FileWriter {
     }
 
     pub fn stdout(buffer: &mut [u8]) FileWriter {
-        FileWriter::init(FileSource::Standard(os::FileHandle::stdout()), buffer)
+        FileWriter::init(.Standard(os::FileHandle::stdout()), buffer)
     }
 
     pub fn stderr(buffer: &mut [u8]) FileWriter {
-        FileWriter::init(FileSource::Standard(os::FileHandle::stderr()), buffer)
+        FileWriter::init(.Standard(os::FileHandle::stderr()), buffer)
     }
 
     pub fn len(&self) usize {
@@ -70,7 +70,7 @@ extend FileWriter {
     }
 
     fn writeDirect(&mut self, bytes: &[u8]) fs::Error!usize {
-            let n = self.file.handle().?.writeSome(bytes).?;
+        let n = self.file.handle().?.writeSome(bytes).?;
         if n > bytes.len() {
             return fs::Error::Io!;
         }
@@ -142,7 +142,7 @@ extend FileReader {
     }
 
     pub fn stdin(buffer: &mut [u8]) FileReader {
-        FileReader::init(FileSource::Standard(os::FileHandle::stdin()), buffer)
+        FileReader::init(.Standard(os::FileHandle::stdin()), buffer)
     }
 
     pub fn len(&self) usize {

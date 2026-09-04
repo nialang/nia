@@ -32,10 +32,10 @@ extend Command {
         Self {
             path: path,
             arguments: null,
-            environment: CommandEnvironment::Inherit(env),
-            stdin: StdIo::Inherit,
-            stdout: StdIo::Inherit,
-            stderr: StdIo::Inherit,
+            environment: .Inherit(env),
+            stdin: .Inherit,
+            stdout: .Inherit,
+            stderr: .Inherit,
             cwd: null,
         }
     }
@@ -128,7 +128,7 @@ extend Command {
         Self {
             path: self.path,
             arguments: self.arguments,
-            environment: CommandEnvironment::Exact(entries),
+            environment: .Exact(entries),
             stdin: self.stdin,
             stdout: self.stdout,
             stderr: self.stderr,
@@ -140,7 +140,7 @@ extend Command {
         Self {
             path: self.path,
             arguments: self.arguments,
-            environment: CommandEnvironment::Empty,
+            environment: .Empty,
             stdin: self.stdin,
             stdout: self.stdout,
             stderr: self.stderr,
@@ -161,10 +161,8 @@ extend Command {
         allocator: &mut mem::Allocator,
         storage: &mut SpawnStorage,
     ) Error!() {
-        match self.environment {
-            .Exact(entries) => validateEnvironment(entries).?,
-            .Inherit(_) => {},
-            .Empty => {},
+        if self.environment is .Exact(entries) {
+            validateEnvironment(entries).?;
         }
 
         appendPath(allocator, &mut storage.argumentBytes, self.path).?;
@@ -240,11 +238,7 @@ extend SpawnStorage {
         cleanup.attempt(self.environmentBytes.deinit(allocator));
         cleanup.attempt(self.argv.deinit(allocator));
         cleanup.attempt(self.argumentBytes.deinit(allocator));
-        if not cleanup.isClean() {
-            if cleanup.finish() is error! {
-                return .Allocation(error)!;
-            }
-        }
+        cleanup.finish().?;
         nativeResult.?;
         let outcome = match self.outcome {
             ?value => value,
@@ -450,7 +444,7 @@ fn appendCStringPointers(
     // before taking any pointers into it.
     let mut start: usize = 0;
     while start < bytes.len() {
-    pointers.push(allocator, &bytes[start]).?;
+        pointers.push(allocator, &bytes[start]).?;
         while bytes[start] != 0 {
             start += 1;
         }
@@ -497,10 +491,7 @@ fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
 
 extend[T] os::Error!T {
     fn withSpawnSetupContext(self) Error!T {
-        match self {
-            !value => !value,
-            cause! => Error::SpawnSetup(SystemError::fromOs(cause))!,
-        }
+        self.mapError(&\cause: os::Error -> Error::SpawnSetup(SystemError::fromOs(cause)))
     }
 }
 
