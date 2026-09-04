@@ -119,7 +119,7 @@ fn statxAt(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Errno!FileMe
 extend StatxTimestamp {
     fn asTimestamp(&self) Errno!Timestamp {
         if self.nsec >= nanosPerSecond {
-            return Errno::Invalid!;
+            return .Invalid!;
         }
         !Timestamp::init(self.sec, self.nsec)
     }
@@ -145,7 +145,7 @@ extend Statx {
 
     pub fn asMetadata(&self) Errno!FileMetadata {
         if not self.hasRequiredBasic() {
-            return Errno::Invalid!;
+            return .Invalid!;
         }
         let mut atime: ?Timestamp = null;
         if (self.mask & statxAtime) == statxAtime {

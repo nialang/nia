@@ -220,14 +220,14 @@ extend FileDescriptor {
 
     pub fn fromSyscall(ret: isize) Errno!FileDescriptor {
         if ret < 0 or ret > i32::MAX as isize {
-            return Errno::Io!;
+            return .Io!;
         }
         !FileDescriptor::init(ret as i32)
     }
 
     pub fn fromKernel(fd: i32) Errno!FileDescriptor {
         if fd < 0 {
-            return Errno::Io!;
+            return .Io!;
         }
         !FileDescriptor::init(fd)
     }
@@ -270,7 +270,7 @@ extend ProcessId {
 
     pub fn fromSyscall(ret: isize) Errno!ProcessId {
         if ret <= 0 or ret > i32::MAX as isize {
-            return Errno::Io!;
+            return .Io!;
         }
         !ProcessId::init(ret as i32)
     }
@@ -482,7 +482,7 @@ extend isize {
         if self < 0 {
             self.syscallError()!
         } else if self != 0 {
-            Errno::Io!
+            .Io!
         } else {
             !()
         }
