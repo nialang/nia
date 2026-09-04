@@ -204,8 +204,7 @@ extend GeneralPurposeAllocator : Allocator {
             return newLayout.isEmpty();
         }
         let smallPage = self.findSmallPage(block);
-        match smallPage {
-            mut ?page => {
+        if smallPage is mut ?page {
                 if newLayout.isEmpty() {
                     return false;
                 }
@@ -258,10 +257,7 @@ extend GeneralPurposeAllocator : Allocator {
                 slot.size = newLayout.size();
                 slot.align = newLayout.align();
                 return true;
-            },
-            null => {
-                _ = smallPage;
-            },
+            }
         }
         match self.findLargeHeader(block.ptr()) {
             mut ?header => {
