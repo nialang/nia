@@ -146,10 +146,12 @@ where U: AsciiUnit
     let mut value: u128 = 0;
     let wideRadix = radix as u128;
     for &unit in &input[start..] {
-        let digit = match digitValue[U](unit) {
-            ?digit => { digit },
-            null => { return Error::InvalidDigit!; },
-        };
+        let mut digit: u32;
+        if digitValue[U](unit) is ?value {
+            digit = value;
+        } else {
+            return Error::InvalidDigit!;
+        }
         if digit >= radix {
             return Error::InvalidDigit!;
         }
