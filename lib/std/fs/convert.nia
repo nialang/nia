@@ -75,7 +75,7 @@ extend os::FileKind {
 
 extend os::Timestamp {
     pub(pkg) fn asFsTimestamp(&self) Timestamp {
-        Timestamp::init(self.seconds(), self.nanos())
+        .init(self.seconds(), self.nanos())
     }
 }
 
@@ -87,7 +87,7 @@ extend os::FileMetadata {
         let statusChanged = self.statusChanged().map(
             &\value: os::Timestamp -> value.asFsTimestamp(),
         );
-        Metadata::init(
+        .init(
             self.kind().asFsFileKind(),
             self.fileId(),
             self.linkCount(),
@@ -103,6 +103,6 @@ extend os::FileMetadata {
 
 extend os::DirectoryEntry {
     pub(pkg) fn asFsDirEntry(&self) DirEntry {
-        DirEntry::init(self.kind().asFsFileKind(), self.name())
+        .init(self.kind().asFsFileKind(), self.name())
     }
 }
