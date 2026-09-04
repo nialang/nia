@@ -20,7 +20,7 @@ extend DeinitStatus {
         if self == DeinitStatus::Ok {
             !()
         } else {
-            Error::Invalid!
+            .Invalid!
         }
     }
 }
@@ -318,7 +318,7 @@ extend GeneralPurposeAllocator {
                 item
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let usedCount = match page.usedCount.checkedAdd(1) {
@@ -326,11 +326,11 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         if usedCount > page.slotCount {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         page.freeList = slot.next;
         let ptr = match smallSlotUserPtr(slot, layout.align()) {
@@ -340,7 +340,7 @@ extend GeneralPurposeAllocator {
             null => {
                 slot.next = page.freeList;
                 page.freeList = ?slot;
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         slot.magic = smallMagic;
@@ -359,14 +359,14 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-                return Error::Invalid!;
+                return .Invalid!;
             },
         };
         if not smallSlotMatches(slot, block) {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         if page.usedCount == 0 {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         slot.allocated = false;
         slot.size = 0;
@@ -402,21 +402,21 @@ extend GeneralPurposeAllocator {
             },
             null => {
                 self.releaseOrRetain(block);
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let base = block.ptr() as usize;
         let payloadOffset = payloadBase - base;
         if payloadOffset >= block.size() {
             self.releaseOrRetain(block);
-            return Error::OutOfMemory!;
+            return .OutOfMemory!;
         }
 
         let capacity = block.size() - payloadOffset;
         let slotCount = capacity / slotSize;
         if slotCount == 0 {
             self.releaseOrRetain(block);
-            return Error::OutOfMemory!;
+            return .OutOfMemory!;
         }
 
         for index in 0..slotCount {
@@ -464,7 +464,7 @@ extend GeneralPurposeAllocator {
                     current = next;
                 },
                 null => {
-                    return Error::Invalid!;
+                    return .Invalid!;
                 },
             }
         }
@@ -478,7 +478,7 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+            return .OutOfMemory!;
             },
         };
         let totalSize = match withHeader.checkedAdd(layout.size()) {
@@ -486,7 +486,7 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+            return .OutOfMemory!;
             },
         };
         let blockAlign = cmp::max(std::builtin::align[LargeHeader](), layout.align());
@@ -497,7 +497,7 @@ extend GeneralPurposeAllocator {
             ?value => value,
             null => {
                 self.releaseOrRetain(backing);
-                return Error::OutOfMemory!;
+            return .OutOfMemory!;
             },
         };
         let userAddr = match afterHeader.alignForward(layout.align()) {
@@ -506,7 +506,7 @@ extend GeneralPurposeAllocator {
             },
             null => {
                 self.releaseOrRetain(backing);
-                return Error::OutOfMemory!;
+            return .OutOfMemory!;
             },
         };
         let headerAddr = userAddr - headerSize;
@@ -532,14 +532,14 @@ extend GeneralPurposeAllocator {
                     let next = header.next;
                     let userPtr = match largeHeaderUserPtr(header) {
                         ?value => value,
-                        null => return Error::Invalid!,
+                        null => return .Invalid!,
                     };
                     if userPtr as usize == block.ptr() as usize {
                         if header.magic != largeMagic {
-                            return Error::Invalid!;
+                            return .Invalid!;
                         }
                         if header.userLayout.size() != block.size() or header.userLayout.align() != block.align() {
-                            return Error::Invalid!;
+                            return .Invalid!;
                         }
                         match previous {
                             mut ?prev => {
@@ -560,7 +560,7 @@ extend GeneralPurposeAllocator {
                     current = next;
                 },
                 null => {
-                    return Error::Invalid!;
+                    return .Invalid!;
                 },
             }
         }

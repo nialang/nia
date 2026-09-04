@@ -73,7 +73,7 @@ extend ArenaAllocator : Allocator {
                     return !block;
                 },
                 null => {
-                    return Error::OutOfMemory!;
+                    return .OutOfMemory!;
                 }
             }
         }
@@ -94,7 +94,7 @@ extend ArenaAllocator : Allocator {
                 !block
             },
             null => {
-                Error::OutOfMemory!
+                .OutOfMemory!
             },
         }
     }
@@ -160,11 +160,11 @@ extend ArenaAllocator : Allocator {
                 chunk
             },
             null => {
-                return Error::Invalid!;
+                return .Invalid!;
             },
         };
         if not self.ownsBlock(block) {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         if chunkOwnsBlock(first, block) and isLastAllocation(first, block) {
             first.endIndex -= block.size();
@@ -181,7 +181,7 @@ extend ArenaAllocator {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let blockAlign = cmp::max(std::builtin::align[ArenaChunk](), layout.align());
@@ -565,7 +565,7 @@ fn chunkCapacityFor(layout: Layout, prevCapacity: usize) Error!usize {
             value
         },
         null => {
-            return Error::OutOfMemory!;
+            return .OutOfMemory!;
         },
     };
     let grown = match prevCapacity.checkedAdd(prevCapacity / 2) {
