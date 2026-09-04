@@ -428,7 +428,7 @@ extend SpawnPipe {
     }
 
     fn fromPipe(pipe: Pipe) SpawnPipe {
-        SpawnPipe::init(pipe.read(), pipe.write())
+        .init(pipe.read(), pipe.write())
     }
 
     fn openCloseOnExec() Errno!SpawnPipe {

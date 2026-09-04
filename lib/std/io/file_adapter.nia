@@ -35,12 +35,12 @@ extend FileSource {
 extend fs::File {
     pub fn writer(&self, buffer: &mut [u8]) fs::Error!FileWriter {
         _ = self.borrowHandle().?;
-        !FileWriter::init(.Borrowed(self), buffer)
+        !.init(.Borrowed(self), buffer)
     }
 
     pub fn reader(&self, buffer: &mut [u8]) fs::Error!FileReader {
         _ = self.borrowHandle().?;
-        !FileReader::init(.Borrowed(self), buffer)
+        !.init(.Borrowed(self), buffer)
     }
 }
 
@@ -50,11 +50,11 @@ extend FileWriter {
     }
 
     pub fn stdout(buffer: &mut [u8]) FileWriter {
-        FileWriter::init(.Standard(os::FileHandle::stdout()), buffer)
+        .init(.Standard(os::FileHandle::stdout()), buffer)
     }
 
     pub fn stderr(buffer: &mut [u8]) FileWriter {
-        FileWriter::init(.Standard(os::FileHandle::stderr()), buffer)
+        .init(.Standard(os::FileHandle::stderr()), buffer)
     }
 
     pub fn len(&self) usize {
@@ -142,7 +142,7 @@ extend FileReader {
     }
 
     pub fn stdin(buffer: &mut [u8]) FileReader {
-        FileReader::init(.Standard(os::FileHandle::stdin()), buffer)
+        .init(.Standard(os::FileHandle::stdin()), buffer)
     }
 
     pub fn len(&self) usize {
