@@ -1231,6 +1231,29 @@ fn main() bool {
 }
 
 #[test]
+fn std_option_map_accepts_a_stack_backed_callback() {
+    let root = temp_dir("std_option_map_accepts_a_stack_backed_callback");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::option;
+
+fn main(base: i32) i32 {
+    let callback = \[base] value: i32 -> { base + value };
+    let value: ?i32 = ?1;
+    match value.map[i32](&callback) {
+        ?mapped => mapped,
+        null => 0,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
 fn std_facade_range_iterates_half_open_usize_ranges() {
     let root = temp_dir("std_facade_range_iterates_half_open_usize_ranges");
     write(
