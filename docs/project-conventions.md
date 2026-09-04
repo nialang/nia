@@ -147,6 +147,21 @@ if operation() is cause! {
 useSuccessfulResult();
 ```
 
+Before writing this explicit branch, check whether it only propagates the same
+error. The postfix propagation operator is the canonical form for that case:
+
+```nia
+operation().?;
+let value = operationReturningAValue().?;
+```
+
+`.?` performs the direct propagation or the reviewed one-step `IntoError`
+conversion required by the enclosing return type. Use an explicit `if` or
+`match` only when the error must be observed, logged, retained for retry,
+conditionally recovered, or combined with another result. Use `mapError` for a
+pure error transformation and `orElse` for recovery; do not introduce a helper
+whose only job is to spell `if error { return error; }`.
+
 For a fallible teardown, a failed release must leave its owner reachable so the
 caller can retry it. Only a completely successful teardown may mark an attempt
 inactive or clear the owner. This is an explicit state machine, not an implicit
