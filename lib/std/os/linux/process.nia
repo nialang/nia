@@ -83,13 +83,10 @@ fn spawnWithResources(
             !pid => pid,
             error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
         };
-        let errorRead = match resources.error.takeRead() {
-            ?fd => {
-                fd
-            },
-            null => {
-                return failedSpawnAttempt(pid, .Setup(.Io));
-            },
+        let errorRead = if resources.error.takeRead() is ?fd {
+            fd
+        } else {
+            return failedSpawnAttempt(pid, .Setup(.Io));
         };
         match readSpawnError(errorRead) {
             !(?spawnError) => {
