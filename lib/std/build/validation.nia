@@ -27,7 +27,7 @@ pub(pkg) fn validateExecutableHandle(
     handle: ExecutableHandle,
 ) Error!() {
     if handle.ownerId() != ownerId or handle.index() >= count {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .Executable(handle.index()),
         }!;
@@ -41,7 +41,7 @@ pub(pkg) fn validateObjectHandle(
     handle: ObjectHandle,
 ) Error!() {
     if handle.ownerId() != ownerId or handle.index() >= count {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .Object(handle.index()),
         }!;
@@ -55,7 +55,7 @@ pub(pkg) fn validateStaticArchiveHandle(
     handle: StaticArchiveHandle,
 ) Error!() {
     if handle.ownerId() != ownerId or handle.index() >= count {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .StaticArchive(handle.index()),
         }!;
@@ -69,7 +69,7 @@ pub(pkg) fn validatePackageHandle(
     handle: PackageHandle,
 ) Error!() {
     if handle.ownerId() != ownerId or handle.index() > count {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .Packages,
         }!;
@@ -83,7 +83,7 @@ pub(pkg) fn validateModuleHandle(
     handle: ModuleHandle,
 ) Error!() {
     if handle.ownerId() != ownerId or handle.index() >= count {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .Module(handle.index()),
         }!;
@@ -97,7 +97,7 @@ pub(pkg) fn validateStepHandle(
     handle: StepHandle,
 ) Error!() {
     if handle.ownerId() != ownerId or handle.index() >= count {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .Step(handle.index()),
         }!;
@@ -120,7 +120,7 @@ pub(pkg) fn validateRunnableTarget(
         _ => false,
     };
     if not runsOnHost {
-        return Error::Invalid {
+        return .Invalid {
             operation: .Validate,
             subject: .Step(stepIndex),
         }!;

@@ -67,7 +67,7 @@ pub(pkg) fn validateRunArguments(arguments: ?&[&[char]], index: usize) Error!() 
     if arguments is ?values {
         for &value in values.iter() {
             if runArgumentContainsNul(value) {
-                return Error::Invalid {
+                return .Invalid {
                     operation: .Validate,
                     subject: .Step(index),
                 }!;
@@ -166,7 +166,7 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
 }
 
 fn invalidStep(index: usize) Error!() {
-    Error::Invalid {
+    .Invalid {
         operation: .Validate,
         subject: .Step(index),
     }!
