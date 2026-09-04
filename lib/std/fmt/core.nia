@@ -74,27 +74,27 @@ extend FormatSpec {
     }
 
     pub fn display() FormatSpec {
-        .init(FormatPresentation::Display, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(.Display, 0, null, ' ', .None, false, false)
     }
 
     pub fn lowerHex() FormatSpec {
-        .init(FormatPresentation::LowerHex, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(.LowerHex, 0, null, ' ', .None, false, false)
     }
 
     pub fn upperHex() FormatSpec {
-        .init(FormatPresentation::UpperHex, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(.UpperHex, 0, null, ' ', .None, false, false)
     }
 
     pub fn binary() FormatSpec {
-        .init(FormatPresentation::Binary, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(.Binary, 0, null, ' ', .None, false, false)
     }
 
     pub fn octal() FormatSpec {
-        .init(FormatPresentation::Octal, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(.Octal, 0, null, ' ', .None, false, false)
     }
 
     pub fn pointer() FormatSpec {
-        .init(FormatPresentation::Pointer, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(.Pointer, 0, null, ' ', .None, false, false)
     }
 
     pub fn presentation(&self) FormatPresentation {
