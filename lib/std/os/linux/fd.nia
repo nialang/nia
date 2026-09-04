@@ -439,14 +439,13 @@ fn direntReclen(buffer: &[u8], offset: usize) usize {
 
 fn direntKind(value: u8) FileKind {
     match value {
-        (direntTypeFifo) => FileKind::NamedPipe,
-        (direntTypeChr) => FileKind::CharacterDevice,
-        (direntTypeDir) => FileKind::Directory,
-        (direntTypeBlk) => FileKind::BlockDevice,
-        (direntTypeReg) => FileKind::File,
-        (direntTypeLnk) => FileKind::Symlink,
-        (direntTypeSock) => FileKind::UnixSocket,
-        (direntTypeUnknown) => FileKind::Unknown,
-        _ => FileKind::Unknown,
+        (direntTypeFifo) => .NamedPipe,
+        (direntTypeChr) => .CharacterDevice,
+        (direntTypeDir) => .Directory,
+        (direntTypeBlk) => .BlockDevice,
+        (direntTypeReg) => .File,
+        (direntTypeLnk) => .Symlink,
+        (direntTypeSock) => .UnixSocket,
+        _ => .Unknown,
     }
 }

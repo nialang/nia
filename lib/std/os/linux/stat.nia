@@ -132,14 +132,14 @@ extend Statx {
 
     fn kind(&self) FileKind {
         match self.mode & sIfmt {
-            (sIfdir) => FileKind::Directory,
-            (sIfchr) => FileKind::CharacterDevice,
-            (sIfblk) => FileKind::BlockDevice,
-            (sIfreg) => FileKind::File,
-            (sIfifo) => FileKind::NamedPipe,
-            (sIflnk) => FileKind::Symlink,
-            (sIfsock) => FileKind::UnixSocket,
-            _ => FileKind::Unknown,
+            (sIfdir) => .Directory,
+            (sIfchr) => .CharacterDevice,
+            (sIfblk) => .BlockDevice,
+            (sIfreg) => .File,
+            (sIfifo) => .NamedPipe,
+            (sIflnk) => .Symlink,
+            (sIfsock) => .UnixSocket,
+            _ => .Unknown,
         }
     }
 
