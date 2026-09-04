@@ -322,10 +322,10 @@ fn help_and_version_use_nia_command_name() {
     let help_stdout = String::from_utf8_lossy(&help.stdout);
     assert!(help_stdout.contains("Usage:\n  nia"), "{help_stdout}");
     assert!(
-        help_stdout.contains("emit --<target> <file.nia>"),
+        help_stdout.contains("emit --<target> <file.nia|dir>"),
         "{help_stdout}"
     );
-    assert!(help_stdout.contains("build [step]"), "{help_stdout}");
+    assert!(help_stdout.contains("build [step|dir]"), "{help_stdout}");
     assert!(!help_stdout.contains("lex <file.nia>"), "{help_stdout}");
     assert!(!help_stdout.contains("parse <file.nia>"), "{help_stdout}");
     assert!(
@@ -385,7 +385,7 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&build_help.stderr)
     );
     let build_stdout = String::from_utf8_lossy(&build_help.stdout);
-    assert!(build_stdout.contains("nia build [step]"), "{build_stdout}");
+    assert!(build_stdout.contains("nia build [step|dir]"), "{build_stdout}");
     assert!(build_stdout.contains("--root <dir>"), "{build_stdout}");
     assert!(build_stdout.contains("--jobs <count>"), "{build_stdout}");
     assert!(build_stdout.contains("build.nia"), "{build_stdout}");
@@ -419,7 +419,7 @@ fn help_and_version_use_nia_command_name() {
         assert!(emit_stdout.contains(target), "{emit_stdout}");
     }
     assert!(
-        emit_stdout.contains("nia emit --obj <file.nia>"),
+        emit_stdout.contains("nia emit --obj <file.nia|dir>"),
         "{emit_stdout}"
     );
     assert!(emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
