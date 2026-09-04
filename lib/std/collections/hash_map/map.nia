@@ -98,13 +98,10 @@ extend[K, V] HashMapWithContext[K, V, DefaultHashMapContext]
 where K: Sized + Eq[K] + hash::Hash[hash::Wyhash], V: Sized
 {
     pub fn init() HashMapWithContext[K, V, DefaultHashMapContext] {
-        match HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() {
-            !map => map,
-            error! => {
-                _ = error;
-                std::builtin::trap()
-            },
+        if HashMapWithContext[K, V, DefaultHashMapContext]::tryInit() is !map {
+            return map;
         }
+        std::builtin::trap()
     }
 
     pub fn tryInit() HashMapInitError!HashMapWithContext[K, V, DefaultHashMapContext] {
@@ -134,13 +131,10 @@ extend[K, V, C] HashMapWithContext[K, V, C]
 where K: Sized, V: Sized, C: HashMapContext[K]
 {
     pub fn initContext(context: C) HashMapWithContext[K, V, C] {
-        match HashMapWithContext[K, V, C]::tryInitContext(context) {
-            !map => map,
-            error! => {
-                _ = error;
-                std::builtin::trap()
-            },
+        if HashMapWithContext[K, V, C]::tryInitContext(context) is !map {
+            return map;
         }
+        std::builtin::trap()
     }
 
     pub fn tryInitContext(context: C) HashMapInitError!HashMapWithContext[K, V, C] {
@@ -279,35 +273,26 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn getEntryMut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                ?HashMapEntryMut[K, V] {
-                    key: &self.keys[index],
-                    value: &mut self.values[index],
-                }
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            return ?HashMapEntryMut[K, V] {
+                key: &self.keys[index],
+                value: &mut self.values[index],
+            };
         }
+        null
     }
 
     pub fn getKey(&self, key: &K) ?&K {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                ?&self.keys[index]
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            return ?&self.keys[index];
         }
+        null
     }
 
     pub fn containsKeyBy[Q](&self, query: Q) bool
-    where Q: Sized, C: HashMapLookupContext[K, Q]
+        where Q: Sized, C: HashMapLookupContext[K, Q]
     {
-        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            _ = index;
+        if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?_ {
             true
         } else {
             false
