@@ -40,13 +40,13 @@ fn lowerNativeBytes(
 ) OperationError!RelativeNativePathView {
     let terminatedLen = match bytes.len().checkedAdd(1) {
         ?value => value,
-        null => return OperationError::Path {
+            null => return .Path {
             operation: operation,
             cause: types::PathError::TooLong,
         }!,
     };
     if terminatedLen > storage.len() {
-        return OperationError::Path {
+        return .Path {
             operation: operation,
             cause: types::PathError::TooLong,
         }!;
@@ -157,7 +157,7 @@ extend Dir {
 
     pub fn entries(&mut self, buffer: &mut [u8]) Error!DirIterator {
         if buffer.len() == 0 {
-            Error::Invalid!
+            .Invalid!
         } else {
             _ = self.borrowHandle().?;
             !DirIterator::init(self, os::DirectoryReader::init(buffer))
@@ -366,7 +366,7 @@ extend File {
 
     pub fn seekTo(&self, offset: u64) Error!u64 {
         if offset > maxI64AsU64 {
-            return Error::OutOfRange!;
+            return .OutOfRange!;
         }
         !(self.borrowHandle().?.seek(offset as i64, os::SeekWhence::Start).?)
     }
@@ -391,7 +391,7 @@ extend File {
 
     pub fn truncate(&self, len: u64) Error!() {
         if len > maxI64AsU64 {
-            return Error::OutOfRange!;
+            return .OutOfRange!;
         }
         !(self.borrowHandle().?.truncate(len).?)
     }
