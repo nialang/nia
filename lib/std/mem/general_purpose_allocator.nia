@@ -478,7 +478,7 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-            return .OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let totalSize = match withHeader.checkedAdd(layout.size()) {
@@ -497,7 +497,7 @@ extend GeneralPurposeAllocator {
             ?value => value,
             null => {
                 self.releaseOrRetain(backing);
-            return .OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let userAddr = match afterHeader.alignForward(layout.align()) {
@@ -506,7 +506,7 @@ extend GeneralPurposeAllocator {
             },
             null => {
                 self.releaseOrRetain(backing);
-            return .OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let headerAddr = userAddr - headerSize;
