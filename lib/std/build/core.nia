@@ -261,12 +261,13 @@ extend Build {
     ) Error!() {
         let archives = self.executables.asSlice()[target.index()].staticArchives.asSlice();
         for &archive in archives.iter() {
-            let producer = match self.findEmitStaticArchiveStep(archive) {
-                ?producer => producer,
-                null => return .Invalid {
+            let producer = if self.findEmitStaticArchiveStep(archive) is ?producer {
+                producer
+            } else {
+                return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Step(step.index()),
-                }!,
+                }!;
             };
             self.dependOn(step, producer).?;
         }
@@ -285,12 +286,13 @@ extend Build {
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
         self.validateExecutableHandle(options.target).?;
-        let producer = match self.findEmitStep(options.target) {
-            ?producer => producer,
-            null => return .Invalid {
+        let producer = if self.findEmitStep(options.target) is ?producer {
+            producer
+        } else {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
-            }!,
+            }!;
         };
         self.validateRunnableExecutable(options.target, self.steps.len()).?;
         validateRunArguments(options.arguments, self.steps.len()).?;
@@ -299,12 +301,13 @@ extend Build {
 
     pub fn addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
         self.validateExecutableHandle(options.target).?;
-        let producer = match self.findEmitStep(options.target) {
-            ?producer => producer,
-            null => return .Invalid {
+        let producer = if self.findEmitStep(options.target) is ?producer {
+            producer
+        } else {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
-            }!,
+            }!;
         };
         self.validateRunnableExecutable(options.target, self.steps.len()).?;
         validateRunArguments(options.arguments, self.steps.len()).?;
@@ -379,12 +382,13 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
-        let producer = match self.findEmitStep(target) {
-            ?producer => producer,
-            null => return .Invalid {
+        let producer = if self.findEmitStep(target) is ?producer {
+            producer
+        } else {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
-            }!,
+            }!;
         };
         self.prepareInstallExecutableStep(name, target).?;
         if self.pendingStep.initializeInstallExecutable(
@@ -412,12 +416,13 @@ extend Build {
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
-        let producer = match self.findEmitStaticArchiveStep(target) {
-            ?producer => producer,
-            null => return .Invalid {
+        let producer = if self.findEmitStaticArchiveStep(target) is ?producer {
+            producer
+        } else {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
-            }!,
+            }!;
         };
         self.prepareInstallStaticArchiveStep(name, target).?;
         if self.pendingStep.initializeInstallStaticArchive(
@@ -438,40 +443,37 @@ extend Build {
         if options.arguments is ?arguments {
             for &argument in arguments.iter() {
                 if argument.kind == CommandArgumentKind::ArtifactInput {
-                        let target = argument.payload.artifact;
-                        self.validateExecutableHandle(target).?;
-                        match self.findEmitStep(target) {
-                            ?producer => _ = producer,
-                            null => return .Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Step(self.steps.len()),
-                            }!,
-                        }
-                        artifactInputCount += 1;
+                    let target = argument.payload.artifact;
+                    self.validateExecutableHandle(target).?;
+                    if self.findEmitStep(target) is null {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Step(self.steps.len()),
+                        }!;
+                    }
+                    artifactInputCount += 1;
                 } else if argument.kind == CommandArgumentKind::ObjectInput {
-                        let target = argument.payload.object;
-                        self.validateObjectHandle(target).?;
-                        match self.findEmitObjectStep(target) {
-                            ?producer => _ = producer,
-                            null => return .Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Step(self.steps.len()),
-                            }!,
-                        }
-                        artifactInputCount += 1;
+                    let target = argument.payload.object;
+                    self.validateObjectHandle(target).?;
+                    if self.findEmitObjectStep(target) is null {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Step(self.steps.len()),
+                        }!;
+                    }
+                    artifactInputCount += 1;
                 } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
-                        let target = argument.payload.staticArchive;
-                        self.validateStaticArchiveHandle(target).?;
-                        match self.findEmitStaticArchiveStep(target) {
-                            ?producer => _ = producer,
-                            null => return .Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Step(self.steps.len()),
-                            }!,
-                        }
-                        artifactInputCount += 1;
+                    let target = argument.payload.staticArchive;
+                    self.validateStaticArchiveHandle(target).?;
+                    if self.findEmitStaticArchiveStep(target) is null {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Step(self.steps.len()),
+                        }!;
+                    }
+                    artifactInputCount += 1;
                 } else if argument.kind == CommandArgumentKind::PackageInput {
-                        self.validatePackageHandle(argument.package).?;
+                    self.validatePackageHandle(argument.package).?;
                 }
             }
         }
@@ -504,32 +506,35 @@ extend Build {
         if arguments is ?arguments {
             for &argument in arguments.iter() {
                 if argument.kind == CommandArgumentKind::ArtifactInput {
-                        let producer = match self.findEmitStep(argument.payload.artifact) {
-                            ?producer => producer,
-                            null => return .Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Step(step.index()),
-                            }!,
-                        };
-                        self.dependOn(step, producer).?;
+                    let producer = if self.findEmitStep(argument.payload.artifact) is ?producer {
+                        producer
+                    } else {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Step(step.index()),
+                        }!;
+                    };
+                    self.dependOn(step, producer).?;
                 } else if argument.kind == CommandArgumentKind::ObjectInput {
-                        let producer = match self.findEmitObjectStep(argument.payload.object) {
-                            ?producer => producer,
-                            null => return .Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Step(step.index()),
-                            }!,
-                        };
-                        self.dependOn(step, producer).?;
+                    let producer = if self.findEmitObjectStep(argument.payload.object) is ?producer {
+                        producer
+                    } else {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Step(step.index()),
+                        }!;
+                    };
+                    self.dependOn(step, producer).?;
                 } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
-                        let producer = match self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
-                            ?producer => producer,
-                            null => return .Invalid {
-                                operation: Operation::Validate,
-                                subject: Subject::Step(step.index()),
-                            }!,
-                        };
-                        self.dependOn(step, producer).?;
+                    let producer = if self.findEmitStaticArchiveStep(argument.payload.staticArchive) is ?producer {
+                        producer
+                    } else {
+                        return .Invalid {
+                            operation: Operation::Validate,
+                            subject: Subject::Step(step.index()),
+                        }!;
+                    };
+                    self.dependOn(step, producer).?;
                 }
             }
         }
