@@ -214,6 +214,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             runtime,
             cache_dir,
         } => {
+            let path = match resolve_source_entry(&path) {
+                Ok(path) => path,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
             let source = match read_source(&path) {
                 Ok(source) => source,
                 Err(message) => {
@@ -248,6 +255,13 @@ fn run_cli(cli: Cli) -> ExitCode {
             target,
             opt_report,
         } => {
+            let path = match resolve_source_entry(&path) {
+                Ok(path) => path,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
             let source = match read_source(&path) {
                 Ok(source) => source,
                 Err(message) => {
@@ -303,6 +317,35 @@ fn read_source(path: &str) -> Result<String, String> {
         }
     };
     Ok(source)
+}
+
+/// Resolves a file-or-package argument used by checking and emission.
+///
+/// A package directory prefers its executable entry (`main.nia`) and falls
+/// back to the package root (`pkg.nia`) for library-only packages.
+fn resolve_source_entry(path: &str) -> Result<String, String> {
+    let candidate = Path::new(path);
+    match fs::metadata(candidate) {
+        Ok(metadata) if metadata.is_file() => Ok(path.to_string()),
+        Ok(metadata) if metadata.is_dir() => {
+            let main = candidate.join("main.nia");
+            if main.is_file() {
+                return Ok(main.to_string_lossy().into_owned());
+            }
+            let package = candidate.join("pkg.nia");
+            if package.is_file() {
+                return Ok(package.to_string_lossy().into_owned());
+            }
+            Err(format!(
+                "source directory `{path}` contains neither `main.nia` nor `pkg.nia`"
+            ))
+        }
+        Ok(_) => Err(format!(
+            "source path `{path}` is neither a file nor a directory"
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path.to_string()),
+        Err(error) => Err(format!("cannot inspect source path `{path}`: {error}")),
+    }
 }
 
 /// Finds the nearest conventional package root for a source entry.
@@ -1996,6 +2039,41 @@ mod tests {
             discover_package_root(source.to_string_lossy().as_ref())
                 .expect("discover standalone package root"),
             None
+        );
+    }
+
+    #[test]
+    fn source_directory_prefers_main_entry() {
+        let root = nia_test_support::test_dir("source-directory-prefers-main");
+        fs::write(root.join("pkg.nia"), "").expect("write package root");
+        fs::write(root.join("main.nia"), "").expect("write main entry");
+
+        assert_eq!(
+            resolve_source_entry(root.to_string_lossy().as_ref()).expect("resolve source entry"),
+            root.join("main.nia").to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn source_directory_falls_back_to_package_root() {
+        let root = nia_test_support::test_dir("source-directory-package-root-fallback");
+        fs::write(root.join("pkg.nia"), "").expect("write package root");
+
+        assert_eq!(
+            resolve_source_entry(root.to_string_lossy().as_ref()).expect("resolve source entry"),
+            root.join("pkg.nia").to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn source_directory_requires_an_entry_file() {
+        let root = nia_test_support::test_dir("source-directory-missing-entry");
+        let error = resolve_source_entry(root.to_string_lossy().as_ref())
+            .expect_err("empty source directory must fail");
+
+        assert!(
+            error.contains("neither `main.nia` nor `pkg.nia`"),
+            "{error}"
         );
     }
 
