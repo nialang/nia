@@ -1,4 +1,5 @@
 using pkg::cmp;
+using pkg::error;
 using pkg::math;
 using pkg::mem::allocator;
 using pkg::mem::types;
@@ -356,26 +357,10 @@ extend ArenaAllocator {
     }
 
     fn freeDetachedLists(&mut self, first: ?&mut ArenaChunk, second: ?&mut ArenaChunk) Error!() {
-        let mut failed = false;
-        let mut firstError = Error::Invalid;
-
-        if self.freeChunkList(first) is err! {
-            firstError = err;
-            failed = true;
-        }
-
-        if self.freeChunkList(second) is err! {
-            if not failed {
-                firstError = err;
-                failed = true;
-            }
-        }
-
-        if failed {
-            firstError!
-        } else {
-            !()
-        }
+        let mut cleanup: error::CleanupAccumulator[Error] = .init();
+        cleanup.attempt(self.freeChunkList(first));
+        cleanup.attempt(self.freeChunkList(second));
+        cleanup.finish()
     }
 
     fn freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!() {
