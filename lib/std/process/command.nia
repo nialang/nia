@@ -261,7 +261,7 @@ extend SpawnStorage {
                 },
                 .Reap { stage, primary, cause, pid }! => {
                     self.nativeSpawn = ?attempt;
-                    return Error::Spawn(SpawnError::Reap {
+                    return .Spawn(.Reap {
                         stage: commandSpawnStage(stage),
                         primary: SystemError::fromOs(primary),
                         cause: SystemError::fromOs(cause),
@@ -326,7 +326,7 @@ fn appendArgument(
         allocator,
         bytes,
         argument,
-        Error::ArgumentContainsNul(argumentIndex),
+        .ArgumentContainsNul(argumentIndex),
     )
 }
 
@@ -371,27 +371,27 @@ fn validateEnvironment(entries: &[EnvEntry]) Error!() {
     let mut index: usize = 0;
     for &entry in entries {
         if entry.name().isEmpty() {
-            return Error::Environment { index: index, cause: EnvEntryError::EmptyName }!;
+            return .Environment { index: index, cause: .EmptyName }!;
         }
         for &ch in entry.name() {
             if ch.codepoint() == 0 {
-                return Error::Environment { index: index, cause: EnvEntryError::NameContainsNul }!;
+                return .Environment { index: index, cause: .NameContainsNul }!;
             }
             if ch == '=' {
-                return Error::Environment { index: index, cause: EnvEntryError::NameContainsEquals }!;
+                return .Environment { index: index, cause: .NameContainsEquals }!;
             }
         }
         for &ch in entry.value() {
             if ch.codepoint() == 0 {
-                return Error::Environment { index: index, cause: EnvEntryError::ValueContainsNul }!;
+                return .Environment { index: index, cause: .ValueContainsNul }!;
             }
         }
         let mut priorIndex: usize = 0;
         for &prior in &entries[0..index] {
             if entry.name().equals(prior.name()) {
-                return Error::Environment {
+                return .Environment {
                     index: index,
-                    cause: EnvEntryError::DuplicateName(priorIndex),
+                    cause: .DuplicateName(priorIndex),
                 }!;
             }
             priorIndex += 1;
