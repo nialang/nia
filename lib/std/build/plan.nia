@@ -591,8 +591,11 @@ extend Build {
         let mut encoder = PlanEncoder::init(self.allocator);
         let operation = encoder.writeBuild(self);
         self.planEncoding = encoder.intoBytes();
-        if operation is primary! {
-            return primary!;
+        match operation {
+            !ok => {
+                _ = ok;
+            },
+            primary! => return primary!,
         }
 
         let mut file = fs::File::create(path, fs::CreateOptions::exclusive()).withBuildContext(Operation::Publish, Subject::BuildPlan).?;
@@ -696,9 +699,14 @@ fn invalidPlan[T]() Error!T {
 }
 
 fn rememberPrimary(firstError: &mut ?Error, result: Error!()) () {
-    if result is err! {
-        if firstError.* is null {
-            firstError.* = ?err;
-        }
+    match result {
+        !ok => {
+            _ = ok;
+        },
+        err! => {
+            if firstError.* is null {
+                firstError.* = ?err;
+            }
+        },
     }
 }
