@@ -28,18 +28,14 @@ extend ProbeGroup {
         let emptyMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrlEmpty));
         let deletedMask = std::builtin::bitmask(bytes == std::builtin::splat[u8x8](ctrlDeleted));
 
-        Self {
-            matchMask: matchMask,
-            emptyMask: emptyMask,
-            availableMask: emptyMask | deletedMask,
-        }
+        .{ matchMask, emptyMask, availableMask: emptyMask | deletedMask }
     }
 }
 
 extend ProbeCursor {
     pub fn init(valueHash: u64, capacity: usize) ProbeCursor {
         if capacity < groupWidth or not capacity.isPowerOfTwo() {
-            return Self {
+            return .{
                 pos: 0,
                 stride: 0,
                 visited: 0,
@@ -47,12 +43,7 @@ extend ProbeCursor {
             };
         }
         let mask = capacity - 1;
-        Self {
-            pos: (valueHash as usize) & mask,
-            stride: 0,
-            visited: 0,
-            capacity: capacity,
-        }
+        .{ pos: (valueHash as usize) & mask, stride: 0, visited: 0, capacity }
     }
 
     pub fn hasRemaining(&self) bool {

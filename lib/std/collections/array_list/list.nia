@@ -17,7 +17,7 @@ extend[T] ArrayList[T]
 where T: Sized
 {
     pub fn init() ArrayList[T] {
-        Self {
+        .{
             items: raw::danglingSlice[T](0),
             capacity: 0,
             storageBlock: null,
@@ -36,8 +36,8 @@ where T: Sized
         let len = allocation.len();
         let block = allocation.intoBlock();
         let items = raw::blockItems[T](block, len);
-        Self {
-            items: items,
+        .{
+            items,
             capacity: len,
             storageBlock: ?block,
             replacementBlock: null,
