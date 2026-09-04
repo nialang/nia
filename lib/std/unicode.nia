@@ -160,18 +160,12 @@ extend Utf8ViewIter : Iterator {
 }
 
 fn nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
-    match current.checkedAdd(width) {
-        ?next => {
-            if next <= limit {
-                ?next
-            } else {
-                null
-            }
-        },
-        null => {
-            null
-        },
+    if current.checkedAdd(width) is ?next {
+        if next <= limit {
+            return ?next;
+        }
     }
+    null
 }
 
 extend char {
@@ -254,14 +248,10 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
     if not isValidScalarValue(code) {
         return Utf8DecodeError::InvalidScalar!;
     }
-    match fromScalarValue(code) {
-        ?ch => {
-            !DecodedUtf8Scalar::init(ch, width)
-        },
-        null => {
-            Utf8DecodeError::InvalidScalar!
-        },
+    if fromScalarValue(code) is ?ch {
+        return !DecodedUtf8Scalar::init(ch, width);
     }
+    Utf8DecodeError::InvalidScalar!
 }
 
 fn isOverlongUtf8(code: u32, width: usize) bool {
