@@ -237,38 +237,29 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn get(&self, key: &K) ?&V {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                ?&self.values[index]
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            ?&self.values[index]
+        } else {
+            null
         }
     }
 
     pub fn getMut(&mut self, key: &K) ?&mut V {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                ?&mut self.values[index]
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            ?&mut self.values[index]
+        } else {
+            null
         }
     }
 
     pub fn getEntry(&self, key: &K) ?HashMapEntryRef[K, V] {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                ?HashMapEntryRef[K, V] {
-                    key: &self.keys[index],
-                    value: &self.values[index],
-                }
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            ?HashMapEntryRef[K, V] {
+                key: &self.keys[index],
+                value: &self.values[index],
+            }
+        } else {
+            null
         }
     }
 
@@ -528,31 +519,25 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn remove(&mut self, key: &K) ?V {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                let value = self.values[index];
-                self.setCtrl(index, raw::ctrlDeleted);
-                self.len -= 1;
-                ?value
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            let value = self.values[index];
+            self.setCtrl(index, raw::ctrlDeleted);
+            self.len -= 1;
+            ?value
+        } else {
+            null
         }
     }
 
     pub fn removeEntry(&mut self, key: &K) ?HashMapEntry[K, V] {
-        match self.findIndex(key, self.hashKey(key)) {
-            ?index => {
-                let foundKey = self.keys[index];
-                let value = self.values[index];
-                self.setCtrl(index, raw::ctrlDeleted);
-                self.len -= 1;
-                ?HashMapEntry[K, V] { key: foundKey, value }
-            },
-            null => {
-                null
-            },
+        if self.findIndex(key, self.hashKey(key)) is ?index {
+            let foundKey = self.keys[index];
+            let value = self.values[index];
+            self.setCtrl(index, raw::ctrlDeleted);
+            self.len -= 1;
+            ?HashMapEntry[K, V] { key: foundKey, value }
+        } else {
+            null
         }
     }
 
