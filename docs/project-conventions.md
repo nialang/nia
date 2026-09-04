@@ -122,3 +122,67 @@ Use `std::option::{isPresent,isNull}` only when a boolean must be composed or
 returned; use `if value is ?payload` when the branch consumes the payload. Use
 optional/error-union `map` and `andThen` when a callback pipeline makes the
 data flow shorter and clearer, not merely to replace an already direct branch.
+
+## Pattern Control Flow and Fallible Cleanup
+
+`if value is pattern` and a `match` arm with the same pattern have the same
+value and ownership semantics. The `if` form is a one-branch test: the pattern
+bindings exist only in the `then` branch, while the unmatched case continues to
+the `else` branch (or the merge point when no `else` is present). Choose
+`match` when several cases are meaningful or when the expression is easier to
+read as an exhaustive decision. Do not choose `match` to obtain a different
+ownership behavior; Nia has no hidden move or destructor associated with either
+form.
+
+Error-union patterns use `!payload` for the success arm and `error!` (or a
+named payload such as `cause!`) for the error arm. Optional patterns use
+`?payload` and `null`. Keep the condition direction and the state transition
+separate when rewriting a `match` as an `if`:
+
+```nia
+// Equivalent control flow for a single error branch.
+if operation() is cause! {
+    return cause!;
+}
+useSuccessfulResult();
+```
+
+For a fallible teardown, a failed release must leave its owner reachable so the
+caller can retry it. Only a completely successful teardown may mark an attempt
+inactive or clear the owner. This is an explicit state machine, not an implicit
+ownership rule:
+
+```text
+active + cleanup failure  -> active   + cleanup error (retry is valid)
+active + cleanup success  -> inactive + primary result
+inactive                  -> internal error
+```
+
+The following form preserves that ordering while avoiding an empty success
+binding:
+
+```nia
+pub fn finish(&mut self) Error!Build {
+    if not self.active {
+        return Error::Internal(Operation::Initialize)!;
+    }
+    if self.primary is ?primary {
+        if self.build.deinit() is cleanup! {
+            return cleanup!;
+        }
+        self.active = false;
+        primary!
+    } else {
+        self.active = false;
+        !self.build
+    }
+}
+```
+
+Putting `active = false` in the cleanup-error branch is incorrect: it makes a
+failed release look final and prevents the required retry. The same invariant
+applies to collections, allocators, file adapters, and any type that retains a
+failed `Block`, path, descriptor, or nested owner. Use
+`CleanupAccumulator[Failure]` when independent releases must all be attempted;
+retain each failed owner in its type-specific slot and return the first cleanup
+error after the pass completes.
