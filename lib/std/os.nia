@@ -363,7 +363,7 @@ extend OpenMode {
             .ReadOnly => !platform::OpenMode::ReadOnly,
             .WriteOnly => !platform::OpenMode::WriteOnly,
             .ReadWrite => !platform::OpenMode::ReadWrite,
-            _ => Error::Invalid!,
+            _ => .Invalid!,
         }
     }
 }
@@ -374,7 +374,7 @@ extend SeekWhence {
             .Start => !platform::SeekWhence::Start,
             .Current => !platform::SeekWhence::Current,
             .End => !platform::SeekWhence::End,
-            _ => Error::Invalid!,
+            _ => .Invalid!,
         }
     }
 }
@@ -568,7 +568,7 @@ extend FileHandle {
     pub(pkg) fn writeSome(&self, bytes: &[u8]) Error!usize {
         let n = self.platform().writeSome(bytes).?;
         if n > bytes.len() {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         !n
     }
@@ -576,7 +576,7 @@ extend FileHandle {
     pub(pkg) fn readSome(&self, bytes: &mut [u8]) Error!usize {
         let n = self.platform().readSome(bytes).?;
         if n > bytes.len() {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         !n
     }
@@ -617,7 +617,7 @@ extend FileHandle {
     fn readDirEntries(&self, buffer: &mut [u8]) Error!usize {
         let n = self.platform().readDirEntries(buffer).?;
         if n > buffer.len() {
-            return Error::Invalid!;
+            return .Invalid!;
         }
         !n
     }
