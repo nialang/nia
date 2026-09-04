@@ -12,7 +12,7 @@ pub struct FixedBufferAllocator {
 
 extend FixedBufferAllocator {
     pub fn init(buffer: &mut [u8]) FixedBufferAllocator {
-        Self { buffer: buffer, endIndex: 0 }
+        .{ buffer, endIndex: 0 }
     }
 
     pub fn reset(&mut self) () {

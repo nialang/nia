@@ -292,21 +292,21 @@ extend CommandEnvironmentInput {
 extend OwnedCommandArgument {
     fn init(argument: CommandArgument) OwnedCommandArgument {
         if argument.kind == CommandArgumentKind::ArtifactInput {
-            return Self {
+            return .{
                 kind: argument.kind,
                 payload: .{ artifact: argument.payload.artifact },
                 package: argument.package,
             };
         }
         if argument.kind == CommandArgumentKind::ObjectInput {
-            return Self {
+            return .{
                 kind: argument.kind,
                 payload: .{ object: argument.payload.object },
                 package: argument.package,
             };
         }
         if argument.kind == CommandArgumentKind::StaticArchiveInput {
-            return Self {
+            return .{
                 kind: argument.kind,
                 payload: .{ staticArchive: argument.payload.staticArchive },
                 package: argument.package,

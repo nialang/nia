@@ -69,7 +69,7 @@ extend Build {
             ?value => value,
             null => 0,
         };
-        let build = Self {
+        let build: Build = .{
             ownerId: ownerId,
             allocator: allocator,
             paths: .init(),

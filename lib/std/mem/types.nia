@@ -76,7 +76,7 @@ extend Block {
         releasePtr: &mut u8,
         releaseSize: usize,
     ) Block {
-        Self { ptr, layout, releasePtr, releaseSize }
+        .{ ptr, layout, releasePtr, releaseSize }
     }
 
     pub(pkg) fn withLayout(&self, layout: Layout) Block {
