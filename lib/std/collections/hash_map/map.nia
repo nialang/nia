@@ -143,7 +143,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     }
 
     pub fn initContextSeed(context: C, seed: u64) HashMapWithContext[K, V, C] {
-        Self {
+        .{
             ctrl: raw::danglingSlice[u8](),
             keys: raw::danglingSlice[K](),
             values: raw::danglingSlice[V](),
@@ -152,8 +152,8 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             len: 0,
             growthLeft: 0,
             retiredStorageBlock: null,
-            seed: seed,
-            context: context,
+            seed,
+            context,
         }
     }
 

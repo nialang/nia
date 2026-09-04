@@ -279,17 +279,7 @@ extend Metadata {
         modified: Timestamp,
         statusChanged: ?Timestamp,
     ) Metadata {
-        Self {
-            kind: kind,
-            fileId: fileId,
-            linkCount: linkCount,
-            size: size,
-            permissions: permissions,
-            preferredBlockSize: preferredBlockSize,
-            accessed: accessed,
-            modified: modified,
-            statusChanged: statusChanged,
-        }
+        .{ kind, fileId, linkCount, size, permissions, preferredBlockSize, accessed, modified, statusChanged }
     }
 
     pub fn kind(&self) FileKind {

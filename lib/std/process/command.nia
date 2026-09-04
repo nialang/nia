@@ -213,7 +213,7 @@ extend Command {
 
 extend SpawnStorage {
     fn init() SpawnStorage {
-        Self {
+        .{
             argumentBytes: .init(),
             argv: .init(),
             environmentBytes: .init(),
@@ -279,12 +279,12 @@ extend SpawnStorage {
 
 extend SpawnAttempt {
     fn start(command: &Command) SpawnAttempt {
-        let mut attempt = Self {
+        let mut attempt: SpawnAttempt = .{
             allocator: .init(),
             storage: .init(),
         };
         let allocator: &mut mem::Allocator = &mut attempt.allocator;
-        attempt.storage.execute(command, allocator);
+        _ = attempt.storage.execute(command, allocator);
         attempt
     }
 
@@ -296,8 +296,8 @@ extend SpawnAttempt {
 
 extend AllocatorSpawnAttempt {
     fn start(command: &Command, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
-        let mut attempt = Self { storage: .init() };
-        attempt.storage.execute(command, allocator);
+        let mut attempt: AllocatorSpawnAttempt = .{ storage: .init() };
+        _ = attempt.storage.execute(command, allocator);
         attempt
     }
 
