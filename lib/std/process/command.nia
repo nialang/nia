@@ -163,7 +163,7 @@ extend Command {
     ) Error!() {
         match self.environment {
             .Exact(entries) => validateEnvironment(entries).?,
-            .Inherit(env) => { _ = env; },
+            .Inherit(_) => {},
             .Empty => {},
         }
 
@@ -227,13 +227,9 @@ extend SpawnStorage {
     }
 
     fn execute(&mut self, command: &Command, allocator: &mut mem::Allocator) () {
-        self.outcome = ?match command.executeSpawn(allocator, self) {
-            !ok => {
-                _ = ok;
-                return;
-            },
-            cause! => SpawnOutcome::Failure(cause),
-        };
+        if command.executeSpawn(allocator, self) is cause! {
+            self.outcome = ?SpawnOutcome::Failure(cause);
+        }
     }
 
     fn finish(&mut self, allocator: &mut mem::Allocator) Error!Child {
@@ -245,16 +241,12 @@ extend SpawnStorage {
         cleanup.attempt(self.argv.deinit(allocator));
         cleanup.attempt(self.argumentBytes.deinit(allocator));
         if not cleanup.isClean() {
-            match cleanup.finish() {
-                error! => return Error::Allocation(error)!,
-                !ok => { _ = ok; },
+            if cleanup.finish() is error! {
+                return .Allocation(error)!;
             }
         }
-        match nativeResult {
-            !ok => {
-                _ = ok;
-            },
-            cause! => return cause!,
+        if nativeResult is cause! {
+            return cause!;
         }
         let outcome = match self.outcome {
             ?value => value,
@@ -327,9 +319,9 @@ extend AllocatorSpawnAttempt {
 extend StdIo {
     fn asOsStdio(self) os::StdIo {
         match self {
-            .Inherit => os::StdIo::Inherit,
-            .Ignore => os::StdIo::Ignore,
-            .Pipe => os::StdIo::Pipe,
+            .Inherit => .Inherit,
+            .Ignore => .Ignore,
+            .Pipe => .Pipe,
         }
     }
 }
