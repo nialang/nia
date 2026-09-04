@@ -72,7 +72,7 @@ fn ignoreResult(result: CaseResult) () {
 
 extend Case {
     pub fn init(name: &[char], callback: &Fn() Error!()) Case {
-        .{ name: name, callback: callback }
+        .{ name, callback }
     }
 
     pub fn name(&self) &[char] {
@@ -105,24 +105,15 @@ extend CaseResult {
     }
 
     pub fn isPassed(&self) bool {
-        match self.status {
-            .Passed => true,
-            _ => false,
-        }
+        self.status == .Passed
     }
 
     pub fn isFailed(&self) bool {
-        match self.status {
-            .Failed => true,
-            _ => false,
-        }
+        self.status == .Failed
     }
 
     pub fn isSkipped(&self) bool {
-        match self.status {
-            .Skipped => true,
-            _ => false,
-        }
+        self.status == .Skipped
     }
 }
 
@@ -154,7 +145,7 @@ extend RunSummary {
 
 extend Runner {
     pub fn init(cases: &[Case]) Runner {
-        .{ cases: cases, failFast: false }
+        .{ cases, failFast: false }
     }
 
     pub fn withFailFast(self) Runner {
