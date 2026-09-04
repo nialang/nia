@@ -29,7 +29,7 @@ extend PathView {
     pub fn encode(&self, storage: &mut [u8]) PathError!NativePathView {
         let byteLen = encodedPathByteLen(self.text()).?;
         if byteLen >= storage.len() {
-            return PathError::TooLong!;
+            return .TooLong!;
         }
         let mut out: usize = 0;
         for &ch in self.text() {
@@ -48,11 +48,11 @@ fn encodedPathByteLen(text: &[char]) PathError!usize {
     let mut len: usize = 0;
     for &ch in text {
         if ch.codepoint() == 0 {
-            return PathError::ContainsNul!;
+            return .ContainsNul!;
         }
         len = match len.checkedAdd(ch.encodeUtf8().byteLen()) {
             ?value => value,
-            null => return PathError::TooLong!,
+            null => return .TooLong!,
         };
     }
     !len
@@ -173,11 +173,11 @@ fn appendComponentToString(
         let separatorLen: usize = if needsSeparator { 1 } else { 0 };
         let appendLen = match appended.len().checkedAdd(separatorLen) {
             ?value => value,
-            null => return mem::Error::OutOfMemory!,
+            null => return .OutOfMemory!,
         };
         let needed = match out.len().checkedAdd(appendLen) {
             ?value => value,
-            null => return mem::Error::OutOfMemory!,
+            null => return .OutOfMemory!,
         };
         let sourceOffset = textSliceOffset(out, appended).?;
         out.ensureTotalCapacity(allocator, needed).?;
@@ -205,26 +205,26 @@ fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     }
     let outBytes = match out.len().checkedMul(itemSize) {
         ?value => value,
-        null => return mem::Error::Invalid!,
+        null => return .Invalid!,
     };
     let outEnd = match base.checkedAdd(outBytes) {
         ?value => value,
-        null => return mem::Error::Invalid!,
+        null => return .Invalid!,
     };
     let sourceBytes = match text.len().checkedMul(itemSize) {
         ?value => value,
-        null => return mem::Error::Invalid!,
+        null => return .Invalid!,
     };
     let sourceEnd = match source.checkedAdd(sourceBytes) {
         ?value => value,
-        null => return mem::Error::Invalid!,
+        null => return .Invalid!,
     };
     if sourceEnd > outEnd {
         return !null;
     }
     let byteOffset = source - base;
     if byteOffset % itemSize != 0 {
-        return mem::Error::Invalid!;
+        return .Invalid!;
     }
     !?(byteOffset / itemSize)
 }
@@ -240,13 +240,13 @@ extend NativePathView {
 
     pub fn fromBytes(bytes: &[u8]) PathError!NativePathView {
         if bytes.len() == 0 or bytes[bytes.len() - 1] != 0 {
-            return PathError::MissingTerminator!;
+            return .MissingTerminator!;
         }
         let len = bytes.len() - 1;
         let mut index: usize = 0;
         while index < len {
             if bytes[index] == 0 {
-                return PathError::ContainsNul!;
+                return .ContainsNul!;
             }
             index += 1;
         }
@@ -308,7 +308,7 @@ extend RelativeNativePathView {
 
 fn validateRelativeText(text: &[char]) PathError!() {
     if text.len() != 0 and text[0] == '/' {
-        return PathError::Absolute!;
+        return .Absolute!;
     }
     let mut componentStart: usize = 0;
     let mut index: usize = 0;
@@ -318,7 +318,7 @@ fn validateRelativeText(text: &[char]) PathError!() {
                 and text[componentStart] == '.'
                 and text[componentStart + 1] == '.'
             {
-                return PathError::ParentTraversal!;
+                return .ParentTraversal!;
             }
             componentStart = index + 1;
         }
@@ -328,14 +328,14 @@ fn validateRelativeText(text: &[char]) PathError!() {
         and text[componentStart] == '.'
         and text[componentStart + 1] == '.'
     {
-        return PathError::ParentTraversal!;
+        return .ParentTraversal!;
     }
     !()
 }
 
 fn validateRelativeBytes(bytes: &[u8]) PathError!() {
     if bytes.len() != 0 and bytes[0] == b'/' {
-        return PathError::Absolute!;
+        return .Absolute!;
     }
     let mut componentStart: usize = 0;
     let mut index: usize = 0;
@@ -345,7 +345,7 @@ fn validateRelativeBytes(bytes: &[u8]) PathError!() {
                 and bytes[componentStart] == b'.'
                 and bytes[componentStart + 1] == b'.'
             {
-                return PathError::ParentTraversal!;
+                return .ParentTraversal!;
             }
             componentStart = index + 1;
         }
@@ -355,7 +355,7 @@ fn validateRelativeBytes(bytes: &[u8]) PathError!() {
         and bytes[componentStart] == b'.'
         and bytes[componentStart + 1] == b'.'
     {
-        return PathError::ParentTraversal!;
+        return .ParentTraversal!;
     }
     !()
 }
