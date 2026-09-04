@@ -40,15 +40,15 @@ fn lowerNativeBytes(
 ) OperationError!RelativeNativePathView {
     let terminatedLen = match bytes.len().checkedAdd(1) {
         ?value => value,
-        null => return OperationError::Path {
+        null => return .Path {
             operation: operation,
-            cause: types::PathError::TooLong,
+            cause: .TooLong,
         }!,
     };
     if terminatedLen > storage.len() {
-        return OperationError::Path {
+        return .Path {
             operation: operation,
-            cause: types::PathError::TooLong,
+            cause: .TooLong,
         }!;
     }
     let mut index: usize = 0;
