@@ -20,7 +20,7 @@ mod tests;
 use nia_compiler_query::{
     FrontendCacheNamespace, FrontendProgramSourceFingerprint, FrontendProviderDemandPlanCacheKey,
     LoadedProgram, LoaderFactProvider, ProviderDemand, SourceContentFingerprint,
-    frontend_module_map_fingerprint, frontend_program_source_fingerprint,
+    frontend_module_map_fingerprint_with_package_root, frontend_program_source_fingerprint,
     source_content_fingerprint,
 };
 use nia_imports::{ModuleMap, StableModuleKey};
@@ -232,7 +232,14 @@ impl LoaderDatabase {
             .chain(request.package_root.clone())
             .chain(module_map.entries().map(|(_, path)| path.clone()))
             .collect::<Vec<_>>();
-        let module_map_fingerprint = frontend_module_map_fingerprint(&module_map);
+        let module_map_fingerprint = frontend_module_map_fingerprint_with_package_root(
+            &module_map,
+            request
+                .package_root
+                .as_ref()
+                .map(SourcePath::identity)
+                .as_ref(),
+        );
         let provider_demand_plan_key = frontend_cache.as_ref().map(|_| {
             FrontendProviderDemandPlanCacheKey::new_with_package_root(
                 namespace,
@@ -508,7 +515,14 @@ impl LoaderDatabase {
             .map(|module| module.path.clone())
             .collect::<Vec<_>>();
         let namespace = context.frontend_cache_namespace();
-        let module_map = frontend_module_map_fingerprint(&context.module_map);
+        let module_map = frontend_module_map_fingerprint_with_package_root(
+            &context.module_map,
+            context
+                .package_root
+                .as_ref()
+                .map(SourcePath::identity)
+                .as_ref(),
+        );
         let snapshot = provider_facts.as_snapshot();
         let _ = cache.publish_provider_demand_plan(
             key,
