@@ -643,20 +643,15 @@ extend Build {
             optimization,
         );
         self.hasPendingModule = true;
-        match self.pendingModule.initialize(
+        if self.pendingModule.initialize(
             self.allocator,
             options.name,
             options.rootSource,
             options.imports,
             self.ownerId,
-        ) {
-            !ok => {
-                _ = ok;
-            },
-            primary! => {
-                _ = self.cleanupPendingModule();
-                return primary!;
-            },
+        ) is primary! {
+            _ = self.cleanupPendingModule();
+            return primary!;
         }
         self.modules.appendAssumeCapacity(self.pendingModule);
         self.hasPendingModule = false;
@@ -740,19 +735,14 @@ extend Build {
             options.targetRole,
         );
         self.hasPendingExecutable = true;
-        match self.pendingExecutable.initialize(
+        if self.pendingExecutable.initialize(
             self.allocator,
             options.name,
             outputName,
             options.staticArchives,
-        ) {
-            !ok => {
-                _ = ok;
-            },
-            primary! => {
-                _ = self.cleanupPendingExecutable();
-                return primary!;
-            },
+        ) is primary! {
+            _ = self.cleanupPendingExecutable();
+            return primary!;
         }
         self.executables.appendAssumeCapacity(self.pendingExecutable);
         self.hasPendingExecutable = false;
@@ -811,14 +801,9 @@ extend Build {
             options.targetRole,
         );
         self.hasPendingObject = true;
-        match self.pendingObject.initialize(self.allocator, options.name, outputName) {
-            !ok => {
-                _ = ok;
-            },
-            primary! => {
-                _ = self.cleanupPendingObject();
-                return primary!;
-            },
+        if self.pendingObject.initialize(self.allocator, options.name, outputName) is primary! {
+            _ = self.cleanupPendingObject();
+            return primary!;
         }
         self.objects.appendAssumeCapacity(self.pendingObject);
         self.hasPendingObject = false;
@@ -877,14 +862,9 @@ extend Build {
             options.targetRole,
         );
         self.hasPendingStaticArchive = true;
-        match self.pendingStaticArchive.initialize(self.allocator, options.name, outputName) {
-            !ok => {
-                _ = ok;
-            },
-            primary! => {
-                _ = self.cleanupPendingStaticArchive();
-                return primary!;
-            },
+        if self.pendingStaticArchive.initialize(self.allocator, options.name, outputName) is primary! {
+            _ = self.cleanupPendingStaticArchive();
+            return primary!;
         }
         self.staticArchives.appendAssumeCapacity(self.pendingStaticArchive);
         self.hasPendingStaticArchive = false;
