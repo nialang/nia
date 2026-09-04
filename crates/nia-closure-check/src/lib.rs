@@ -218,15 +218,30 @@ enum EscapeKind {
 
 /// Computes closure escape summaries and reports invalid lexical escapes.
 ///
-/// `functions` must contain the complete source-function set for the program
-/// being checked. Nested closures are discovered from those bodies before the
-/// summary fixed point begins.
+/// `functions` contains the diagnostic roots for the program being checked.
+/// Nested closures are discovered from those bodies before the summary fixed
+/// point begins. Use [`check_closure_safety_with_support`] when calls from
+/// those roots can target bodies outside the diagnostic set.
 pub fn check_closure_safety(
     functions: &[ClosureCheckFunction<'_>],
     type_store: &TypeStore,
 ) -> ClosureCheck {
+    check_closure_safety_with_support(functions, &[], type_store)
+}
+
+/// Checks closure safety for `functions`, using `support_functions` to resolve
+/// interprocedural summaries without making those support bodies diagnostic
+/// roots. Executable checking commonly supplies only reachable bodies, while a
+/// generic helper (for example an option mapper) may be defined in an imported
+/// module outside that executable subgraph. Treating that helper as unknown
+/// would incorrectly report every stack-backed callback as escaping.
+pub fn check_closure_safety_with_support(
+    functions: &[ClosureCheckFunction<'_>],
+    support_functions: &[ClosureCheckFunction<'_>],
+    type_store: &TypeStore,
+) -> ClosureCheck {
     let mut callables = HashMap::new();
-    for function in functions {
+    for function in support_functions.iter().chain(functions) {
         callables.insert(
             CallableKey::Function(function.def_id),
             CallableBody {
@@ -243,6 +258,11 @@ pub fn check_closure_safety(
         );
         collect_body_closures(function.body, &mut callables);
     }
+
+    let diagnostic_owners = functions
+        .iter()
+        .map(|function| function.def_id)
+        .collect::<HashSet<_>>();
 
     let mut summaries = callables
         .keys()
@@ -271,6 +291,13 @@ pub fn check_closure_safety(
     let mut callable_keys = callables.keys().copied().collect::<Vec<_>>();
     callable_keys.sort_unstable();
     for key in callable_keys {
+        let diagnostic_root = match key {
+            CallableKey::Function(def_id) => diagnostic_owners.contains(&def_id),
+            CallableKey::Closure(closure_id) => diagnostic_owners.contains(&closure_id.owner),
+        };
+        if !diagnostic_root {
+            continue;
+        }
         let callable = callables
             .get(&key)
             .expect("collected callable key must retain its body");
@@ -289,42 +316,46 @@ pub fn check_closure_safety(
         .summarize(callable);
     }
 
-    let summaries = summaries
-        .into_iter()
-        .filter_map(|(key, summary)| match key {
-            CallableKey::Function(def_id) => Some((
-                def_id,
-                ClosureEscapeSummary {
-                    returned_parameters: summary
-                        .returned_inputs
-                        .into_iter()
-                        .chain(summary.returned_error_inputs)
-                        .filter_map(|origin| input_source(&origin))
-                        .filter_map(parameter_source)
-                        .collect(),
-                    escaping_parameters: summary
-                        .escaping_inputs
-                        .into_iter()
-                        .filter_map(|origin| input_source(&origin))
-                        .filter_map(parameter_source)
-                        .collect(),
-                    returned_captured_address_parameters: parameter_sources(
-                        summary
-                            .returned_captured_addresses
-                            .into_iter()
-                            .chain(summary.returned_error_captured_addresses)
-                            .collect(),
-                    ),
-                    escaping_captured_address_parameters: parameter_sources(
-                        summary.escaping_captured_addresses,
-                    ),
-                },
-            )),
-            CallableKey::Closure(_) => None,
-        })
-        .collect();
     ClosureCheck {
-        summaries,
+        summaries: summaries
+            .into_iter()
+            .filter_map(|(key, summary)| match key {
+                CallableKey::Function(def_id) if diagnostic_owners.contains(&def_id) => {
+                    Some((def_id, summary))
+                }
+                _ => None,
+            })
+            .map(|(def_id, summary)| {
+                (
+                    def_id,
+                    ClosureEscapeSummary {
+                        returned_parameters: summary
+                            .returned_inputs
+                            .into_iter()
+                            .chain(summary.returned_error_inputs)
+                            .filter_map(|origin| input_source(&origin))
+                            .filter_map(parameter_source)
+                            .collect(),
+                        escaping_parameters: summary
+                            .escaping_inputs
+                            .into_iter()
+                            .filter_map(|origin| input_source(&origin))
+                            .filter_map(parameter_source)
+                            .collect(),
+                        returned_captured_address_parameters: parameter_sources(
+                            summary
+                                .returned_captured_addresses
+                                .into_iter()
+                                .chain(summary.returned_error_captured_addresses)
+                                .collect(),
+                        ),
+                        escaping_captured_address_parameters: parameter_sources(
+                            summary.escaping_captured_addresses,
+                        ),
+                    },
+                )
+            })
+            .collect(),
         diagnostics,
     }
 }

@@ -15,7 +15,7 @@ pub(super) fn provide_checked_program(
             db.context().timings(),
             "checked_program.closure_safety",
             || closure_safety_diagnostics(db, &diagnostic_modules),
-        ));
+        )?);
         Ok(CheckedProgramAnalysis {
             graph,
             optimization,
@@ -38,7 +38,7 @@ pub(super) fn provide_entry_checked_program(
             db.context().timings(),
             "entry_checked_program.closure_safety",
             || closure_safety_diagnostics(db, &diagnostic_modules),
-        ));
+        )?);
         Ok(CheckedProgramAnalysis {
             graph,
             optimization,
@@ -84,7 +84,7 @@ pub(in crate::query) fn provide_codegen_preparation(
             db.context().timings(),
             "codegen_preparation.closure_safety",
             || closure_safety_diagnostics(db, &modules),
-        ));
+        )?);
         if crate::has_error_diagnostics(&diagnostics) {
             return Ok(CodegenPreparation {
                 type_store: Arc::clone(&db.context().type_store),
