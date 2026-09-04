@@ -234,10 +234,15 @@ impl LoaderDatabase {
             .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint(&module_map);
         let provider_demand_plan_key = frontend_cache.as_ref().map(|_| {
-            FrontendProviderDemandPlanCacheKey::new(
+            FrontendProviderDemandPlanCacheKey::new_with_package_root(
                 namespace,
                 &entry_path.identity(),
                 module_map_fingerprint,
+                request
+                    .package_root
+                    .as_ref()
+                    .map(SourcePath::identity)
+                    .as_ref(),
                 request.package_root_used_paths,
             )
         });
