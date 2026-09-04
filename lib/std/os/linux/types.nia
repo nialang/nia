@@ -170,20 +170,20 @@ extend Errno {
 extend SpawnError {
     pub fn fromStage(stage: SpawnStage, errno: Errno) SpawnError {
         match stage {
-            .Setup => SpawnError::Setup(errno),
-            .Stdio => SpawnError::Stdio(errno),
-            .Cwd => SpawnError::Cwd(errno),
-            .Exec => SpawnError::Exec(errno),
-            _ => SpawnError::Setup(errno),
+            .Setup => .Setup(errno),
+            .Stdio => .Stdio(errno),
+            .Cwd => .Cwd(errno),
+            .Exec => .Exec(errno),
+            _ => .Setup(errno),
         }
     }
 
     pub fn stage(&self) SpawnStage {
         match self.* {
-            .Setup(_) => SpawnStage::Setup,
-            .Stdio(_) => SpawnStage::Stdio,
-            .Cwd(_) => SpawnStage::Cwd,
-            .Exec(_) => SpawnStage::Exec,
+            .Setup(_) => .Setup,
+            .Stdio(_) => .Stdio,
+            .Cwd(_) => .Cwd,
+            .Exec(_) => .Exec,
             .Reap { stage, primary: _, cause: _, pid: _ } => stage,
         }
     }
