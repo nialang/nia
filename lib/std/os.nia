@@ -478,13 +478,10 @@ extend DirectoryReader {
             }
         }
 
-        let entry = match platform::dirEntryAt(&self.buffer[0..self.end], self.start) {
-            ?value => {
-                value.asOsDirectoryEntry()
-            },
-            null => {
-                return ?(Error::Invalid!);
-            },
+        let entry = if platform::dirEntryAt(&self.buffer[0..self.end], self.start) is ?value {
+            value.asOsDirectoryEntry()
+        } else {
+            return ?(Error::Invalid!);
         };
         if platform::dirEntryNextOffset(&self.buffer[0..self.end], self.start) is ?value {
             self.start = value;
