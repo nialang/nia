@@ -274,10 +274,7 @@ pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
     let status = platform::tryWait(pid.platform()).?;
-    if status is ?value {
-        return !(?WaitStatus::fromPlatform(value));
-    }
-    !null
+    !status.map(&\value -> WaitStatus::fromPlatform(value))
 }
 
 pub(pkg) fn killWith(pid: ProcessId, signal: i32) Error!() {
