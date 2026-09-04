@@ -6,7 +6,7 @@ fn formatSignedSpec(
     spec: core::FormatSpec,
 ) core::Error!() {
     if spec.hasPrecision() {
-        return core::Error::InvalidTemplate!;
+        return .InvalidTemplate!;
     }
     match spec.presentation() {
         .Display => formatter.writeSignedRadixSpec(value, 10, false, spec),
@@ -14,7 +14,7 @@ fn formatSignedSpec(
         .UpperHex => formatter.writeSignedRadixSpec(value, 16, true, spec),
         .Binary => formatter.writeSignedRadixSpec(value, 2, false, spec),
         .Octal => formatter.writeSignedRadixSpec(value, 8, false, spec),
-        _ => core::Error::InvalidTemplate!,
+        _ => .InvalidTemplate!,
     }
 }
 
@@ -24,7 +24,7 @@ fn formatUnsignedSpec(
     spec: core::FormatSpec,
 ) core::Error!() {
     if spec.signPlus() or spec.hasPrecision() {
-        return core::Error::InvalidTemplate!;
+        return .InvalidTemplate!;
     }
     match spec.presentation() {
         .Display => formatter.writeUnsignedRadixSpec(value, 10, false, spec),
@@ -32,7 +32,7 @@ fn formatUnsignedSpec(
         .UpperHex => formatter.writeUnsignedRadixSpec(value, 16, true, spec),
         .Binary => formatter.writeUnsignedRadixSpec(value, 2, false, spec),
         .Octal => formatter.writeUnsignedRadixSpec(value, 8, false, spec),
-        _ => core::Error::InvalidTemplate!,
+        _ => .InvalidTemplate!,
     }
 }
 
@@ -42,7 +42,7 @@ fn formatTextSpec(
     spec: core::FormatSpec,
 ) core::Error!() {
     if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
-        return core::Error::InvalidTemplate!;
+        return .InvalidTemplate!;
     }
     let contentWidth = formatter.precisionWidth(text.len(), spec);
     formatter.writePaddingBefore(contentWidth, spec).?;
@@ -56,7 +56,7 @@ fn formatBytesSpec(
     spec: core::FormatSpec,
 ) core::Error!() {
     if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
-        return core::Error::InvalidTemplate!;
+        return .InvalidTemplate!;
     }
     let contentWidth = formatter.precisionWidth(bytes.len(), spec);
     formatter.writePaddingBefore(contentWidth, spec).?;
@@ -196,7 +196,7 @@ fn formatPointerSpec(
     if spec.presentation() == core::FormatPresentation::Display or spec.presentation() == core::FormatPresentation::Pointer {
         formatter.writePointerSpec(value, spec)
     } else {
-        core::Error::InvalidTemplate!
+        .InvalidTemplate!
     }
 }
 
@@ -249,7 +249,7 @@ extend char : core::Format {
 
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         if spec.presentation() != core::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
-            return core::Error::InvalidTemplate!;
+            return .InvalidTemplate!;
         }
         let contentWidth = formatter.precisionWidth(1, spec);
         formatter.writePaddingBefore(contentWidth, spec).?;
@@ -304,7 +304,7 @@ where T: Sized + core::Format
     fn formatSpec(&self, formatter: &mut core::Formatter, spec: core::FormatSpec) core::Error!() {
         spec.validate().?;
         if spec.presentation() != core::FormatPresentation::Display or spec.width() != 0 or spec.hasPrecision() or spec.signPlus() or spec.alternate() {
-            return core::Error::InvalidTemplate!;
+            return .InvalidTemplate!;
         }
         self.format(formatter)
     }

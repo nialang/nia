@@ -48,11 +48,11 @@ fn digitValue(ch: char) ?usize {
 fn appendDecimalDigit(value: usize, digit: usize) core::Error!usize {
     let scaled = match value.checkedMul(10) {
         ?scaled => scaled,
-        null => return core::Error::InvalidTemplate!,
+        null => return .InvalidTemplate!,
     };
     match scaled.checkedAdd(digit) {
         ?next => !next,
-        null => core::Error::InvalidTemplate!,
+        null => .InvalidTemplate!,
     }
 }
 
@@ -70,7 +70,7 @@ fn parseSpecEnd(
     alternate: bool,
 ) core::Error!ParsedSpec {
     if index >= template.len() or template[index] != '}' {
-        return core::Error::InvalidTemplate!;
+        return .InvalidTemplate!;
     }
     !ParsedSpec {
         spec: core::FormatSpec::init(presentation, width, precision, fill, alignment, signPlus, alternate),
@@ -152,7 +152,7 @@ fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
                 }
             }
             if not hasDigit {
-                return core::Error::InvalidTemplate!;
+                return .InvalidTemplate!;
             }
             precision = ?parsedPrecision;
         }
@@ -183,12 +183,12 @@ fn parseExtendedSpec(template: &[char], start: usize) core::Error!ParsedSpec {
 
 fn nextUsizeArg(args: &[&core::Format], argIndex: &mut usize) core::Error!usize {
     if argIndex.* >= args.len() {
-        return core::Error::MissingArgument!;
+        return .MissingArgument!;
     }
     let value = if args[argIndex.*].formatUsizeArg() is ?value {
         value
     } else {
-        return core::Error::InvalidTemplate!;
+        return .InvalidTemplate!;
     };
     argIndex.* += 1;
     !value
@@ -232,12 +232,12 @@ where W: io::Writer
         let ch = template[index];
         if ch == '{' {
             if index + 1 >= template.len() {
-                return core::Error::InvalidTemplate!;
+                return .InvalidTemplate!;
             }
             let next = template[index + 1];
             if next == '}' {
                 if argIndex >= args.len() {
-                    return core::Error::MissingArgument!;
+                    return .MissingArgument!;
                 }
                 args[argIndex].formatSpec(&mut formatter, core::FormatSpec::display()).?;
                 argIndex += 1;
@@ -248,7 +248,7 @@ where W: io::Writer
             } else if next == ':' {
                 let parsed = parseExtendedSpec(template, index + 2).?;
                 if argIndex >= args.len() {
-                    return core::Error::MissingArgument!;
+                    return .MissingArgument!;
                 }
                 let valueIndex = argIndex;
                 argIndex += 1;
@@ -256,14 +256,14 @@ where W: io::Writer
                 args[valueIndex].formatSpec(&mut formatter, spec).?;
                 index = parsed.nextIndex;
             } else {
-                return core::Error::InvalidTemplate!;
+                return .InvalidTemplate!;
             }
         } else if ch == '}' {
             if index + 1 < template.len() and template[index + 1] == '}' {
                 formatter.writeChar('}').?;
                 index += 2;
             } else {
-                return core::Error::InvalidTemplate!;
+                return .InvalidTemplate!;
             }
         } else {
             formatter.writeChar(ch).?;
@@ -271,7 +271,7 @@ where W: io::Writer
         }
     }
     if argIndex != args.len() {
-        return core::Error::ExtraArgument!;
+        return .ExtraArgument!;
     }
     !()
 }
