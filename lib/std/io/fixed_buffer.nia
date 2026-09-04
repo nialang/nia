@@ -20,7 +20,7 @@ pub struct DiscardingWriter {
 
 extend FixedBufferWriter {
     pub fn init(buffer: &mut [u8]) FixedBufferWriter {
-        Self { buffer, len: 0 }
+        .{ buffer, len: 0 }
     }
 
     pub fn len(&self) usize {
@@ -67,7 +67,7 @@ extend FixedBufferWriter : Writer {
 
 extend FixedBufferReader {
     pub fn init(buffer: &[u8]) FixedBufferReader {
-        Self { buffer, cursor: 0 }
+        .{ buffer, cursor: 0 }
     }
 
     pub fn remaining(&self) usize {
@@ -97,7 +97,7 @@ extend FixedBufferReader : Reader {
 
 extend DiscardingWriter {
     pub fn init() DiscardingWriter {
-        Self { len: 0 }
+        .{ len: 0 }
     }
 
     pub fn len(&self) usize {

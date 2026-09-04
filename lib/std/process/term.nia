@@ -5,19 +5,19 @@ using types::{Term, TermKind};
 
 extend Term {
     fn exited(code: i32) Term {
-        Self { kind: TermKind::Exited, code: code }
+        .{ kind: .Exited, code }
     }
 
     fn signal(signal: i32) Term {
-        Self { kind: TermKind::Signal, code: signal }
+        .{ kind: .Signal, code: signal }
     }
 
     fn stopped(signal: i32) Term {
-        Self { kind: TermKind::Stopped, code: signal }
+        .{ kind: .Stopped, code: signal }
     }
 
     fn unknown(raw: i32) Term {
-        Self { kind: TermKind::Unknown, code: raw }
+        .{ kind: .Unknown, code: raw }
     }
 
     pub(pkg) fn fromWaitStatus(status: os::WaitStatus) Term {
