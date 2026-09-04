@@ -424,7 +424,7 @@ extend platform::DirectoryEntry {
 
 extend Timestamp {
     pub(pkg) fn init(seconds: i64, nanos: u32) Timestamp {
-        Self { seconds: seconds, nanos: nanos }
+        .{ seconds, nanos }
     }
 
     pub(pkg) fn seconds(&self) i64 {
@@ -438,7 +438,7 @@ extend Timestamp {
 
 extend DirectoryEntry {
     pub(pkg) fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
-        Self { kind: kind, name: name }
+        .{ kind, name }
     }
 
     pub(pkg) fn kind(&self) FileKind {
@@ -452,7 +452,7 @@ extend DirectoryEntry {
 
 extend DirectoryReader {
     pub(pkg) fn init(buffer: &mut [u8]) DirectoryReader {
-        Self { buffer: buffer, start: 0, end: 0, done: false }
+        .{ buffer, start: 0, end: 0, done: false }
     }
 
     pub(pkg) fn isDone(&self) bool {
