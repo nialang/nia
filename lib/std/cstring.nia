@@ -129,14 +129,14 @@ extend CStringView {
 
     pub fn fromBytes(bytes: &[u8]) CStringError!CStringView {
         if bytes.len() == 0 {
-            return CStringError::EmptyInput!;
+            return .EmptyInput!;
         }
         if bytes[bytes.len() - 1] != 0 {
-            return CStringError::MissingTerminator!;
+            return .MissingTerminator!;
         }
         for &byte in &bytes[0..bytes.len() - 1] {
             if byte == 0 {
-                return CStringError::InteriorNul!;
+                return .InteriorNul!;
             }
         }
         !CStringView::fromParts(bytes.ptr(), bytes.len() - 1)
@@ -192,7 +192,7 @@ extend CStringView : fmt::Format {
 
     fn formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
         if spec.presentation() != fmt::FormatPresentation::Display or spec.signPlus() or spec.alternate() {
-            return fmt::Error::InvalidTemplate!;
+            return .InvalidTemplate!;
         }
         let contentWidth = formatter.precisionWidth(self.len(), spec);
         formatter.writePaddingBefore(contentWidth, spec).?;

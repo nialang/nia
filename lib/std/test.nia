@@ -196,7 +196,7 @@ extend Runner {
 @[trackCaller]
 pub fn expect(condition: bool) Error!() {
     if not condition {
-        return Error::AssertionFailed(callerLocation())!;
+        return .AssertionFailed(callerLocation())!;
     }
     !()
 }
@@ -206,7 +206,7 @@ pub fn expectEqual[T](actual: T, expected: T) Error!()
 where T: Eq[T]
 {
     if actual != expected {
-        return Error::ValuesNotEqual(callerLocation())!;
+        return .ValuesNotEqual(callerLocation())!;
     }
     !()
 }
@@ -216,12 +216,12 @@ pub fn expectNotEqual[T](actual: T, expected: T) Error!()
 where T: Eq[T]
 {
     if actual == expected {
-        return Error::ValuesEqual(callerLocation())!;
+        return .ValuesEqual(callerLocation())!;
     }
     !()
 }
 
 @[trackCaller]
 pub fn fail() Error!() {
-    Error::AssertionFailed(callerLocation())!
+    .AssertionFailed(callerLocation())!
 }
