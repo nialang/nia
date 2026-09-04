@@ -143,10 +143,17 @@ fn build_module_graph(
             (graph, value.diagnostics.clone(), existing_modules)
         }
         None => {
-            let mut graph = ModuleGraph::with_symbol_text(
-                db.context().entry_path.clone(),
-                std::sync::Arc::new(db.context().symbols.clone()),
-            );
+            let mut graph = match &db.context().package_root {
+                Some(package_root) => ModuleGraph::with_package_root(
+                    db.context().entry_path.clone(),
+                    package_root.clone(),
+                    std::sync::Arc::new(db.context().symbols.clone()),
+                ),
+                None => ModuleGraph::with_symbol_text(
+                    db.context().entry_path.clone(),
+                    std::sync::Arc::new(db.context().symbols.clone()),
+                ),
+            };
             inject_entry_runtime(db, &mut graph, &mut fresh_diagnostics);
             (
                 graph,

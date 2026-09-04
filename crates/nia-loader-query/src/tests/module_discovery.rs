@@ -20,6 +20,38 @@ fn query_loader_loads_declared_modules_once() {
 }
 
 #[test]
+fn query_loader_keeps_package_root_separate_from_entry_module() {
+    let root = temp_dir("query_loader_keeps_package_root_separate_from_entry_module");
+    let main = root.join("main.nia");
+    let package = root.join("pkg.nia");
+    write(&package, "pub module config;");
+    write(&root.join("config.nia"), "pub const answer: i32 = 42;");
+    write(&main, "using pkg::config; fn main() i32 { config::answer }");
+
+    let program = super::load_program_request(
+        LoadRequest::new(main.to_string_lossy().into_owned())
+            .with_package_root(SourcePath::new(package.to_string_lossy())),
+    )
+    .expect("package-root program load");
+
+    assert_no_error_diagnostics(&program);
+    let entry = program.graph.entry();
+    let package_root = program
+        .graph
+        .current_package_root(entry)
+        .expect("entry package root");
+    assert_ne!(entry, package_root);
+    assert_eq!(
+        program.graph.get(entry).expect("entry module").path,
+        SourcePath::new(main.to_string_lossy())
+    );
+    assert_eq!(
+        program.graph.get(package_root).expect("package root").path,
+        SourcePath::new(package.to_string_lossy())
+    );
+}
+
+#[test]
 fn query_loader_reports_missing_source() {
     let root = temp_dir("query_loader_reports_missing_source");
     write(&root.join("main.nia"), "module missing;");
