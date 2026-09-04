@@ -233,15 +233,15 @@ extend FileDescriptor {
     }
 
     pub fn stdin() FileDescriptor {
-        FileDescriptor::init(0)
+        .init(0)
     }
 
     pub fn stdout() FileDescriptor {
-        FileDescriptor::init(1)
+        .init(1)
     }
 
     pub fn stderr() FileDescriptor {
-        FileDescriptor::init(2)
+        .init(2)
     }
 
     pub fn raw(&self) i32 {
