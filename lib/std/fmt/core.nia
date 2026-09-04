@@ -23,7 +23,7 @@ pub trait Format {
         if spec.presentation() == FormatPresentation::Display {
             self.format(formatter)
         } else {
-            Error::InvalidTemplate!
+            .InvalidTemplate!
         }
     }
 
@@ -74,27 +74,27 @@ extend FormatSpec {
     }
 
     pub fn display() FormatSpec {
-        FormatSpec::init(FormatPresentation::Display, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(FormatPresentation::Display, 0, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn lowerHex() FormatSpec {
-        FormatSpec::init(FormatPresentation::LowerHex, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(FormatPresentation::LowerHex, 0, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn upperHex() FormatSpec {
-        FormatSpec::init(FormatPresentation::UpperHex, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(FormatPresentation::UpperHex, 0, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn binary() FormatSpec {
-        FormatSpec::init(FormatPresentation::Binary, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(FormatPresentation::Binary, 0, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn octal() FormatSpec {
-        FormatSpec::init(FormatPresentation::Octal, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(FormatPresentation::Octal, 0, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn pointer() FormatSpec {
-        FormatSpec::init(FormatPresentation::Pointer, 0, null, ' ', FormatAlignment::None, false, false)
+        .init(FormatPresentation::Pointer, 0, null, ' ', FormatAlignment::None, false, false)
     }
 
     pub fn presentation(&self) FormatPresentation {
@@ -137,14 +137,14 @@ extend FormatSpec {
             .Binary => {},
             .Octal => {},
             .Pointer => {},
-            _ => return Error::InvalidTemplate!,
+            _ => return .InvalidTemplate!,
         }
         match self.alignment {
             .None => {},
             .Left => {},
             .Right => {},
             .Center => {},
-            _ => return Error::InvalidTemplate!,
+            _ => return .InvalidTemplate!,
         }
         !()
     }
@@ -158,7 +158,7 @@ fn validateRadix(radix: u128) Error!() {
     if radix == 2 or radix == 8 or radix == 10 or radix == 16 {
         !()
     } else {
-        Error::InvalidTemplate!
+        .InvalidTemplate!
     }
 }
 
@@ -264,7 +264,7 @@ extend Formatter {
     pub fn writePointerSpec(&mut self, value: usize, spec: FormatSpec) Error!() {
         spec.validate().?;
         if spec.signPlus() or spec.alternate() or spec.hasPrecision() {
-            return Error::InvalidTemplate!;
+            return .InvalidTemplate!;
         }
         let pointerSpec = FormatSpec::init(
             FormatPresentation::LowerHex,
@@ -289,7 +289,7 @@ extend Formatter {
         } else if radix == 8 {
             self.writeUnsignedPowerOfTwo(value, 126, 3, 7, uppercase)
         } else {
-            Error::InvalidTemplate!
+            .InvalidTemplate!
         }
     }
 
@@ -324,7 +324,7 @@ extend Formatter {
             } else if radix == 8 {
                 prefixWidth = 1;
             } else {
-                return Error::InvalidTemplate!;
+                return .InvalidTemplate!;
             }
         }
         let contentWidth = self.unsignedDigitCount(value, radix) + prefixWidth;
@@ -359,7 +359,7 @@ extend Formatter {
         } else if radix == 8 {
             self.writeByte(b'0')
         } else {
-            Error::InvalidTemplate!
+            .InvalidTemplate!
         }
     }
 
@@ -469,7 +469,7 @@ extend Formatter {
             } else if radix == 8 {
                 prefixWidth = 1;
             } else {
-                return Error::InvalidTemplate!;
+                return .InvalidTemplate!;
             }
         }
         let mut contentWidth = self.unsignedDigitCount(abs, radix) + prefixWidth;
