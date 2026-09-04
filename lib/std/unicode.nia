@@ -97,11 +97,7 @@ extend Utf8View {
 
 extend Utf8ViewIter {
     fn init(view: Utf8View) Utf8ViewIter {
-        Self {
-            bytes: view.bytes(),
-            byteIndex: 0,
-            remaining: view.scalarCount(),
-        }
+        .{ bytes: view.bytes(), byteIndex: 0, remaining: view.scalarCount() }
     }
 
     pub fn len(&self) usize {

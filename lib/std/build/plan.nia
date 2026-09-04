@@ -45,10 +45,7 @@ struct PlanEncoder {
 
 extend PlanEncoder {
     fn init(allocator: &mut mem::Allocator) PlanEncoder {
-        Self {
-            allocator: allocator,
-            bytes: .init(),
-        }
+        .{ allocator, bytes: .init() }
     }
 
     fn intoBytes(self) collections::ArrayList[u8] {
