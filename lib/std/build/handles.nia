@@ -30,12 +30,14 @@ extend BuildInitAttempt {
             return Error::Internal(Operation::Initialize)!;
         }
         if self.primary is ?primary {
-            if self.build.deinit() is cleanup! {
-                self.active = false;
-                return cleanup!;
+            match self.build.deinit() {
+                !ok => {
+                    _ = ok;
+                    self.active = false;
+                    primary!
+                },
+                cleanup! => cleanup!,
             }
-            self.active = false;
-            return primary!;
         } else {
             self.active = false;
             !self.build

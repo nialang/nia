@@ -128,7 +128,7 @@ extend Build {
             attempt.primary = ?Error::Internal(Operation::Initialize);
             return attempt;
         }
-        if attempt.build.initialize(
+        match attempt.build.initialize(
             packageRoot,
             buildDir,
             cacheDir,
@@ -137,8 +137,11 @@ extend Build {
             hostTarget,
             artifactTarget,
             requestedStep,
-        ) is primary! {
-            attempt.primary = ?primary;
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => attempt.primary = ?primary,
         }
         attempt
     }
