@@ -23,7 +23,7 @@ pub struct Block {
 extend Layout {
     pub fn init(size: usize, align: usize) Error!Layout {
         if align == 0 {
-            Error::InvalidAlignment!
+            .InvalidAlignment!
         } else if not align.isPowerOfTwo() {
             Error::InvalidAlignment!
         } else {
@@ -46,7 +46,7 @@ extend Layout {
                 value
             },
             null => {
-                return Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         Layout::init(size, std::builtin::align[T]())
