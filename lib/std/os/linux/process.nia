@@ -111,15 +111,10 @@ fn spawnWithResources(
 }
 
 fn failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
-    match reapSpawnFailure(pid) {
-        !ok => {
-            _ = ok;
-            SpawnAttempt::failure(error)
-        },
-        reapError! => {
-            SpawnAttempt::reapFailure(error, pid, reapError)
-        },
+    if reapSpawnFailure(pid) is reapError! {
+        return SpawnAttempt::reapFailure(error, pid, reapError);
     }
+    SpawnAttempt::failure(error)
 }
 
 fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
