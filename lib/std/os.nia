@@ -396,13 +396,13 @@ extend platform::FileKind {
 
 extend platform::Timestamp {
     fn asOsTimestamp(&self) Timestamp {
-        Timestamp::init(self.seconds(), self.nanos())
+        .init(self.seconds(), self.nanos())
     }
 }
 
 extend platform::FileMetadata {
     fn asOsMetadata(&self) FileMetadata {
-        FileMetadata::init(
+        .init(
             self.kind().asOsFileKind(),
             ?self.inode(),
             ?self.nlink(),
@@ -418,7 +418,7 @@ extend platform::FileMetadata {
 
 extend platform::DirectoryEntry {
     fn asOsDirectoryEntry(&self) DirectoryEntry {
-        DirectoryEntry::init(self.kind().asOsFileKind(), self.name())
+        .init(self.kind().asOsFileKind(), self.name())
     }
 }
 

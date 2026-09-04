@@ -115,7 +115,7 @@ extend Path {
     }
 
     pub fn view(&self) PathView {
-        PathView::init(self.text.text())
+        .init(self.text.text())
     }
 
     pub fn text(&self) &[char] {

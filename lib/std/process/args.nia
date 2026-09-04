@@ -102,11 +102,11 @@ extend Args {
     }
 
     pub fn iter(&self) ArgsIter {
-        ArgsIter::init(self.*, 0)
+        .init(self.*, 0)
     }
 
     pub fn skipProgram(&self) ArgsIter {
-        ArgsIter::init(self.*, 1)
+        .init(self.*, 1)
     }
 
 }
