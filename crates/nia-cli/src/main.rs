@@ -221,6 +221,13 @@ fn run_cli(cli: Cli) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
+            let package_root = match discover_package_root(&path) {
+                Ok(package_root) => package_root,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
             run_check(
                 &path,
                 &source,
@@ -231,6 +238,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                     opt_report,
                     runtime,
                     cache_dir,
+                    package_root,
                 },
                 toolchain,
             )
@@ -247,6 +255,13 @@ fn run_cli(cli: Cli) -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
+            let package_root = match discover_package_root(&path) {
+                Ok(package_root) => package_root,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::FAILURE;
+                }
+            };
             run_emit(
                 &path,
                 &source,
@@ -256,6 +271,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                     optimization: cli.optimization,
                     timings: cli.timings,
                     opt_report,
+                    package_root,
                     toolchain,
                 },
             )
@@ -287,6 +303,40 @@ fn read_source(path: &str) -> Result<String, String> {
         }
     };
     Ok(source)
+}
+
+/// Finds the nearest conventional package root for a source entry.
+fn discover_package_root(path: &str) -> Result<Option<SourcePath>, String> {
+    let source = Path::new(path);
+    if source.file_name().is_some_and(|name| name == "pkg.nia") {
+        return Ok(None);
+    }
+    let mut directory = source
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    loop {
+        let candidate = directory.join("pkg.nia");
+        match fs::metadata(&candidate) {
+            Ok(metadata) if metadata.is_file() => {
+                return Ok(Some(SourcePath::new(
+                    candidate.to_string_lossy().into_owned(),
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect package root `{}`: {error}",
+                    candidate.display()
+                ));
+            }
+        }
+        if !directory.pop() {
+            return Ok(None);
+        }
+    }
 }
 
 fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
@@ -1101,6 +1151,7 @@ struct CheckRunOptions {
     opt_report: bool,
     runtime: Runtime,
     cache_dir: Option<PathBuf>,
+    package_root: Option<SourcePath>,
 }
 
 fn run_check(
@@ -1116,7 +1167,7 @@ fn run_check(
     });
     let output = time_summary_stage(options.timings, "check", || {
         driver.check_entry(
-            nia_driver::CheckRequest::new(path)
+            check_request(path, options.package_root.as_ref())
                 .with_module_map(module_map.clone())
                 .with_optimization(options.optimization)
                 .with_timings(options.timings)
@@ -1133,6 +1184,7 @@ fn run_check(
                 &driver,
                 path,
                 module_map,
+                options.package_root.as_ref(),
                 options.optimization,
                 options.timings,
                 options.runtime,
@@ -1150,18 +1202,27 @@ fn run_check(
 fn check_with_driver(
     path: &str,
     module_map: ModuleMap,
+    package_root: Option<&SourcePath>,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
 ) -> nia_driver::DriverOutput<nia_driver::CheckedProgram> {
     nia_driver::Driver::new(toolchain).check_entry(
-        nia_driver::CheckRequest::new(path)
+        check_request(path, package_root)
             .with_module_map(module_map)
             .with_optimization(optimization)
             .with_timings(timings)
             .with_runtime(runtime),
     )
+}
+
+fn check_request(path: &str, package_root: Option<&SourcePath>) -> nia_driver::CheckRequest {
+    let mut request = nia_driver::CheckRequest::new(path);
+    if let Some(package_root) = package_root {
+        request = request.with_package_root(package_root.clone());
+    }
+    request
 }
 
 fn checked_program_from_output(
@@ -1188,12 +1249,13 @@ fn codegen_with_driver(
     driver: &nia_driver::Driver,
     path: &str,
     module_map: ModuleMap,
+    package_root: Option<&SourcePath>,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
 ) -> nia_driver::DriverOutput<nia_driver::CodegenProgram> {
     driver.codegen(
-        nia_driver::CheckRequest::new(path)
+        check_request(path, package_root)
             .with_module_map(module_map)
             .with_optimization(optimization)
             .with_timings(timings)
@@ -1249,6 +1311,7 @@ fn print_codegen_warnings(program: &nia_driver::CodegenProgram, path: &str, sour
 
 struct EmitContext {
     module_map: ModuleMap,
+    package_root: Option<SourcePath>,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     opt_report: bool,
@@ -1368,6 +1431,7 @@ fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitCon
         check_with_driver(
             path,
             context.module_map,
+            context.package_root.as_ref(),
             context.optimization,
             context.timings,
             runtime,
@@ -1389,6 +1453,7 @@ fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitCon
             &driver,
             path,
             context.module_map,
+            context.package_root.as_ref(),
             context.optimization,
             context.timings,
             runtime,
@@ -1409,7 +1474,7 @@ fn run_emit_llvm(path: &str, source: &str, runtime: Runtime, context: EmitContex
     let driver = nia_driver::Driver::new(context.toolchain);
     let output = time_summary_stage(context.timings, "emit_llvm_ir", || {
         driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(
-            nia_driver::CheckRequest::new(path)
+            check_request(path, context.package_root.as_ref())
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
                 .with_timings(context.timings)
@@ -1454,7 +1519,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     });
     let output = time_summary_stage(context.timings, "emit_native_objects", || {
         driver.emit_native_objects(nia_driver::EmitObjectRequest::new(
-            nia_driver::CheckRequest::new(path)
+            check_request(path, context.package_root.as_ref())
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
                 .with_timings(context.timings)
@@ -1508,7 +1573,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
     });
     let output = time_summary_stage(context.timings, "link_executable", || {
         driver.link_executable(nia_driver::LinkExecutableRequest {
-            check: nia_driver::CheckRequest::new(path)
+            check: check_request(path, context.package_root.as_ref())
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
                 .with_timings(context.timings)
@@ -1866,6 +1931,64 @@ mod tests {
         assert_eq!(
             resolve_package_root_path("vendor/math.nia").expect("preserve source spelling"),
             PathBuf::from("vendor/math.nia")
+        );
+    }
+
+    #[test]
+    fn discover_package_root_uses_nearest_ancestor() {
+        let root = nia_test_support::test_dir("discover-package-root-nearest");
+        let package_root = root.join("pkg.nia");
+        let nested = root.join("src/nested");
+        fs::create_dir_all(&nested).expect("create nested source directory");
+        fs::write(&package_root, "").expect("write package root");
+        let entry = nested.join("main.nia");
+
+        assert_eq!(
+            discover_package_root(entry.to_string_lossy().as_ref()).expect("discover package root"),
+            Some(SourcePath::new(package_root.to_string_lossy()))
+        );
+    }
+
+    #[test]
+    fn discover_package_root_prefers_nested_package() {
+        let root = nia_test_support::test_dir("discover-package-root-nested");
+        let nested = root.join("vendor/math");
+        fs::create_dir_all(&nested).expect("create nested package directory");
+        fs::write(root.join("pkg.nia"), "").expect("write outer package root");
+        let nested_package = nested.join("pkg.nia");
+        fs::write(&nested_package, "").expect("write nested package root");
+        let entry = nested.join("main.nia");
+
+        assert_eq!(
+            discover_package_root(entry.to_string_lossy().as_ref())
+                .expect("discover nested package root"),
+            Some(SourcePath::new(nested_package.to_string_lossy()))
+        );
+    }
+
+    #[test]
+    fn discover_package_root_does_not_self_attach_pkg_module() {
+        let root = nia_test_support::test_dir("discover-package-root-self");
+        let package_root = root.join("pkg.nia");
+        fs::write(&package_root, "").expect("write package root");
+
+        assert_eq!(
+            discover_package_root(package_root.to_string_lossy().as_ref())
+                .expect("discover package root"),
+            None
+        );
+    }
+
+    #[test]
+    fn discover_package_root_keeps_standalone_sources_without_root() {
+        let root = nia_test_support::test_dir("discover-package-root-standalone");
+        let source = root.join("main.nia");
+        fs::create_dir_all(&root).expect("create standalone source directory");
+
+        assert_eq!(
+            discover_package_root(source.to_string_lossy().as_ref())
+                .expect("discover standalone package root"),
+            None
         );
     }
 

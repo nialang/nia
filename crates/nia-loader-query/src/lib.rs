@@ -229,6 +229,7 @@ impl LoaderDatabase {
             toolchain_identity,
         );
         let source_roots = std::iter::once(entry_path.clone())
+            .chain(request.package_root.clone())
             .chain(module_map.entries().map(|(_, path)| path.clone()))
             .collect::<Vec<_>>();
         let module_map_fingerprint = frontend_module_map_fingerprint(&module_map);
@@ -269,6 +270,7 @@ impl LoaderDatabase {
         let db = QueryDb::new_registered_in_session(
             LoaderContext {
                 entry_path,
+                package_root: request.package_root,
                 module_map,
                 sources: sources.clone(),
                 node_store: nia_node_id::NodeStore::new(),
@@ -737,6 +739,8 @@ impl LoaderFactProvider for LoaderDatabase {
 pub struct LoadRequest {
     /// Entry source path.
     pub entry_path: SourcePath,
+    /// Optional package root source path for a separate package-root module.
+    pub package_root: Option<SourcePath>,
     /// Explicit package/module mappings.
     pub module_map: ModuleMap,
     /// Initial in-memory source database.
@@ -765,6 +769,7 @@ impl LoadRequest {
     pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
             entry_path,
+            package_root: None,
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
@@ -774,6 +779,12 @@ impl LoadRequest {
             verify_frontend_cache: false,
             toolchain: None,
         }
+    }
+
+    /// Selects a separate `pkg.nia` package root for this entry.
+    pub fn with_package_root(mut self, package_root: SourcePath) -> Self {
+        self.package_root = Some(package_root);
+        self
     }
 
     /// Replaces explicit module/package mappings.
@@ -864,6 +875,7 @@ fn load_program_trace(
     let db = QueryDb::new_registered(
         LoaderContext {
             entry_path,
+            package_root: None,
             module_map,
             sources: SourceDatabase::new(),
             node_store: nia_node_id::NodeStore::new(),
@@ -905,6 +917,7 @@ fn effective_module_map(
 
 pub(crate) struct LoaderContext {
     pub(crate) entry_path: SourcePath,
+    pub(crate) package_root: Option<SourcePath>,
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
     pub(crate) node_store: nia_node_id::NodeStore,

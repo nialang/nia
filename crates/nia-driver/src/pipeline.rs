@@ -45,6 +45,8 @@ pub enum Runtime {
 pub struct CheckRequest {
     /// Entry source path.
     pub entry_path: SourcePath,
+    /// Optional package root source path shared by the entry module.
+    pub package_root: Option<SourcePath>,
     /// Explicit module-name to source-path mappings.
     pub module_map: ModuleMap,
     /// Nia optimization level.
@@ -1536,6 +1538,7 @@ impl Driver {
     fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
+            package_root: request.package_root.clone(),
             module_map: request.module_map.clone(),
             target: self.config.artifact_target.clone(),
             entry_runtime: entry_runtime(request.runtime),
@@ -1544,16 +1547,18 @@ impl Driver {
         let database = match &*loader_guard {
             Some(loader) if loader.key == key => loader.database.clone(),
             _ => {
-                let database = LoaderDatabase::new(
-                    LoadRequest::from_source_path(key.entry_path.clone())
-                        .with_module_map(key.module_map.clone())
-                        .with_sources(self.sources.clone())
-                        .with_target(key.target.clone())
-                        .with_entry_runtime(key.entry_runtime)
-                        .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
-                        .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
-                        .with_frontend_cache_verification(self.config.verify_frontend_cache),
-                );
+                let mut load_request = LoadRequest::from_source_path(key.entry_path.clone())
+                    .with_module_map(key.module_map.clone())
+                    .with_sources(self.sources.clone())
+                    .with_target(key.target.clone())
+                    .with_entry_runtime(key.entry_runtime)
+                    .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
+                    .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
+                    .with_frontend_cache_verification(self.config.verify_frontend_cache);
+                if let Some(package_root) = &key.package_root {
+                    load_request = load_request.with_package_root(package_root.clone());
+                }
+                let database = LoaderDatabase::new(load_request);
                 *loader_guard = Some(SessionLoader {
                     key,
                     database: database.clone(),
@@ -1807,6 +1812,7 @@ fn emit_compilation_counters(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LoaderKey {
     entry_path: SourcePath,
+    package_root: Option<SourcePath>,
     module_map: ModuleMap,
     target: TargetConfig,
     entry_runtime: EntryRuntime,
@@ -1847,11 +1853,18 @@ impl CheckRequest {
     pub fn from_source_path(entry_path: SourcePath) -> Self {
         Self {
             entry_path,
+            package_root: None,
             module_map: ModuleMap::default(),
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
             runtime: Runtime::Bare,
         }
+    }
+
+    /// Selects a separate `pkg.nia` package root for this entry.
+    pub fn with_package_root(mut self, package_root: SourcePath) -> Self {
+        self.package_root = Some(package_root);
+        self
     }
 
     /// Supplies explicit module mappings.

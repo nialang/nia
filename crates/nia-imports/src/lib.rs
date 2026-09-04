@@ -381,6 +381,7 @@ impl ModuleGraph {
                 parent: None,
                 children: SymbolMap::default(),
                 declarations: Vec::new(),
+                entry_module: true,
                 semantic_selected: true,
                 process_used_paths: true,
                 process_declared_children: true,
@@ -392,6 +393,40 @@ impl ModuleGraph {
             executable_root_subtrees: Vec::new(),
             symbols,
         }
+    }
+
+    /// Creates a graph with a package root and a separate entry module.
+    ///
+    /// The package root owns the `entry` package identity while the selected
+    /// source is an entry module in that same package. This is the graph form
+    /// used by directory packages containing `pkg.nia` and `main.nia`.
+    pub fn with_package_root(
+        entry_path: SourcePath,
+        package_root_path: SourcePath,
+        symbols: Arc<dyn SymbolText + Send + Sync>,
+    ) -> Self {
+        let mut graph = Self::with_symbol_text(package_root_path, symbols);
+        let package_root = graph.entry;
+        graph
+            .get_mut(package_root)
+            .expect("package root was created by graph constructor")
+            .entry_module = false;
+        let entry = graph.intern_module(
+            entry_path,
+            ModulePath {
+                package: known::ENTRY,
+                segments: vec![known::MAIN],
+            },
+            None,
+            true,
+            true,
+        );
+        graph
+            .get_mut(entry)
+            .expect("entry module was created by graph constructor")
+            .entry_module = true;
+        graph.entry = entry;
+        graph
     }
 
     /// Returns the entry module id.
@@ -709,6 +744,7 @@ impl ModuleGraph {
             parent,
             children: SymbolMap::default(),
             declarations: Vec::new(),
+            entry_module: false,
             semantic_selected: process_used_paths,
             process_used_paths,
             process_declared_children,
@@ -755,6 +791,8 @@ pub struct ModuleNode {
     pub module_path: ModulePath,
     /// Parent module, if this is not a package root.
     pub parent: Option<ModuleId>,
+    /// Whether this module is the selected compilation entry.
+    pub entry_module: bool,
     /// Declared child modules keyed by name.
     pub children: SymbolMap<ModuleId>,
     /// Source declarations exported by this module.
@@ -1075,7 +1113,13 @@ pub fn declared_child_source_path_with_symbols(
     parent: &ModuleNode,
     child: SymbolId,
 ) -> SourcePath {
-    declared_child_source_path_for_with_symbols(symbols, &parent.path, &parent.module_path, child)
+    declared_child_source_path_for_with_symbols_and_entry(
+        symbols,
+        &parent.path,
+        &parent.module_path,
+        child,
+        parent.entry_module,
+    )
 }
 
 /// Computes a child source path from explicit identities and symbols.
@@ -1085,12 +1129,36 @@ pub fn declared_child_source_path_for_with_symbols(
     parent_module_path: &ModulePath,
     child: SymbolId,
 ) -> SourcePath {
+    declared_child_source_path_for_with_symbols_and_entry(
+        symbols,
+        parent_path,
+        parent_module_path,
+        child,
+        false,
+    )
+}
+
+/// Computes a child source path while preserving a separate entry module's
+/// sibling-file layout.
+pub fn declared_child_source_path_for_with_symbols_and_entry(
+    symbols: &dyn SymbolText,
+    parent_path: &SourcePath,
+    parent_module_path: &ModulePath,
+    child: SymbolId,
+    entry_module: bool,
+) -> SourcePath {
     let child = resolved_module_symbol_text(symbols, child);
-    let physical = declared_child_path_text(parent_path.as_str(), parent_module_path, &child);
+    let physical = declared_child_path_text(
+        parent_path.as_str(),
+        parent_module_path,
+        &child,
+        entry_module,
+    );
     let logical = declared_child_path_text(
         parent_path.identity().normalized_path(),
         parent_module_path,
         &child,
+        entry_module,
     );
     SourcePath::with_identity(physical, logical)
 }
@@ -1099,8 +1167,11 @@ fn declared_child_path_text(
     parent_path: &str,
     parent_module_path: &ModulePath,
     child: &str,
+    entry_module: bool,
 ) -> String {
-    let base = if parent_module_path.is_entry_package() && parent_module_path.is_package_root() {
+    let base = if entry_module
+        || (parent_module_path.is_entry_package() && parent_module_path.is_package_root())
+    {
         parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
     } else {
         parent_path.strip_suffix(".nia").unwrap_or(parent_path)
@@ -1144,6 +1215,52 @@ mod tests {
         assert_eq!(graph.module_id_for_stable_key(package_key), Some(package));
         assert_eq!(std::mem::size_of::<ModuleGraphSnapshot>(), 8);
         assert_eq!(std::mem::size_of::<StableModuleKey>(), 8);
+    }
+
+    #[test]
+    fn package_root_and_entry_module_share_package_identity() {
+        let graph = ModuleGraph::with_package_root(
+            SourcePath::new("src/main.nia"),
+            SourcePath::new("src/pkg.nia"),
+            Arc::new(KnownSymbolText),
+        );
+        let entry = graph.entry();
+        let package_root = graph
+            .package_root(&known::ENTRY)
+            .expect("entry package root");
+
+        assert_ne!(entry, package_root);
+        assert_eq!(
+            graph.get(entry).expect("entry module").path.as_str(),
+            "src/main.nia"
+        );
+        assert_eq!(
+            graph.get(package_root).expect("package root").path.as_str(),
+            "src/pkg.nia"
+        );
+        assert_eq!(graph.current_package_root(entry), Some(package_root));
+        assert_eq!(
+            graph.root_module_for_segment(entry, ModuleRootSegment::Named(known::ENTRY)),
+            Some(entry)
+        );
+        assert_eq!(
+            graph.root_module_for_segment(entry, ModuleRootSegment::PackageRelative),
+            Some(package_root)
+        );
+
+        let child = known::START;
+        assert_eq!(
+            graph
+                .declared_child_source_path(graph.get(entry).expect("entry module"), child)
+                .as_str(),
+            "src/start.nia"
+        );
+        assert_eq!(
+            graph
+                .declared_child_source_path(graph.get(package_root).expect("package root"), child)
+                .as_str(),
+            "src/start.nia"
+        );
     }
 
     #[test]

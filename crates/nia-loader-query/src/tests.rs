@@ -196,6 +196,7 @@ fn test_loader_context(
 ) -> LoaderContext {
     LoaderContext {
         entry_path: entry_path.clone(),
+        package_root: None,
         module_map: effective_module_map(
             &entry_path,
             module_map,
