@@ -201,21 +201,21 @@ extend SpawnError {
 
 extend SpawnAttempt {
     pub fn success(result: SpawnResult) SpawnAttempt {
-        Self { result: ?result, error: null, pendingReap: null, pendingReapError: null }
+        .{ result: ?result, error: null, pendingReap: null, pendingReapError: null }
     }
 
     pub fn failure(error: SpawnError) SpawnAttempt {
-        Self { result: null, error: ?error, pendingReap: null, pendingReapError: null }
+        .{ result: null, error: ?error, pendingReap: null, pendingReapError: null }
     }
 
     pub fn reapFailure(error: SpawnError, pid: ProcessId, cause: Errno) SpawnAttempt {
-        Self { result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
+        .{ result: null, error: ?error, pendingReap: ?pid, pendingReapError: ?cause }
     }
 }
 
 extend FileDescriptor {
     pub fn init(fd: i32) FileDescriptor {
-        Self { fd: fd }
+        .{ fd }
     }
 
     pub fn fromSyscall(ret: isize) Errno!FileDescriptor {
@@ -251,7 +251,7 @@ extend FileDescriptor {
 
 extend Pipe {
     pub fn init(read: FileDescriptor, write: FileDescriptor) Pipe {
-        Self { read: read, write: write }
+        .{ read, write }
     }
 
     pub fn read(&self) FileDescriptor {
@@ -265,7 +265,7 @@ extend Pipe {
 
 extend ProcessId {
     pub fn init(pid: i32) ProcessId {
-        Self { pid: pid }
+        .{ pid }
     }
 
     pub fn fromSyscall(ret: isize) Errno!ProcessId {
@@ -282,7 +282,7 @@ extend ProcessId {
 
 extend WaitStatus {
     pub fn init(raw: i32) WaitStatus {
-        Self { raw: raw }
+        .{ raw }
     }
 
     pub fn raw(&self) i32 {
@@ -334,7 +334,7 @@ extend SpawnResult {
         stdout: ?FileDescriptor,
         stderr: ?FileDescriptor,
     ) SpawnResult {
-        Self { pid: pid, stdin: stdin, stdout: stdout, stderr: stderr }
+        .{ pid, stdin, stdout, stderr }
     }
 
     pub fn pid(&self) ProcessId {
@@ -356,10 +356,10 @@ extend SpawnResult {
 
 extend SpawnOptions {
     pub fn init() SpawnOptions {
-        Self {
-            stdin: StdIo::Inherit,
-            stdout: StdIo::Inherit,
-            stderr: StdIo::Inherit,
+        .{
+            stdin: .Inherit,
+            stdout: .Inherit,
+            stderr: .Inherit,
             cwd: null,
         }
     }
@@ -399,7 +399,7 @@ extend SpawnOptions {
 
 extend DirectoryEntry {
     pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
-        Self { kind: kind, name: name }
+        .{ kind, name }
     }
 
     pub fn kind(&self) FileKind {
@@ -413,7 +413,7 @@ extend DirectoryEntry {
 
 extend Timestamp {
     pub fn init(seconds: i64, nanos: u32) Timestamp {
-        Self { seconds: seconds, nanos: nanos }
+        .{ seconds, nanos }
     }
 
     pub fn seconds(&self) i64 {
@@ -437,17 +437,7 @@ extend FileMetadata {
         mtime: Timestamp,
         ctime: Timestamp,
     ) FileMetadata {
-        Self {
-            kind: kind,
-            inode: inode,
-            nlink: nlink,
-            size: size,
-            mode: mode,
-            blockSize: blockSize,
-            atime: atime,
-            mtime: mtime,
-            ctime: ctime,
-        }
+        .{ kind, inode, nlink, size, mode, blockSize, atime, mtime, ctime }
     }
 
     pub fn kind(&self) FileKind {
