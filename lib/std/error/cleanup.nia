@@ -28,12 +28,7 @@ extend[Failure] CleanupAccumulator[Failure] {
 
     // Query whether every attempted cleanup has succeeded so far.
     pub fn isClean(&self) bool {
-        if self.firstFailure is ?failure {
-            _ = failure;
-            false
-        } else {
-            true
-        }
+        if self.firstFailure is ?_ { false } else { true }
     }
 
     // Return the first recorded failure after all cleanup attempts are complete.
