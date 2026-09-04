@@ -318,8 +318,7 @@ where T: Sized + Eq[T]
     }
 
     pub fn contains(&self, needle: &[T]) bool {
-        if self.find(needle) is ?index {
-            _ = index;
+        if self.find(needle) is ?_ {
             true
         } else {
             false
@@ -342,19 +341,19 @@ where T: Sized + Ord[T]
 
         for index in 0..len {
             if self[index] < other[index] {
-                return cmp::Ordering::Less;
+                return .Less;
             }
             if self[index] > other[index] {
-                return cmp::Ordering::Greater;
+                return .Greater;
             }
         }
 
         if self.len() < other.len() {
-            cmp::Ordering::Less
+            .Less
         } else if self.len() > other.len() {
-            cmp::Ordering::Greater
+            .Greater
         } else {
-            cmp::Ordering::Equal
+            .Equal
         }
     }
 }
