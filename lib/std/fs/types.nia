@@ -167,7 +167,7 @@ extend Dir {
         if self.handle is ?handle {
             return !handle;
         }
-        Error::BadFd!
+        .BadFd!
     }
 
     pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {
@@ -187,7 +187,7 @@ extend File {
         if self.handle is ?handle {
             return !handle;
         }
-        Error::BadFd!
+        .BadFd!
     }
 
     pub(pkg) fn takeHandle(&mut self) Error!os::FileHandle {

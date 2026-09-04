@@ -25,7 +25,7 @@ extend OpenOptions {
             .ReadOnly => !os::OpenMode::ReadOnly,
             .WriteOnly => !os::OpenMode::WriteOnly,
             .ReadWrite => !os::OpenMode::ReadWrite,
-            _ => os::Error::Invalid!,
+            _ => .Invalid!,
         }
     }
 }
