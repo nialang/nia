@@ -69,15 +69,15 @@ fn parentSplit(bytes: &[u8], trimTrailingSeparators: bool) ParentSplit {
     while index != 0 {
         index -= 1;
         if bytes[index] == b'/' {
-            return ParentSplit { end: end, separator: ?index };
+            return .{ end, separator: ?index };
         }
     }
-    ParentSplit { end: end, separator: null }
+    .{ end, separator: null }
 }
 
 extend Dir {
     fn fromOwnedDescriptor(handle: os::FileHandle) Dir {
-        Self { handle: ?handle }
+        .{ handle: ?handle }
     }
 
     pub fn cwd() Error!Dir {
@@ -331,7 +331,7 @@ extend Dir {
 
 extend File {
     fn fromOwnedDescriptor(handle: os::FileHandle) File {
-        Self { handle: ?handle }
+        .{ handle: ?handle }
     }
 
     pub fn open(path: PathView, options: OpenOptions) OperationError!File {
