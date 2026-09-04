@@ -348,7 +348,7 @@ extend platform::SpawnStage {
 
 extend SpawnAttempt {
     fn fromPlatform(platform: platform::SpawnAttempt) SpawnAttempt {
-        Self { platform: platform }
+        .{ platform }
     }
 
     pub(pkg) fn finish(&mut self) SpawnError!SpawnResult {
@@ -504,17 +504,7 @@ extend FileMetadata {
         modified: Timestamp,
         statusChanged: ?Timestamp,
     ) FileMetadata {
-        Self {
-            kind: kind,
-            fileId: fileId,
-            linkCount: linkCount,
-            size: size,
-            permissions: permissions,
-            preferredBlockSize: preferredBlockSize,
-            accessed: accessed,
-            modified: modified,
-            statusChanged: statusChanged,
-        }
+        .{ kind, fileId, linkCount, size, permissions, preferredBlockSize, accessed, modified, statusChanged }
     }
 
     pub(pkg) fn kind(&self) FileKind {
@@ -556,7 +546,7 @@ extend FileMetadata {
 
 extend FileHandle {
     fn fromPlatform(platform: platform::FileDescriptor) FileHandle {
-        Self { platform: platform }
+        .{ platform }
     }
 
     fn platform(&self) platform::FileDescriptor {
@@ -635,7 +625,7 @@ extend FileHandle {
 
 extend ProcessId {
     const fn fromPlatform(platform: platform::ProcessId) ProcessId {
-        Self { platform: platform }
+        .{ platform }
     }
 
     fn platform(&self) platform::ProcessId {
@@ -653,7 +643,7 @@ extend ProcessId {
 
 extend WaitStatus {
     fn fromPlatform(platform: platform::WaitStatus) WaitStatus {
-        Self { platform: platform }
+        .{ platform }
     }
 
     fn platform(&self) platform::WaitStatus {
@@ -691,7 +681,7 @@ extend WaitStatus {
 
 extend SpawnResult {
     fn fromPlatform(platform: platform::SpawnResult) SpawnResult {
-        Self { platform: platform }
+        .{ platform }
     }
 
     fn platform(&self) platform::SpawnResult {
@@ -727,7 +717,7 @@ extend StdIo {
 
 extend SpawnOptions {
     pub(pkg) fn init() SpawnOptions {
-        Self { platform: .init() }
+        .{ platform: .init() }
     }
 
     fn platform(&self) platform::SpawnOptions {
