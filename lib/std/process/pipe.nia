@@ -45,7 +45,7 @@ extend ChildStdin {
     }
 
     pub fn buffered(&mut self, buffer: &mut [u8]) io::BufferedWriter[ChildStdin] {
-        io::BufferedWriter[ChildStdin]::init(self, buffer)
+        .init(self, buffer)
     }
 }
 
@@ -71,7 +71,7 @@ extend ChildStdout {
     }
 
     pub fn buffered(&mut self, buffer: &mut [u8]) io::BufferedReader[ChildStdout] {
-        io::BufferedReader[ChildStdout]::init(self, buffer)
+        .init(self, buffer)
     }
 }
 
@@ -97,7 +97,7 @@ extend ChildStderr {
     }
 
     pub fn buffered(&mut self, buffer: &mut [u8]) io::BufferedReader[ChildStderr] {
-        io::BufferedReader[ChildStderr]::init(self, buffer)
+        .init(self, buffer)
     }
 }
 

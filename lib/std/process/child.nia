@@ -24,9 +24,9 @@ extend Child {
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         .{
             state: ChildState::running(ProcessId::fromRaw(result.pid().raw())),
-            stdin: result.stdin().map(&\handle -> ChildStdin::init(handle)),
-            stdout: result.stdout().map(&\handle -> ChildStdout::init(handle)),
-            stderr: result.stderr().map(&\handle -> ChildStderr::init(handle)),
+            stdin: result.stdin().map(&\handle -> .init(handle)),
+            stdout: result.stdout().map(&\handle -> .init(handle)),
+            stderr: result.stderr().map(&\handle -> .init(handle)),
         }
     }
 
@@ -143,14 +143,14 @@ extend ChildState {
     fn running(pid: ProcessId) ChildState {
         .{
             kind: ChildStateKind::Running,
-            payload: ChildStatePayload { running: RunningChild::init(pid) },
+            payload: ChildStatePayload { running: .init(pid) },
         }
     }
 
     fn exited(pid: ProcessId, status: os::WaitStatus) ChildState {
         .{
             kind: ChildStateKind::Exited,
-            payload: ChildStatePayload { exited: ExitedChild::init(pid, status) },
+            payload: ChildStatePayload { exited: .init(pid, status) },
         }
     }
 
