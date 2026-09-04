@@ -686,9 +686,7 @@ where T: Sized
 
     fn freeItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.storageBlock is ?block {
-            if allocator.free(block) is error! {
-                return error!;
-            }
+            allocator.free(block).?;
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
             self.storageBlock = null;
@@ -698,9 +696,7 @@ where T: Sized
 
     fn freeReplacementItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.replacementBlock is ?block {
-            if allocator.free(block) is error! {
-                return error!;
-            }
+            allocator.free(block).?;
             self.replacementBlock = null;
         }
         !()
@@ -713,9 +709,7 @@ where T: Sized
 
     fn freeAliasItems(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
         if self.aliasBlock is ?block {
-            if allocator.free(block) is error! {
-                return error!;
-            }
+            allocator.free(block).?;
             self.aliasBlock = null;
         }
         !()

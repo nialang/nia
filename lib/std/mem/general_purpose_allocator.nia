@@ -183,9 +183,7 @@ extend GeneralPurposeAllocator {
 extend GeneralPurposeAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
         if self.pendingFree is ?block {
-            if self.child.free(block) is error! {
-                return error!;
-            }
+            self.child.free(block).?;
             self.pendingFree = null;
         }
         if layout.isEmpty() {

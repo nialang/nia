@@ -245,9 +245,7 @@ extend SpawnStorage {
                 return .Allocation(error)!;
             }
         }
-        if nativeResult is cause! {
-            return cause!;
-        }
+        nativeResult.?;
         let outcome = match self.outcome {
             ?value => value,
             null => return Error::SpawnSetup(SystemError::Invalid)!,
