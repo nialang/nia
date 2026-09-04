@@ -8,8 +8,8 @@ use nia_compiler_query::{
     FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey,
     FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
     LoadedModule, LoadedProgram, ProgramDiagnostic, ProgramDiagnosticBundles, RuntimeModel,
-    SourceContentFingerprint, frontend_module_map_fingerprint, item_signature_fingerprint,
-    source_content_fingerprint,
+    SourceContentFingerprint, frontend_module_map_fingerprint_with_package_root,
+    item_signature_fingerprint, source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -589,7 +589,14 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let cache_input = frontend_cache_input(db, self.0)?;
-        let module_map = frontend_module_map_fingerprint(&db.context().module_map);
+        let module_map = frontend_module_map_fingerprint_with_package_root(
+            &db.context().module_map,
+            db.context()
+                .package_root
+                .as_ref()
+                .map(SourcePath::identity)
+                .as_ref(),
+        );
         let cached = cache_input.as_ref().and_then(|input| {
             let cache = db.context().frontend_cache.as_ref()?;
             let key = FrontendModuleDependenciesCacheKey::new(
@@ -1029,7 +1036,14 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let cache_input = frontend_cache_input(db, self.0)?;
         let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
-        let module_map = frontend_module_map_fingerprint(&db.context().module_map);
+        let module_map = frontend_module_map_fingerprint_with_package_root(
+            &db.context().module_map,
+            db.context()
+                .package_root
+                .as_ref()
+                .map(SourcePath::identity)
+                .as_ref(),
+        );
         let cached =
             cache_input
                 .as_ref()

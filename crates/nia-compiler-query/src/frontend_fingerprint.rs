@@ -548,6 +548,25 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
     FrontendModuleMapFingerprint(builder.finish())
 }
 
+/// Fingerprints a module map together with an optional package-root identity.
+///
+/// A package root is loader context rather than a user-visible module-map
+/// entry, but it changes `pkg` resolution and therefore all frontend products
+/// derived from that context.
+pub fn frontend_module_map_fingerprint_with_package_root(
+    module_map: &ModuleMap,
+    package_root: Option<&SourceIdentity>,
+) -> FrontendModuleMapFingerprint {
+    let Some(package_root) = package_root else {
+        return frontend_module_map_fingerprint(module_map);
+    };
+    let base = frontend_module_map_fingerprint(module_map);
+    let mut builder = QueryFingerprintBuilder::new(MODULE_MAP_DOMAIN);
+    builder.write_fingerprint(QueryFingerprint::from_parts(base.parts()));
+    builder.write_str(package_root.normalized_path());
+    FrontendModuleMapFingerprint(builder.finish())
+}
+
 /// Fingerprints lossless syntax by its exact source text.
 pub fn syntax_fingerprint(syntax: &SyntaxTree) -> SyntaxFingerprint {
     let mut builder = QueryFingerprintBuilder::new(LOSSLESS_SYNTAX_DOMAIN);

@@ -54,8 +54,8 @@ pub use frontend_fingerprint::{
     FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
     FrontendSourceCacheKey, FrontendSyntaxCacheKey, ItemSignatureFingerprint,
     SourceContentFingerprint, SyntaxFingerprint, frontend_module_map_fingerprint,
-    frontend_program_source_fingerprint, item_signature_fingerprint, source_content_fingerprint,
-    syntax_fingerprint,
+    frontend_module_map_fingerprint_with_package_root, frontend_program_source_fingerprint,
+    item_signature_fingerprint, source_content_fingerprint, syntax_fingerprint,
 };
 
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
