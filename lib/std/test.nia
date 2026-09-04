@@ -4,7 +4,6 @@
 // context, accumulate failures, or convert it to their own suite result
 // without requiring a language-level test attribute or process trap.
 
-using pkg::builtin::ops::Eq;
 using pkg::fmt;
 using pkg::source::{SourceLocation, callerLocation};
 
@@ -105,15 +104,15 @@ extend CaseResult {
     }
 
     pub fn isPassed(&self) bool {
-        self.status == .Passed
+        if self.status is .Passed { true } else { false }
     }
 
     pub fn isFailed(&self) bool {
-        self.status == .Failed
+        if self.status is .Failed { true } else { false }
     }
 
     pub fn isSkipped(&self) bool {
-        self.status == .Skipped
+        if self.status is .Skipped { true } else { false }
     }
 }
 
