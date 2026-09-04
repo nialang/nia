@@ -251,18 +251,18 @@ where T: Sized
     pub fn removeRange(&mut self, start: usize, count: usize) mem::Error!() {
         let len = self.len();
         if start > len {
-            return mem::Error::Invalid!;
+            return .Invalid!;
         }
         let end = match start.checkedAdd(count) {
             ?value => {
                 value
             },
             null => {
-                return mem::Error::Invalid!;
+                return .Invalid!;
             },
         };
         if end > len {
-            return mem::Error::Invalid!;
+            return .Invalid!;
         }
         if count == 0 {
             return !();
@@ -285,7 +285,7 @@ where T: Sized
     pub fn insertSlice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!() {
         self.freePendingItems(allocator).?;
         if index > self.len() {
-            return mem::Error::Invalid!;
+            return .Invalid!;
         }
         if self.slicePointsIntoAllocation(values) {
             let copyLayout = mem::Layout::array[T](values.len()).?;
@@ -308,18 +308,18 @@ where T: Sized
     ) mem::Error!() {
         self.freePendingItems(allocator).?;
         if start > self.len() {
-            return mem::Error::Invalid!;
+            return .Invalid!;
         }
         let end = match start.checkedAdd(count) {
             ?value => {
                 value
             },
             null => {
-                return mem::Error::Invalid!;
+                return .Invalid!;
             },
         };
         if end > self.len() {
-            return mem::Error::Invalid!;
+            return .Invalid!;
         }
 
         if self.slicePointsIntoAllocation(values) {
@@ -379,7 +379,7 @@ where T: Sized
                 value
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         self.ensureTotalCapacity(allocator, newLen).?;
@@ -403,7 +403,7 @@ where T: Sized
                 value
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         self.ensureTotalCapacityPrecise(allocator, needed)
@@ -416,7 +416,7 @@ where T: Sized
                 value
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         self.ensureTotalCapacity(allocator, needed)
@@ -487,7 +487,7 @@ where T: Sized
                 value
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         self.resizeUninitialized(allocator, newLen).?;
@@ -515,14 +515,14 @@ where T: Sized
 
     fn addManyAtUninitialized(&mut self, allocator: &mut mem::Allocator, index: usize, count: usize) mem::Error!&mut [T] {
         if index > self.len() {
-            return mem::Error::Invalid!;
+            return .Invalid!;
         }
         let newLen = match self.len().checkedAdd(count) {
             ?value => {
                 value
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         if self.capacity() < newLen {
@@ -635,7 +635,7 @@ where T: Sized
                 value
             },
             null => {
-                return mem::Error::OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         match needed.checkedAdd(extra) {
@@ -643,7 +643,7 @@ where T: Sized
                 !capacity
             },
             null => {
-                mem::Error::OutOfMemory!
+                .OutOfMemory!
             },
         }
     }
@@ -752,7 +752,7 @@ where T: Sized
         if self.capacity == 0 {
             return !mem::Block::empty(mem::Layout::array[T](0).?);
         }
-        mem::Error::Invalid!
+        .Invalid!
     }
 
     fn setAllocatedBlock(&mut self, block: mem::Block, capacity: usize) () {
