@@ -467,14 +467,13 @@ extend DirectoryReader {
             return null;
         }
         if self.start >= self.end {
-            match handle.readDirEntries(self.buffer) {
-                !value => {
-                    self.start = 0;
-                    self.end = value;
-                },
-                err! => {
-                    return ?(err!);
-                },
+            let result = handle.readDirEntries(self.buffer);
+            if result is !value {
+                self.start = 0;
+                self.end = value;
+            }
+            if result is err! {
+                return ?(err!);
             }
             if self.end == 0 {
                 self.done = true;
@@ -490,14 +489,11 @@ extend DirectoryReader {
                 return ?(Error::Invalid!);
             },
         };
-        self.start = match platform::dirEntryNextOffset(&self.buffer[0..self.end], self.start) {
-            ?value => {
-                value
-            },
-            null => {
-                return ?(Error::Invalid!);
-            },
-        };
+        if platform::dirEntryNextOffset(&self.buffer[0..self.end], self.start) is ?value {
+            self.start = value;
+        } else {
+            return ?(Error::Invalid!);
+        }
         ?(!entry)
     }
 }
