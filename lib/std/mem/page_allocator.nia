@@ -39,25 +39,12 @@ extend PageAllocator : Allocator {
             return block.isEmpty() and newLayout.isEmpty();
         }
 
-        let mut oldSize: usize;
-        match os::pageAlignedLen(block.size()) {
-            !size => {
-                oldSize = size;
-            },
-            err! => {
-                return false;
-            },
+        if os::pageAlignedLen(block.size()) is !oldSize {
+            if os::pageAlignedLen(newLayout.size()) is !newSize {
+                return oldSize == newSize;
+            }
         }
-        let mut newSize: usize;
-        match os::pageAlignedLen(newLayout.size()) {
-            !size => {
-                newSize = size;
-            },
-            err! => {
-                return false;
-            },
-        }
-        oldSize == newSize
+        false
     }
 
     pub fn remap(&mut self, block: Block, newLayout: Layout) ?Block {
