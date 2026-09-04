@@ -5,13 +5,8 @@ using pkg::process;
 
 fn callUserMain(init: process::Init) process::ExitCode {
     match entry::main(init) {
-        !ok => {
-            _ = ok;
-            process::ExitCode::Success
-        },
-        error! => {
-            error
-        },
+        !_ => .Success,
+        error! => error,
     }
 }
 
