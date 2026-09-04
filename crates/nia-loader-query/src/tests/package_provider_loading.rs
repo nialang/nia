@@ -27,8 +27,9 @@ initialization.finish()
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/build.nia");
-    assert_module_loaded(&program, "lib/std/build/core.nia");
+    assert_module_loaded(&program, "lib/std/build/lifecycle.nia");
     assert_module_loaded(&program, "lib/std/build/types.nia");
+    assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/build/plan.nia");
 }
 
