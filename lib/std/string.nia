@@ -103,9 +103,8 @@ extend String {
         template: &[char],
         args: &[&fmt::Format],
     ) TextFormatError!() {
-        match self.releaseFormatBytes(allocator) {
-            !ok => { _ = ok; },
-            error! => return TextFormatError::Allocation(error)!,
+        if self.releaseFormatBytes(allocator) is error! {
+            return .Allocation(error)!;
         }
         let oldLen = self.len();
         let mut committed = false;
@@ -121,9 +120,8 @@ extend String {
                 return writer.finish(self, ?primary);
             },
         }
-        match writer.appendTo(self) {
-            !ok => { _ = ok; },
-            error! => return writer.finish(self, ?error),
+        if writer.appendTo(self) is error! {
+            return writer.finish(self, ?error);
         }
         writer.finish(self, null).?;
         committed = true;
@@ -328,23 +326,18 @@ extend TextFormatWriter {
     }
 
     fn finish(&mut self, out: &mut String, primary: ?TextFormatError) TextFormatError!() {
-        match self.deinit() {
-            !ok => {
-                _ = ok;
-                match primary {
-                    ?error => error!,
-                    null => !(),
-                }
-            },
-            error! => {
-                out.formatBytes = self.bytes;
-                self.bytes = .init();
-                match primary {
-                    ?cause => cause!,
-                    null => TextFormatError::Allocation(error)!,
-                }
-            },
+        if self.deinit() is error! {
+            out.formatBytes = self.bytes;
+            self.bytes = .init();
+            if primary is ?cause {
+                return cause!;
+            }
+            return .Allocation(error)!;
         }
+        if primary is ?cause {
+            return cause!;
+        }
+        !()
     }
 
     fn appendTo(&mut self, out: &mut String) TextFormatError!() {
@@ -369,16 +362,11 @@ extend TextFormatWriter : io::Writer {
     }
 
     fn write(&mut self, bytes: &[u8]) mem::Error!usize {
-        match self.bytes.appendSlice(self.allocator, bytes) {
-            !ok => {
-                _ = ok;
-                !bytes.len()
-            },
-            error! => {
-                self.failure = ?error;
-                error!
-            },
+        if self.bytes.appendSlice(self.allocator, bytes) is error! {
+            self.failure = ?error;
+            return error!;
         }
+        !bytes.len()
     }
 }
 
@@ -391,8 +379,8 @@ extend mem::Error : error::IntoError[TextError] {
 extend TextError : error::IntoError[TextFormatError] {
     const fn intoError(self) TextFormatError {
         match self {
-            .InvalidUtf8(error) => TextFormatError::InvalidUtf8(error),
-            .Allocation(error) => TextFormatError::Allocation(error),
+            .InvalidUtf8(error) => .InvalidUtf8(error),
+            .Allocation(error) => .Allocation(error),
         }
     }
 }
