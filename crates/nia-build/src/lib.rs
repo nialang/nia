@@ -1505,6 +1505,14 @@ fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
         if cursor.join("build.nia").is_file() {
             return Ok(cursor);
         }
+        // A package root is a hard discovery boundary. Do not accidentally
+        // run a parent package's build script for a child package that has no
+        // build script of its own.
+        if cursor.join("pkg.nia").is_file() {
+            return Err(BuildError::MissingBuildScript {
+                start: start.to_path_buf(),
+            });
+        }
         if !cursor.pop() {
             return Err(BuildError::MissingBuildScript {
                 start: start.to_path_buf(),
@@ -1874,6 +1882,21 @@ mod tests {
                 .expect_err("missing build script");
 
         assert!(matches!(error, BuildError::MissingBuildScript { start } if start == root));
+    }
+
+    #[test]
+    fn package_root_stops_build_script_search_at_child_package() {
+        let root = temp_root("package_root_stops_build_script_search_at_child_package");
+        let child = root.join("vendor").join("tool");
+        std::fs::create_dir_all(&child).expect("create child package");
+        std::fs::write(root.join("build.nia"), "").expect("write parent build script");
+        std::fs::write(child.join("pkg.nia"), "").expect("write child package root");
+
+        let error =
+            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&child))
+                .expect_err("child package must not inherit parent build script");
+
+        assert!(matches!(error, BuildError::MissingBuildScript { start } if start == child));
     }
 
     #[test]

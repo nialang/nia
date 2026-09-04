@@ -670,6 +670,9 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                     HelpTopic::Build,
                 ));
             }
+            _ if root.is_none() && looks_like_build_root(&arg) => {
+                root = Some(PathBuf::from(arg));
+            }
             _ if step.is_none() => step = Some(arg),
             _ => {
                 return Err(CliError::new(
@@ -680,6 +683,10 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         }
     }
     Ok(CliCommand::Build { root, step, jobs })
+}
+
+fn looks_like_build_root(arg: &str) -> bool {
+    matches!(arg, "." | "..") || arg.contains('/') || arg.contains('\\')
 }
 
 fn parse_build_jobs(value: &str) -> Result<NonZeroUsize, CliError> {
@@ -2045,6 +2052,31 @@ mod tests {
             .expect_err("invalid build jobs must fail");
             assert!(error.message.contains(expected), "{}", error.message);
         }
+    }
+
+    #[test]
+    fn build_accepts_directory_entry_without_confusing_named_steps() {
+        let command = parse_build_command(vec![".".to_string()])
+            .unwrap_or_else(|error| panic!("parse build directory: {}", error.message));
+        assert!(matches!(
+            command,
+            CliCommand::Build {
+                root: Some(root),
+                step: None,
+                ..
+            } if root == PathBuf::from(".")
+        ));
+
+        let command = parse_build_command(vec!["check".to_string()])
+            .unwrap_or_else(|error| panic!("parse build step: {}", error.message));
+        assert!(matches!(
+            command,
+            CliCommand::Build {
+                root: None,
+                step: Some(step),
+                ..
+            } if step == "check"
+        ));
     }
 
     #[test]

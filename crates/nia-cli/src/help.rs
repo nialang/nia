@@ -55,7 +55,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             usage: &["nia [options] <command> [args]", "nia help [command]"],
             commands: &[
                 HelpRow {
-                    left: "build [step]",
+                    left: "build [step|dir]",
                     right: "run a package build graph from build.nia",
                 },
                 HelpRow {
@@ -86,7 +86,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Build => HelpDoc {
             title: "nia build",
             about: "Run a package build script from the Nia toolchain.",
-            usage: &["nia build [step] [--root <dir>] [--jobs <count>]"],
+            usage: &["nia build [step|dir] [--root <dir>] [--jobs <count>]"],
             commands: &[],
             options: &[
                 HelpRow {
@@ -104,11 +104,12 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             examples: &[
                 "nia build",
+                "nia build .",
                 "nia build check",
                 "nia build install --root tools/example",
             ],
             notes: &[
-                "`nia build` searches for build.nia in the selected directory and then each parent directory.",
+                "`nia build` searches for build.nia in the selected directory and then each parent directory; pkg.nia marks a package boundary.",
                 "Global options such as --timings may appear before or after `build`.",
                 "build.nia is compiled and run as ordinary Nia code through a toolchain-owned runner.",
                 "std::build::Build exposes packageRoot(), buildDir(), cacheDir(), and toolchainExecutable() so scripts do not guess toolchain paths.",
