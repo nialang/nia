@@ -657,13 +657,18 @@ extend GeneralPurposeAllocator {
                 mut ?item => {
                     let next = item.next;
                     item.next = null;
-                    if self.child.free(item.block) is err! {
-                        item.next = self.smallPages;
-                        self.smallPages = ?item;
-                        if not failed {
-                            firstError = err;
-                            failed = true;
-                        }
+                    match self.child.free(item.block) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        err! => {
+                            item.next = self.smallPages;
+                            self.smallPages = ?item;
+                            if not failed {
+                                firstError = err;
+                                failed = true;
+                            }
+                        },
                     }
                     page = next;
                 },
@@ -679,25 +684,38 @@ extend GeneralPurposeAllocator {
                 mut ?item => {
                     let next = item.next;
                     item.next = null;
-                    if self.child.free(item.backing) is err! {
-                        item.next = self.largeAllocations;
-                        self.largeAllocations = ?item;
-                        if not failed {
-                            firstError = err;
-                            failed = true;
-                        }
-                    }
-                    header = next;
-                },
-                null => {
-                    if pending is ?block {
-                        if self.child.free(block) is err! {
-                            self.pendingFree = ?block;
+                    match self.child.free(item.backing) {
+                        !ok => {
+                            _ = ok;
+                        },
+                        err! => {
+                            item.next = self.largeAllocations;
+                            self.largeAllocations = ?item;
                             if not failed {
                                 firstError = err;
                                 failed = true;
                             }
-                        }
+                        },
+                    }
+                    header = next;
+                },
+                null => {
+                    match pending {
+                        ?block => {
+                            match self.child.free(block) {
+                                !ok => {
+                                    _ = ok;
+                                },
+                                err! => {
+                                    self.pendingFree = ?block;
+                                    if not failed {
+                                        firstError = err;
+                                        failed = true;
+                                    }
+                                },
+                            }
+                        },
+                        null => {},
                     }
                     if failed {
                         return firstError!;

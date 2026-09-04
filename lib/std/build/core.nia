@@ -135,9 +135,14 @@ extend Build {
         self.packages.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Packages).?;
         self.pendingPackage = Package::init(handle.index());
         self.hasPendingPackage = true;
-        if self.pendingPackage.initialize(self.allocator, options) is primary! {
-            _ = self.cleanupPendingPackage();
-            return primary!;
+        match self.pendingPackage.initialize(self.allocator, options) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingPackage();
+                return primary!;
+            },
         }
         self.packages.appendAssumeCapacity(self.pendingPackage);
         self.hasPendingPackage = false;
@@ -186,9 +191,14 @@ extend Build {
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
         self.preparePendingStep(name, StepKind::Uncacheable).?;
-        if self.pendingStep.initializeUncacheable(self.allocator, name, description) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
+        match self.pendingStep.initializeUncacheable(self.allocator, name, description) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
         }
         self.commitPendingStep()
     }
@@ -202,14 +212,19 @@ extend Build {
             }!;
         }
         self.preparePendingStep(name, StepKind::GeneratedFile).?;
-        if self.pendingStep.initializeGeneratedFile(
+        match self.pendingStep.initializeGeneratedFile(
             self.allocator,
             name,
             output,
             contents,
-        ) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
         }
         self.commitPendingStep()
     }
@@ -360,13 +375,18 @@ extend Build {
         producer: StepHandle,
     ) Error!StepHandle {
         self.preparePendingRunStep(name, kind, options.target).?;
-        if self.pendingStep.initializeRunExecutable(
+        match self.pendingStep.initializeRunExecutable(
             self.allocator,
             name,
             options.arguments,
-        ) is primary! {
-            _ = self.cleanupPendingStep();
-            return primary!;
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStep();
+                return primary!;
+            },
         }
         let result = self.commitPendingStep().?;
         self.finishStepDependency(result, producer)
@@ -643,15 +663,20 @@ extend Build {
             optimization,
         );
         self.hasPendingModule = true;
-        if self.pendingModule.initialize(
+        match self.pendingModule.initialize(
             self.allocator,
             options.name,
             options.rootSource,
             options.imports,
             self.ownerId,
-        ) is primary! {
-            _ = self.cleanupPendingModule();
-            return primary!;
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingModule();
+                return primary!;
+            },
         }
         self.modules.appendAssumeCapacity(self.pendingModule);
         self.hasPendingModule = false;
@@ -735,14 +760,19 @@ extend Build {
             options.targetRole,
         );
         self.hasPendingExecutable = true;
-        if self.pendingExecutable.initialize(
+        match self.pendingExecutable.initialize(
             self.allocator,
             options.name,
             outputName,
             options.staticArchives,
-        ) is primary! {
-            _ = self.cleanupPendingExecutable();
-            return primary!;
+        ) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingExecutable();
+                return primary!;
+            },
         }
         self.executables.appendAssumeCapacity(self.pendingExecutable);
         self.hasPendingExecutable = false;
@@ -801,9 +831,14 @@ extend Build {
             options.targetRole,
         );
         self.hasPendingObject = true;
-        if self.pendingObject.initialize(self.allocator, options.name, outputName) is primary! {
-            _ = self.cleanupPendingObject();
-            return primary!;
+        match self.pendingObject.initialize(self.allocator, options.name, outputName) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingObject();
+                return primary!;
+            },
         }
         self.objects.appendAssumeCapacity(self.pendingObject);
         self.hasPendingObject = false;
@@ -862,9 +897,14 @@ extend Build {
             options.targetRole,
         );
         self.hasPendingStaticArchive = true;
-        if self.pendingStaticArchive.initialize(self.allocator, options.name, outputName) is primary! {
-            _ = self.cleanupPendingStaticArchive();
-            return primary!;
+        match self.pendingStaticArchive.initialize(self.allocator, options.name, outputName) {
+            !ok => {
+                _ = ok;
+            },
+            primary! => {
+                _ = self.cleanupPendingStaticArchive();
+                return primary!;
+            },
         }
         self.staticArchives.appendAssumeCapacity(self.pendingStaticArchive);
         self.hasPendingStaticArchive = false;
