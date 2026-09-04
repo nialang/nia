@@ -56,27 +56,17 @@ pub trait Allocator {
             error! => return ReallocError::Allocation(error)!,
         };
         block.copyPrefixTo(newBlock);
-        match self.free(block) {
-            !ok => {
-                _ = ok;
-                !newBlock
-            },
-            oldError! => {
-                match self.free(newBlock) {
-                    !ok => {
-                        _ = ok;
-                    },
-                    replacementError! => {
-                        return ReallocError::Rollback {
-                            primary: oldError,
-                            replacement: newBlock,
-                            replacementError: replacementError,
-                        }!;
-                    },
-                }
-                ReallocError::OldFree(oldError)!
-            },
+        if self.free(block) is oldError! {
+            if self.free(newBlock) is replacementError! {
+                return ReallocError::Rollback {
+                    primary: oldError,
+                    replacement: newBlock,
+                    replacementError: replacementError,
+                }!;
+            }
+            return ReallocError::OldFree(oldError)!;
         }
+        !newBlock
     }
 
     fn allocBytes(&mut self, len: usize, align: usize) Error!Block {
