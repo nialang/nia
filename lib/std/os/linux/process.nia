@@ -233,15 +233,10 @@ extend SpawnAttempt {
                 self.pendingReapError = null;
                 return self.reapError(pid, cause)!;
             }
-            match reapSpawnFailure(pid) {
-                !ok => {
-                    _ = ok;
-                    self.pendingReap = null;
-                },
-                cause! => {
-                    return self.reapError(pid, cause)!;
-                },
+            if reapSpawnFailure(pid) is cause! {
+                return self.reapError(pid, cause)!;
             }
+            self.pendingReap = null;
         }
         match self.result {
             ?result => {
