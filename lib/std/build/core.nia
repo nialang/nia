@@ -108,10 +108,10 @@ extend Build {
         self.cleanupPendingPackage().?;
         let packageIndex = match self.packages.len().checkedAdd(1) {
             ?value => value,
-            null => return Error::Failure {
+            null => return .Failure {
                 operation: Operation::Retain,
                 subject: Subject::Packages,
-                cause: error::ErrorCause::Memory(mem::Error::OutOfMemory),
+                cause: .Memory(.OutOfMemory),
             }!,
         };
         let handle = PackageHandle::init(self.ownerId, packageIndex);
@@ -119,14 +119,14 @@ extend Build {
             or not isValidStableName(options.name)
             or not isValidPackagePath(options.root.text(), false)
         {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Package(handle.index()),
             }!;
         }
         for &package in self.packages.iter() {
             if package.name.equals(options.name) or package.root.view().text().equals(options.root.text()) {
-                return Error::Invalid {
+                return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Package(handle.index()),
                 }!;
@@ -196,7 +196,7 @@ extend Build {
     pub fn addGeneratedFileStep(&mut self, name: &[char], output: BuildPathView, contents: &[u8]) Error!StepHandle {
         let handle = StepHandle::init(self.ownerId, self.steps.len());
         if not output.isValid() or contents.len() > 67108864 {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(handle.index()),
             }!;
@@ -231,7 +231,7 @@ extend Build {
             let archive = self.executables.asSlice()[target.index()]
                 .staticArchives.asSlice()[archiveIndex];
             if self.findEmitStaticArchiveStep(archive) is null {
-                return Error::Invalid {
+                return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Step(self.steps.len()),
                 }!;
@@ -263,7 +263,7 @@ extend Build {
         for &archive in archives.iter() {
             let producer = match self.findEmitStaticArchiveStep(archive) {
                 ?producer => producer,
-                null => return Error::Invalid {
+                null => return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Step(step.index()),
                 }!,
@@ -287,7 +287,7 @@ extend Build {
         self.validateExecutableHandle(options.target).?;
         let producer = match self.findEmitStep(options.target) {
             ?producer => producer,
-            null => return Error::Invalid {
+            null => return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!,
@@ -301,7 +301,7 @@ extend Build {
         self.validateExecutableHandle(options.target).?;
         let producer = match self.findEmitStep(options.target) {
             ?producer => producer,
-            null => return Error::Invalid {
+            null => return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!,
@@ -374,14 +374,14 @@ extend Build {
     ) Error!StepHandle {
         self.validateExecutableHandle(target).?;
         if not destination.isValid() {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
         let producer = match self.findEmitStep(target) {
             ?producer => producer,
-            null => return Error::Invalid {
+            null => return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!,
@@ -407,14 +407,14 @@ extend Build {
     ) Error!StepHandle {
         self.validateStaticArchiveHandle(target).?;
         if not destination.isValid() {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!;
         }
         let producer = match self.findEmitStaticArchiveStep(target) {
             ?producer => producer,
-            null => return Error::Invalid {
+            null => return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!,
@@ -442,7 +442,7 @@ extend Build {
                         self.validateExecutableHandle(target).?;
                         match self.findEmitStep(target) {
                             ?producer => _ = producer,
-                            null => return Error::Invalid {
+                            null => return .Invalid {
                                 operation: Operation::Validate,
                                 subject: Subject::Step(self.steps.len()),
                             }!,
@@ -453,7 +453,7 @@ extend Build {
                         self.validateObjectHandle(target).?;
                         match self.findEmitObjectStep(target) {
                             ?producer => _ = producer,
-                            null => return Error::Invalid {
+                            null => return .Invalid {
                                 operation: Operation::Validate,
                                 subject: Subject::Step(self.steps.len()),
                             }!,
@@ -464,7 +464,7 @@ extend Build {
                         self.validateStaticArchiveHandle(target).?;
                         match self.findEmitStaticArchiveStep(target) {
                             ?producer => _ = producer,
-                            null => return Error::Invalid {
+                            null => return .Invalid {
                                 operation: Operation::Validate,
                                 subject: Subject::Step(self.steps.len()),
                             }!,
@@ -506,7 +506,7 @@ extend Build {
                 if argument.kind == CommandArgumentKind::ArtifactInput {
                         let producer = match self.findEmitStep(argument.payload.artifact) {
                             ?producer => producer,
-                            null => return Error::Invalid {
+                            null => return .Invalid {
                                 operation: Operation::Validate,
                                 subject: Subject::Step(step.index()),
                             }!,
@@ -515,7 +515,7 @@ extend Build {
                 } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let producer = match self.findEmitObjectStep(argument.payload.object) {
                             ?producer => producer,
-                            null => return Error::Invalid {
+                            null => return .Invalid {
                                 operation: Operation::Validate,
                                 subject: Subject::Step(step.index()),
                             }!,
@@ -524,7 +524,7 @@ extend Build {
                 } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let producer = match self.findEmitStaticArchiveStep(argument.payload.staticArchive) {
                             ?producer => producer,
-                            null => return Error::Invalid {
+                            null => return .Invalid {
                                 operation: Operation::Validate,
                                 subject: Subject::Step(step.index()),
                             }!,
@@ -540,7 +540,7 @@ extend Build {
         self.validateStepHandle(step).?;
         self.validateStepHandle(dependency).?;
         if step.index() == dependency.index() {
-            return Error::StepCycle {
+            return .StepCycle {
                 step: step.index(),
                 dependency: dependency.index(),
             }!;
@@ -591,13 +591,13 @@ extend Build {
         if options.sourceRoot == ModuleSourceRoot::Build
             and not isValidBuildPath(options.rootSource.text())
         {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Module(handle.index()),
             }!;
         }
         if not isValidStableName(options.name) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Module(handle.index()),
             }!;
@@ -652,7 +652,7 @@ extend Build {
         self.cleanupPendingExecutable().?;
         let handle = ExecutableHandle::init(self.ownerId, self.executables.len());
         if not isValidStableName(options.name) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Executable(handle.index()),
             }!;
@@ -665,7 +665,7 @@ extend Build {
                 self.validateStaticArchiveHandle(archive).?;
                 let archiveTarget = self.staticArchives.asSlice()[archive.index()];
                 if archiveTarget.targetRole != options.targetRole {
-                    return Error::Invalid {
+                    return .Invalid {
                         operation: Operation::Validate,
                         subject: Subject::Executable(handle.index()),
                     }!;
@@ -673,7 +673,7 @@ extend Build {
                 let mut previous: usize = 0;
                 while previous < archiveIndex {
                     if archives[previous].index() == archive.index() {
-                        return Error::Invalid {
+                        return .Invalid {
                             operation: Operation::Validate,
                             subject: Subject::Executable(handle.index()),
                         }!;
@@ -685,7 +685,7 @@ extend Build {
         }
         let outputName = executableOutputName(options);
         if not isValidOutputName(outputName) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Executable(handle.index()),
             }!;
@@ -743,7 +743,7 @@ extend Build {
         self.cleanupPendingObject().?;
         let handle = ObjectHandle::init(self.ownerId, self.objects.len());
         if not isValidStableName(options.name) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Object(handle.index()),
             }!;
@@ -751,7 +751,7 @@ extend Build {
         self.validateModuleHandle(options.rootModule).?;
         let outputName = objectOutputName(options);
         if not isValidOutputName(outputName) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Object(handle.index()),
             }!;
@@ -804,7 +804,7 @@ extend Build {
         self.cleanupPendingStaticArchive().?;
         let handle = StaticArchiveHandle::init(self.ownerId, self.staticArchives.len());
         if not isValidStableName(options.name) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::StaticArchive(handle.index()),
             }!;
@@ -812,7 +812,7 @@ extend Build {
         self.validateModuleHandle(options.rootModule).?;
         let outputName = staticArchiveOutputName(options);
         if not isValidOutputName(outputName) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::StaticArchive(handle.index()),
             }!;
@@ -882,7 +882,7 @@ extend Build {
                     },
                     null => {
                         self.reportUnknownStep(step).?;
-                        return Error::UnknownStep!;
+                        return .UnknownStep!;
                     },
                 }
             },
@@ -903,7 +903,7 @@ extend Build {
                         },
                         null => {
                             if self.steps.len() != 0 {
-                                return Error::MissingDefaultStep!;
+                                return .MissingDefaultStep!;
                             }
                         },
                     }
@@ -923,7 +923,7 @@ extend Build {
             let missing = self.missingGeneratedDependenciesForStep(index).?;
             missingCount = match missingCount.checkedAdd(missing) {
                 ?value => value,
-                null => return Error::Invalid {
+                null => return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Dependencies,
                 }!,
@@ -980,7 +980,7 @@ extend Build {
             if not hasDependency(self.dependencies.asSlice(), index, producer.index()) {
                 count = match count.checkedAdd(1) {
                     ?value => value,
-                    null => return Error::Invalid {
+                    null => return .Invalid {
                         operation: Operation::Validate,
                         subject: Subject::Dependencies,
                     }!,
@@ -997,7 +997,7 @@ extend Build {
                 if not hasDependency(self.dependencies.asSlice(), index, producer.index()) {
                     count = match count.checkedAdd(1) {
                         ?value => value,
-                        null => return Error::Invalid {
+                        null => return .Invalid {
                             operation: Operation::Validate,
                             subject: Subject::Dependencies,
                         }!,
@@ -1046,7 +1046,7 @@ extend Build {
     ) Error!StepHandle {
         match findGeneratedSourceProducer(self.ownerId, self.steps.asSlice(), path, consumerIndex) {
             ?producer => !producer,
-            null => Error::Invalid {
+            null => .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Module(moduleIndex),
             }!,
@@ -1074,7 +1074,7 @@ extend Build {
             let slot = &mut self.validationIndegree.asMutSlice()[edge.step.index()];
             slot.* = match slot.*.checkedAdd(1) {
                 ?value => value,
-                null => return Error::Invalid {
+                null => return .Invalid {
                     operation: Operation::Validate,
                     subject: Subject::Dependencies,
                 }!,
@@ -1112,13 +1112,13 @@ extend Build {
                 if self.validationIndegree.asSlice()[edge.step.index()] != 0
                     and self.validationIndegree.asSlice()[edge.dependency.index()] != 0
                 {
-                    return Error::StepCycle {
+                    return .StepCycle {
                         step: edge.step.index(),
                         dependency: edge.dependency.index(),
                     }!;
                 }
             }
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Dependencies,
             }!;
@@ -1182,7 +1182,7 @@ extend Build {
                 self.hasPendingStep = true;
                 self.cleanupPendingStep()
             },
-            null => Error::Invalid {
+            null => .Invalid {
                 operation: Operation::Release,
                 subject: Subject::Steps,
             }!,
@@ -1300,7 +1300,7 @@ extend Build {
     fn prepareStepSlot(&mut self, name: &[char]) Error!() {
         self.cleanupPendingStep().?;
         if not isValidStableName(name) {
-            return Error::Invalid {
+            return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),
             }!;
@@ -1317,7 +1317,7 @@ extend Build {
 
     fn commitPendingStep(&mut self) Error!StepHandle {
         if not self.hasPendingStep {
-            return Error::Internal(Operation::Initialize)!;
+            return .Internal(.Initialize)!;
         }
         let handle = StepHandle::init(self.ownerId, self.steps.len());
         self.steps.appendAssumeCapacity(self.pendingStep);

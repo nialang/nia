@@ -25,7 +25,7 @@ extend Layout {
         if align == 0 {
             .InvalidAlignment!
         } else if not align.isPowerOfTwo() {
-            Error::InvalidAlignment!
+            .InvalidAlignment!
         } else {
             !.{ size, align }
         }
