@@ -27,7 +27,7 @@ extend BuildInitAttempt {
 
     pub fn finish(&mut self) Error!Build {
         if not self.active {
-            return Error::Internal(Operation::Initialize)!;
+            return .Internal(.Initialize)!;
         }
         if self.primary is ?primary {
             if self.build.deinit() is cleanup! {

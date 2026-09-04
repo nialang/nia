@@ -125,7 +125,7 @@ extend Build {
         };
         let mut attempt = BuildInitAttempt::init(build);
         if ownerId == 0 {
-            attempt.primary = ?Error::Internal(Operation::Initialize);
+            attempt.primary = ?.Internal(.Initialize);
             return attempt;
         }
         if attempt.build.initialize(
