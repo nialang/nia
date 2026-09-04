@@ -242,7 +242,7 @@ extend SpawnStorage {
         nativeResult.?;
         let outcome = match self.outcome {
             ?value => value,
-            null => return Error::SpawnSetup(SystemError::Invalid)!,
+            null => return .SpawnSetup(.Invalid)!,
         };
         self.outcome = null;
         match outcome {
