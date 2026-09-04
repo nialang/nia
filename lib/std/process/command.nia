@@ -260,30 +260,28 @@ extend SpawnStorage {
     }
 
     fn finishNativeSpawn(&mut self) Error!() {
-        let mut attempt = match self.nativeSpawn {
-            ?value => value,
-            null => return !(),
-        };
-        self.nativeSpawn = null;
-        match attempt.finish() {
-            !result => {
-                self.outcome = ?SpawnOutcome::Success(Child::fromSpawnResult(result));
-                !()
-            },
-            .Reap { stage, primary, cause, pid }! => {
-                self.nativeSpawn = ?attempt;
-                Error::Spawn(SpawnError::Reap {
-                    stage: commandSpawnStage(stage),
-                    primary: SystemError::fromOs(primary),
-                    cause: SystemError::fromOs(cause),
-                    pid: child::processIdFromOs(pid),
-                })!
-            },
-            cause! => {
-                self.outcome = ?SpawnOutcome::Failure(commandSpawnError(cause));
-                !()
-            },
+        if self.nativeSpawn is ?value {
+            let mut attempt = value;
+            self.nativeSpawn = null;
+            match attempt.finish() {
+                !result => {
+                    self.outcome = ?SpawnOutcome::Success(Child::fromSpawnResult(result));
+                },
+                .Reap { stage, primary, cause, pid }! => {
+                    self.nativeSpawn = ?attempt;
+                    return Error::Spawn(SpawnError::Reap {
+                        stage: commandSpawnStage(stage),
+                        primary: SystemError::fromOs(primary),
+                        cause: SystemError::fromOs(cause),
+                        pid: child::processIdFromOs(pid),
+                    })!;
+                },
+                cause! => {
+                    self.outcome = ?SpawnOutcome::Failure(commandSpawnError(cause));
+                },
+            }
         }
+        !()
     }
 }
 
