@@ -68,11 +68,11 @@ extend Utf8View {
             let decoded = decodeUtf8First(&bytes[byteIndex..]).?;
             byteIndex = match nextByteIndex(byteIndex, decoded.byteLen(), bytes.len()) {
                 ?next => next,
-                null => return Utf8DecodeError::Truncated!,
+                null => return .Truncated!,
             };
             scalarCount = match scalarCount.checkedAdd(1) {
                 ?next => next,
-                null => return Utf8DecodeError::InvalidScalar!,
+                null => return .InvalidScalar!,
             };
         }
         !Utf8View { bytes: bytes, scalarCount: scalarCount }
@@ -207,7 +207,7 @@ pub const fn isValidScalarValue(value: u32) bool {
 
 pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
     if bytes.len() == 0 {
-        return Utf8DecodeError::Empty!;
+        return .Empty!;
     }
     let first = bytes[0];
     let mut code: u32;
@@ -225,28 +225,28 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
         code = (first & 0x07) as u32;
         width = 4;
     } else {
-        return Utf8DecodeError::InvalidLeadingByte!;
+        return .InvalidLeadingByte!;
     }
     if bytes.len() < width {
-        return Utf8DecodeError::Truncated!;
+        return .Truncated!;
     }
     for index in 1..width {
         let continuation = bytes[index];
         if (continuation & 0xc0) != 0x80 {
-            return Utf8DecodeError::InvalidContinuation!;
+            return .InvalidContinuation!;
         }
         code = (code << 6) | ((continuation & 0x3f) as u32);
     }
     if isOverlongUtf8(code, width) {
-        return Utf8DecodeError::Overlong!;
+        return .Overlong!;
     }
     if not isValidScalarValue(code) {
-        return Utf8DecodeError::InvalidScalar!;
+        return .InvalidScalar!;
     }
     if fromScalarValue(code) is ?ch {
         return !DecodedUtf8Scalar::init(ch, width);
     }
-    Utf8DecodeError::InvalidScalar!
+    .InvalidScalar!
 }
 
 fn isOverlongUtf8(code: u32, width: usize) bool {
