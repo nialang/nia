@@ -143,7 +143,6 @@ fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) (
             },
             .Interrupted! => {},
             error! => {
-                _ = error;
                 return;
             },
         }

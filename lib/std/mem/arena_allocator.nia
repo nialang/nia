@@ -252,15 +252,7 @@ extend ArenaAllocator {
                             fallback
                         },
                     };
-                    let selectedPrev = match best {
-                        ?chunk => {
-                            _ = chunk;
-                            bestPrev
-                        },
-                        null => {
-                            closestPrev
-                        },
-                    };
+                    let selectedPrev = if best is ?_ { bestPrev } else { closestPrev };
                     match selectedPrev {
                         ?before => {
                             let mut before = before;

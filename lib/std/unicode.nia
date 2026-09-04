@@ -129,7 +129,6 @@ extend Utf8ViewIter : Iterator {
             !value => value,
             error! => {
                 // Only a caller-side mutation of the validated backing bytes can reach this branch.
-                _ = error;
                 self.byteIndex = self.bytes.len();
                 self.remaining = 0;
                 return null;
