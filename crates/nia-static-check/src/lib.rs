@@ -900,6 +900,7 @@ mod tests {
             normalization: &normalization,
             target: &target,
             source_path: &source_path,
+            source_text: "",
             program: nia_const_check::ConstProgramContext::empty(),
         };
         let array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);

@@ -417,7 +417,9 @@ mod tests {
             bool_ty: fixture.ty,
             arms: vec![
                 TypedMatchArm {
-                    patterns: vec![fixture.pattern(TypedPatternKind::Expr(fixture.block(70)))],
+                    patterns: vec![
+                        fixture.pattern(TypedPatternKind::Expr(Box::new(fixture.block(70)))),
+                    ],
                     body: TypedMatchArmBody::Expr(Box::new(fixture.block(80))),
                     span: Span::default(),
                 },
@@ -448,7 +450,7 @@ mod tests {
                 target: fixture.block(10),
                 bool_ty: fixture.ty,
                 pattern: fixture.pattern(TypedPatternKind::Tuple(vec![
-                    fixture.pattern(TypedPatternKind::Expr(fixture.block(20))),
+                    fixture.pattern(TypedPatternKind::Expr(Box::new(fixture.block(20)))),
                     fixture.pattern(TypedPatternKind::Range {
                         start: Box::new(fixture.block(30)),
                         end: Box::new(fixture.block(40)),

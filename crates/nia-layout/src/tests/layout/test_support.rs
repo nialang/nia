@@ -54,6 +54,7 @@ fn compute_test_const(
         },
         target: &target,
         source_path: &source_path,
+        source_text: "",
         program: ConstProgramContext::empty(),
     };
     check_module_const(input)

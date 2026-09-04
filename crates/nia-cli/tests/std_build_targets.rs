@@ -71,8 +71,9 @@ fn initBuild(init: process::Init, allocator: &mut mem::Allocator) build::Error!b
             32u32,
         ),
         build::OptimizationMode::O0,
-        10u32,
+        11u32,
         null,
+        false,
     );
     initialization.finish()
 }

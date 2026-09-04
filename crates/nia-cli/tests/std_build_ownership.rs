@@ -316,6 +316,7 @@ fn checkInitRollback(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     match initialization.finish() {
         !value => {
@@ -353,6 +354,7 @@ fn checkTargetInitRollback(init: process::Init, successfulAllocations: usize) pr
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     match initialization.finish() {
         !value => {
@@ -392,6 +394,7 @@ fn checkInitCleanupRetry(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     match initialization.finish() {
         !value => {
@@ -442,6 +445,7 @@ fn checkRecordRollback(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     let mut cleaned = false;
@@ -708,6 +712,7 @@ fn checkPendingUncacheableStep(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     allocator.failAfter(2usize);
@@ -750,6 +755,7 @@ fn checkPendingInstallStep(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     let moduleHandle = api.addModule(build::ModuleOptions::init(&"root", emptyPath)).exit().?;
@@ -804,6 +810,7 @@ fn checkPendingExternalEnvironment(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     let environment = [build::CommandEnvironmentInput::init(&"NAME", &"value")];
@@ -849,6 +856,7 @@ fn checkArgAssemblyRollback(init: process::Init) process::ExitCode!() {
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     let mut cleaned = false;
@@ -925,6 +933,7 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     let moduleHandle = api.addModule(
@@ -973,6 +982,7 @@ fn checkCleanupRetryRetainsNestedOwners(init: process::Init) process::ExitCode!(
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut importApi = importInitialization.finish().exit().?;
     let imports = [
@@ -1018,6 +1028,7 @@ fn checkValidationScratchCleanupRetry(init: process::Init) process::ExitCode!() 
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     let mut api = initialization.finish().exit().?;
     let first = api.addAggregateStep(&"first").exit().?;

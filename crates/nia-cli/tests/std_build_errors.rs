@@ -44,6 +44,7 @@ fn initBuild(
         build::OptimizationMode::O0,
         1u32,
         null,
+        false,
     );
     initialization.finish()
 }

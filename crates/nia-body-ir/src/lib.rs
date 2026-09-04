@@ -252,7 +252,7 @@ pub enum TypedPatternKind {
         fields: Vec<TypedPattern>,
     },
     /// Expression equality pattern.
-    Expr(TypedExpr),
+    Expr(Box<TypedExpr>),
     /// Checked integer constant pattern.
     CheckedInt {
         /// Target-width integer value.

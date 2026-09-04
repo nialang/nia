@@ -174,11 +174,11 @@ fn rejects_error_expr_nested_in_for_pattern_before_function_ir_is_built() {
                 pattern: TypedPattern {
                     ty,
                     span: Span::default(),
-                    kind: TypedPatternKind::Expr(TypedExpr {
+                    kind: TypedPatternKind::Expr(Box::new(TypedExpr {
                         span: Span::default(),
                         ty,
                         kind: TypedExprKind::Error,
-                    }),
+                    })),
                 },
                 item_ty: ty,
                 bool_ty: ty,

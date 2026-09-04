@@ -611,7 +611,7 @@ impl<'a> BodyChecker<'a> {
         {
             return TypedPatternKind::CheckedInt { value };
         }
-        TypedPatternKind::Expr(self.lower_expr(expr))
+        TypedPatternKind::Expr(Box::new(self.lower_expr(expr)))
     }
 
     fn lower_pattern_range(
