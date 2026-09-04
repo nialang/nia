@@ -40,7 +40,7 @@ fn lowerNativeBytes(
 ) OperationError!RelativeNativePathView {
     let terminatedLen = match bytes.len().checkedAdd(1) {
         ?value => value,
-            null => return OperationError::Path {
+        null => return OperationError::Path {
             operation: operation,
             cause: types::PathError::TooLong,
         }!,
