@@ -367,26 +367,16 @@ extend ArenaAllocator {
         let mut failed = false;
         let mut firstError = Error::Invalid;
 
-        match self.freeChunkList(first) {
-            !ok => {
-                _ = ok;
-            },
-            err! => {
-                firstError = err;
-                failed = true;
-            },
+        if self.freeChunkList(first) is err! {
+            firstError = err;
+            failed = true;
         }
 
-        match self.freeChunkList(second) {
-            !ok => {
-                _ = ok;
-            },
-            err! => {
-                if not failed {
-                    firstError = err;
-                    failed = true;
-                }
-            },
+        if self.freeChunkList(second) is err! {
+            if not failed {
+                firstError = err;
+                failed = true;
+            }
         }
 
         if failed {
@@ -406,19 +396,14 @@ extend ArenaAllocator {
                     let mut chunk = chunk;
                     let next = chunk.next;
                     chunk.next = null;
-                    match self.child.free(chunk.block) {
-                        !ok => {
-                            _ = ok;
-                        },
-                        err! => {
-                            chunk.endIndex = 0;
-                            chunk.next = self.freeList;
-                            self.freeList = ?chunk;
-                            if not failed {
-                                firstError = err;
-                                failed = true;
-                            }
-                        },
+                    if self.child.free(chunk.block) is err! {
+                        chunk.endIndex = 0;
+                        chunk.next = self.freeList;
+                        self.freeList = ?chunk;
+                        if not failed {
+                            firstError = err;
+                            failed = true;
+                        }
                     }
                     current = next;
                 },
