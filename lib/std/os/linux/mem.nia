@@ -43,7 +43,7 @@ fn rawMapPages(len: usize) Errno!&mut u8 {
     if ret < 0 and ret >= -4095 {
         ret.syscallError()!
     } else if ret == 0 {
-        Errno::Io!
+        .Io!
     } else {
         !((ret as usize) as &mut u8)
     }
@@ -57,7 +57,7 @@ fn rawUnmapPages(ptr: &mut u8, len: usize) Errno!() {
 // A mapping remains owned until validation publishes MappedPages.
 fn rejectMappedRange(ptr: &mut u8, len: usize) Errno!MappedPages {
     rawUnmapPages(ptr, len).?;
-    Errno::OutOfRange!
+    .OutOfRange!
 }
 
 pub fn pageSize() usize {
@@ -68,15 +68,15 @@ pub fn pageAlignedLen(len: usize) Errno!usize {
     if len.alignForward(pageSize()) is ?value {
         return !value;
     }
-    Errno::OutOfRange!
+    .OutOfRange!
 }
 
 pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
     if len == 0 {
-        return Errno::Invalid!;
+        return .Invalid!;
     }
     if align == 0 or not align.isPowerOfTwo() {
-        return Errno::Invalid!;
+        return .Invalid!;
     }
 
     let alignedLen = pageAlignedLen(len).?;
@@ -89,7 +89,7 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
             value
         },
         null => {
-            return Errno::OutOfRange!;
+            return .OutOfRange!;
         },
     };
     let mapped = rawMapPages(mapLen).?;
@@ -112,7 +112,7 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
 
 pub fn unmapPages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 {
-        Errno::Invalid!
+        .Invalid!
     } else {
         let alignedLen = pageAlignedLen(len).?;
         rawUnmapPages(ptr, alignedLen)

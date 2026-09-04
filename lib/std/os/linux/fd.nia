@@ -35,7 +35,7 @@ extend FileDescriptor {
         } else {
             let amount = ret as usize;
             if amount > bytes.len() {
-                return Errno::Io!;
+                return .Io!;
             }
             !amount
         }
@@ -49,7 +49,7 @@ extend FileDescriptor {
         } else {
             let amount = ret as usize;
             if amount > bytes.len() {
-                return Errno::Io!;
+                return .Io!;
             }
             !amount
         }
@@ -100,7 +100,7 @@ extend FileDescriptor {
 
     pub fn readDirEntries(&self, buffer: &mut [u8]) Errno!usize {
         if buffer.len() == 0 {
-            return Errno::Invalid!;
+            return .Invalid!;
         }
         let ret = syscall::syscall3(
             syscall::getdents64,
@@ -113,7 +113,7 @@ extend FileDescriptor {
         } else {
             let amount = ret as usize;
             if amount > buffer.len() {
-                return Errno::Io!;
+                return .Io!;
             }
             !amount
         }
@@ -139,7 +139,7 @@ pub fn pipeCloseOnExec() Errno!Pipe {
 
 pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     if buffer.len() == 0 {
-        return Errno::Invalid!;
+        return .Invalid!;
     }
     let ret = syscall::syscall2(
         syscall::getcwd,
@@ -151,10 +151,10 @@ pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
     } else {
         let mut len = ret as usize;
         if len == 0 or len > buffer.len() {
-            return Errno::Io!;
+            return .Io!;
         }
         if buffer[len - 1] != 0 {
-            return Errno::Io!;
+            return .Io!;
         }
         len -= 1;
         !&buffer[0..len]

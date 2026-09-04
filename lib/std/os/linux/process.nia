@@ -343,7 +343,7 @@ fn dupTo(from: types::FileDescriptor, to: types::FileDescriptor) Errno!() {
     if ret < 0 {
         ret.syscallError()!
     } else if ret != to.raw() as isize {
-        Errno::Io!
+        .Io!
     } else {
         !()
     }
@@ -361,7 +361,7 @@ pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
     } else if ret == 0 {
         !null
     } else if ret != pid.raw() as isize {
-        Errno::Io!
+        .Io!
     } else {
         !(?WaitStatus::init(status))
     }
@@ -382,7 +382,7 @@ fn waitWithOptions(pid: ProcessId, options: usize) Errno!WaitStatus {
     if ret < 0 {
         ret.syscallError()!
     } else if ret != pid.raw() as isize {
-        Errno::Io!
+        .Io!
     } else {
         !WaitStatus::init(status)
     }
@@ -437,11 +437,11 @@ extend SpawnPipe {
     }
 
     fn read(&self) Errno!types::FileDescriptor {
-        if self.read is ?fd { !fd } else { Errno::Invalid! }
+        if self.read is ?fd { !fd } else { .Invalid! }
     }
 
     fn write(&self) Errno!types::FileDescriptor {
-        if self.write is ?fd { !fd } else { Errno::Invalid! }
+        if self.write is ?fd { !fd } else { .Invalid! }
     }
 
     fn takeRead(&mut self) ?types::FileDescriptor {
