@@ -879,41 +879,26 @@ extend Build {
             return !();
         }
         self.selectedStep = null;
-        match self.requestedStep() {
-            ?step => {
-                match self.findStep(step) {
-                    ?selected => {
-                        self.selectedStep = ?StepHandle::init(self.ownerId, selected.index);
-                    },
-                    null => {
-                        self.reportUnknownStep(step).?;
-                        return .UnknownStep!;
-                    },
+        if self.requestedStep() is ?step {
+            if self.findStep(step) is ?selected {
+                self.selectedStep = ?StepHandle::init(self.ownerId, selected.index);
+            } else {
+                self.reportUnknownStep(step).?;
+                return .UnknownStep!;
+            }
+        } else if self.testMode {
+            let mut index: usize = 0;
+            while index < self.steps.len() {
+                if self.steps.asSlice()[index].kind == StepKind::TestExecutable {
+                    self.selectedStep = ?StepHandle::init(self.ownerId, index);
+                    break;
                 }
-            },
-            null => {
-                if self.testMode {
-                    let mut index: usize = 0;
-                    while index < self.steps.len() {
-                        if self.steps.asSlice()[index].kind == StepKind::TestExecutable {
-                            self.selectedStep = ?StepHandle::init(self.ownerId, index);
-                            break;
-                        }
-                        index += 1;
-                    }
-                } else {
-                    match self.defaultStep {
-                        ?handle => {
-                            self.selectedStep = ?handle;
-                        },
-                        null => {
-                            if self.steps.len() != 0 {
-                                return .MissingDefaultStep!;
-                            }
-                        },
-                    }
-                }
-            },
+                index += 1;
+            }
+        } else if self.defaultStep is ?handle {
+            self.selectedStep = ?handle;
+        } else if self.steps.len() != 0 {
+            return .MissingDefaultStep!;
         }
         self.ensureGeneratedModuleDependencies().?;
         self.validateDependencyGraph().?;
@@ -1049,12 +1034,13 @@ extend Build {
         consumerIndex: usize,
         moduleIndex: usize,
     ) Error!StepHandle {
-        match findGeneratedSourceProducer(self.ownerId, self.steps.asSlice(), path, consumerIndex) {
-            ?producer => !producer,
-            null => .Invalid {
+        if findGeneratedSourceProducer(self.ownerId, self.steps.asSlice(), path, consumerIndex) is ?producer {
+            !producer
+        } else {
+            .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Module(moduleIndex),
-            }!,
+            }!
         }
     }
 
