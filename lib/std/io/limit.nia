@@ -51,33 +51,29 @@ where R: Reader
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
-        match self.limit.remaining {
-            ?remaining => {
-                if remaining == 0 {
-                    !0
-                } else {
-                    let mut count = bytes.len();
-                    if count > remaining {
-                        count = remaining;
-                    }
-                    let chunk = &mut bytes[0..count];
-                    let n = self.reader.read(chunk).?;
-                    if n > count {
-                        return self.invalidRead()!;
-                    }
-                    if self.limit.remaining is ?current {
-                        self.limit = Limit::limited(current - n);
-                    }
-                    !n
-                }
-            },
-            null => {
-                let n = self.reader.read(bytes).?;
-                if n > bytes.len() {
-                    return self.invalidRead()!;
-                }
-                !n
-            },
+        if self.limit.remaining is ?remaining {
+            if remaining == 0 {
+                return !0;
+            }
+            let mut count = bytes.len();
+            if count > remaining {
+                count = remaining;
+            }
+            let chunk = &mut bytes[0..count];
+            let n = self.reader.read(chunk).?;
+            if n > count {
+                return self.invalidRead()!;
+            }
+            if self.limit.remaining is ?current {
+                self.limit = Limit::limited(current - n);
+            }
+            return !n;
         }
+
+        let n = self.reader.read(bytes).?;
+        if n > bytes.len() {
+            return self.invalidRead()!;
+        }
+        !n
     }
 }

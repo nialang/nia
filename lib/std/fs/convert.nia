@@ -61,14 +61,14 @@ extend[T] PathError!T {
 extend os::FileKind {
     pub(pkg) fn asFsFileKind(self) FileKind {
         match self {
-            .BlockDevice => FileKind::BlockDevice,
-            .CharacterDevice => FileKind::CharacterDevice,
-            .Directory => FileKind::Directory,
-            .NamedPipe => FileKind::NamedPipe,
-            .Symlink => FileKind::Symlink,
-            .File => FileKind::File,
-            .UnixSocket => FileKind::UnixSocket,
-            _ => FileKind::Unknown,
+            .BlockDevice => .BlockDevice,
+            .CharacterDevice => .CharacterDevice,
+            .Directory => .Directory,
+            .NamedPipe => .NamedPipe,
+            .Symlink => .Symlink,
+            .File => .File,
+            .UnixSocket => .UnixSocket,
+            _ => .Unknown,
         }
     }
 }

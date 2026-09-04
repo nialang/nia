@@ -245,21 +245,16 @@ extend DirIterator : Iterator {
         if self.reader.isDone() {
             return null;
         }
-        let handle = match self.dir.borrowHandle() {
-            !value => value,
-            error! => return ?(error!),
-        };
-        match self.reader.next(handle) {
-            ?result => {
-                match result {
-                    !value => ?(!value.asFsDirEntry()),
-                    err! => ?(err.intoError()!),
-                }
-            },
-            null => {
-                null
-            },
+        let handle = self.dir.borrowHandle().?;
+        if self.reader.next(handle) is ?result {
+            if result is !value {
+                return ?(!value.asFsDirEntry());
+            }
+            if result is err! {
+                return ?(err.intoError()!);
+            }
         }
+        null
     }
 }
 
