@@ -365,8 +365,7 @@ extend ArenaAllocator {
 
     fn freeChunkList(&mut self, first: ?&mut ArenaChunk) Error!() {
         let mut current = first;
-        let mut failed = false;
-        let mut firstError = Error::Invalid;
+        let mut cleanup: error::CleanupAccumulator[Error] = .init();
         while true {
             match current {
                 ?chunk => {
@@ -377,18 +376,12 @@ extend ArenaAllocator {
                         chunk.endIndex = 0;
                         chunk.next = self.freeList;
                         self.freeList = ?chunk;
-                        if not failed {
-                            firstError = err;
-                            failed = true;
-                        }
+                        cleanup.attempt(err!);
                     }
                     current = next;
                 },
                 null => {
-                    if failed {
-                        return firstError!;
-                    }
-                    return !();
+                    return cleanup.finish();
                 },
             }
         }
