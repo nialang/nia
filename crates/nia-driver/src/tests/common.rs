@@ -224,6 +224,9 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
                 || args.iter().any(function_expr_contains_builtin_eq)
         }
         FunctionExprKind::Call { args, .. } => args.iter().any(function_expr_contains_builtin_eq),
+        FunctionExprKind::FunctionCallable { function } => {
+            function_expr_contains_builtin_eq(function)
+        }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::OptionalSome { expr }
         | FunctionExprKind::ErrorOk { expr }
@@ -348,6 +351,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::BuiltinValue(_) => false,

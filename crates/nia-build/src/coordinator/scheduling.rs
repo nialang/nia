@@ -19,7 +19,7 @@ pub fn execute_build_plan(
         "build.action_resource_capacity",
         action_resource_capacity(&session, invocation.max_parallel_actions) as u64,
     );
-    let execute = if matches!(&invocation.step, BuildStepSelection::Tests) {
+    if matches!(&invocation.step, BuildStepSelection::Tests) {
         execute_test_closure(plan, invocation.test_filter.as_deref(), |actions| {
             execute_action_batch(
                 &executor,
@@ -33,8 +33,7 @@ pub fn execute_build_plan(
         execute_selected_closure(plan, |actions| {
             execute_action_batch(&executor, &session, invocation, actions, true)
         })
-    };
-    execute
+    }
 }
 
 fn execute_action_batch(

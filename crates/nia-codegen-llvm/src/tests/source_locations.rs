@@ -58,9 +58,8 @@ fn main() u32 {
     assert!(leaf_definition.contains("(ptr "), "{leaf_definition}");
     assert!(middle_definition.contains("(ptr "), "{middle_definition}");
     assert!(
-        ir.lines().any(|line| {
-            line.contains(&format!("call ")) && line.contains(&format!("{leaf}(ptr %"))
-        }),
+        ir.lines()
+            .any(|line| { line.contains("call ") && line.contains(&format!("{leaf}(ptr %")) }),
         "tracked calls must forward the incoming pointer: {ir}",
     );
 }

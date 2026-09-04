@@ -8,7 +8,7 @@ mod methods;
 mod signatures;
 
 use crate::BodyChecker;
-use builtins::BuiltinCallTypeArgs;
+use builtins::{BuiltinCallArguments, BuiltinCallTypeArgs};
 use nia_ast::{Expr, ExprKind};
 use nia_ids::{BuiltinFunction, InternedTyId};
 use nia_local_resolve::LocalUse;
@@ -37,8 +37,10 @@ impl<'a> BodyChecker<'a> {
                 expr,
                 builtin,
                 None,
-                BuiltinCallTypeArgs::Bracket(&[]),
-                args,
+                BuiltinCallArguments {
+                    type_args: BuiltinCallTypeArgs::Bracket(&[]),
+                    args,
+                },
             );
         }
         if let ExprKind::BracketSuffix {
@@ -63,8 +65,10 @@ impl<'a> BodyChecker<'a> {
                     expr,
                     builtin,
                     Some(resolved.signature.return_type),
-                    BuiltinCallTypeArgs::Bracket(&[]),
-                    args,
+                    BuiltinCallArguments {
+                        type_args: BuiltinCallTypeArgs::Bracket(&[]),
+                        args,
+                    },
                 );
             }
             return self.check_function_signature_call(expr, &resolved, args, expected);
@@ -108,8 +112,10 @@ impl<'a> BodyChecker<'a> {
                     expr,
                     builtin,
                     Some(resolved.signature.return_type),
-                    BuiltinCallTypeArgs::Bracket(&[]),
-                    args,
+                    BuiltinCallArguments {
+                        type_args: BuiltinCallTypeArgs::Bracket(&[]),
+                        args,
+                    },
                 );
             }
             return self.check_function_signature_call(expr, &resolved, args, expected);

@@ -1343,11 +1343,11 @@ mod tests {
                 pattern: TypedPattern {
                     ty,
                     span: Span::default(),
-                    kind: TypedPatternKind::Expr(TypedExpr {
+                    kind: TypedPatternKind::Expr(Box::new(TypedExpr {
                         span: Span::default(),
                         ty,
                         kind: TypedExprKind::Function(referenced),
-                    }),
+                    })),
                 },
                 item_ty: ty,
                 bool_ty: ty,

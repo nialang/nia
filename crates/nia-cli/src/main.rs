@@ -191,17 +191,17 @@ fn run_cli(cli: Cli) -> ExitCode {
             list,
             fail_fast,
             jobs,
-        } => run_test(
+        } => run_test(TestContext {
             root,
             filter,
             list,
             fail_fast,
             jobs,
-            cli.optimization,
-            cli.timings,
+            optimization: cli.optimization,
+            timings: cli.timings,
             timing_format,
             toolchain,
-        ),
+        }),
         CliCommand::Check {
             path,
             opt_report,
@@ -1255,7 +1255,7 @@ fn run_build(
     }
 }
 
-fn run_test(
+struct TestContext {
     root: Option<PathBuf>,
     filter: Option<String>,
     list: bool,
@@ -1265,7 +1265,20 @@ fn run_test(
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
-) -> ExitCode {
+}
+
+fn run_test(context: TestContext) -> ExitCode {
+    let TestContext {
+        root,
+        filter,
+        list,
+        fail_fast,
+        jobs,
+        optimization,
+        timings,
+        timing_format,
+        toolchain,
+    } = context;
     let mut request = nia_build::BuildRequest::new(toolchain).with_test_mode(true);
     if let Some(root) = root {
         request = request.with_root(root);
@@ -1857,7 +1870,9 @@ mod tests {
                 list: true,
                 fail_fast: true,
                 jobs: Some(jobs),
-            } if root == PathBuf::from("tests") && filter == "parser" && jobs.get() == 4
+            } if root.as_path() == std::path::Path::new("tests")
+                && filter == "parser"
+                && jobs.get() == 4
         ));
     }
 }

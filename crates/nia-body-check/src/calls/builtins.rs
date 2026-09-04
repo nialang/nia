@@ -40,6 +40,12 @@ pub(super) enum BuiltinCallTypeArgs<'a> {
 }
 
 #[derive(Clone, Copy)]
+pub(super) struct BuiltinCallArguments<'a> {
+    pub(super) type_args: BuiltinCallTypeArgs<'a>,
+    pub(super) args: &'a [Expr],
+}
+
+#[derive(Clone, Copy)]
 struct CheckedBuiltinTypeArg {
     ty: InternedTyId,
     span: Span,
@@ -53,9 +59,9 @@ impl<'a> BodyChecker<'a> {
         value_node: &Expr,
         builtin: BuiltinFunction,
         declared_return_type: Option<InternedTyId>,
-        type_args: BuiltinCallTypeArgs<'_>,
-        args: &[Expr],
+        call_arguments: BuiltinCallArguments<'_>,
     ) -> InternedTyId {
+        let BuiltinCallArguments { type_args, args } = call_arguments;
         let name = builtin.name();
         match builtin {
             BuiltinFunction::ConstError => {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ResolvedFunctionSignature;
-use super::builtins::BuiltinCallTypeArgs;
+use super::builtins::{BuiltinCallArguments, BuiltinCallTypeArgs};
 use super::std_builtin_function;
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind, UnaryOp};
@@ -351,8 +351,10 @@ impl<'a> BodyChecker<'a> {
                 expr,
                 builtin,
                 Some(signature.return_type),
-                BuiltinCallTypeArgs::Bracket(&[]),
-                args,
+                BuiltinCallArguments {
+                    type_args: BuiltinCallTypeArgs::Bracket(&[]),
+                    args,
+                },
             );
         }
         if signature.generics.is_empty() {
@@ -399,8 +401,10 @@ impl<'a> BodyChecker<'a> {
                 expr,
                 builtin,
                 None,
-                BuiltinCallTypeArgs::Bracket(type_args),
-                args,
+                BuiltinCallArguments {
+                    type_args: BuiltinCallTypeArgs::Bracket(type_args),
+                    args,
+                },
             );
         }
         if let ExprKind::Qualified { lhs, name } = &callee.kind
@@ -425,8 +429,10 @@ impl<'a> BodyChecker<'a> {
                     expr,
                     builtin,
                     Some(resolved.signature.return_type),
-                    BuiltinCallTypeArgs::Bracket(type_args),
-                    args,
+                    BuiltinCallArguments {
+                        type_args: BuiltinCallTypeArgs::Bracket(type_args),
+                        args,
+                    },
                 );
             }
             return self.check_instantiated_function_call(
@@ -450,8 +456,10 @@ impl<'a> BodyChecker<'a> {
                     expr,
                     builtin,
                     Some(resolved.signature.return_type),
-                    BuiltinCallTypeArgs::Bracket(type_args),
-                    args,
+                    BuiltinCallArguments {
+                        type_args: BuiltinCallTypeArgs::Bracket(type_args),
+                        args,
+                    },
                 );
             }
             return self.check_instantiated_function_call(

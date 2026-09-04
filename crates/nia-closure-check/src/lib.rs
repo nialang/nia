@@ -1956,7 +1956,7 @@ mod tests {
                             TypedPattern {
                                 ty,
                                 span: Span::default(),
-                                kind: TypedPatternKind::Expr(closure(0)),
+                                kind: TypedPatternKind::Expr(Box::new(closure(0))),
                             },
                             TypedPattern {
                                 ty,
@@ -2009,7 +2009,7 @@ mod tests {
         let pattern = TypedPattern {
             span: Span::default(),
             ty,
-            kind: TypedPatternKind::Expr(TypedExpr {
+            kind: TypedPatternKind::Expr(Box::new(TypedExpr {
                 span: Span::default(),
                 ty,
                 kind: TypedExprKind::Assign {
@@ -2029,7 +2029,7 @@ mod tests {
                         kind: TypedExprKind::Local(selected),
                     }),
                 },
-            }),
+            })),
         };
         let mut env = Environment::from([(
             selected,

@@ -30,16 +30,18 @@ fn with_signature_const_input<T>(
     );
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
     let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id))?;
-    let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
-        db.context().node_store(),
-        &db.context().type_store,
+    let semantic_uses = signature_semantic_use_table_from_resolution_inputs(SemanticUseInputs {
+        node_store: db.context().node_store(),
+        type_store: &db.context().type_store,
         module_id,
-        &active_item_tree,
-        &values,
-        &locals,
-        &type_resolution,
-        &type_lowering,
-    );
+        active_item_tree: &active_item_tree,
+        values: &values,
+        const_expr_values: None,
+        const_expr_value_ids: None,
+        locals: &locals,
+        type_resolution: &type_resolution,
+        type_lowering: &type_lowering,
+    });
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
     let source_path = db.get(ModulePathQuery(module_id))?;
     let query_failure = RefCell::new(None);
@@ -207,16 +209,18 @@ pub(super) fn provide_signature_const_module(
         &symbols,
     );
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id))?;
-    let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
-        db.context().node_store(),
-        &db.context().type_store,
+    let semantic_uses = signature_semantic_use_table_from_resolution_inputs(SemanticUseInputs {
+        node_store: db.context().node_store(),
+        type_store: &db.context().type_store,
         module_id,
-        &active_item_tree,
-        &values,
-        &locals,
-        &type_resolution,
-        &type_lowering,
-    );
+        active_item_tree: &active_item_tree,
+        values: &values,
+        const_expr_values: None,
+        const_expr_value_ids: None,
+        locals: &locals,
+        type_resolution: &type_resolution,
+        type_lowering: &type_lowering,
+    });
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
     let source_path = db.get(ModulePathQuery(module_id))?;
     let defs_for_module = |owner| module_defs_semantic(db, owner).ok();
@@ -379,27 +383,9 @@ fn signature_const_value_resolution(
 }
 
 fn signature_semantic_use_table_from_resolution_inputs(
-    node_store: &nia_node_id::NodeStore,
-    type_store: &nia_ty::TypeStore,
-    module_id: ModuleId,
-    active_item_tree: &ActiveModuleItemTree,
-    values: &ValueResolution,
-    locals: &LocalResolution,
-    type_resolution: &TypeResolution,
-    type_lowering: &TypeLowering,
+    inputs: SemanticUseInputs<'_>,
 ) -> nia_sema_ir::SemanticUseTable {
-    semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
-        module_id,
-        node_store,
-        type_store,
-        active_item_tree,
-        values,
-        const_expr_values: None,
-        const_expr_value_ids: None,
-        locals,
-        type_resolution,
-        type_lowering,
-    })
+    semantic_use_table_from_resolution_inputs_with_const_expr_values(inputs)
 }
 
 fn signature_const_local_resolution(
