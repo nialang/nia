@@ -10,7 +10,7 @@ pub struct PageAllocator {}
 
 extend PageAllocator {
     pub fn init() PageAllocator {
-        {}
+        .{}
     }
 }
 
