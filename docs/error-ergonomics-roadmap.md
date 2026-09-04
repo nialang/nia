@@ -32,6 +32,10 @@ this file is then deleted.
   explicit constructors; this is a compiler boundary, not a new language rule.
 - Generic error-union returns still keep explicit error constructors where
   provider selection or the enclosing error type is not locally unambiguous.
+- A trait method whose return type is an associated `Error` type cannot use an
+  omitted enum member, even when the concrete implementation sets that type;
+  concrete methods can use the omission, while trait-facing methods retain the
+  qualified constructor.
 - `match` remains intentional for rollback, retained-owner cleanup, error
   accumulation, and multi-value decoding. Pure extraction branches are the
   only candidates for migration to `if ... is` during the std audit.
