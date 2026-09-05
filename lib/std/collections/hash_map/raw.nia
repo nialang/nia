@@ -110,17 +110,17 @@ pub fn randomSeed() os::Error!u64 {
 
 pub fn readU64(bytes: &[u8]) u64 {
     (bytes[0] as u64)
-        | ((bytes[1] as u64) << 8u64)
-        | ((bytes[2] as u64) << 16u64)
-        | ((bytes[3] as u64) << 24u64)
-        | ((bytes[4] as u64) << 32u64)
-        | ((bytes[5] as u64) << 40u64)
-        | ((bytes[6] as u64) << 48u64)
-        | ((bytes[7] as u64) << 56u64)
+        | ((bytes[1] as u64) << 8)
+        | ((bytes[2] as u64) << 16)
+        | ((bytes[3] as u64) << 24)
+        | ((bytes[4] as u64) << 32)
+        | ((bytes[5] as u64) << 40)
+        | ((bytes[6] as u64) << 48)
+        | ((bytes[7] as u64) << 56)
 }
 
 pub fn tag(valueHash: u64) u8 {
-    ((valueHash >> 57u64) as u8) & 0x7f
+    ((valueHash >> 57) as u8) & 0x7f
 }
 
 pub fn isFull(control: u8) bool {
