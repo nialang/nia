@@ -113,11 +113,11 @@ extend Wyhash {
         if bytes.len() >= 4 {
             let end = bytes.len() - 4;
             let quarter = (bytes.len() >> 3) << 2;
-            self.a = (read4(&bytes[0..]) << 32u64) | read4(&bytes[quarter..]);
-            self.b = (read4(&bytes[end..]) << 32u64) | read4(&bytes[end - quarter..]);
+            self.a = (read4(&bytes[0..]) << 32) | read4(&bytes[quarter..]);
+            self.b = (read4(&bytes[end..]) << 32) | read4(&bytes[end - quarter..]);
         } else if bytes.len() > 0 {
-            self.a = ((bytes[0] as u64) << 16u64)
-                | ((bytes[bytes.len() >> 1] as u64) << 8u64)
+            self.a = ((bytes[0] as u64) << 16)
+                | ((bytes[bytes.len() >> 1] as u64) << 8)
                 | (bytes[bytes.len() - 1] as u64);
         }
     }
@@ -149,7 +149,7 @@ extend Wyhash {
         self.b ^= self.state0;
         let product = (self.a as u128) * (self.b as u128);
         self.a = product as u64;
-        self.b = (product >> 64u128) as u64;
+        self.b = (product >> 64) as u64;
         mix(self.a ^ wyhashSecret0 ^ (self.totalLen as u64), self.b ^ wyhashSecret1)
     }
 }
@@ -172,23 +172,23 @@ pub fn wyhash(seed: u64, bytes: &[u8]) u64 {
 
 fn mix(a: u64, b: u64) u64 {
     let product = (a as u128) * (b as u128);
-    (product as u64) ^ ((product >> 64u128) as u64)
+    (product as u64) ^ ((product >> 64) as u64)
 }
 
 fn read4(bytes: &[u8]) u64 {
     (bytes[0] as u64)
-        | ((bytes[1] as u64) << 8u64)
-        | ((bytes[2] as u64) << 16u64)
-        | ((bytes[3] as u64) << 24u64)
+        | ((bytes[1] as u64) << 8)
+        | ((bytes[2] as u64) << 16)
+        | ((bytes[3] as u64) << 24)
 }
 
 fn read8(bytes: &[u8]) u64 {
     (bytes[0] as u64)
-        | ((bytes[1] as u64) << 8u64)
-        | ((bytes[2] as u64) << 16u64)
-        | ((bytes[3] as u64) << 24u64)
-        | ((bytes[4] as u64) << 32u64)
-        | ((bytes[5] as u64) << 40u64)
-        | ((bytes[6] as u64) << 48u64)
-        | ((bytes[7] as u64) << 56u64)
+        | ((bytes[1] as u64) << 8)
+        | ((bytes[2] as u64) << 16)
+        | ((bytes[3] as u64) << 24)
+        | ((bytes[4] as u64) << 32)
+        | ((bytes[5] as u64) << 40)
+        | ((bytes[6] as u64) << 48)
+        | ((bytes[7] as u64) << 56)
 }
