@@ -1141,6 +1141,27 @@ impl<'a> BodyChecker<'a> {
             }
             (
                 TyKind::Callable {
+                    is_readonly: true,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                },
+                Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: false,
+                }),
+            ) => {
+                pattern_params.len() == actual_params.len()
+                    && pattern_params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(pattern, actual)| {
+                            self.generic_pattern_accepts_type_shape(*pattern, actual)
+                        })
+                    && self.generic_pattern_accepts_type_shape(pattern_return, actual_return)
+            }
+            (
+                TyKind::Callable {
                     is_readonly: pattern_readonly,
                     params: pattern_params,
                     return_type: pattern_return,
@@ -2356,6 +2377,11 @@ impl<'a> BodyChecker<'a> {
                             _ => None,
                         }
                     }
+                    Some(TyKind::FunctionPointer {
+                        params,
+                        return_type,
+                        is_variadic: false,
+                    }) if pattern_readonly => Some((true, params, return_type)),
                     _ => None,
                 };
                 if let Some((actual_readonly, actual_params, actual_return)) = actual_callable
@@ -2774,6 +2800,28 @@ impl<'a> BodyChecker<'a> {
             ) if (pattern_readonly == actual_readonly || pattern_readonly && !actual_readonly)
                 && pattern_params.len() == actual_params.len() =>
             {
+                for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
+                    self.infer_const_generics_from_type(pattern, actual, substitutions, span);
+                }
+                self.infer_const_generics_from_type(
+                    pattern_return,
+                    actual_return,
+                    substitutions,
+                    span,
+                );
+            }
+            (
+                Some(TyKind::Callable {
+                    is_readonly: true,
+                    params: pattern_params,
+                    return_type: pattern_return,
+                }),
+                Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: false,
+                }),
+            ) if pattern_params.len() == actual_params.len() => {
                 for (pattern, actual) in pattern_params.into_iter().zip(actual_params) {
                     self.infer_const_generics_from_type(pattern, actual, substitutions, span);
                 }

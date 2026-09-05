@@ -607,6 +607,7 @@ impl<'a> Analyzer<'a> {
             | TypedExprKind::Global(_)
             | TypedExprKind::ConstGeneric(_)
             | TypedExprKind::Function(_)
+            | TypedExprKind::EnumConstructor(_)
             | TypedExprKind::FunctionInstance { .. }
             | TypedExprKind::BuiltinValue(_)
             | TypedExprKind::CallerLocation(_)
@@ -1621,6 +1622,7 @@ fn address_uses_stack_storage(expr: &TypedExpr) -> bool {
         } => false,
         TypedExprKind::Global(_)
         | TypedExprKind::Function(_)
+        | TypedExprKind::EnumConstructor(_)
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::ClosureFunctionPointer { .. } => false,
         _ => true,

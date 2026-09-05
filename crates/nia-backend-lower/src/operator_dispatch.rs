@@ -252,6 +252,9 @@ impl<'a> ModuleLowerer<'a> {
                     const_args,
                 },
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
+                FunctionExprKind::EnumConstructor(variant) => {
+                    FunctionExprKind::EnumConstructor(variant)
+                }
                 FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id,

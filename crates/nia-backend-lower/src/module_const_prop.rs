@@ -412,7 +412,7 @@ fn propagate_cross_function_constants_in_expr(
                 instance_constants,
             );
         }
-        FunctionExprKind::ClosureFunctionPointer { .. } => {}
+        FunctionExprKind::ClosureFunctionPointer { .. } | FunctionExprKind::EnumConstructor(_) => {}
         FunctionExprKind::ArrayLiteral { elems } => match elems {
             FunctionArrayElements::List(elems) => {
                 for elem in elems {

@@ -160,6 +160,16 @@ impl<'a> BodyChecker<'a> {
                         .then_some(expected?)
                     });
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
+                    && let Some(function_ptr_ty) = self.check_enum_constructor_ref(
+                        inner,
+                        matches!(op, UnaryOp::RefReadOnly),
+                        expected,
+                    )
+                {
+                    self.record_expr_node_type(expr, function_ptr_ty);
+                    return function_ptr_ty;
+                }
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_ptr_ty) =
                         self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly), expected)
                 {

@@ -724,6 +724,10 @@ impl<'a> Encoder<'a> {
                 self.tag(13);
                 self.global_def(*def_id);
             }
+            FunctionExprKind::EnumConstructor(variant) => {
+                self.tag(60);
+                self.global_def(*variant);
+            }
             FunctionExprKind::FunctionInstance {
                 def_id,
                 arg_module_id,

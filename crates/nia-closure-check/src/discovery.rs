@@ -262,6 +262,7 @@ fn collect_expr_closures<'a>(
         | TypedExprKind::Global(_)
         | TypedExprKind::ConstGeneric(_)
         | TypedExprKind::Function(_)
+        | TypedExprKind::EnumConstructor(_)
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::BuiltinValue(_)
         | TypedExprKind::CallerLocation(_)

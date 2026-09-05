@@ -429,6 +429,8 @@ pub enum FunctionExprKind {
     },
     /// Materializes a non-generic function as its exact source-level function pointer type.
     Function(nia_ids::GlobalDefId),
+    /// Thin function pointer that constructs a tuple enum variant.
+    EnumConstructor(nia_ids::GlobalDefId),
     /// Materializes one concrete generic function instance as its exact function pointer type.
     FunctionInstance {
         /// Defining function identity.

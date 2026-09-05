@@ -803,6 +803,80 @@ impl<'a> BodyChecker<'a> {
         Some((enum_id, variant))
     }
 
+    pub(crate) fn enum_constructor_variant(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<GlobalDefId> {
+        if let Some(enum_id) = self.variant_enum(expr)
+            && let Some(variant) = self.qualified_value(expr)
+            && variant.module_id == enum_id.module_id
+        {
+            return Some(variant);
+        }
+        if let Some((enum_id, def_id)) = self.enum_variant_info(expr) {
+            return Some(GlobalDefId {
+                module_id: enum_id.module_id,
+                def_id,
+            });
+        }
+        let expected = self.normalize_aliases_in_type(expected?);
+        let return_type = match self.interner.get(expected) {
+            Some(
+                TyKind::FunctionPointer { return_type, .. } | TyKind::Callable { return_type, .. },
+            ) => *return_type,
+            _ => return None,
+        };
+        let (enum_id, def_id) = self.omitted_enum_variant_info(expr, return_type)?;
+        Some(GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id,
+        })
+    }
+
+    pub(crate) fn check_enum_constructor_ref(
+        &mut self,
+        expr: &Expr,
+        is_readonly: bool,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let variant_id = self.enum_constructor_variant(expr, expected)?;
+        let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
+        // Unit variants remain ordinary values, including their address-taking rules.
+        if matches!(variant.payload, EnumVariantPayloadSignature::Unit) {
+            return None;
+        }
+        self.reject_const_operation(
+            expr.span,
+            "function pointer values are not available during const evaluation",
+        );
+        if !is_readonly {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                "enum constructor pointers must be formed with `&`, not `&mut`",
+            ));
+            return Some(self.error());
+        }
+        let params = match variant.payload {
+            EnumVariantPayloadSignature::Tuple(params) => params,
+            EnumVariantPayloadSignature::Named(fields) => {
+                fields.into_iter().map(|field| field.ty).collect()
+            }
+            EnumVariantPayloadSignature::Unit => unreachable!(
+                "unit enum variants returned before constructor signature construction"
+            ),
+        };
+        let return_type = self.enum_ty(enum_id);
+        let ty = self.interner.intern(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic: false,
+        });
+        self.record_expr_node_type(expr, ty);
+        Some(ty)
+    }
+
     pub(crate) fn check_enum_variant_call(
         &mut self,
         expr: &Expr,

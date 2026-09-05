@@ -1076,6 +1076,11 @@ impl<'a> BodyChecker<'a> {
                         matches!(op, UnaryOp::RefReadOnly),
                         inner.span,
                     )
+                } else if matches!(op, UnaryOp::RefReadOnly)
+                    && matches!(self.interner.get(ty), Some(TyKind::FunctionPointer { .. }))
+                    && let Some(variant) = self.enum_constructor_variant(inner, Some(ty))
+                {
+                    TypedExprKind::EnumConstructor(variant)
                 } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_item) = self.lower_function_item_ref(inner)
                 {

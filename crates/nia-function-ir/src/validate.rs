@@ -660,6 +660,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Global(_)
             | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Function(_)
+            | FunctionExprKind::EnumConstructor(_)
             | FunctionExprKind::FunctionInstance { .. }
             | FunctionExprKind::ClosureFunctionPointer { .. }
             | FunctionExprKind::EnumVariantTag(_)

@@ -412,6 +412,7 @@ impl FunctionLowerer<'_> {
             TypedExprKind::Global(def_id) => FunctionExprKind::Global(*def_id),
             TypedExprKind::ConstGeneric(arg) => FunctionExprKind::ConstGeneric(arg.clone()),
             TypedExprKind::Function(def_id) => FunctionExprKind::Function(*def_id),
+            TypedExprKind::EnumConstructor(variant) => FunctionExprKind::EnumConstructor(*variant),
             TypedExprKind::FunctionInstance {
                 def_id,
                 arg_module_id,
