@@ -335,7 +335,7 @@ extend Build {
     ) Error!StepHandle {
         compileName.append(self.allocator, &".compile")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let executable = self.addExecutable(.init(name, rootModule).forHost()).?;
+        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forHost()).?;
         _ = self.addEmitExecutableStep(compileName.text(), executable).?;
         self.addTestExecutableStep(name, .init(executable))
     }
