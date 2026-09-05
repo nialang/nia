@@ -1,6 +1,6 @@
 # Error Ergonomics Roadmap
 
-Status: design review
+Status: implementation in progress
 
 This roadmap records two related but independent error-handling ergonomics
 proposals for Nia:
@@ -10,12 +10,9 @@ proposals for Nia:
 2. `and`-chained pattern conditions such as
    `if first() is ?x and second(x) is ?y { ... }`.
 
-The current priority is a complete native-style review of `lib/std`, including
-error handling, omitted constructors, pattern use, naming, ownership edges,
-and real user workflows. This roadmap must not start implementation while that
-review is still discovering existing std contracts. The review should first
-record actual repeated call sites and rejected simplifications; that evidence
-decides whether either proposal earns implementation work.
+The std review established the repeated pattern-condition use cases and the
+implementation now proceeds with the chain proposal. `inspectError` remains a
+separate follow-up until call-site evidence justifies its API.
 
 The roadmap does not change the existing contracts for `.?`, `mapError`,
 `orElse`, `CleanupAccumulator`, or ordinary `if`/`match`. When this project
@@ -113,31 +110,31 @@ recovery path do not count as evidence for this API.
 ### Intended shape
 
 ```nia
-if first.find(name) is ?old and second.find(name) is ?new {
+if first.find(name) is ?old and second.find(name) is ?new and old.isValid() {
     use(old, new);
 }
 ```
 
 This is Nia's equivalent of Rust's `if let` chains, expressed with the
 language's existing `is` pattern condition rather than introducing a new
-expression-level `let`. The first version should support a left-to-right chain
-of pattern clauses:
+expression-level `let`. The first version supports a left-to-right chain
+beginning with a pattern clause; later clauses may be patterns or ordinary
+boolean predicates:
 
 ```text
-if expression is pattern (and expression is pattern)* block [else expression]
+if expression is pattern (and (expression is pattern | boolean-expression))* block [else expression]
 ```
 
-The `and` separators belong to this condition grammar. The initial feature does
-not mix ordinary boolean predicates into the chain, and it does not accept
-`or`/`not` or parenthesized subchains. Ordinary boolean conditions remain
-ordinary `if` expressions. This gives the parser one unambiguous boundary
-between a target expression and its pattern, and avoids making
-binding-producing alternatives appear to be boolean values.
+The `and` separators belong to this condition grammar. Ordinary predicates,
+including `and not predicate`, are valid after a pattern. Binding-producing
+`or`, `not value is pattern`, and parenthesized subchains are rejected;
+ordinary boolean conditions without a pattern remain ordinary `if` expressions.
+This keeps binding-producing alternatives explicit through `match`.
 
 The intended accepted form is therefore:
 
 ```nia
-if acquire() is ?resource and resource.isReady() is true {
+if acquire() is ?resource and resource.isReady() and not resource.hidden {
     use(resource);
 }
 ```
@@ -147,8 +144,8 @@ to ordinary boolean parsing:
 
 ```text
 if acquire() is ?resource or other() is ?fallback { ... }
-if (acquire() is ?resource and resource.isReady() is true) { ... }
-if acquire() is ?resource and ready() { ... }
+if (acquire() is ?resource and resource.isReady()) { ... }
+if acquire() is ?resource and not resource.isReady() is true { ... }
 ```
 
 ### 3.1 Semantic Contract
@@ -243,10 +240,9 @@ tests under `tests/ui/rfcs/rfc-2497-if-let-chains/`,
 `tests/ui/mir/mir_let_chains_drop_order.rs`.
 
 Nia intentionally differs in three ways: it uses `and` and `is`, it has no
-edition gate, and its initial grammar admits only pattern clauses. These
-differences reduce grammar ambiguity and preserve Nia's explicit manual-memory
-model while retaining Rust's sequencing, scope, refutability, and cleanup
-invariants.
+edition gate, and ordinary predicates are represented explicitly alongside
+pattern clauses. These differences preserve Nia's explicit manual-memory model
+while retaining Rust's sequencing, scope, refutability, and cleanup invariants.
 
 ### 3.4 Compiler Representation
 

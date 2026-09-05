@@ -995,6 +995,23 @@ impl ConstModuleLowerer<'_> {
                     self.collect_expr_locals(else_branch, out);
                 }
             }
+            nia_ast::ExprKind::IfPatternChain(chain) => {
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            self.collect_expr_locals(target, out);
+                            self.collect_pattern_locals(pattern, out);
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            self.collect_expr_locals(condition, out);
+                        }
+                    }
+                }
+                self.collect_block_locals(&chain.then_branch, out);
+                if let Some(else_branch) = chain.else_branch.as_deref() {
+                    self.collect_expr_locals(else_branch, out);
+                }
+            }
             nia_ast::ExprKind::Match(matched) => {
                 self.collect_expr_locals(&matched.target, out);
                 for arm in &matched.arms {

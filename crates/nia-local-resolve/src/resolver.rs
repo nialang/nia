@@ -618,6 +618,29 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(else_branch);
                 }
             }
+            ExprKind::IfPatternChain(chain) => {
+                self.push_scope();
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            self.resolve_expr(target);
+                            self.resolve_pattern(
+                                pattern,
+                                LocalKind::ImmutableBinding,
+                                "duplicate if pattern binding",
+                            );
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            self.resolve_expr(condition);
+                        }
+                    }
+                }
+                self.resolve_block(&chain.then_branch);
+                self.pop_scope();
+                if let Some(else_branch) = &chain.else_branch {
+                    self.resolve_expr(else_branch);
+                }
+            }
             ExprKind::Match(matched) => {
                 self.resolve_expr(&matched.target);
                 for arm in &matched.arms {

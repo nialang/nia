@@ -530,6 +530,23 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(else_branch);
             }
         }
+        ExprKind::IfPatternChain(chain) => {
+            for clause in &chain.clauses {
+                match clause {
+                    nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                        visitor.visit_expr(target);
+                        visitor.visit_pattern(pattern);
+                    }
+                    nia_ast::IfPatternChainClause::Condition(condition) => {
+                        visitor.visit_expr(condition);
+                    }
+                }
+            }
+            visitor.visit_block(&chain.then_branch);
+            if let Some(else_branch) = &chain.else_branch {
+                visitor.visit_expr(else_branch);
+            }
+        }
         ExprKind::Match(matched) => {
             visitor.visit_expr(&matched.target);
             for arm in &matched.arms {

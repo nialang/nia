@@ -188,6 +188,9 @@ impl FunctionLowerer<'_> {
             TypedExprKind::IfPattern(if_pattern) => {
                 self.lower_if_pattern_expr_stmt(span, if_pattern, scope, current, ops, blocks);
             }
+            TypedExprKind::IfPatternChain(chain) => {
+                self.lower_if_pattern_chain_expr_stmt(span, chain, scope, current, ops, blocks);
+            }
             TypedExprKind::Match(matched) => {
                 self.lower_match_expr_stmt(span, matched, scope, current, ops, blocks);
             }
@@ -405,6 +408,81 @@ impl FunctionLowerer<'_> {
             );
         }
 
+        *current = merge_target;
+    }
+
+    pub(super) fn lower_if_pattern_chain_expr_stmt(
+        &mut self,
+        _span: Span,
+        chain: &nia_body_ir::TypedIfPatternChain,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) {
+        let merge_target = self.alloc_block();
+        let failure_target = if chain.else_branch.is_some() {
+            self.alloc_block()
+        } else {
+            merge_target
+        };
+        let then_scope = self.alloc_scope(Some(scope), chain.then_branch.span);
+        let (success_target, success_ops) = self.lower_if_pattern_chain_entry(
+            &chain.clauses,
+            scope,
+            then_scope,
+            failure_target,
+            current,
+            ops,
+            blocks,
+        );
+        let body_entry = if success_ops.is_empty() {
+            success_target
+        } else {
+            let body_entry = self.alloc_block();
+            self.finish_block(
+                blocks,
+                success_target,
+                then_scope,
+                chain.then_branch.span,
+                success_ops,
+                FunctionTerminator::Branch {
+                    target: body_entry,
+                    span: chain.then_branch.span,
+                },
+            );
+            body_entry
+        };
+        self.lower_body_into(
+            &chain.then_branch,
+            body_entry,
+            then_scope,
+            blocks,
+            Fallthrough::Branch(merge_target),
+        );
+        if let Some(else_branch) = &chain.else_branch {
+            let mut else_current = failure_target;
+            let mut else_ops = Vec::new();
+            self.lower_expr_stmt(
+                else_branch.span,
+                else_branch,
+                scope,
+                &mut else_current,
+                &mut else_ops,
+                blocks,
+            );
+            self.finish_block(
+                blocks,
+                else_current,
+                scope,
+                else_branch.span,
+                else_ops,
+                FunctionTerminator::Branch {
+                    target: merge_target,
+                    span: else_branch.span,
+                },
+            );
+        }
         *current = merge_target;
     }
 

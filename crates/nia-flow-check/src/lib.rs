@@ -520,6 +520,29 @@ impl FlowChecker<'_> {
                     falls_through: target_flow.falls_through && falls_through,
                 }
             }
+            ExprKind::IfPatternChain(chain) => {
+                let mut clauses_flow = true;
+                for clause in &chain.clauses {
+                    let flow = match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            let target_flow = self.check_expr_flow(target);
+                            self.check_pattern_flow(pattern);
+                            target_flow
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            self.check_expr_flow(condition)
+                        }
+                    };
+                    clauses_flow &= flow.falls_through;
+                }
+                let then_flow = self.check_block(&chain.then_branch);
+                let failure_flow = chain.else_branch.as_deref().map_or(true, |else_branch| {
+                    self.check_expr_flow(else_branch).falls_through
+                });
+                Flow {
+                    falls_through: clauses_flow && (then_flow.falls_through || failure_flow),
+                }
+            }
             ExprKind::Match(matched) => {
                 self.check_match_patterns(matched);
                 let target_flow = self.check_expr_flow(&matched.target);

@@ -6,8 +6,9 @@ use nia_symbol::{SymbolId, symbol_identity_key};
 use crate::{
     ArrayElements, AssignOp, Attribute, AttributeKind, BinaryOp, Block, BracketArg,
     ConditionBinaryOp, ConditionExpr, ConditionExprKind, ConditionUnaryOp, Expr, ExprKind,
-    FieldInit, IndexArg, MatchArmBody, NominalPatternFields, Pattern, PatternKind, SliceRange,
-    Stmt, StmtKind, StringLiteral, UnaryOp, UsingGroupItem, UsingItem, UsingName, UsingSelector,
+    FieldInit, IfPatternChainClause, IndexArg, MatchArmBody, NominalPatternFields, Pattern,
+    PatternKind, SliceRange, Stmt, StmtKind, StringLiteral, UnaryOp, UsingGroupItem, UsingItem,
+    UsingName, UsingSelector,
 };
 
 /// Kind of one source path segment.
@@ -814,6 +815,33 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_expr_identity(out, &value.target);
             out.push('|');
             write_pattern_identity(out, &value.pattern);
+            out.push('|');
+            write_block_identity(out, &value.then_branch);
+            out.push('|');
+            write_optional_expr_identity(out, value.else_branch.as_deref());
+            out.push(')');
+        }
+        ExprKind::IfPatternChain(value) => {
+            out.push_str("if_pattern_chain(");
+            for (index, clause) in value.clauses.iter().enumerate() {
+                if index > 0 {
+                    out.push('|');
+                }
+                match clause {
+                    IfPatternChainClause::Pattern { target, pattern } => {
+                        out.push_str("pattern(");
+                        write_expr_identity(out, target);
+                        out.push('|');
+                        write_pattern_identity(out, pattern);
+                        out.push(')');
+                    }
+                    IfPatternChainClause::Condition(expr) => {
+                        out.push_str("condition(");
+                        write_expr_identity(out, expr);
+                        out.push(')');
+                    }
+                }
+            }
             out.push('|');
             write_block_identity(out, &value.then_branch);
             out.push('|');

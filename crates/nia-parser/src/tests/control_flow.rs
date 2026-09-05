@@ -330,6 +330,103 @@ fn main() {
 }
 
 #[test]
+fn parses_if_pattern_condition_chain() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() bool {
+    if get() is ?value and value.ready() {
+        true
+    } else {
+        false
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::IfPatternChain(chain) = &tail.kind else {
+        panic!("expected pattern chain, got {:?}", tail.kind);
+    };
+    assert_eq!(chain.clauses.len(), 2);
+    assert!(matches!(
+        chain.clauses[0],
+        nia_ast::IfPatternChainClause::Pattern { .. }
+    ));
+    assert!(matches!(
+        chain.clauses[1],
+        nia_ast::IfPatternChainClause::Condition(_)
+    ));
+}
+
+#[test]
+fn parses_multiple_if_pattern_clauses() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() {
+    if first() is ?a and second(a) is ?b {}
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function
+        .body
+        .as_ref()
+        .unwrap()
+        .tail
+        .as_ref()
+        .expect("expected tail");
+    let ExprKind::IfPatternChain(chain) = &expr.kind else {
+        panic!("expected pattern chain");
+    };
+    assert_eq!(chain.clauses.len(), 2);
+    assert!(matches!(
+        chain.clauses[1],
+        nia_ast::IfPatternChainClause::Pattern { .. }
+    ));
+}
+
+#[test]
+fn rejects_or_in_if_pattern_condition_chain() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() {
+    if get() is ?value or other() is ?fallback {}
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("use `match`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_not_wrapped_pattern_condition() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() {
+    if value is ?x and not other() is true {}
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("not value is pattern")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_for_in_binding_type_annotation() {
     let (_module, errors) = parse_module(
         r#"

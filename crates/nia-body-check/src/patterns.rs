@@ -444,6 +444,17 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(crate) fn check_pattern_condition_is_exhaustive(
+        &mut self,
+        pattern: &nia_ast::Pattern,
+        target_ty: InternedTyId,
+        context: &str,
+    ) -> bool {
+        let mut coverage = PatternCoverage::default();
+        self.check_pattern(pattern, target_ty, Some(&mut coverage), context);
+        self.pattern_coverage_covers_type(target_ty, &coverage)
+    }
+
     pub(super) fn check_irrefutable_struct_pattern(
         &mut self,
         pattern: &nia_ast::Pattern,

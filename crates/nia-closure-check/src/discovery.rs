@@ -219,6 +219,23 @@ fn collect_expr_closures<'a>(
                 collect_expr_closures(branch, callables);
             }
         }
+        TypedExprKind::IfPatternChain(chain) => {
+            for clause in &chain.clauses {
+                match clause {
+                    nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                        collect_expr_closures(target, callables);
+                        collect_pattern_closures(pattern, callables);
+                    }
+                    nia_body_ir::TypedIfPatternClause::Condition(condition) => {
+                        collect_expr_closures(condition, callables)
+                    }
+                }
+            }
+            collect_body_closures(&chain.then_branch, callables);
+            if let Some(branch) = &chain.else_branch {
+                collect_expr_closures(branch, callables);
+            }
+        }
         TypedExprKind::Match(matched) => {
             collect_expr_closures(&matched.target, callables);
             for arm in &matched.arms {

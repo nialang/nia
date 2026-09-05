@@ -211,6 +211,9 @@ fn lower_expr_internal(
         nia_ast::ExprKind::IfPattern(if_pattern) => EarlyConstExprKind::Match(Box::new(
             lower_if_pattern_as_switch(expr.span, if_pattern, context)?,
         )),
+        nia_ast::ExprKind::IfPatternChain(chain) => {
+            lower_if_pattern_chain_as_expr(expr.span, chain, context)?.kind
+        }
         nia_ast::ExprKind::Match(matched) => EarlyConstExprKind::Match(Box::new(
             lower_match_with_context(expr.span, matched, context)?,
         )),
@@ -1124,6 +1127,69 @@ fn lower_if_pattern_as_switch(
         target: lower_expr_internal(&if_pattern.target, context)?,
         arms,
     })
+}
+
+fn lower_if_pattern_chain_as_expr(
+    span: Span,
+    chain: &nia_ast::IfPatternChainExpr,
+    context: &dyn ConstLowerContext,
+) -> Result<EarlyConstExpr, ConstLowerError> {
+    let mut current = EarlyConstExpr {
+        span: chain.then_branch.span,
+        kind: EarlyConstExprKind::Block(lower_block_with_context(&chain.then_branch, context)?),
+    };
+    for clause in chain.clauses.iter().rev() {
+        let branch = EarlyConstBlock {
+            span: current.span,
+            stmts: Vec::new(),
+            tail: Some(Box::new(current)),
+        };
+        current = match clause {
+            nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                let target_expr = lower_expr_internal(target, context)?;
+                let pattern = lower_pattern_with_context(pattern, context)?;
+                let mut arms = vec![EarlyConstMatchArm {
+                    span: branch.span,
+                    patterns: vec![pattern],
+                    body: EarlyConstMatchArmBody::Block(branch),
+                }];
+                if let Some(else_branch) = &chain.else_branch {
+                    arms.push(EarlyConstMatchArm {
+                        span: else_branch.span,
+                        patterns: vec![EarlyConstPattern::Wildcard {
+                            span: else_branch.span,
+                        }],
+                        body: EarlyConstMatchArmBody::Expr(lower_expr_internal(
+                            else_branch,
+                            context,
+                        )?),
+                    });
+                }
+                EarlyConstExpr {
+                    span,
+                    kind: EarlyConstExprKind::Match(Box::new(EarlyConstMatch {
+                        span,
+                        target: target_expr,
+                        arms,
+                    })),
+                }
+            }
+            nia_ast::IfPatternChainClause::Condition(condition) => EarlyConstExpr {
+                span,
+                kind: EarlyConstExprKind::If {
+                    cond: Box::new(lower_expr_internal(condition, context)?),
+                    then_branch: branch,
+                    else_branch: chain
+                        .else_branch
+                        .as_deref()
+                        .map(|expr| lower_expr_internal(expr, context))
+                        .transpose()?
+                        .map(Box::new),
+                },
+            },
+        };
+    }
+    Ok(current)
 }
 
 fn lower_match_arm_with_context(
