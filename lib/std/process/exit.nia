@@ -14,9 +14,7 @@ using types::{Error, ExitCode, SpawnError, SystemError};
 extend test::Error : error::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
-            .AssertionFailed(_) => exit(1),
-            .ValuesEqual(_) => exit(1),
-            .ValuesNotEqual(_) => exit(1),
+            .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_) => exit(1),
         }
     }
 }
@@ -78,10 +76,7 @@ extend fs::Error {
 extend fs::PathError : error::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
-            .ContainsNul => exit(22),
-            .Absolute => exit(22),
-            .ParentTraversal => exit(22),
-            .MissingTerminator => exit(22),
+            .ContainsNul, .Absolute, .ParentTraversal, .MissingTerminator => exit(22),
             .TooLong => exit(36),
             _ => exit(255),
         }

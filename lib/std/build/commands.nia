@@ -85,14 +85,11 @@ pub(pkg) fn validateExternalCommand(options: ExternalCommandOptions, index: usiz
         return invalidStep(index);
     }
     match options.resourceClass {
-        .Conservative => {},
-        .Cpu => {},
-        .Io => {},
+        .Conservative, .Cpu, .Io => {},
         _ => return invalidStep(index),
     }
     match options.environmentPolicy {
-        .Inherit => {},
-        .Clear => {},
+        .Inherit, .Clear => {},
         _ => return invalidStep(index),
     }
     match options.cachePolicy {

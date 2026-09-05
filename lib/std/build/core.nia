@@ -324,16 +324,7 @@ extend Build {
         let result = self.addOwnedTestSuite(name, rootModule, &mut compileName);
         let cleanup = compileName.deinit(self.allocator)
             .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
-        match result {
-            !step => {
-                cleanup.?;
-                !step
-            },
-            primary! => {
-                _ = cleanup;
-                primary!
-            },
-        }
+        result.cleanupAfter(cleanup)
     }
 
     fn addOwnedTestSuite(

@@ -70,13 +70,10 @@ where K: Sized, V: Sized
         ?value => value,
         null => return .OutOfMemory!,
     };
-    let mut blockAlign = std::builtin::align[u8]();
-    if std::builtin::align[K]() > blockAlign {
-        blockAlign = std::builtin::align[K]();
-    }
-    if std::builtin::align[V]() > blockAlign {
-        blockAlign = std::builtin::align[V]();
-    }
+    let blockAlign = cmp::max(
+        std::builtin::align[u8](),
+        cmp::max(std::builtin::align[K](), std::builtin::align[V]()),
+    );
     !.{
         layout: mem::Layout::init(totalSize, blockAlign).?,
         ctrlLen,
