@@ -40,7 +40,7 @@ extend PathView {
             }
         }
         storage[out] = 0;
-        !NativePathView::init(storage.ptr(), out)
+        !.init(storage.ptr(), out)
     }
 }
 
@@ -64,12 +64,12 @@ extend RelativePathView {
     }
 
     pub fn fromText(text: &[char]) PathError!RelativePathView {
-        RelativePathView::fromPath(PathView::init(text))
+        RelativePathView::fromPath(.init(text))
     }
 
     pub fn fromPath(path: PathView) PathError!RelativePathView {
         validateRelativeText(path.text()).?;
-        !RelativePathView::init(path)
+        !.init(path)
     }
 
     pub fn path(&self) PathView {
@@ -82,7 +82,7 @@ extend RelativePathView {
 
     pub fn encode(&self, storage: &mut [u8]) PathError!RelativeNativePathView {
         let native = self.path.encode(storage).?;
-        !RelativeNativePathView::init(native)
+        !.init(native)
     }
 }
 
@@ -102,12 +102,12 @@ extend Path {
 
     pub fn fromView(allocator: &mut mem::Allocator, path: PathView) mem::Error!Path {
         let text = string::String::fromSlice(allocator, path.text()).?;
-        !Path::fromString(text)
+        !.fromString(text)
     }
 
     pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) string::TextError!Path {
         let text = string::String::fromUtf8(allocator, bytes).?;
-        !Path::fromString(text)
+        !.fromString(text)
     }
 
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!() {
@@ -205,19 +205,19 @@ fn textSliceOffset(out: &string::String, text: &[char]) mem::Error!?usize {
     }
     let outBytes = match out.len().checkedMul(itemSize) {
         ?value => value,
-            null => return .Invalid!,
+        null => return .Invalid!,
     };
     let outEnd = match base.checkedAdd(outBytes) {
         ?value => value,
-            null => return .Invalid!,
+        null => return .Invalid!,
     };
     let sourceBytes = match text.len().checkedMul(itemSize) {
         ?value => value,
-            null => return .Invalid!,
+        null => return .Invalid!,
     };
     let sourceEnd = match source.checkedAdd(sourceBytes) {
         ?value => value,
-            null => return .Invalid!,
+        null => return .Invalid!,
     };
     if sourceEnd > outEnd {
         return !null;
@@ -250,7 +250,7 @@ extend NativePathView {
             }
             index += 1;
         }
-        !NativePathView::init(bytes.ptr(), len)
+        !.init(bytes.ptr(), len)
     }
 
     pub fn relative(self) PathError!RelativeNativePathView {
@@ -286,7 +286,7 @@ extend RelativeNativePathView {
 
     pub fn fromNative(path: NativePathView) PathError!RelativeNativePathView {
         validateRelativeBytes(path.bytes()).?;
-        !RelativeNativePathView::init(path)
+        !.init(path)
     }
 
     pub fn native(&self) NativePathView {
