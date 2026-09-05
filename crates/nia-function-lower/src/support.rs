@@ -1194,6 +1194,7 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::ConstGeneric(_)
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
+                | TypedExprKind::EnumConstructor(_)
                 | TypedExprKind::FunctionInstance { .. }
                 | TypedExprKind::ClosureFunctionPointer { .. }
                 | TypedExprKind::BuiltinValue(_)

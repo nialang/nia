@@ -238,6 +238,7 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
         | TypedExprKind::Global(_)
         | TypedExprKind::ConstGeneric(_)
         | TypedExprKind::Function(_)
+        | TypedExprKind::EnumConstructor(_)
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::BuiltinValue(_)
         | TypedExprKind::CallerLocation(_)

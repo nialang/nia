@@ -893,6 +893,7 @@ fn collect_typed_expr_refs(
         | TypedExprKind::Null
         | TypedExprKind::ConstGeneric(_)
         | TypedExprKind::Local(_)
+        | TypedExprKind::EnumConstructor(_)
         | TypedExprKind::ClosureFunctionPointer { .. } => {}
         TypedExprKind::UnionStorageLiteral { relocations, .. } => {
             for relocation in relocations {

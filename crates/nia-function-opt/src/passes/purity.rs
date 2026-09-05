@@ -43,6 +43,7 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
+        | FunctionExprKind::EnumConstructor(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::ClosureFunctionPointer { .. }
         | FunctionExprKind::EnumVariantTag(_)

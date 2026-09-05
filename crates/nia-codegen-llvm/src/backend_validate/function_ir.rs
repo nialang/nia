@@ -670,6 +670,9 @@ impl BackendValidator<'_> {
                     );
                 }
             }
+            FunctionExprKind::EnumConstructor(variant) => {
+                self.validate_enum_constructor(expr.ty, *variant, expr.span);
+            }
             FunctionExprKind::FunctionInstance {
                 def_id,
                 arg_module_id,
@@ -1708,6 +1711,68 @@ impl BackendValidator<'_> {
                     "variant payload field type does not match its declaration",
                 );
             }
+        }
+    }
+
+    fn validate_enum_constructor(
+        &mut self,
+        function_pointer_ty: nia_ids::InternedTyId,
+        variant: nia_ids::GlobalDefId,
+        span: Span,
+    ) {
+        let Some(info) = self.index.enum_variant_info(variant) else {
+            self.validate_enum_variant_ref(
+                variant,
+                span,
+                "backend IR expression references missing enum constructor variant",
+            );
+            return;
+        };
+        let expected_params = match &info.variant.payload {
+            nia_backend_ir::BackendEnumVariantPayload::Unit => {
+                self.invalid_enum(
+                    span,
+                    "unit variant cannot be used as a constructor function",
+                );
+                return;
+            }
+            nia_backend_ir::BackendEnumVariantPayload::Tuple(fields) => fields.clone(),
+            nia_backend_ir::BackendEnumVariantPayload::Named(fields) => {
+                fields.iter().map(|field| field.ty).collect()
+            }
+        };
+        let owner_id = info.owner.def_id;
+        let Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) = self.ty_kind(function_pointer_ty).cloned()
+        else {
+            self.invalid_enum(span, "constructor value is not a function pointer");
+            return;
+        };
+        if is_variadic {
+            self.invalid_enum(span, "constructor function pointer is variadic");
+        }
+        if params.len() != expected_params.len()
+            || !params
+                .iter()
+                .zip(expected_params)
+                .all(|(actual, expected)| self.same_type(*actual, expected))
+        {
+            self.invalid_enum(
+                span,
+                "constructor function parameters do not match the variant payload",
+            );
+        }
+        if !matches!(
+            self.ty_kind(return_type),
+            Some(TyKind::Nominal { def_id, .. }) if *def_id == owner_id
+        ) {
+            self.invalid_enum(
+                span,
+                "constructor function return type does not match the variant owner",
+            );
         }
     }
 

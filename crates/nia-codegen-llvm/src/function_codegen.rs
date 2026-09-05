@@ -568,6 +568,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .as_pointer_value()
                     .into())
             }
+            FunctionExprKind::EnumConstructor(variant) => Ok(self
+                .module
+                .enum_constructor_function(*variant, expr.ty, expr.span)?
+                .as_global_value()
+                .as_pointer_value()
+                .into()),
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {

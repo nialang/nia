@@ -285,6 +285,9 @@ fn collect_function_refs_from_expr(
 ) {
     refs.types.insert(expr.ty);
     match &expr.kind {
+        FunctionExprKind::EnumConstructor(variant) => {
+            refs.modules.insert(variant.module_id);
+        }
         FunctionExprKind::Function(def_id) => {
             refs.functions.insert(*def_id);
         }

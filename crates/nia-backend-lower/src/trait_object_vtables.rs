@@ -221,7 +221,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionCallable { function } => {
                 self.collect_trait_object_vtables_from_expr(function, out, seen);
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => {}
+            FunctionExprKind::ClosureFunctionPointer { .. }
+            | FunctionExprKind::EnumConstructor(_) => {}
             FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }

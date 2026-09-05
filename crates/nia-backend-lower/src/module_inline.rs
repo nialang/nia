@@ -349,7 +349,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionCallable { function } => {
                 self.inline_leaf_calls_in_expr(function, function_candidates, instance_candidates);
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => {}
+            FunctionExprKind::ClosureFunctionPointer { .. }
+            | FunctionExprKind::EnumConstructor(_) => {}
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {
@@ -982,6 +983,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
+        | FunctionExprKind::EnumConstructor(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::CallerLocation(_)
@@ -1085,6 +1087,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
+        | FunctionExprKind::EnumConstructor(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariantTag(_)
         | FunctionExprKind::CallerLocation(_)

@@ -191,7 +191,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionCallable { function } => {
                 changed |= self.devirtualize_direct_trait_calls_in_expr(function);
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => {}
+            FunctionExprKind::ClosureFunctionPointer { .. }
+            | FunctionExprKind::EnumConstructor(_) => {}
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {

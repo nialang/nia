@@ -391,7 +391,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionCallable { function } => {
                 self.collect_struct_instances_expr(function, seen, out);
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => {}
+            FunctionExprKind::ClosureFunctionPointer { .. }
+            | FunctionExprKind::EnumConstructor(_) => {}
             FunctionExprKind::AddrOf(place) => {
                 self.collect_struct_instances_place(place, seen, out);
             }
@@ -1095,7 +1096,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionCallable { function } => {
                 self.collect_union_instances_expr(function, seen, out);
             }
-            FunctionExprKind::ClosureFunctionPointer { .. } => {}
+            FunctionExprKind::ClosureFunctionPointer { .. }
+            | FunctionExprKind::EnumConstructor(_) => {}
             FunctionExprKind::AddrOf(place) => {
                 self.collect_union_instances_place(place, seen, out);
             }

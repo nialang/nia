@@ -371,6 +371,8 @@ pub enum TypedExprKind {
     ConstGeneric(nia_ty::ConstGenericArg),
     /// Monomorphic function reference.
     Function(GlobalDefId),
+    /// Thin function pointer that constructs a tuple enum variant.
+    EnumConstructor(GlobalDefId),
     /// Concrete generic function reference.
     FunctionInstance {
         /// Function definition identity.
