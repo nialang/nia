@@ -1361,6 +1361,10 @@ impl Parser {
 pub(super) fn expr_can_terminate_statement_without_semicolon(expr: &Expr) -> bool {
     matches!(
         expr.kind,
-        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::IfPattern(_) | ExprKind::Match(_)
+        ExprKind::Block(_)
+            | ExprKind::If { .. }
+            | ExprKind::IfPattern(_)
+            | ExprKind::IfPatternChain(_)
+            | ExprKind::Match(_)
     )
 }
