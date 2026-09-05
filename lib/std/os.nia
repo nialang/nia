@@ -151,7 +151,7 @@ pub(pkg) fn pageAlignedLen(len: usize) Error!usize {
 }
 
 pub(pkg) fn cwd() FileHandle {
-    FileHandle::fromPlatform(platform::cwd())
+    .fromPlatform(platform::cwd())
 }
 
 pub(pkg) fn getCwd(buffer: &mut [u8]) Error!&[u8] {
@@ -177,7 +177,7 @@ pub(pkg) fn openAt(
         exclusive,
         permissions,
     ).?;
-    !FileHandle::fromPlatform(handle)
+    !.fromPlatform(handle)
 }
 
 pub(pkg) fn openAtBeneath(
@@ -203,7 +203,7 @@ pub(pkg) fn openAtBeneath(
         permissions,
         followSymlinks,
     ).?;
-    !FileHandle::fromPlatform(handle)
+    !.fromPlatform(handle)
 }
 
 pub(pkg) fn createDirAtBeneath(
@@ -264,12 +264,12 @@ pub(pkg) fn random(bytes: &mut [u8]) Error!() {
 }
 
 pub(pkg) fn spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
-    SpawnAttempt::fromPlatform(platform::spawn(path, argv, envp, options.platform()))
+    .fromPlatform(platform::spawn(path, argv, envp, options.platform()))
 }
 
 pub(pkg) fn wait(pid: ProcessId) Error!WaitStatus {
     let status = platform::wait(pid.platform()).?;
-    !WaitStatus::fromPlatform(status)
+    !.fromPlatform(status)
 }
 
 pub(pkg) fn tryWait(pid: ProcessId) Error! ?WaitStatus {
@@ -353,16 +353,16 @@ extend SpawnAttempt {
 
     pub(pkg) fn finish(&mut self) SpawnError!SpawnResult {
         let result = self.platform.finish().?;
-        !SpawnResult::fromPlatform(result)
+        !.fromPlatform(result)
     }
 }
 
 extend OpenMode {
     fn asPlatformOpenMode(self) Error!platform::OpenMode {
         match self {
-            .ReadOnly => !platform::OpenMode::ReadOnly,
-            .WriteOnly => !platform::OpenMode::WriteOnly,
-            .ReadWrite => !platform::OpenMode::ReadWrite,
+            .ReadOnly => !.ReadOnly,
+            .WriteOnly => !.WriteOnly,
+            .ReadWrite => !.ReadWrite,
             _ => .Invalid!,
         }
     }
@@ -371,9 +371,9 @@ extend OpenMode {
 extend SeekWhence {
     fn asPlatformSeekWhence(self) Error!platform::SeekWhence {
         match self {
-            .Start => !platform::SeekWhence::Start,
-            .Current => !platform::SeekWhence::Current,
-            .End => !platform::SeekWhence::End,
+            .Start => !.Start,
+            .Current => !.Current,
+            .End => !.End,
             _ => .Invalid!,
         }
     }
@@ -554,15 +554,15 @@ extend FileHandle {
     }
 
     pub(pkg) fn stdin() FileHandle {
-        FileHandle::fromPlatform(platform::FileDescriptor::stdin())
+        .fromPlatform(platform::FileDescriptor::stdin())
     }
 
     pub(pkg) fn stdout() FileHandle {
-        FileHandle::fromPlatform(platform::FileDescriptor::stdout())
+        .fromPlatform(platform::FileDescriptor::stdout())
     }
 
     pub(pkg) fn stderr() FileHandle {
-        FileHandle::fromPlatform(platform::FileDescriptor::stderr())
+        .fromPlatform(platform::FileDescriptor::stderr())
     }
 
     pub(pkg) fn writeSome(&self, bytes: &[u8]) Error!usize {
@@ -637,7 +637,7 @@ extend ProcessId {
     }
 
     pub(pkg) fn fromRaw(raw: i32) ProcessId {
-        ProcessId::fromPlatform(platform::ProcessId::init(raw))
+        .fromPlatform(platform::ProcessId::init(raw))
     }
 }
 
@@ -689,7 +689,7 @@ extend SpawnResult {
     }
 
     pub(pkg) fn pid(&self) ProcessId {
-        ProcessId::fromPlatform(self.platform().pid())
+        .fromPlatform(self.platform().pid())
     }
 
     pub(pkg) fn stdin(&self) ?FileHandle {
@@ -708,9 +708,9 @@ extend SpawnResult {
 extend StdIo {
     fn asPlatformStdio(self) Error!platform::StdIo {
         match self {
-            .Inherit => !platform::StdIo::Inherit,
-            .Ignore => !platform::StdIo::Ignore,
-            .Pipe => !platform::StdIo::Pipe,
+            .Inherit => !.Inherit,
+            .Ignore => !.Ignore,
+            .Pipe => !.Pipe,
         }
     }
 }
