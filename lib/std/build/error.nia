@@ -139,10 +139,10 @@ extend[T] fmt::Error!T {
     pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
-            cause! => Error::Failure {
+            cause! => .Failure {
                 operation: operation,
                 subject: subject,
-                cause: ErrorCause::Format(cause),
+                cause: .Format(cause),
             }!,
         }
     }
@@ -152,10 +152,10 @@ extend[T] fs::Error!T {
     pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
-            cause! => Error::Failure {
+            cause! => .Failure {
                 operation: operation,
                 subject: subject,
-                cause: ErrorCause::FileSystem(cause),
+                cause: .FileSystem(cause),
             }!,
         }
     }
@@ -165,10 +165,10 @@ extend[T] fs::OperationError!T {
     pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
-            cause! => Error::Failure {
+            cause! => .Failure {
                 operation: operation,
                 subject: subject,
-                cause: ErrorCause::FileSystemOperation(cause),
+                cause: .FileSystemOperation(cause),
             }!,
         }
     }
@@ -178,10 +178,10 @@ extend[T] process::Error!T {
     pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
-            cause! => Error::Failure {
+            cause! => .Failure {
                 operation: operation,
                 subject: subject,
-                cause: ErrorCause::Process(cause),
+                cause: .Process(cause),
             }!,
         }
     }
@@ -191,10 +191,10 @@ extend[T] mem::Error!T {
     pub fn withBuildContext(self, operation: ErrorOperation, subject: ErrorSubject) Error!T {
         match self {
             !value => !value,
-            cause! => Error::Failure {
+            cause! => .Failure {
                 operation: operation,
                 subject: subject,
-                cause: ErrorCause::Memory(cause),
+                cause: .Memory(cause),
             }!,
         }
     }
