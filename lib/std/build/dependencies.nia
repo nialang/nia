@@ -60,7 +60,7 @@ pub(pkg) fn findGeneratedSourceProducer(
             if found is ?_ {
                 return null;
             }
-            found = ?StepHandle::init(ownerId, step.index);
+            found = ?.init(ownerId, step.index);
         }
         index += 1;
     }
