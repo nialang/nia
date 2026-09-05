@@ -352,6 +352,86 @@ static mut signed_global: i32 = signed_value;
 }
 
 #[test]
+fn bit_counting_builtins_are_const_evaluable_at_target_width() {
+    let root = temp_dir("bit_counting_builtins_are_const_evaluable_at_target_width");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fn trailing(value: u8) u8 {
+    std::builtin::ctz[u8](value)
+}
+
+const trailing_zero: u8 = std::builtin::ctz[u8](0u8);
+const leading_zero: u8 = std::builtin::clz[u8](0u8);
+const leading_one: u8 = std::builtin::clz[u8](1u8);
+const trailing_eight: u8 = trailing(8u8);
+const signed_leading: i8 = std::builtin::clz[i8](-2i8);
+const signed_popcount: i8 = std::builtin::popcount[i8](-1i8);
+const signed_wide_zero: i128 = std::builtin::ctz[i128](0i128);
+const zero_popcount: usize = std::builtin::popcount[usize](0usize);
+
+static mut trailing_zero_global: u8 = trailing_zero;
+static mut leading_zero_global: u8 = leading_zero;
+static mut leading_one_global: u8 = leading_one;
+static mut trailing_eight_global: u8 = trailing_eight;
+static mut signed_leading_global: i8 = signed_leading;
+static mut signed_popcount_global: i8 = signed_popcount;
+static mut signed_wide_zero_global: i128 = signed_wide_zero;
+static mut zero_popcount_global: usize = zero_popcount;
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let global_init = |name| {
+        main_module
+            .globals
+            .iter()
+            .find(|global| global.name == sym(name))
+            .and_then(|global| global.init.clone())
+    };
+    assert_eq!(
+        global_init("trailing_zero_global"),
+        Some(StaticInit::Int(IntConst::unsigned(8)))
+    );
+    assert_eq!(
+        global_init("leading_zero_global"),
+        Some(StaticInit::Int(IntConst::unsigned(8)))
+    );
+    assert_eq!(
+        global_init("leading_one_global"),
+        Some(StaticInit::Int(IntConst::unsigned(7)))
+    );
+    assert_eq!(
+        global_init("trailing_eight_global"),
+        Some(StaticInit::Int(IntConst::unsigned(3)))
+    );
+    assert_eq!(
+        global_init("signed_leading_global"),
+        Some(StaticInit::Int(IntConst::from_i128(0)))
+    );
+    assert_eq!(
+        global_init("signed_popcount_global"),
+        Some(StaticInit::Int(IntConst::from_i128(8)))
+    );
+    assert_eq!(
+        global_init("signed_wide_zero_global"),
+        Some(StaticInit::Int(IntConst::from_i128(128)))
+    );
+    assert_eq!(
+        global_init("zero_popcount_global"),
+        Some(StaticInit::Int(IntConst::unsigned(0)))
+    );
+}
+
+#[test]
 fn const_float_values_drive_casts_and_conditions() {
     let root = temp_dir("const_float_values_drive_casts_and_conditions");
     write(

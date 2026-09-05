@@ -619,15 +619,15 @@ impl BuiltinFunction {
             | Self::Splat
             | Self::Extract
             | Self::Insert
-            | Self::Bitmask => true,
+            | Self::Bitmask
+            | Self::Ctz
+            | Self::Clz
+            | Self::Popcount => true,
             Self::Asm
             | Self::MemCopy
             | Self::MemMove
             | Self::MemSet
             | Self::LoadUnaligned
-            | Self::Ctz
-            | Self::Clz
-            | Self::Popcount
             | Self::AtomicLoad
             | Self::AtomicStore
             | Self::AtomicRmw
