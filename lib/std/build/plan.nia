@@ -23,8 +23,6 @@ using types::{
     Module,
     OptimizationMode,
     Step,
-    StepKind,
-    ModuleSourceRoot,
     CommandArgumentKind,
     ActionResourceClass,
     CommandEnvironmentPolicy,

@@ -3,7 +3,7 @@ using pkg::error;
 using pkg::os;
 using pkg::process::types;
 
-using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, SystemError, Term};
+using types::{Child, ChildState, ChildStateKind, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, SystemError, Term};
 
 pub(pkg) fn processIdFromOs(pid: os::ProcessId) ProcessId {
     .fromRaw(pid.raw())

@@ -30,20 +30,9 @@ using error::ErrorSubject as Subject;
 using types::{
     Build,
     BuildInitAttempt,
-    BuildPaths,
-    ExecutableTarget,
-    Module,
-    ModuleHandle,
     ModuleSourceRoot,
-    ObjectTarget,
     OptimizationMode,
-    Package,
-    PackageHandle,
-    StaticArchiveTarget,
-    Step,
-    StepDependency,
     TargetRole,
-    TargetStorage,
     TargetView,
 };
 

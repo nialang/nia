@@ -7,7 +7,6 @@ using pkg::build::error;
 using pkg::build::types;
 
 using error::Error;
-using error::ErrorOperation as Operation;
 using types::{
     Build,
     BuildInitAttempt,
