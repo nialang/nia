@@ -36,7 +36,7 @@ where T: Sized
     let address = block.ptr() as usize;
     let mut valuePtr = address as &mut T;
     valuePtr.* = value;
-    !Allocated[T] {
+    !.{
         valuePtr,
         blockSize: block.size(),
         blockAlign: block.align(),
@@ -71,7 +71,7 @@ where T: Sized
         self.blockSize = 0;
         self.releasePtr = 0;
         self.releaseSize = 0;
-        CallableAllocation[V] { callback, allocationPtr, blockSize, blockAlign, releasePtr, releaseSize }
+        .{ callback, allocationPtr, blockSize, blockAlign, releasePtr, releaseSize }
     }
 
     pub fn deinit(&mut self, allocator: &mut Allocator) Error!() {

@@ -91,9 +91,9 @@ extend GeneralPurposeAllocator {
         let leaked = not self.isEmpty();
         self.deinitWithoutLeakCheck().?;
         if leaked {
-            !DeinitStatus::Leak
+            !.Leak
         } else {
-            !DeinitStatus::Ok
+            !.Ok
         }
     }
 
@@ -188,7 +188,7 @@ extend GeneralPurposeAllocator : Allocator {
             self.pendingFree = null;
         }
         if layout.isEmpty() {
-            return !Block::empty(layout);
+            return !.empty(layout);
         }
         match smallSlotSize(layout) {
             ?slotSize => {
@@ -206,59 +206,59 @@ extend GeneralPurposeAllocator : Allocator {
         }
         let smallPage = self.findSmallPage(block);
         if smallPage is mut ?page {
-                if newLayout.isEmpty() {
-                    return false;
-                }
-                if block.align() != newLayout.align() {
-                    return false;
-                }
-                let mut slot = match smallPageSlotForPtr(page, block.ptr()) {
-                    ?value => {
-                        value
-                    },
-                    null => {
-                        return false;
-                    },
-                };
-                if not smallSlotMatches(slot, block) {
-                    return false;
-                }
-                let newPtr = match smallSlotUserPtr(slot, newLayout.align()) {
-                    ?value => {
-                        value
-                    },
-                    null => {
-                        return false;
-                    },
-                };
-                if newPtr as usize != block.ptr() as usize {
-                    return false;
-                }
-                let slotEnd = match (slot as usize).checkedAdd(page.slotSize) {
-                    ?value => {
-                        value
-                    },
-                    null => {
-                        return false;
-                    },
-                };
-                let blockEnd = match (newPtr as usize).checkedAdd(newLayout.size()) {
-                    ?value => {
-                        value
-                    },
-                    null => {
-                        return false;
-                    },
-                };
-                if blockEnd > slotEnd {
-                    return false;
-                }
-                page.usedBytes -= block.size();
-                page.usedBytes = saturatingAdd(page.usedBytes, newLayout.size());
-                slot.size = newLayout.size();
-                slot.align = newLayout.align();
-                return true;
+            if newLayout.isEmpty() {
+                return false;
             }
+            if block.align() != newLayout.align() {
+                return false;
+            }
+            let mut slot = match smallPageSlotForPtr(page, block.ptr()) {
+                ?value => {
+                    value
+                },
+                null => {
+                    return false;
+                },
+            };
+            if not smallSlotMatches(slot, block) {
+                return false;
+            }
+            let newPtr = match smallSlotUserPtr(slot, newLayout.align()) {
+                ?value => {
+                    value
+                },
+                null => {
+                    return false;
+                },
+            };
+            if newPtr as usize != block.ptr() as usize {
+                return false;
+            }
+            let slotEnd = match (slot as usize).checkedAdd(page.slotSize) {
+                ?value => {
+                    value
+                },
+                null => {
+                    return false;
+                },
+            };
+            let blockEnd = match (newPtr as usize).checkedAdd(newLayout.size()) {
+                ?value => {
+                    value
+                },
+                null => {
+                    return false;
+                },
+            };
+            if blockEnd > slotEnd {
+                return false;
+            }
+            page.usedBytes -= block.size();
+            page.usedBytes = saturatingAdd(page.usedBytes, newLayout.size());
+            slot.size = newLayout.size();
+            slot.align = newLayout.align();
+            return true;
+        }
         match self.findLargeHeader(block.ptr()) {
             mut ?header => {
                 if newLayout.isEmpty() {
@@ -286,7 +286,7 @@ extend GeneralPurposeAllocator : Allocator {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
-            ?Block::empty(newLayout)
+            ?.empty(newLayout)
         } else {
             null
         }
@@ -350,7 +350,7 @@ extend GeneralPurposeAllocator {
         slot.next = null;
         page.usedCount = usedCount;
         page.usedBytes = saturatingAdd(page.usedBytes, layout.size());
-        !Block::init(ptr, layout)
+        !.init(ptr, layout)
     }
 
     fn freeSmall(&mut self, page: &mut SmallPage, block: Block) Error!() {
@@ -386,7 +386,7 @@ extend GeneralPurposeAllocator {
         let blockLayout = Layout::init(pageSize, pageSize).?;
         let block = self.child.alloc(blockLayout).?;
         let mut page = block.ptr() as &mut SmallPage;
-        page.* = SmallPage {
+        page.* = .{
             block: block,
             slotSize: slotSize,
             slotCount: 0,
@@ -422,7 +422,7 @@ extend GeneralPurposeAllocator {
         for index in 0..slotCount {
             let addr = payloadBase + index * slotSize;
             let mut slot = addr as &mut SmallSlot;
-            slot.* = SmallSlot {
+            slot.* = .{
                 magic: smallMagic,
                 size: 0,
                 align: 0,
@@ -486,7 +486,7 @@ extend GeneralPurposeAllocator {
                 value
             },
             null => {
-            return .OutOfMemory!;
+                return .OutOfMemory!;
             },
         };
         let blockAlign = cmp::max(std::builtin::align[LargeHeader](), layout.align());
@@ -512,7 +512,7 @@ extend GeneralPurposeAllocator {
         let headerAddr = userAddr - headerSize;
         let userCapacity = backing.size() - (userAddr - base);
         let mut header = headerAddr as &mut LargeHeader;
-        header.* = LargeHeader {
+        header.* = .{
             magic: largeMagic,
             backing: backing,
             userLayout: layout,
@@ -520,7 +520,7 @@ extend GeneralPurposeAllocator {
             next: self.largeAllocations,
         };
         self.largeAllocations = ?header;
-        !Block::init(userAddr as &mut u8, layout)
+        !.init(userAddr as &mut u8, layout)
     }
 
     fn freeLarge(&mut self, block: Block) Error!() {
