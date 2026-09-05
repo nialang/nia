@@ -39,11 +39,11 @@ extend PageAllocator : Allocator {
             return block.isEmpty() and newLayout.isEmpty();
         }
 
-        if os::pageAlignedLen(block.size()) is !oldSize {
-            if os::pageAlignedLen(newLayout.size()) is !newSize {
-                return oldSize == newSize;
-            }
-        }
+        if os::pageAlignedLen(block.size()) is !oldSize
+            and os::pageAlignedLen(newLayout.size()) is !newSize
+        {
+            return oldSize == newSize;
+        };
         false
     }
 

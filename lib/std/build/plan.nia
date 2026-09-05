@@ -686,9 +686,7 @@ fn invalidPlan[T]() Error!T {
 }
 
 fn rememberPrimary(firstError: &mut ?Error, result: Error!()) () {
-    if result is err! {
-        if firstError.* is null {
-            firstError.* = ?err;
-        }
+    if result is err! and firstError.* is null {
+        firstError.* = ?err;
     }
 }

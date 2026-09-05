@@ -138,12 +138,8 @@ where T: Step + Ord[T] + Eq[T]
         if value == self.end {
             self.done = true;
         } else {
-            if value.forwardChecked() is ?next {
-                if next > value and next <= self.end {
-                    self.current = next;
-                } else {
-                    self.done = true;
-                }
+            if value.forwardChecked() is ?next and next > value and next <= self.end {
+                self.current = next;
             } else {
                 self.done = true;
             }
