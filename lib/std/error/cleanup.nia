@@ -19,10 +19,8 @@ extend[Failure] CleanupAccumulator[Failure] {
 
     // Record a failure while always allowing the caller to attempt later work.
     pub fn attempt(&mut self, result: Failure!()) () {
-        if result is err! {
-            if self.firstFailure is null {
-                self.firstFailure = ?err;
-            }
+        if result is err! and self.firstFailure is null {
+            self.firstFailure = ?err;
         }
     }
 

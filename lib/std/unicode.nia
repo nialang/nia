@@ -155,11 +155,9 @@ extend Utf8ViewIter : Iterator {
 }
 
 fn nextByteIndex(current: usize, width: usize, limit: usize) ?usize {
-    if current.checkedAdd(width) is ?next {
-        if next <= limit {
-            return ?next;
-        }
-    }
+    if current.checkedAdd(width) is ?next and next <= limit {
+        return ?next;
+    };
     null
 }
 
