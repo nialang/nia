@@ -34,6 +34,103 @@ pub(super) struct MatchExprArmContext<'a> {
 }
 
 impl FunctionLowerer<'_> {
+    pub(super) fn lower_if_pattern_chain_entry(
+        &mut self,
+        clauses: &[nia_body_ir::TypedIfPatternClause],
+        outer_scope: FunctionScopeId,
+        success_scope: FunctionScopeId,
+        failure_target: FunctionBlockId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> (FunctionBlockId, Vec<FunctionOp>) {
+        for (index, clause) in clauses.iter().enumerate() {
+            let scope = if index == 0 {
+                outer_scope
+            } else {
+                success_scope
+            };
+            let (cond, span, binding) = match clause {
+                nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                    let target_value = self.lower_value_expr(target, scope, current, ops, blocks);
+                    let target_local = self.alloc_temp_local(target.span, target.ty);
+                    ops.push(FunctionOp::StoreLocal {
+                        local_id: target_local,
+                        value: target_value,
+                        span: target.span,
+                    });
+                    let target = FunctionExpr {
+                        span: target.span,
+                        ty: target.ty,
+                        kind: FunctionExprKind::Local(target_local),
+                    };
+                    let mut condition_context = PatternConditionContext {
+                        scope,
+                        current,
+                        ops,
+                        blocks,
+                        bool_ty: self.types.intern(TyKind::Primitive(PrimitiveTy::Bool)),
+                    };
+                    let cond = self
+                        .pattern_condition(&target, pattern, &mut condition_context)
+                        .unwrap_or(FunctionExpr {
+                            span: pattern.span,
+                            ty: self.types.intern(TyKind::Primitive(PrimitiveTy::Bool)),
+                            kind: FunctionExprKind::Bool(true),
+                        });
+                    (cond, pattern.span, Some((pattern, target)))
+                }
+                nia_body_ir::TypedIfPatternClause::Condition(condition) => (
+                    self.lower_value_expr(condition, scope, current, ops, blocks),
+                    condition.span,
+                    None,
+                ),
+            };
+            let success_target = self.alloc_block();
+            self.finish_block(
+                blocks,
+                *current,
+                scope,
+                span,
+                std::mem::take(ops),
+                FunctionTerminator::If {
+                    cond,
+                    then_target: success_target,
+                    else_target: failure_target,
+                    span,
+                },
+            );
+            *current = success_target;
+            if let Some((pattern, target)) = binding {
+                let mut binding_ops = Vec::new();
+                self.lower_pattern_binding(pattern, &target, &mut binding_ops);
+                if index + 1 < clauses.len() {
+                    let next_target = self.alloc_block();
+                    self.finish_block(
+                        blocks,
+                        success_target,
+                        success_scope,
+                        pattern.span,
+                        binding_ops,
+                        FunctionTerminator::Branch {
+                            target: next_target,
+                            span: pattern.span,
+                        },
+                    );
+                    *current = next_target;
+                } else {
+                    return (success_target, binding_ops);
+                }
+            } else if index + 1 < clauses.len() {
+                // A plain predicate has no binding block, but still needs a
+                // distinct entry so the next target is evaluated only after
+                // this condition succeeds.
+                *current = success_target;
+            }
+        }
+        (*current, std::mem::take(ops))
+    }
+
     pub(super) fn try_kind(&self, ty: InternedTyId) -> Option<FunctionTryKind> {
         match self.types.get(ty) {
             Some(TyKind::Optional { .. }) => Some(FunctionTryKind::Optional),
@@ -1029,6 +1126,23 @@ impl FunctionLowerer<'_> {
                     visit_pattern(&if_pattern.pattern, max_id);
                     visit_body(&if_pattern.then_branch, max_id);
                     if let Some(else_branch) = &if_pattern.else_branch {
+                        visit_expr(else_branch, max_id);
+                    }
+                }
+                TypedExprKind::IfPatternChain(chain) => {
+                    for clause in &chain.clauses {
+                        match clause {
+                            nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                                visit_expr(target, max_id);
+                                visit_pattern(pattern, max_id);
+                            }
+                            nia_body_ir::TypedIfPatternClause::Condition(condition) => {
+                                visit_expr(condition, max_id)
+                            }
+                        }
+                    }
+                    visit_body(&chain.then_branch, max_id);
+                    if let Some(else_branch) = &chain.else_branch {
                         visit_expr(else_branch, max_id);
                     }
                 }

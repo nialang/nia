@@ -2298,6 +2298,22 @@ branch, and `mut` belongs inside the pattern, for example
 `if maybe is mut ?value { ... }`. A non-exhaustive value-producing if-pattern
 requires `else`; an effect-only if-pattern may omit it.
 
+Pattern conditions may be chained with `and`:
+
+```nia
+if acquire() is ?resource and resource.isReady() and not resource.hidden {
+    use(resource);
+}
+```
+
+Clauses are evaluated strictly left to right and short-circuit on the first
+failure. Bindings introduced by a successful pattern are visible to later
+clauses and the then branch, but never to `else`. Later clauses may be another
+`is` pattern or an ordinary boolean condition. Binding-producing `or` chains,
+`not value is pattern`, and parenthesized subchains are rejected; use `match`
+for alternatives. Each target is evaluated at most once and follows the same
+temporary and cleanup rules as a standalone if-pattern.
+
 Use `match` for multiple refutable alternatives:
 
 ```nia

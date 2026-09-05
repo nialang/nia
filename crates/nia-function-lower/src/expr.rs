@@ -126,6 +126,10 @@ impl FunctionLowerer<'_> {
                 };
                 return self.lower_value_if_pattern_expr(expr, if_pattern, &mut context);
             }
+            TypedExprKind::IfPatternChain(chain) => {
+                return self
+                    .lower_value_if_pattern_chain_expr(expr, chain, scope, current, ops, blocks);
+            }
             TypedExprKind::Match(matched) => {
                 return self.lower_value_match_expr(expr, matched, scope, current, ops, blocks);
             }
@@ -606,6 +610,11 @@ impl FunctionLowerer<'_> {
             TypedExprKind::IfPattern(if_pattern) => {
                 self.lower_if_pattern_expr_stmt(expr.span, if_pattern, scope, current, ops, blocks);
             }
+            TypedExprKind::IfPatternChain(chain) => {
+                self.lower_if_pattern_chain_expr_stmt(
+                    expr.span, chain, scope, current, ops, blocks,
+                );
+            }
             TypedExprKind::Match(matched) => {
                 self.lower_match_expr_stmt(expr.span, matched, scope, current, ops, blocks);
             }
@@ -1001,6 +1010,92 @@ impl FunctionLowerer<'_> {
         }
 
         *context.current = merge_target;
+        FunctionExpr {
+            span: expr.span,
+            ty: expr.ty,
+            kind: FunctionExprKind::Local(result_local),
+        }
+    }
+
+    pub(super) fn lower_value_if_pattern_chain_expr(
+        &mut self,
+        expr: &TypedExpr,
+        chain: &nia_body_ir::TypedIfPatternChain,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionExpr {
+        let result_local = self.alloc_temp_local(expr.span, expr.ty);
+        let merge_target = self.alloc_block();
+        let failure_target = if chain.else_branch.is_some() {
+            self.alloc_block()
+        } else {
+            merge_target
+        };
+        let then_scope = self.alloc_scope(Some(scope), chain.then_branch.span);
+        let (success_target, success_ops) = self.lower_if_pattern_chain_entry(
+            &chain.clauses,
+            scope,
+            then_scope,
+            failure_target,
+            current,
+            ops,
+            blocks,
+        );
+        let body_entry = if success_ops.is_empty() {
+            success_target
+        } else {
+            let body_entry = self.alloc_block();
+            self.finish_block(
+                blocks,
+                success_target,
+                then_scope,
+                chain.then_branch.span,
+                success_ops,
+                FunctionTerminator::Branch {
+                    target: body_entry,
+                    span: chain.then_branch.span,
+                },
+            );
+            body_entry
+        };
+        self.lower_body_into(
+            &chain.then_branch,
+            body_entry,
+            then_scope,
+            blocks,
+            Fallthrough::StoreThenBranch {
+                local_id: result_local,
+                target: merge_target,
+            },
+        );
+        if let Some(else_branch) = &chain.else_branch {
+            let mut else_current = failure_target;
+            let mut else_ops = Vec::new();
+            let terminated = self.store_expr_result_or_effect(
+                else_branch,
+                result_local,
+                scope,
+                &mut else_current,
+                &mut else_ops,
+                blocks,
+            );
+            if !terminated {
+                self.finish_block(
+                    blocks,
+                    else_current,
+                    scope,
+                    else_branch.span,
+                    else_ops,
+                    FunctionTerminator::Branch {
+                        target: merge_target,
+                        span: else_branch.span,
+                    },
+                );
+            }
+        }
+        *current = merge_target;
         FunctionExpr {
             span: expr.span,
             ty: expr.ty,

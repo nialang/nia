@@ -436,6 +436,7 @@ impl<'a> BodyChecker<'a> {
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
             ExprKind::IfPattern(if_pattern) => self.check_if_pattern_expr(if_pattern, expected),
+            ExprKind::IfPatternChain(chain) => self.check_if_pattern_chain_expr(chain, expected),
             ExprKind::Match(matched) => self.check_match_expr(matched, expected),
         };
         let ty = if let Some(expected) = expected {
@@ -1450,6 +1451,75 @@ impl<'a> BodyChecker<'a> {
         let else_ty = self.check_expr_with_expected(else_branch, Some(then_ty));
         self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
         then_ty
+    }
+
+    fn check_if_pattern_chain_expr(
+        &mut self,
+        chain: &nia_ast::IfPatternChainExpr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let mut exhaustive = true;
+        for clause in &chain.clauses {
+            match clause {
+                nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                    let target_ty = self.check_expr(target);
+                    exhaustive &= self.check_pattern_condition_is_exhaustive(
+                        pattern,
+                        target_ty,
+                        "if pattern chain",
+                    );
+                }
+                nia_ast::IfPatternChainClause::Condition(condition) => {
+                    let condition_ty = self.check_expr(condition);
+                    self.expect_type(condition.span, self.bool(), condition_ty, "if condition");
+                    exhaustive = false;
+                }
+            }
+        }
+        let mut result_ty = expected;
+        let then_ty = self.check_block_with_expected(&chain.then_branch, result_ty);
+        if let Some(expected) = result_ty {
+            self.expect_block_tail_type(
+                &chain.then_branch,
+                expected,
+                then_ty,
+                "if pattern chain branches",
+            );
+        } else if !self.is_never(then_ty) {
+            result_ty = Some(then_ty);
+        }
+        let Some(else_branch) = &chain.else_branch else {
+            if exhaustive {
+                return result_ty.unwrap_or_else(|| self.unit());
+            }
+            if expected.is_some_and(|expected| !self.is_unit(expected)) {
+                let span = chain
+                    .clauses
+                    .first()
+                    .map_or(chain.then_branch.span, |clause| match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, .. } => target.span,
+                        nia_ast::IfPatternChainClause::Condition(condition) => condition.span,
+                    });
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    "non-exhaustive if pattern chain requires an `else` branch",
+                ));
+            }
+            return self.unit();
+        };
+        if let Some(expected) = result_ty {
+            let else_ty = self.check_expr_with_expected(else_branch, result_ty);
+            self.expect_expr_or_block_tail_type(
+                else_branch,
+                expected,
+                else_ty,
+                "if pattern chain branches",
+            );
+            expected
+        } else {
+            self.check_expr(else_branch)
+        }
     }
 
     pub(crate) fn expect_block_tail_type(

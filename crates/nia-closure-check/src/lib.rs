@@ -877,6 +877,31 @@ impl<'a> Analyzer<'a> {
                 value.extend(else_value);
                 value
             }
+            TypedExprKind::IfPatternChain(chain) => {
+                let base = env.clone();
+                let mut then_env = base.clone();
+                let mut value = ValueProvenance::default();
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                            let target_value = self.analyze_expr(target, &mut then_env);
+                            self.analyze_pattern(pattern, &mut then_env);
+                            bind_pattern(pattern, &target_value, &mut then_env);
+                        }
+                        nia_body_ir::TypedIfPatternClause::Condition(condition) => {
+                            value.extend(self.analyze_expr(condition, &mut then_env));
+                        }
+                    }
+                }
+                value.extend(self.analyze_nested_body(&chain.then_branch, &mut then_env));
+                let mut else_env = base;
+                if let Some(branch) = chain.else_branch.as_deref() {
+                    value.extend(self.analyze_expr(branch, &mut else_env));
+                }
+                join_environment(&mut then_env, &else_env);
+                *env = then_env;
+                value
+            }
             TypedExprKind::Match(matched) => {
                 let target = self.analyze_expr(&matched.target, env);
                 let base = env.clone();

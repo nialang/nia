@@ -207,6 +207,29 @@ pub struct TypedIfPattern {
     pub else_branch: Option<Box<TypedExpr>>,
 }
 
+/// Typed short-circuit condition chain.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedIfPatternChain {
+    /// Clauses evaluated from left to right.
+    pub clauses: Vec<TypedIfPatternClause>,
+    /// Body entered after all clauses succeed.
+    pub then_branch: TypedBody,
+    /// Shared failure expression.
+    pub else_branch: Option<Box<TypedExpr>>,
+}
+
+/// One typed clause in an `if` pattern chain.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedIfPatternClause {
+    /// Pattern test and bindings.
+    Pattern {
+        target: TypedExpr,
+        pattern: TypedPattern,
+    },
+    /// Ordinary boolean condition.
+    Condition(TypedExpr),
+}
+
 /// Typed pattern with a semantic type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedPattern {
@@ -615,6 +638,8 @@ pub enum TypedExprKind {
     },
     /// Conditional pattern expression.
     IfPattern(Box<TypedIfPattern>),
+    /// Short-circuit chain of pattern and boolean conditions.
+    IfPatternChain(Box<TypedIfPatternChain>),
     /// Match expression with typed arms.
     Match(Box<TypedMatch>),
 }

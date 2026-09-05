@@ -3,8 +3,8 @@
 
 use crate::{
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedMatchArmBody, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
-    TypedPlace, TypedStmt, TypedStmtKind,
+    TypedExprKind, TypedIfPatternClause, TypedMatchArmBody, TypedMemoryIntrinsicSource,
+    TypedPattern, TypedPatternKind, TypedPlace, TypedStmt, TypedStmtKind,
 };
 
 /// Visits every lexical body belonging to one typed function in preorder.
@@ -194,6 +194,21 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
             walk_pattern(&pattern.pattern, visit);
             walk_typed_function_bodies(&pattern.then_branch, visit);
             if let Some(branch) = &pattern.else_branch {
+                walk_expr(branch, visit);
+            }
+        }
+        TypedExprKind::IfPatternChain(chain) => {
+            for clause in &chain.clauses {
+                match clause {
+                    TypedIfPatternClause::Pattern { target, pattern } => {
+                        walk_expr(target, visit);
+                        walk_pattern(pattern, visit);
+                    }
+                    TypedIfPatternClause::Condition(condition) => walk_expr(condition, visit),
+                }
+            }
+            walk_typed_function_bodies(&chain.then_branch, visit);
+            if let Some(branch) = &chain.else_branch {
                 walk_expr(branch, visit);
             }
         }

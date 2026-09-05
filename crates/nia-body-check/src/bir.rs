@@ -8,10 +8,11 @@ use nia_body_ir::{
     AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinMethod, BuiltinOperator, BuiltinPlaceMethod,
     LocalName, MemoryIntrinsicOp, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody,
     TypedCallee, TypedClosureCapture, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
-    TypedIfPattern, TypedLocal, TypedLocalKind, TypedLoop, TypedMatch, TypedMatchArm,
-    TypedMatchArmBody, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
-    TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding, TypedPatternKind,
-    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedTryErrorConversion, TypedWhile,
+    TypedIfPattern, TypedIfPatternChain, TypedIfPatternClause, TypedLocal, TypedLocalKind,
+    TypedLoop, TypedMatch, TypedMatchArm, TypedMatchArmBody, TypedMemoryIntrinsic,
+    TypedMemoryIntrinsicSource, TypedNominalPatternConstructor, TypedPattern, TypedPatternBinding,
+    TypedPatternKind, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
+    TypedTryErrorConversion, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, InternedTyId};
 use nia_item_signatures::FunctionAttribute;
@@ -1418,6 +1419,38 @@ impl<'a> BodyChecker<'a> {
                         if self.is_never(ty) { None } else { Some(ty) },
                     ),
                     else_branch: if_pattern.else_branch.as_ref().map(|else_branch| {
+                        Box::new(self.lower_expr_with_ty(
+                            else_branch,
+                            if self.is_never(ty) { None } else { Some(ty) },
+                        ))
+                    }),
+                }))
+            }
+            ExprKind::IfPatternChain(chain) => {
+                let clauses = chain
+                    .clauses
+                    .iter()
+                    .map(|clause| match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            let target = self.lower_expr(target);
+                            let target_ty = target.ty;
+                            TypedIfPatternClause::Pattern {
+                                target,
+                                pattern: self.lower_pattern(pattern, target_ty),
+                            }
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            TypedIfPatternClause::Condition(self.lower_expr(condition))
+                        }
+                    })
+                    .collect();
+                TypedExprKind::IfPatternChain(Box::new(TypedIfPatternChain {
+                    clauses,
+                    then_branch: self.lower_body_with_expected_tail(
+                        &chain.then_branch,
+                        if self.is_never(ty) { None } else { Some(ty) },
+                    ),
+                    else_branch: chain.else_branch.as_ref().map(|else_branch| {
                         Box::new(self.lower_expr_with_ty(
                             else_branch,
                             if self.is_never(ty) { None } else { Some(ty) },

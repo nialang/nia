@@ -6,6 +6,11 @@ enum BracketSuffix {
     Range(nia_ast::SliceRange),
 }
 
+enum IfChainClause {
+    Pattern { target: Expr, pattern: Pattern },
+    Expr(Expr),
+}
+
 impl Parser {
     fn bool_expr(&mut self, token: nia_syntax::SyntaxToken, value: bool) -> Expr {
         self.bump();
@@ -909,6 +914,19 @@ impl Parser {
         let start = self.expect(TokenKind::If, "expected `if`")?.start;
         let target = self.parse_expr_until_tokens(&[TokenKind::Is, TokenKind::LBrace])?;
         if self.eat(TokenKind::Is).is_some() {
+            if matches!(
+                &target.kind,
+                ExprKind::Unary {
+                    op: UnaryOp::Not,
+                    ..
+                }
+            ) {
+                self.error_at(
+                    target.span,
+                    "`not value is pattern` is not a valid pattern condition",
+                );
+                return None;
+            }
             return self.parse_if_pattern_expr(start, target);
         }
         let cond = target;
@@ -937,7 +955,61 @@ impl Parser {
     }
 
     fn parse_if_pattern_expr(&mut self, start: usize, target: Expr) -> Option<Expr> {
-        let pattern = self.parse_binding_pattern_until_tokens(&[TokenKind::LBrace])?;
+        // Parse this dedicated grammar after the first `is`.  In particular,
+        // the `and` tokens here are chain separators, not binary operators in
+        // a target expression.
+        let mut clauses = vec![IfChainClause::Pattern {
+            target,
+            pattern: self.parse_binding_pattern_until_tokens(&[
+                TokenKind::And,
+                TokenKind::Or,
+                TokenKind::LBrace,
+            ])?,
+        }];
+        while self.eat(TokenKind::And).is_some() {
+            if self.at(TokenKind::Or) {
+                self.error_here(
+                    "pattern conditions do not support `or`; use `match` for alternatives",
+                );
+                return None;
+            }
+            let next_target = self.parse_expr_until_tokens(&[
+                TokenKind::Is,
+                TokenKind::And,
+                TokenKind::Or,
+                TokenKind::LBrace,
+            ])?;
+            if self.eat(TokenKind::Is).is_some() {
+                if matches!(
+                    &next_target.kind,
+                    ExprKind::Unary {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ) {
+                    self.error_at(
+                        next_target.span,
+                        "`not value is pattern` is not a valid pattern condition",
+                    );
+                    return None;
+                }
+                let pattern = self.parse_binding_pattern_until_tokens(&[
+                    TokenKind::And,
+                    TokenKind::Or,
+                    TokenKind::LBrace,
+                ])?;
+                clauses.push(IfChainClause::Pattern {
+                    target: next_target,
+                    pattern,
+                });
+            } else {
+                clauses.push(IfChainClause::Expr(next_target));
+            }
+        }
+        if self.at(TokenKind::Or) {
+            self.error_here("pattern conditions do not support `or`; use `match` for alternatives");
+            return None;
+        }
         let then_branch = self.parse_block()?;
         let else_branch = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {
@@ -952,15 +1024,38 @@ impl Parser {
         let end = else_branch
             .as_ref()
             .map_or(then_branch.span.end, |expr| expr.span.end);
-        Some(self.make_expr(
-            Span::new(start, end),
-            ExprKind::IfPattern(Box::new(IfPatternExpr {
-                target,
-                pattern,
-                then_branch,
-                else_branch,
-            })),
-        ))
+        if clauses.len() == 1 {
+            let IfChainClause::Pattern { target, pattern } = clauses.pop()? else {
+                unreachable!()
+            };
+            return Some(self.make_expr(
+                Span::new(start, end),
+                ExprKind::IfPattern(Box::new(IfPatternExpr {
+                    target,
+                    pattern,
+                    then_branch,
+                    else_branch,
+                })),
+            ));
+        }
+        Some(
+            self.make_expr(
+                Span::new(start, end),
+                ExprKind::IfPatternChain(Box::new(IfPatternChainExpr {
+                    clauses: clauses
+                        .into_iter()
+                        .map(|clause| match clause {
+                            IfChainClause::Pattern { target, pattern } => {
+                                IfPatternChainClause::Pattern { target, pattern }
+                            }
+                            IfChainClause::Expr(expr) => IfPatternChainClause::Condition(expr),
+                        })
+                        .collect(),
+                    then_branch,
+                    else_branch,
+                })),
+            ),
+        )
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {

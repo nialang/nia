@@ -122,6 +122,24 @@ impl BodyInputValidator<'_, '_> {
                 }
                 Ok(())
             }
+            TypedExprKind::IfPatternChain(chain) => {
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                            self.validate_value_expr(target)?;
+                            self.validate_pattern(pattern)?;
+                        }
+                        nia_body_ir::TypedIfPatternClause::Condition(condition) => {
+                            self.validate_value_expr(condition)?;
+                        }
+                    }
+                }
+                self.validate_effect_body(&chain.then_branch)?;
+                if let Some(else_branch) = &chain.else_branch {
+                    self.validate_effect_expr(else_branch)?;
+                }
+                Ok(())
+            }
             TypedExprKind::Match(matched) => {
                 self.validate_value_expr(&matched.target)?;
                 for arm in &matched.arms {
@@ -173,6 +191,24 @@ impl BodyInputValidator<'_, '_> {
                 self.validate_pattern(&if_pattern.pattern)?;
                 self.validate_value_body(&if_pattern.then_branch)?;
                 if let Some(else_branch) = &if_pattern.else_branch {
+                    self.validate_tail_value_result(else_branch)?;
+                }
+                Ok(())
+            }
+            TypedExprKind::IfPatternChain(chain) => {
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                            self.validate_value_expr(target)?;
+                            self.validate_pattern(pattern)?;
+                        }
+                        nia_body_ir::TypedIfPatternClause::Condition(condition) => {
+                            self.validate_value_expr(condition)?;
+                        }
+                    }
+                }
+                self.validate_value_body(&chain.then_branch)?;
+                if let Some(else_branch) = &chain.else_branch {
                     self.validate_tail_value_result(else_branch)?;
                 }
                 Ok(())

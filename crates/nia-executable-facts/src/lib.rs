@@ -865,6 +865,23 @@ fn collect_typed_expr_refs(
                 collect_typed_expr_refs(module, else_branch, refs);
             }
         }
+        TypedExprKind::IfPatternChain(chain) => {
+            for clause in &chain.clauses {
+                match clause {
+                    nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
+                        collect_typed_expr_refs(module, target, refs);
+                        collect_typed_pattern_refs(module, pattern, refs);
+                    }
+                    nia_body_ir::TypedIfPatternClause::Condition(condition) => {
+                        collect_typed_expr_refs(module, condition, refs)
+                    }
+                }
+            }
+            collect_typed_executable_refs(module, &chain.then_branch, refs);
+            if let Some(else_branch) = chain.else_branch.as_deref() {
+                collect_typed_expr_refs(module, else_branch, refs);
+            }
+        }
         TypedExprKind::Error
         | TypedExprKind::Integer(_)
         | TypedExprKind::Float(_)

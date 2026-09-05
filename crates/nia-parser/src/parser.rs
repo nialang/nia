@@ -12,12 +12,13 @@ use nia_ast::{
     BindingItem, BindingStmt, Block, BracketArg, ClosureCapture, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, EnumVariantPayload, Expr, ExprKind,
     ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam,
-    IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind, LoopStmt, MatchArm,
-    MatchArmBody, MatchExpr, Module, ModuleItem, NamedPatternField, NominalPatternFields, Param,
-    PathSegmentKind, Pattern, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem,
-    TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment,
-    TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
-    UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
+    IfPatternChainClause, IfPatternChainExpr, IfPatternExpr, Item, ItemBindingKind, ItemKind,
+    LocalBindingKind, LoopStmt, MatchArm, MatchArmBody, MatchExpr, Module, ModuleItem,
+    NamedPatternField, NominalPatternFields, Param, PathSegmentKind, Pattern, PatternKind,
+    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, TraitAssociatedType, TraitItem,
+    TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem,
+    UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause,
+    WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{

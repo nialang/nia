@@ -327,6 +327,57 @@ impl Pruner<'_> {
                     kind: ExprKind::IfPattern(if_pattern),
                 }
             }
+            ExprKind::IfPatternChain(mut chain) => {
+                for clause in &mut chain.clauses {
+                    match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            *target = self.prune_expr(std::mem::replace(
+                                target,
+                                Expr {
+                                    span: target.span,
+                                    node_key: target.node_key.clone(),
+                                    kind: ExprKind::Error,
+                                },
+                            ));
+                            let span = pattern.span;
+                            *pattern = self.prune_pattern(std::mem::replace(
+                                pattern,
+                                Pattern {
+                                    span,
+                                    kind: PatternKind::Wildcard,
+                                },
+                            ));
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            *condition = self.prune_expr(std::mem::replace(
+                                condition,
+                                Expr {
+                                    span: condition.span,
+                                    node_key: condition.node_key.clone(),
+                                    kind: ExprKind::Error,
+                                },
+                            ));
+                        }
+                    }
+                }
+                let then_span = chain.then_branch.span;
+                chain.then_branch = self.prune_block(std::mem::replace(
+                    &mut chain.then_branch,
+                    Block {
+                        span: then_span,
+                        stmts: Vec::new(),
+                        tail: None,
+                    },
+                ));
+                chain.else_branch = chain
+                    .else_branch
+                    .map(|else_branch| Box::new(self.prune_expr(*else_branch)));
+                Expr {
+                    span,
+                    node_key,
+                    kind: ExprKind::IfPatternChain(chain),
+                }
+            }
             ExprKind::Unary { op, expr: inner } => Expr {
                 span,
                 node_key,

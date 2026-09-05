@@ -275,6 +275,23 @@ impl LocalDefinitionAllocator {
                     self.allocate_expr(else_branch);
                 }
             }
+            ExprKind::IfPatternChain(chain) => {
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            self.allocate_expr(target);
+                            self.allocate_pattern(pattern, LocalKind::ImmutableBinding);
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            self.allocate_expr(condition);
+                        }
+                    }
+                }
+                self.allocate_block(&chain.then_branch);
+                if let Some(else_branch) = &chain.else_branch {
+                    self.allocate_expr(else_branch);
+                }
+            }
             ExprKind::Match(matched) => {
                 self.allocate_expr(&matched.target);
                 for arm in &matched.arms {

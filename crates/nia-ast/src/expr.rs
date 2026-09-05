@@ -207,6 +207,27 @@ pub struct IfPatternExpr {
     pub else_branch: Option<Box<Expr>>,
 }
 
+/// A left-to-right chain of pattern and boolean conditions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfPatternChainExpr {
+    /// Conditions evaluated in source order. Pattern bindings from an earlier
+    /// clause are visible while checking later clauses and the then branch.
+    pub clauses: Vec<IfPatternChainClause>,
+    /// Branch taken after every clause succeeds.
+    pub then_branch: Block,
+    /// Shared branch taken when any clause fails.
+    pub else_branch: Option<Box<Expr>>,
+}
+
+/// One condition in an [`IfPatternChainExpr`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum IfPatternChainClause {
+    /// Match a target and install the pattern bindings on success.
+    Pattern { target: Expr, pattern: Pattern },
+    /// Ordinary boolean condition evaluated after preceding clauses succeed.
+    Condition(Expr),
+}
+
 /// Match expression and its ordered arms.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchExpr {
@@ -579,6 +600,8 @@ pub enum ExprKind {
     },
     /// Conditional pattern-match expression.
     IfPattern(Box<IfPatternExpr>),
+    /// Short-circuit chain of pattern and boolean conditions.
+    IfPatternChain(Box<IfPatternChainExpr>),
     /// Match expression.
     Match(Box<MatchExpr>),
 }
