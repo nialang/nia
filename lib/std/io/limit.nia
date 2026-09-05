@@ -65,7 +65,7 @@ where R: Reader
                 return self.invalidRead()!;
             }
             if self.limit.remaining is ?current {
-                self.limit = Limit::limited(current - n);
+                self.limit = .limited(current - n);
             }
             return !n;
         }
