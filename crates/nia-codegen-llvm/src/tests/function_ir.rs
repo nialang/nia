@@ -4919,6 +4919,21 @@ fn validates_enum_expression_contracts_before_llvm() {
         args: Vec::new(),
         const_args: Vec::new(),
     });
+    let unit_constructor_ty = interner.intern(TyKind::FunctionPointer {
+        params: Vec::new(),
+        return_type: enum_ty,
+        is_variadic: false,
+    });
+    let wrong_param_constructor_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![bool_ty],
+        return_type: enum_ty,
+        is_variadic: false,
+    });
+    let wrong_return_constructor_ty = interner.intern(TyKind::FunctionPointer {
+        params: vec![i32_ty],
+        return_type: bool_ty,
+        is_variadic: false,
+    });
     let span = Span::default();
     let value = |ty| FunctionExpr {
         span,
@@ -4927,6 +4942,19 @@ fn validates_enum_expression_contracts_before_llvm() {
     };
     let enum_value = |ty, kind| FunctionOp::Expr(FunctionExpr { span, ty, kind });
     let ops = vec![
+        enum_value(
+            unit_constructor_ty,
+            FunctionExprKind::EnumConstructor(unit_variant),
+        ),
+        enum_value(bool_ty, FunctionExprKind::EnumConstructor(payload_variant)),
+        enum_value(
+            wrong_param_constructor_ty,
+            FunctionExprKind::EnumConstructor(payload_variant),
+        ),
+        enum_value(
+            wrong_return_constructor_ty,
+            FunctionExprKind::EnumConstructor(payload_variant),
+        ),
         enum_value(
             bool_ty,
             FunctionExprKind::EnumVariant {
@@ -5095,6 +5123,10 @@ fn validates_enum_expression_contracts_before_llvm() {
     let output = emit_owned_llvm_ir(program, type_store);
     assert!(output.modules.is_empty());
     for expected in [
+        "unit variant cannot be used as a constructor function",
+        "constructor value is not a function pointer",
+        "constructor function parameters do not match the variant payload",
+        "constructor function return type does not match the variant owner",
         "variant result type does not match its enum representation",
         "variant value is outside its enum backing type",
         "variant payload field count does not match its declaration",
