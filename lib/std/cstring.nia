@@ -83,7 +83,7 @@ extend CString {
     }
 
     pub fn view(&self) CStringView {
-        CStringView::fromParts(self.bytes.asSlice().ptr(), self.len())
+        .fromParts(self.bytes.asSlice().ptr(), self.len())
     }
 
     pub fn rawPtr(&self) &u8 {
@@ -124,7 +124,7 @@ extend CStringView {
         while ptr[len] != 0 {
             len += 1;
         }
-        CStringView::fromParts(ptr, len)
+        .fromParts(ptr, len)
     }
 
     pub fn fromBytes(bytes: &[u8]) CStringError!CStringView {
@@ -139,7 +139,7 @@ extend CStringView {
                 return .InteriorNul!;
             }
         }
-        !CStringView::fromParts(bytes.ptr(), bytes.len() - 1)
+        !.fromParts(bytes.ptr(), bytes.len() - 1)
     }
 
     pub fn rawPtr(&self) &u8 {
