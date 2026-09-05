@@ -1,13 +1,10 @@
 using pkg::collections;
 using pkg::error;
-using pkg::result;
 using pkg::fs;
 using pkg::mem;
 using pkg::os;
 using pkg::process::child;
 using pkg::process::types;
-using pkg::slice;
-using pkg::unicode;
 
 using types::{
     AllocatorSpawnAttempt,

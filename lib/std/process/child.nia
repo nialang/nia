@@ -1,7 +1,5 @@
 using pkg::io;
 using pkg::error;
-using pkg::option;
-using pkg::result;
 using pkg::os;
 using pkg::process::types;
 
