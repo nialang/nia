@@ -272,6 +272,85 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_error_inspect_error_observes_only_failures() {
+    let root = temp_dir("emit_exe_std_error_inspect_error_observes_only_failures");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+using std::result;
+
+enum Failure: i32 {
+    Missing = 1,
+    _,
+}
+
+fn source(calls: &mut usize, succeeds: bool) Failure!usize {
+    calls.* += 1usize;
+    if succeeds { !42usize } else { Failure::Missing! }
+}
+
+pub fn main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut calls = 0usize;
+    let mut observed = 0usize;
+
+    let success = source(&mut calls, true).inspectError(&\[&mut observed] cause: Failure -> {
+        _ = cause;
+        observed.* += 1usize;
+    });
+    match success {
+        !value => if value != 42usize {
+            return process::exit(1)!;
+        },
+        error! => return process::exit(2)!,
+    }
+    if calls != 1usize or observed != 0usize {
+        return process::exit(3)!;
+    }
+
+    let failure = source(&mut calls, false).inspectError(&\[&mut observed] cause: Failure -> {
+        if cause == Failure::Missing {
+            observed.* += 10usize;
+        }
+    });
+    match failure {
+        Failure::Missing! => {},
+        !value => {
+            _ = value;
+            return process::exit(4)!;
+        },
+        error! => return process::exit(5)!,
+    }
+    if calls != 2usize or observed != 10usize {
+        return process::exit(6)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write inspectError source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit -- std error inspectError");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted inspectError executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_into_error_is_const_propagation_protocol() {
     let root = temp_dir("emit_exe_std_into_error_is_const_propagation_protocol");
     let main = root.join("main.nia");

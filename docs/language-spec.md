@@ -1007,6 +1007,22 @@ mapping operation and is not an additional automatic propagation conversion.
 Callable-view calls are runtime-only, so `mapError` is not available in const
 evaluation.
 
+Error unions also provide `inspectError` for infallibly observing a failure
+while preserving the original result:
+
+```nia
+let checked = operation().inspectError(&cause -> log(cause));
+```
+
+`Source!Value::inspectError` evaluates its receiver once, invokes the borrowed
+synchronous `&Fn(Source) ()` callback only on the error path, and returns the
+same `Source!Value` unchanged. The callback cannot replace, convert, retain,
+or recover the error, and the operation performs no allocation or type
+erasure. It is intended for logging, tracing, counters, and similar
+infallible observation; cleanup, rollback, and fallible recovery use their
+dedicated APIs. Like other callable-view combinators, `inspectError` is not
+available during const evaluation.
+
 Fallible recovery uses `orElse`:
 
 ```nia
