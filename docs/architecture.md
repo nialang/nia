@@ -2097,6 +2097,14 @@ Function IR is deliberately separate from static/global initialization. Static
 initializers describe compile-time data for storage; function IR describes
 runtime executable control and value flow.
 
+`FunctionExprKind::EnumConstructor` represents a thin runtime pointer to a
+non-unit enum constructor. It retains only the canonical variant identity; the
+payload parameter and enum result signature are validated against the published
+enum declaration and layout. LLVM materializes the pointer through a lazy
+internal helper using the shared function-pointer ABI. This helper is not a
+source function body and therefore is excluded from ordinary source-function
+reachability, while the variant owner module remains a dependency of the body.
+
 `FunctionBody::value_refs` records method and trait substitutions as type roots.
 For `TraitMethod` and `TraitAssociatedFunction` callees, the selected trait and
 method are resolved only after concrete backend instantiation supplies the
