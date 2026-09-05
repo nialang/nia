@@ -1332,6 +1332,10 @@ Standard error-union combinators remain ordinary generic extension methods.
 directly, while its success arm reconstructs `!value`. The nested callback
 return type therefore participates in ordinary callable/generic inference; no
 compiler-owned error-union flattening operation or recovery side channel exists.
+`inspectError` calls `Fn(Source) ()` only on failure and reconstructs the same
+error union afterward. It is an observation combinator: the callback is
+borrowed and infallible, and no replacement, conversion, allocation, or
+ownership extension is introduced.
 
 Binary const expressions are typed conservatively from operand types.
 Boolean logic and comparisons produce `bool`; integer arithmetic and bit

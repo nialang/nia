@@ -27,6 +27,18 @@ extend[Value, Source] Source!Value {
             error! => error!,
         }
     }
+
+    // Observe a failure without changing the result or its error type.
+    // The callback is borrowed, synchronous, and runs only on the error arm.
+    pub fn inspectError(self, inspector: &Fn(Source) ()) Source!Value {
+        match self {
+            !value => !value,
+            error! => {
+                inspector(error);
+                error!
+            },
+        }
+    }
 }
 
 extend[Value, Source, Target] Source!Value {

@@ -1,6 +1,6 @@
 # Error Ergonomics Roadmap
 
-Status: implementation in progress
+Status: completed
 
 This roadmap records two related but independent error-handling ergonomics
 proposals for Nia:

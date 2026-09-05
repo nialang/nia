@@ -202,12 +202,10 @@ failed `Block`, path, descriptor, or nested owner. Use
 retain each failed owner in its type-specific slot and return the first cleanup
 error after the pass completes.
 
-### Deferred Result Combinator: `inspectError`
+### Result Observation: `inspectError`
 
-The current result surface already covers propagation (`.?`), value
-transformation (`map`/`andThen`), error transformation (`mapError`), and
-recovery (`orElse`). A possible future addition is an `inspectError` combinator
-for the narrower case of observing an error and returning that exact error:
+Use `inspectError` when a failure needs infallible observation before the same
+result is propagated:
 
 ```nia
 operation()
@@ -215,13 +213,9 @@ operation()
     .?;
 ```
 
-This remains a design candidate, not a current API. Before adding it, an std
-audit must show repeated infallible error-observation branches that are clearer
-as a combinator. Its contract would need to be: evaluate the receiver once,
-call a borrowed synchronous `&Fn(Source) ()` only on failure, allocate nothing,
-and return the original error unchanged. It must not be used for cleanup,
-rollback, or error accumulation; fallible callbacks would require an explicit
-error-priority and owner-retention policy and belong to the existing cleanup
-APIs instead. A generic associated-type `Try` protocol is intentionally not a
-prerequisite for this candidate: Nia's optional and error-union forms remain
-native language values with compiler-level `.?` propagation.
+The receiver is evaluated once. The borrowed synchronous `&Fn(Source) ()`
+callback runs only on failure, and the original result and concrete error type
+are returned unchanged. The callback is infallible and cannot replace,
+convert, retain, or recover the error. Do not use this for cleanup, rollback,
+or error accumulation; those paths require explicit ownership and failure
+ordering through their dedicated APIs.
