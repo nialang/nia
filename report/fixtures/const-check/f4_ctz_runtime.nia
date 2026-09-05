@@ -1,1 +1,0 @@
-pub fn main() i32 { _ = std::builtin::ctz[u32](8u32); 0 }
