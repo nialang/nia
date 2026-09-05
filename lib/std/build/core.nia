@@ -181,7 +181,7 @@ extend Build {
     // Steps declare graph work only. Execution, process ownership, output
     // publication, caching, and cancellation belong to the Rust coordinator.
     pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
-        self.addStepRecord(name, .Aggregate, StepPayload { aggregate: .init() })
+        self.addStepRecord(name, .Aggregate, .{ aggregate: .init() })
     }
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
@@ -216,7 +216,7 @@ extend Build {
 
     pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
-        self.addStepRecord(name, .CheckExecutable, StepPayload { executable: .init(target) })
+        self.addStepRecord(name, .CheckExecutable, .{ executable: .init(target) })
     }
 
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
@@ -241,7 +241,7 @@ extend Build {
         let result = self.addStepRecord(
             name,
             .EmitExecutable,
-            StepPayload { executable: .init(target) },
+            .{ executable: .init(target) },
         ).?;
         let dependencyStart = self.dependencies.len();
         if self.addExecutableArchiveDependencies(result, target) is primary! {
@@ -276,12 +276,12 @@ extend Build {
 
     pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
         self.validateObjectHandle(target).?;
-        self.addStepRecord(name, .EmitObject, StepPayload { object: .init(target) })
+        self.addStepRecord(name, .EmitObject, .{ object: .init(target) })
     }
 
     pub fn addEmitStaticArchiveStep(&mut self, name: &[char], target: StaticArchiveHandle) Error!StepHandle {
         self.validateStaticArchiveHandle(target).?;
-        self.addStepRecord(name, .EmitStaticArchive, StepPayload { staticArchive: .init(target) })
+        self.addStepRecord(name, .EmitStaticArchive, .{ staticArchive: .init(target) })
     }
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
