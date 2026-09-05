@@ -40,8 +40,8 @@ The library follows a small set of ownership rules:
 - `if value is pattern` does not create a separate ownership model from
   `match`. For a fallible teardown, keep the owner active when `deinit` returns
   an error and mark it inactive only after cleanup succeeds; this preserves a
-  valid retry path. The detailed state-machine pattern is documented in
-  [`docs/project-conventions.md`](../docs/project-conventions.md#pattern-control-flow-and-fallible-cleanup).
+  valid retry path. Keep this invariant explicit in the owning implementation
+  and its focused tests.
 - Hash-map control bytes, keys, and values share one aligned storage block.
   Rehash keeps the replaced block as a map-owned retired allocation until its
   release succeeds; a failed release leaves the active table usable but

@@ -4,9 +4,8 @@ Status: normative compiler maintenance policy
 
 This document records the engineering discipline that must survive individual
 compiler roadmaps. It complements the implemented architecture described in
-[architecture.md](architecture.md), the repository rules in
-[project-conventions.md](project-conventions.md), and the measurement contract
-in [performance.md](performance.md).
+[architecture.md](architecture.md) and the measurement contract in
+[performance.md](performance.md).
 
 Temporary roadmaps may define sequencing and acceptance for a bounded project.
 They are not permanent architecture documents. When a roadmap closes, durable

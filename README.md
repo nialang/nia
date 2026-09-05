@@ -214,8 +214,6 @@ with the fallible `std::debug::print(...).?` boundary, and
   const-evaluation extensions and their compiler ownership boundaries.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
-- [docs/project-conventions.md](docs/project-conventions.md): maintenance rules
-  for this repository.
 - [docs/contributing.md](docs/contributing.md): contribution expectations.
 - [docs/performance.md](docs/performance.md): reproducible compiler workloads
   and machine-readable performance baselines.
