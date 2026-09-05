@@ -60,7 +60,7 @@ extend String {
 
     pub fn fromUtf8(allocator: &mut mem::Allocator, bytes: &[u8]) TextError!String {
         let view = unicode::Utf8View::fromBytes(bytes)
-            .mapError(&\cause: unicode::Utf8DecodeError -> TextError::InvalidUtf8(cause)).?;
+            .mapError(&TextError::InvalidUtf8).?;
         !(String::fromUtf8View(allocator, view).?)
     }
 
@@ -74,7 +74,7 @@ extend String {
 
     pub fn appendUtf8(&mut self, allocator: &mut mem::Allocator, bytes: &[u8]) TextError!() {
         let view = unicode::Utf8View::fromBytes(bytes)
-            .mapError(&\cause: unicode::Utf8DecodeError -> TextError::InvalidUtf8(cause)).?;
+            .mapError(&TextError::InvalidUtf8).?;
         !(self.appendUtf8View(allocator, view).?)
     }
 

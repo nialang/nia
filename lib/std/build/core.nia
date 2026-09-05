@@ -45,6 +45,7 @@ using error::ErrorSubject as Subject;
 using types::{
     Build,
     Step,
+    StepKind,
     StepHandle,
     ExecutableHandle,
     ObjectHandle,

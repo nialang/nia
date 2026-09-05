@@ -53,7 +53,7 @@ pub trait Allocator {
             return !newBlock;
         }
         let newBlock = self.alloc(newLayout)
-            .mapError(&\cause: Error -> ReallocError::Allocation(cause)).?;
+            .mapError(&ReallocError::Allocation).?;
         block.copyPrefixTo(newBlock);
         if self.free(block) is oldError! {
             if self.free(newBlock) is replacementError! {
