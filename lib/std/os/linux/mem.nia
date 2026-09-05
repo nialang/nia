@@ -103,7 +103,7 @@ pub fn mapPages(len: usize, align: usize) Errno!MappedPages {
             return rejectMappedRange(mapped, mapLen);
         },
     };
-    !MappedPages {
+    !.{
         ptr: resultAddr as &mut u8,
         releasePtr: mapped,
         releaseSize: mapLen,
