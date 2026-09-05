@@ -121,7 +121,7 @@ extend StatxTimestamp {
         if self.nsec >= nanosPerSecond {
             return .Invalid!;
         }
-        !Timestamp::init(self.sec, self.nsec)
+        !.init(self.sec, self.nsec)
     }
 }
 
@@ -155,7 +155,7 @@ extend Statx {
         if (self.mask & statxBlocks) == statxBlocks {
             blockSize = self.blksize;
         }
-        !FileMetadata::init(
+        !.init(
             self.kind(),
             self.ino,
             self.nlink,
