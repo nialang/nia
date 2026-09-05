@@ -77,7 +77,7 @@ where K: Sized, V: Sized
     if std::builtin::align[V]() > blockAlign {
         blockAlign = std::builtin::align[V]();
     }
-    !StoragePlan {
+    !.{
         layout: mem::Layout::init(totalSize, blockAlign).?,
         ctrlLen,
         keysOffset,
@@ -254,7 +254,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn getEntry(&self, key: &K) ?HashMapEntryRef[K, V] {
         if self.findIndex(key, self.hashKey(key)) is ?index {
-            ?HashMapEntryRef[K, V] {
+            ?.{
                 key: &self.keys[index],
                 value: &self.values[index],
             }
@@ -265,7 +265,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
 
     pub fn getEntryMut(&mut self, key: &K) ?HashMapEntryMut[K, V] {
         if self.findIndex(key, self.hashKey(key)) is ?index {
-            return ?HashMapEntryMut[K, V] {
+            return ?.{
                 key: &self.keys[index],
                 value: &mut self.values[index],
             };
@@ -314,7 +314,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?HashMapEntryRef[K, V] { key: &self.keys[index], value: &self.values[index] }
+            ?.{ key: &self.keys[index], value: &self.values[index] }
         } else {
             null
         }
@@ -324,7 +324,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     where Q: Sized, C: HashMapLookupContext[K, Q]
     {
         if self.findQueryIndex[Q](query, self.context.hashQuery(self.seed, query)) is ?index {
-            ?HashMapEntryMut[K, V] { key: &self.keys[index], value: &mut self.values[index] }
+            ?.{ key: &self.keys[index], value: &mut self.values[index] }
         } else {
             null
         }
@@ -366,7 +366,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.findIndex(&key, valueHash) is ?index {
             let old = self.values[index];
             self.values[index] = value;
-            return !?HashMapReplacement[K, V] {
+            return !?.{
                 rejectedKey: key,
                 replacedValue: old,
             };
@@ -384,7 +384,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     ) mem::Error!?HashMapEntry[K, V] {
         let valueHash = self.hashKey(&key);
         if self.findIndex(&key, valueHash) is ?_ {
-            return !?HashMapEntry[K, V] { key, value };
+            return !?.{ key, value };
         }
 
         self.insertNew(allocator, key, value).?;
@@ -396,7 +396,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
         if self.findIndex(&key, valueHash) is ?index {
             let old = self.values[index];
             self.values[index] = value;
-            return ?HashMapReplacement[K, V] {
+            return ?.{
                 rejectedKey: key,
                 replacedValue: old,
             };
@@ -413,7 +413,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     ) ?HashMapEntry[K, V] {
         let valueHash = self.hashKey(&key);
         if self.findIndex(&key, valueHash) is ?_ {
-            return ?HashMapEntry[K, V] { key, value };
+            return ?.{ key, value };
         }
 
         self.insertNewAssumeCapacity(key, value);
@@ -428,15 +428,15 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     ) mem::Error!HashMapGetOrInsertResult[K, V] {
         let valueHash = self.hashKey(&key);
         if self.findIndex(&key, valueHash) is ?index {
-            return !HashMapGetOrInsertResult[K, V] {
+            return !.{
                 key: &self.keys[index],
                 value: &mut self.values[index],
-                rejected: ?HashMapEntry[K, V] { key, value },
+                rejected: ?.{ key, value },
             };
         }
 
         let index = self.insertNewIndex(allocator, key, value).?;
-        !HashMapGetOrInsertResult[K, V] {
+        !.{
             key: &self.keys[index],
             value: &mut self.values[index],
             rejected: null,
@@ -450,15 +450,15 @@ where K: Sized, V: Sized, C: HashMapContext[K]
     ) HashMapGetOrInsertResult[K, V] {
         let valueHash = self.hashKey(&key);
         if self.findIndex(&key, valueHash) is ?index {
-            return HashMapGetOrInsertResult[K, V] {
+            return .{
                 key: &self.keys[index],
                 value: &mut self.values[index],
-                rejected: ?HashMapEntry[K, V] { key, value },
+                rejected: ?.{ key, value },
             };
         }
 
         let index = self.insertNewIndexAssumeCapacity(key, value);
-        HashMapGetOrInsertResult[K, V] {
+        .{
             key: &self.keys[index],
             value: &mut self.values[index],
             rejected: null,
@@ -535,7 +535,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             let value = self.values[index];
             self.setCtrl(index, raw::ctrlDeleted);
             self.len -= 1;
-            ?HashMapEntry[K, V] { key: foundKey, value }
+            ?.{ key: foundKey, value }
         } else {
             null
         }
@@ -549,7 +549,7 @@ where K: Sized, V: Sized, C: HashMapContext[K]
             let value = self.values[index];
             self.setCtrl(index, raw::ctrlDeleted);
             self.len -= 1;
-            ?HashMapEntry[K, V] { key: foundKey, value }
+            ?.{ key: foundKey, value }
         } else {
             null
         }
