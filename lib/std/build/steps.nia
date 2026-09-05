@@ -289,23 +289,26 @@ extend Step {
 
     pub(pkg) fn deinit(&mut self, allocator: &mut mem::Allocator) Error!() {
         let mut cleanup: CleanupAccumulator[Error] = .init();
-        if self.kind is (.Uncacheable) {
-            cleanup.attempt(self.payload.uncacheable.deinit(allocator, self.index));
-        }
-        if self.kind is (.GeneratedFile) {
-            cleanup.attempt(self.payload.generatedFile.deinit(allocator, self.index));
-        }
-        if self.kind == StepKind::RunExecutable or self.kind == StepKind::TestExecutable {
-            cleanup.attempt(self.payload.runExecutable.deinit(allocator, self.index));
-        }
-        if self.kind is (.InstallExecutable) {
-            cleanup.attempt(self.payload.installExecutable.deinit(allocator, self.index));
-        }
-        if self.kind is (.InstallStaticArchive) {
-            cleanup.attempt(self.payload.installStaticArchive.deinit(allocator, self.index));
-        }
-        if self.kind is (.ExternalCommand) {
-            cleanup.attempt(self.payload.externalCommand.deinit(allocator, self.index));
+        match self.kind {
+            .Uncacheable => {
+                cleanup.attempt(self.payload.uncacheable.deinit(allocator, self.index));
+            },
+            .GeneratedFile => {
+                cleanup.attempt(self.payload.generatedFile.deinit(allocator, self.index));
+            },
+            .RunExecutable, .TestExecutable => {
+                cleanup.attempt(self.payload.runExecutable.deinit(allocator, self.index));
+            },
+            .InstallExecutable => {
+                cleanup.attempt(self.payload.installExecutable.deinit(allocator, self.index));
+            },
+            .InstallStaticArchive => {
+                cleanup.attempt(self.payload.installStaticArchive.deinit(allocator, self.index));
+            },
+            .ExternalCommand => {
+                cleanup.attempt(self.payload.externalCommand.deinit(allocator, self.index));
+            },
+            _ => {},
         }
         cleanup.attempt(self.name.deinit(allocator).withBuildContext(.Release, .Step(self.index)));
         cleanup.finish()
