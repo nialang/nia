@@ -222,14 +222,14 @@ extend FileDescriptor {
         if ret < 0 or ret > i32::MAX as isize {
             return .Io!;
         }
-        !FileDescriptor::init(ret as i32)
+        !.init(ret as i32)
     }
 
     pub fn fromKernel(fd: i32) Errno!FileDescriptor {
         if fd < 0 {
             return .Io!;
         }
-        !FileDescriptor::init(fd)
+        !.init(fd)
     }
 
     pub fn stdin() FileDescriptor {
@@ -272,7 +272,7 @@ extend ProcessId {
         if ret <= 0 or ret > i32::MAX as isize {
             return .Io!;
         }
-        !ProcessId::init(ret as i32)
+        !.init(ret as i32)
     }
 
     pub fn raw(&self) i32 {
@@ -304,7 +304,7 @@ extend WaitStatus {
 
     pub fn exitCode(&self) ?i32 {
         if self.exited() {
-            ?((self.raw >> 8u8) & 0xff)
+            ?((self.raw >> 8) & 0xff)
         } else {
             null
         }
@@ -320,7 +320,7 @@ extend WaitStatus {
 
     pub fn stopSignal(&self) ?i32 {
         if self.stopped() {
-            ?((self.raw >> 8u8) & 0xff)
+            ?((self.raw >> 8) & 0xff)
         } else {
             null
         }

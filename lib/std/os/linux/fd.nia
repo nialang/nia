@@ -424,7 +424,7 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
     if nameEnd == nameStart or nameEnd == recordEnd {
         return null;
     }
-    ?ParsedDirent {
+    ?.{
         recordEnd: recordEnd,
         typeIndex: typeIndex,
         nameStart: nameStart,
@@ -434,7 +434,7 @@ fn parseDirent(buffer: &[u8], offset: usize) ?ParsedDirent {
 
 fn direntReclen(buffer: &[u8], offset: usize) usize {
     (buffer[offset + linuxDirent64ReclenOffset] as usize)
-        | ((buffer[offset + linuxDirent64ReclenOffset + 1] as usize) << 8usize)
+        | ((buffer[offset + linuxDirent64ReclenOffset + 1] as usize) << 8)
 }
 
 fn direntKind(value: u8) FileKind {
