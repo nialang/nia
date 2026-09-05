@@ -40,6 +40,11 @@ this file is then deleted.
   an associated-function call nested inside it (for example,
   `.Setup(.fromOs(cause))`). Keep the receiver qualified in that shape until
   contextual typing can propagate through both products.
+- An omitted struct constructor followed immediately by an associated method
+  call (for example, `.init(name, root).forHost()`) currently loses its
+  nominal expected type. Keep the constructor qualified in that chained shape;
+  ordinary omitted construction remains preferred when the surrounding
+  expression already supplies the type.
 - `is` pattern conditions currently parse only as standalone `if` conditions;
   combining one with existing `and`, `or`, or `not` boolean expressions is
   rejected by the parser. Keep compound enum predicates in their explicit
