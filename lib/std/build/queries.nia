@@ -73,7 +73,7 @@ pub(pkg) fn findEmitStep(
             and step.payload.executable.target.ownerId() == target.ownerId()
             and step.payload.executable.target.index() == target.index()
         {
-            return ?StepHandle::init(ownerId, step.index);
+            return ?.init(ownerId, step.index);
         }
     }
     null
@@ -89,7 +89,7 @@ pub(pkg) fn findEmitObjectStep(
             and step.payload.object.target.ownerId() == target.ownerId()
             and step.payload.object.target.index() == target.index()
         {
-            return ?StepHandle::init(ownerId, step.index);
+            return ?.init(ownerId, step.index);
         }
     }
     null
@@ -105,7 +105,7 @@ pub(pkg) fn findEmitStaticArchiveStep(
             and step.payload.staticArchive.target.ownerId() == target.ownerId()
             and step.payload.staticArchive.target.index() == target.index()
         {
-            return ?StepHandle::init(ownerId, step.index);
+            return ?.init(ownerId, step.index);
         }
     }
     null
