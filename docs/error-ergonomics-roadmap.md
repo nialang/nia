@@ -40,6 +40,10 @@ this file is then deleted.
   an associated-function call nested inside it (for example,
   `.Setup(.fromOs(cause))`). Keep the receiver qualified in that shape until
   contextual typing can propagate through both products.
+- `is` pattern conditions currently parse only as standalone `if` conditions;
+  combining one with existing `and`, `or`, or `not` boolean expressions is
+  rejected by the parser. Keep compound enum predicates in their explicit
+  comparison form until Proposal B has an explicit AST and precedence rule.
 - `match` remains intentional for rollback, retained-owner cleanup, error
   accumulation, and multi-value decoding. Pure extraction branches are the
   only candidates for migration to `if ... is` during the std audit.
