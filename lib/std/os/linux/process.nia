@@ -163,7 +163,7 @@ fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
             if readLen == 0 {
                 return finishSpawnError(fd, !null);
             }
-                return finishSpawnError(fd, .Setup(.Io)!);
+            return finishSpawnError(fd, .Setup(.Io)!);
         }
         readLen += amount;
     }

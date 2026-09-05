@@ -134,7 +134,7 @@ pub fn pipeCloseOnExec() Errno!Pipe {
     ret.syscallSuccess().?;
     let read = FileDescriptor::fromKernel(fds[0]).?;
     let write = FileDescriptor::fromKernel(fds[1]).?;
-        !.init(read, write)
+    !.init(read, write)
 }
 
 pub fn getCwd(buffer: &mut [u8]) Errno!&[u8] {
