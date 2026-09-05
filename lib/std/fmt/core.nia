@@ -267,7 +267,7 @@ extend Formatter {
             return .InvalidTemplate!;
         }
         let pointerSpec = FormatSpec::init(
-            FormatPresentation::LowerHex,
+            .LowerHex,
             spec.width(),
             null,
             spec.fill(),

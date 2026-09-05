@@ -11,15 +11,15 @@ struct ParsedSpec {
 
 fn parsePresentation(ch: char) ?core::FormatPresentation {
     if ch == 'x' {
-        ?core::FormatPresentation::LowerHex
+        ?.LowerHex
     } else if ch == 'X' {
-        ?core::FormatPresentation::UpperHex
+        ?.UpperHex
     } else if ch == 'b' {
-        ?core::FormatPresentation::Binary
+        ?.Binary
     } else if ch == 'o' {
-        ?core::FormatPresentation::Octal
+        ?.Octal
     } else if ch == 'p' {
-        ?core::FormatPresentation::Pointer
+        ?.Pointer
     } else {
         null
     }
@@ -27,11 +27,11 @@ fn parsePresentation(ch: char) ?core::FormatPresentation {
 
 fn parseAlignment(ch: char) ?core::FormatAlignment {
     if ch == '<' {
-        ?core::FormatAlignment::Left
+        ?.Left
     } else if ch == '>' {
-        ?core::FormatAlignment::Right
+        ?.Right
     } else if ch == '^' {
-        ?core::FormatAlignment::Center
+        ?.Center
     } else {
         null
     }
@@ -72,7 +72,7 @@ fn parseSpecEnd(
     if index >= template.len() or template[index] != '}' {
         return .InvalidTemplate!;
     }
-    !ParsedSpec {
+    !.{
         spec: .init(presentation, width, precision, fill, alignment, signPlus, alternate),
         nextIndex: index + 1,
         dynamicWidth: dynamicWidth,
