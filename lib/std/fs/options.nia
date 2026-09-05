@@ -22,9 +22,9 @@ extend OpenOptions {
 
     pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
         match self.mode() {
-            .ReadOnly => !os::OpenMode::ReadOnly,
-            .WriteOnly => !os::OpenMode::WriteOnly,
-            .ReadWrite => !os::OpenMode::ReadWrite,
+            .ReadOnly => !.ReadOnly,
+            .WriteOnly => !.WriteOnly,
+            .ReadWrite => !.ReadWrite,
             _ => .Invalid!,
         }
     }
@@ -89,9 +89,9 @@ extend CreateOptions {
 
     pub(pkg) fn osMode(&self) os::Error!os::OpenMode {
         if self.read() {
-            !os::OpenMode::ReadWrite
+            !.ReadWrite
         } else {
-            !os::OpenMode::WriteOnly
+            !.WriteOnly
         }
     }
 }
