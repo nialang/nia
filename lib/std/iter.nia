@@ -79,7 +79,7 @@ extend[I] I
 where I: Iterator
 {
     pub fn take(self, limit: usize) Take[I] {
-        Take[I]::init(self, limit)
+        .init(self, limit)
     }
 
     pub fn count(self) usize {
@@ -161,7 +161,7 @@ extend[I] I
 where I: DoubleEndedIterator
 {
     pub fn rev(self) Rev[I] {
-        Rev[I]::init(self)
+        .init(self)
     }
 }
 
