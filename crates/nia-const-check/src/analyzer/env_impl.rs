@@ -1877,6 +1877,26 @@ impl Analyzer<'_> {
                     u128::from(mask),
                 ))))
             }
+            BuiltinFunction::Ctz | BuiltinFunction::Clz | BuiltinFunction::Popcount => {
+                let TyKind::Primitive(primitive) = self.active_ty_kind(return_ty) else {
+                    return Err(ConstError {
+                        span,
+                        message: format!(
+                            "builtin `{}` requires an integer primitive return type",
+                            builtin.name()
+                        ),
+                    });
+                };
+                eval_bit_intrinsic_const(
+                    span,
+                    builtin,
+                    primitive,
+                    type_args.as_slice(),
+                    args,
+                    self.input.target.pointer_width,
+                )
+                .map(Some)
+            }
             BuiltinFunction::SliceLen => {
                 if type_args.len() > 1 || args.len() != 1 {
                     return Err(ConstError {
@@ -1993,6 +2013,77 @@ impl Analyzer<'_> {
             ),
         ])))
     }
+}
+
+fn eval_bit_intrinsic_const(
+    span: Span,
+    builtin: BuiltinFunction,
+    primitive: PrimitiveTy,
+    type_args: &[&ResolvedConstTypeArg],
+    args: &[ConstValue],
+    pointer_width: u32,
+) -> Result<ConstValue, ConstError> {
+    if type_args.len() != 1 || args.len() != 1 {
+        return Err(ConstError {
+            span,
+            message: format!(
+                "builtin `{}` expects exactly one type argument and one value argument",
+                builtin.name()
+            ),
+        });
+    }
+    let Some((bits, signed)) =
+        primitive_integer_layout(primitive, pointer_width).filter(|_| primitive.is_integer())
+    else {
+        return Err(ConstError {
+            span,
+            message: format!(
+                "builtin `{}` requires an integer primitive argument",
+                builtin.name()
+            ),
+        });
+    };
+    if !(1..=u128::BITS).contains(&bits) {
+        return Err(ConstError {
+            span,
+            message: format!(
+                "builtin `{}` does not support an integer width of {} bits",
+                builtin.name(),
+                bits
+            ),
+        });
+    }
+    let ConstValue::Int(value) = args[0] else {
+        return Err(ConstError {
+            span,
+            message: format!(
+                "builtin `{}` requires an integer primitive argument",
+                builtin.name()
+            ),
+        });
+    };
+    // Count only bits represented by the target type. This is important for
+    // signed narrow values, whose IntConst may retain sign-extended bits.
+    let mask = if bits == u128::BITS {
+        u128::MAX
+    } else {
+        (1u128 << bits) - 1
+    };
+    let raw = value.bits() & mask;
+    let count = match builtin {
+        BuiltinFunction::Ctz if raw == 0 => bits,
+        BuiltinFunction::Ctz => raw.trailing_zeros(),
+        BuiltinFunction::Clz if raw == 0 => bits,
+        BuiltinFunction::Clz => bits - (u128::BITS - raw.leading_zeros()),
+        BuiltinFunction::Popcount => raw.count_ones(),
+        _ => unreachable!("bit intrinsic evaluator called for non-bit builtin"),
+    };
+    let count = i128::from(count);
+    Ok(ConstValue::Int(if signed {
+        IntConst::from_i128(count)
+    } else {
+        IntConst::unsigned(count as u128)
+    }))
 }
 
 fn const_vector_index(span: Span, value: &ConstValue, builtin: &str) -> Result<usize, ConstError> {

@@ -2769,9 +2769,11 @@ Bit-counting builtins operate on integer primitive types.
 and result both have type `T`. `std::builtin::ctz[T](0)` and
 `std::builtin::clz[T](0)` are defined to return the bit width of `T`.
 
-These builtins are currently runtime-only. They are not declared `const fn`,
-so a constant expression cannot call them; planned const evaluation support is
-tracked in [the const-evaluation roadmap](const-evaluation-roadmap.md).
+These builtins are declared `const fn` and may be called from constant
+expressions. Their result uses the target primitive's width and signedness;
+the zero-input behavior above is identical during runtime and const
+evaluation. Implementation notes and future const-evaluation work are tracked
+in [the const-evaluation roadmap](const-evaluation-roadmap.md).
 
 Atomic builtins provide the low-level primitive operations behind `std::atomic`.
 Their `order` and `op` arguments must be compile-time integer constants. The

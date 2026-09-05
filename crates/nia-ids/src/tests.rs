@@ -73,6 +73,9 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::Extract
                 | BuiltinFunction::Insert
                 | BuiltinFunction::Bitmask
+                | BuiltinFunction::Ctz
+                | BuiltinFunction::Clz
+                | BuiltinFunction::Popcount
         );
         assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
     }

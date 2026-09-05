@@ -1,32 +1,33 @@
 # Const Evaluation Roadmap
 
-Status: open feature roadmap
+Status: active roadmap (`F4` implemented)
 
-Nia's const evaluator currently supports the builtin operations documented as
+Nia's const evaluator supports the builtin operations documented as
 const-capable. Runtime-only builtins remain callable from ordinary expressions
 but are rejected when reached from a constant expression. Any expansion must
-be implemented through the full owner chain:
+be implemented through the complete owner chain:
 
 ```text
-std declaration -> nia-const-check capability -> nia-const-ir/eval -> tests/spec
+std declaration -> nia-ids capability -> nia-body-check -> nia-const-check evaluator -> tests/spec
 ```
 
-## Bit-counting Builtins
+## F4: Bit-counting Builtins
 
-`std::builtin::ctz`, `clz`, and `popcount` are currently runtime-only. Their
-runtime lowering exists, but `nia-const-eval` has no const representations for
-them and `nia-const-check` does not admit them in const expressions.
+`std::builtin::ctz`, `clz`, and `popcount` are const-capable. The existing
+typed builtin evaluator computes their result directly as an `IntConst`; no
+separate const-value variant or lowering is required. Evaluation first masks
+the input to the target primitive width, so signed inputs use the same
+two's-complement bit pattern as their runtime representation. `ctz(0)` and
+`clz(0)` return that width, while `popcount(0)` returns zero.
 
-This is a feature request, not a correctness bug. Implementing it requires:
+The implementation is owned by three pieces that must stay aligned:
 
-1. Define target-width and zero-input semantics in the const evaluator. `ctz(0)`
-   and `clz(0)` must return the primitive bit width, matching the language
-   specification and runtime behavior.
-2. Add the corresponding const IR/evaluator operations and capability admission.
-3. Mark the standard-library declarations `const fn` only after the evaluator
-   and checker are complete.
-4. Add direct const bindings, `const fn` wrappers, target-width cases, zero-input
-   cases, and runtime/const equivalence tests.
+1. `BuiltinFunction::is_const_capable()` admits the operations during const
+   body checking.
+2. `nia-const-check` evaluates the typed call using target width and signedness.
+3. Standard-library declarations are marked `const fn`, with driver tests
+   covering direct bindings, wrappers, zero values, narrow widths, signed
+   bit patterns, and runtime behavior.
 
-Until that work lands, the declarations remain ordinary `pub fn` and the
-language specification describes them as runtime operations.
+Future const builtin work should follow this capability-plus-evaluator pattern
+instead of adding a new IR variant when an existing constant value is enough.

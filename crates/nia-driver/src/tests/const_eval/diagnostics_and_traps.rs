@@ -62,13 +62,14 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn unused_const_function_rejects_runtime_only_builtin() {
-    let root = temp_dir("unused_const_function_rejects_runtime_only_builtin");
+fn unused_const_function_rejects_runtime_only_atomic_builtin() {
+    let root = temp_dir("unused_const_function_rejects_runtime_only_atomic_builtin");
     write(
         &root.join("main.nia"),
         r#"
 const fn wrongBuiltin() u32 {
-    std::builtin::popcount[u32](1u32)
+    let value: u32 = 1;
+    std::builtin::atomicLoad[u32](&value, 0usize)
 }
 
 fn main() i32 { 0 }
@@ -80,7 +81,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("builtin `popcount` is not available during const evaluation")),
+            .contains("builtin `atomicLoad` is not available during const evaluation")),
         "{:?}",
         program.diagnostics
     );
