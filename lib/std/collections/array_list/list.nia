@@ -127,7 +127,7 @@ where T: Sized
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
             self.storageBlock = null;
-            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(layout), len);
+            return !.fromBlock(mem::Block::empty(layout), len);
         }
 
         let oldBlock = self.allocatedBlock().?;
@@ -136,14 +136,14 @@ where T: Sized
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
             self.storageBlock = null;
-            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(layout), 0);
+            return !.fromBlock(mem::Block::empty(layout), 0);
         }
 
         if allocator.remap(oldBlock, layout) is ?block {
             self.items = raw::danglingSlice[T](0);
             self.capacity = 0;
             self.storageBlock = null;
-            return !mem::SliceAllocation[T]::fromBlock(block, len);
+            return !.fromBlock(block, len);
         }
 
         let newBlock = allocator.alloc(layout).?;
@@ -168,20 +168,20 @@ where T: Sized
         self.items = raw::danglingSlice[T](0);
         self.capacity = 0;
         self.storageBlock = null;
-        !mem::SliceAllocation[T]::fromBlock(newBlock, len)
+        !.fromBlock(newBlock, len)
     }
 
     pub fn toOwnedSlice(&self, allocator: &mut mem::Allocator) mem::Error!mem::SliceAllocation[T] {
         let len = self.len();
         if len == 0 or std::builtin::size[T]() == 0 {
-            return !mem::SliceAllocation[T]::fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
+            return !.fromBlock(mem::Block::empty(mem::Layout::array[T](len).?), len);
         }
 
         let layout = mem::Layout::array[T](len).?;
         let block = allocator.alloc(layout).?;
         let mut out = raw::blockItems[T](block, len);
         _ = out.copyFrom(self.asSlice());
-        !mem::SliceAllocation[T]::fromBlock(block, len)
+        !.fromBlock(block, len)
     }
 
     pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
