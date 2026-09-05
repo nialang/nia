@@ -49,6 +49,109 @@ fn sum(event: Event) i32 {
 }
 
 #[test]
+fn forms_tuple_and_named_enum_constructor_function_pointers() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+    Resize { width: i32, height: i32 },
+}
+
+fn make() {
+    let data: &fn(i32) Event = &Event::Data;
+    let omitted: &fn(i32) Event = &.Data;
+    let resize: &fn(i32, i32) Event = &Event::Resize;
+    _ = data(1);
+    _ = omitted(2);
+    _ = resize(3, 4);
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+    let constructors = checked
+        .ir
+        .function_bodies
+        .values()
+        .flat_map(|body| &body.stmts)
+        .filter(|stmt| {
+            matches!(
+                &stmt.kind,
+                TypedStmtKind::Binding(binding)
+                    if matches!(
+                        binding.value.as_ref().map(|value| &value.kind),
+                        Some(TypedExprKind::EnumConstructor(_))
+                    )
+            )
+        })
+        .count();
+    assert_eq!(constructors, 3, "{:#?}", checked.ir.function_bodies);
+}
+
+#[test]
+fn infers_method_generic_from_enum_constructor_function_pointer() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Failed(i32),
+}
+
+enum TargetError {
+    Converted(SourceError),
+}
+
+extend[Value, Source, Target] Source!Value {
+    fn mapError(self, mapper: &Fn(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fn convert(value: SourceError!i32) TargetError!i32 {
+    value.mapError(&TargetError::Converted)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_invalid_enum_constructor_function_pointers() {
+    let checked = pipeline(
+        r#"
+enum Event {
+    Closed,
+    Data(i32),
+}
+
+fn invalid() {
+    let mutable: &fn(i32) Event = &mut Event::Data;
+    let unit: &fn() Event = &Event::Closed;
+    _ = mutable;
+    _ = unit;
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "enum constructor pointers must be formed with `&`, not `&mut`",
+        "type mismatch in binding initializer: expected &fn() Event, got &Event",
+    ] {
+        assert!(
+            summaries.iter().any(|summary| summary.contains(expected)),
+            "missing {expected:?} in {:#?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
 fn checks_omitted_struct_and_enum_constructors_from_expected_types() {
     let checked = pipeline(
         r#"

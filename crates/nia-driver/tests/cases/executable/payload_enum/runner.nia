@@ -33,6 +33,10 @@ const resize_score: i32 = const_score(Event::Resize { height: 5, width: 6 });
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
+    let dataConstructor: &fn(i32) Event = &Event::Data;
+    let omittedConstructor: &fn(i32, i32) Event = &.Move;
+    let resizeConstructor: &fn(i32, i32) Event = &Event::Resize;
+    let remoteConstructor: &fn(helper::Pair) helper::RemoteEvent = &helper::RemoteEvent::Pair;
     if score(Event::Closed) != closed_score or closed_score != 0 {
         return process::exit(10)!;
     }
@@ -47,6 +51,19 @@ pub fn main(init: process::Init) process::ExitCode!() {
     }
     if helper::marker() != 1 {
         return process::exit(14)!;
+    }
+    if score(dataConstructor(17)) != 17 {
+        return process::exit(15)!;
+    }
+    if score(omittedConstructor(8, 9)) != 17 {
+        return process::exit(16)!;
+    }
+    if score(resizeConstructor(4, 5)) != 9 {
+        return process::exit(17)!;
+    }
+    let pair = helper::pair(6, 7);
+    if helper::remoteScore(remoteConstructor(pair)) != 67 {
+        return process::exit(18)!;
     }
     !()
 }

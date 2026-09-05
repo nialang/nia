@@ -233,6 +233,15 @@ const fn callsFunctionPointer() usize {
     let callback = & increment;
     callback(1)
 }
+
+enum ConstructorEvent {
+    Data(usize),
+}
+
+const fn storesEnumConstructor() usize {
+    let callback: &fn(usize) ConstructorEvent = &ConstructorEvent::Data;
+    1
+}
 "#,
     );
 
@@ -244,7 +253,7 @@ const fn callsFunctionPointer() usize {
                 .summary
                 .contains("function pointer values are not available during const evaluation"))
             .count(),
-        2,
+        3,
         "{:?}",
         checked.diagnostics
     );

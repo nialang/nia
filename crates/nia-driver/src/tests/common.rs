@@ -350,6 +350,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Global(_)
         | FunctionExprKind::GlobalInstance { .. }
         | FunctionExprKind::Function(_)
+        | FunctionExprKind::EnumConstructor(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::ClosureFunctionPointer { .. }

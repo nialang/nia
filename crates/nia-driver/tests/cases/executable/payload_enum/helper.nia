@@ -5,3 +5,22 @@ pub fn marker() i32 {
 pub fn id[T](value: T) T {
     value
 }
+
+pub struct Pair {
+    left: i32,
+    right: i32,
+}
+
+pub enum RemoteEvent {
+    Pair(Pair),
+}
+
+pub fn pair(left: i32, right: i32) Pair {
+    Pair { left, right }
+}
+
+pub fn remoteScore(event: RemoteEvent) i32 {
+    match event {
+        RemoteEvent::Pair(pair) => pair.left * 10 + pair.right,
+    }
+}
