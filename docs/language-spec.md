@@ -1717,6 +1717,29 @@ Enum variants are accessed through the enum namespace:
 let mut c = Color::Black;
 ```
 
+Every non-unit enum variant also has a constructor-function form. Taking its
+readonly address produces the ordinary thin function-pointer type whose
+parameters are the payload fields and whose result is the owning enum. Tuple
+payloads use positional parameters; named payloads use declaration order:
+
+```nia
+enum Event {
+    Data(i32),
+    Resize { width: i32, height: i32 },
+}
+
+let data: &fn(i32) Event = &Event::Data;
+let resize: &fn(i32, i32) Event = &Event::Resize;
+let omitted: &fn(i32) Event = &.Data;
+let event = resize(640, 480);
+```
+
+The address operator is required; `&mut` cannot form a constructor pointer.
+Unit variants remain ordinary values and cannot be used as constructor
+functions. Constructor pointers are runtime-only and cannot be used in const
+evaluation. Calling a constructor pointer has the same Nia function-pointer
+ABI as any other thin function pointer, including indirect aggregate returns.
+
 In an expression whose expected type is an enum, the owner may be omitted:
 `let mut c: Color = .Black;`. Tuple and named payload variants use the same
 form, such as `let event: Event = .Data(42);` and

@@ -500,13 +500,21 @@ enum Color: u8 {
 }
 ```
 
-The enum representation is the representation of its backing type.
+Unit-only enum representation is the representation of its backing type. Enum
+values are not passed directly through C ABI boundaries. C ABI code should use
+the backing integer type explicitly.
 
-Enum values are not passed directly through C ABI boundaries. C ABI code should
-use the backing integer type explicitly.
+Payload-bearing enums use a Nia-owned tagged aggregate: the backing integer tag
+is followed by aligned payload storage large enough for the declared variants.
+Unit-only enums use the backing integer directly. Payload fields are placed in
+declaration order according to the computed enum layout; named and tuple
+variants share the same physical representation rules.
 
-Nia does not use niche or payload-carrying enum representations. Plain C-style
-enum layout is backing-type based.
+Taking the address of a non-unit variant materializes a compiler-generated
+internal helper with the ordinary thin function-pointer ABI. Its parameters
+are the variant payload fields (named fields in declaration order), and its
+result is the enum value. The helper is an implementation detail, not a source
+function or a C ABI symbol. Unit variants have no constructor helper.
 
 ## 15. Function ABI
 
