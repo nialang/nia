@@ -131,9 +131,9 @@ where U: AsciiUnit
         if not allowSign {
             return .InvalidSign!;
         }
-        !ParsedSign { negative: asciiIs[U](first, '-'), digitsStart: 1 }
+        !.{ negative: asciiIs[U](first, '-'), digitsStart: 1 }
     } else {
-        !ParsedSign { negative: false, digitsStart: 0 }
+        !.{ negative: false, digitsStart: 0 }
     }
 }
 
@@ -162,7 +162,7 @@ where U: AsciiUnit
         value = value * wideRadix + wideDigit;
     }
 
-    !ParsedInteger { negative, abs: value }
+    !.{ negative, abs: value }
 }
 
 fn parseIntegerRadix[U](input: &[U], radix: u32, allowSign: bool) Error!ParsedInteger

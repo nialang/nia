@@ -75,7 +75,7 @@ extend Utf8View {
                 null => return .InvalidScalar!,
             };
         }
-        !Utf8View { bytes: bytes, scalarCount: scalarCount }
+        !.{ bytes: bytes, scalarCount: scalarCount }
     }
 
     pub fn bytes(&self) &[u8] {
