@@ -8,13 +8,13 @@ using pkg::process::types;
 using types::{Child, ChildState, ChildStateKind, ChildStatePayload, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, SystemError, Term};
 
 pub(pkg) fn processIdFromOs(pid: os::ProcessId) ProcessId {
-    ProcessId::fromRaw(pid.raw())
+    .fromRaw(pid.raw())
 }
 
 extend Child {
     pub(pkg) fn init(pid: os::ProcessId) Child {
         .{
-            state: ChildState::running(ProcessId::fromRaw(pid.raw())),
+            state: .running(.fromRaw(pid.raw())),
             stdin: null,
             stdout: null,
             stderr: null,
@@ -23,7 +23,7 @@ extend Child {
 
     pub(pkg) fn fromSpawnResult(result: os::SpawnResult) Child {
         .{
-            state: ChildState::running(ProcessId::fromRaw(result.pid().raw())),
+            state: .running(.fromRaw(result.pid().raw())),
             stdin: result.stdin().map(&\handle -> .init(handle)),
             stdout: result.stdout().map(&\handle -> .init(handle)),
             stderr: result.stderr().map(&\handle -> .init(handle)),
@@ -55,7 +55,7 @@ extend Child {
     pub fn closeStdin(&mut self) Error!() {
         if self.takeStdin() is ?pipe {
             let mut owned = pipe;
-            owned.close().withCloseContext(StdStream::Stdin)
+            owned.close().withCloseContext(.Stdin)
         } else {
             !()
         }
@@ -64,7 +64,7 @@ extend Child {
     pub fn closeStdout(&mut self) Error!() {
         if self.takeStdout() is ?pipe {
             let mut owned = pipe;
-            owned.close().withCloseContext(StdStream::Stdout)
+            owned.close().withCloseContext(.Stdout)
         } else {
             !()
         }
@@ -73,7 +73,7 @@ extend Child {
     pub fn closeStderr(&mut self) Error!() {
         if self.takeStderr() is ?pipe {
             let mut owned = pipe;
-            owned.close().withCloseContext(StdStream::Stderr)
+            owned.close().withCloseContext(.Stderr)
         } else {
             !()
         }
@@ -94,7 +94,7 @@ extend Child {
         let pid = self.state.pid();
         self.closeStdin().?;
         let status = os::wait(self.state.osPid()).withWaitContext().?;
-        self.state = ChildState::exited(pid, status);
+        self.state = .exited(pid, status);
         self.closePipes().?;
         !status
     }
@@ -106,7 +106,7 @@ extend Child {
         let pid = self.state.pid();
         let status = os::tryWait(self.state.osPid()).withTryWaitContext().?;
         if status is ?value {
-            self.state = ChildState::exited(pid, value);
+            self.state = .exited(pid, value);
             self.closePipes().?;
             return !(?value);
         }
@@ -115,24 +115,24 @@ extend Child {
 
     pub fn wait(&mut self) Error!Term {
         let status = self.waitStatus().?;
-        !Term::fromWaitStatus(status)
+        !.fromWaitStatus(status)
     }
 
     pub fn tryWait(&mut self) Error! ?Term {
         let status = self.tryWaitStatus().?;
         if status is ?value {
-            return !(?Term::fromWaitStatus(value));
+            return !(?.fromWaitStatus(value));
         }
         !null
     }
 
     pub fn kill(&mut self) Error!Term {
-        self.killWith(Signal::Term)
+        self.killWith(.Term)
     }
 
     pub fn killWith(&mut self, signal: Signal) Error!Term {
         if self.state.status() is ?status {
-            return !Term::fromWaitStatus(status);
+            return !.fromWaitStatus(status);
         }
         os::killWith(self.state.osPid(), signal as i32).withKillContext().?;
         self.wait()
@@ -162,7 +162,7 @@ extend ChildState {
     }
 
     fn osPid(&self) os::ProcessId {
-        os::ProcessId::fromRaw(self.pid().raw())
+        .fromRaw(self.pid().raw())
     }
 
     fn status(&self) ?os::WaitStatus {
