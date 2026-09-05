@@ -354,7 +354,7 @@ pub fn tryWait(pid: ProcessId) Errno! ?WaitStatus {
     } else if ret != pid.raw() as isize {
         .Io!
     } else {
-        !(?WaitStatus::init(status))
+        !(?.init(status))
     }
 }
 
@@ -375,7 +375,7 @@ fn waitWithOptions(pid: ProcessId, options: usize) Errno!WaitStatus {
     } else if ret != pid.raw() as isize {
         .Io!
     } else {
-        !WaitStatus::init(status)
+        !.init(status)
     }
 }
 
