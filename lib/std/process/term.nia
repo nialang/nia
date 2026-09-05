@@ -22,13 +22,13 @@ extend Term {
 
     pub(pkg) fn fromWaitStatus(status: os::WaitStatus) Term {
         if status.exitCode() is ?code {
-            Term::exited(code)
+            .exited(code)
         } else if status.signal() is ?signal {
-            Term::signal(signal)
+            .signal(signal)
         } else if status.stopSignal() is ?signal {
-            Term::stopped(signal)
+            .stopped(signal)
         } else {
-            Term::unknown(status.raw())
+            .unknown(status.raw())
         }
     }
 

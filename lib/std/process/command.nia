@@ -149,11 +149,11 @@ extend Command {
     }
 
     pub fn spawn(&self) SpawnAttempt {
-        SpawnAttempt::start(self)
+        .start(self)
     }
 
     pub fn spawnWithAllocator(&self, allocator: &mut mem::Allocator) AllocatorSpawnAttempt {
-        AllocatorSpawnAttempt::start(self, allocator)
+        .start(self, allocator)
     }
 
     fn executeSpawn(
@@ -226,7 +226,7 @@ extend SpawnStorage {
 
     fn execute(&mut self, command: &Command, allocator: &mut mem::Allocator) () {
         if command.executeSpawn(allocator, self) is cause! {
-            self.outcome = ?SpawnOutcome::Failure(cause);
+            self.outcome = ?.Failure(cause);
         }
     }
 
@@ -257,7 +257,7 @@ extend SpawnStorage {
             self.nativeSpawn = null;
             match attempt.finish() {
                 !result => {
-                    self.outcome = ?SpawnOutcome::Success(Child::fromSpawnResult(result));
+                    self.outcome = ?.Success(Child::fromSpawnResult(result));
                 },
                 .Reap { stage, primary, cause, pid }! => {
                     self.nativeSpawn = ?attempt;
@@ -485,7 +485,7 @@ fn commandSpawnStage(stage: os::SpawnStage) SpawnStage {
         .Stdio => .Stdio,
         .Cwd => .Cwd,
         .Exec => .Exec,
-        _ => SpawnStage::Setup,
+        _ => .Setup,
     }
 }
 

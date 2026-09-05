@@ -96,7 +96,7 @@ extend Args {
             if ptr as usize == 0 {
                 null
             } else {
-                ?Arg::init(ptr)
+                ?.init(ptr)
             }
         }
     }
