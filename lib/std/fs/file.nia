@@ -85,7 +85,7 @@ extend Dir {
         let handle = os::openAtBeneath(
             os::cwd(),
             &current[0],
-            os::OpenMode::ReadOnly,
+            .ReadOnly,
             true,
             false,
             false,
@@ -93,42 +93,42 @@ extend Dir {
             0,
             true,
         ).?;
-        !Dir::fromOwnedDescriptor(handle)
+        !.fromOwnedDescriptor(handle)
     }
 
     pub fn openFile(&self, path: RelativePathView, options: OpenOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
+        let native = path.encode(&mut storage[..]).withOperation(.OpenFile).?;
         self.openNativeFile(native, options)
     }
 
     pub fn openDir(&self, path: RelativePathView, options: OpenDirOptions) OperationError!Dir {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenDir).?;
+        let native = path.encode(&mut storage[..]).withOperation(.OpenDir).?;
         self.openNativeDir(native, options)
     }
 
     pub fn createFile(&self, path: RelativePathView, options: CreateOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
+        let native = path.encode(&mut storage[..]).withOperation(.CreateFile).?;
         self.createNativeFile(native, options)
     }
 
     pub fn createDir(&self, path: RelativePathView, options: CreateDirOptions) OperationError!() {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateDir).?;
+        let native = path.encode(&mut storage[..]).withOperation(.CreateDir).?;
         self.createNativeDir(native, options)
     }
 
     pub fn deleteFile(&self, path: RelativePathView) OperationError!() {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteFile).?;
+        let native = path.encode(&mut storage[..]).withOperation(.DeleteFile).?;
         self.deleteNativeFile(native)
     }
 
     pub fn deleteDir(&self, path: RelativePathView) OperationError!() {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::DeleteDir).?;
+        let native = path.encode(&mut storage[..]).withOperation(.DeleteDir).?;
         self.deleteNativeDir(native)
     }
 
@@ -143,15 +143,15 @@ extend Dir {
         newPath: RelativePathView,
     ) OperationError!() {
         let mut oldStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let oldNative = oldPath.encode(&mut oldStorage[..]).withOperation(Operation::Rename).?;
+        let oldNative = oldPath.encode(&mut oldStorage[..]).withOperation(.Rename).?;
         let mut newStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let newNative = newPath.encode(&mut newStorage[..]).withOperation(Operation::Rename).?;
+        let newNative = newPath.encode(&mut newStorage[..]).withOperation(.Rename).?;
         self.renameNativeTo(oldNative, newDir, newNative)
     }
 
     pub fn metadata(&self, path: RelativePathView, options: MetadataOptions) OperationError!Metadata {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::Metadata).?;
+        let native = path.encode(&mut storage[..]).withOperation(.Metadata).?;
         self.nativeMetadata(native, options)
     }
 
@@ -160,53 +160,53 @@ extend Dir {
             .Invalid!
         } else {
             _ = self.borrowHandle().?;
-            !DirIterator::init(self, os::DirectoryReader::init(buffer))
+            !.init(self, os::DirectoryReader::init(buffer))
         }
     }
 
     pub fn openNativeFile(&self, path: RelativeNativePathView, options: OpenOptions) OperationError!File {
         let handle = os::openAtBeneath(
-            self.borrowHandle().withOperation(Operation::OpenFile).?,
+            self.borrowHandle().withOperation(.OpenFile).?,
             path.ptr(),
-            options.osMode().withOperation(Operation::OpenFile).?,
+            options.osMode().withOperation(.OpenFile).?,
             false,
             false,
             false,
             false,
             0,
             true,
-        ).withOperation(Operation::OpenFile).?;
-        !File::fromOwnedDescriptor(handle)
+        ).withOperation(.OpenFile).?;
+        !.fromOwnedDescriptor(handle)
     }
 
     pub fn openNativeDir(&self, path: RelativeNativePathView, options: OpenDirOptions) OperationError!Dir {
         let handle = os::openAtBeneath(
-            self.borrowHandle().withOperation(Operation::OpenDir).?,
+            self.borrowHandle().withOperation(.OpenDir).?,
             path.ptr(),
-            os::OpenMode::ReadOnly,
+            .ReadOnly,
             true,
             false,
             false,
             false,
             0,
             options.followSymlinks(),
-        ).withOperation(Operation::OpenDir).?;
-        !Dir::fromOwnedDescriptor(handle)
+        ).withOperation(.OpenDir).?;
+        !.fromOwnedDescriptor(handle)
     }
 
     pub fn createNativeFile(&self, path: RelativeNativePathView, options: CreateOptions) OperationError!File {
         let handle = os::openAtBeneath(
-            self.borrowHandle().withOperation(Operation::CreateFile).?,
+            self.borrowHandle().withOperation(.CreateFile).?,
             path.ptr(),
-            options.osMode().withOperation(Operation::CreateFile).?,
+            options.osMode().withOperation(.CreateFile).?,
             false,
             true,
             options.truncate(),
             options.isExclusive(),
             options.permissions(),
             true,
-        ).withOperation(Operation::CreateFile).?;
-        !File::fromOwnedDescriptor(handle)
+        ).withOperation(.CreateFile).?;
+        !.fromOwnedDescriptor(handle)
     }
 
     pub fn createNativeDir(&self, path: RelativeNativePathView, options: CreateDirOptions) OperationError!() {
@@ -215,31 +215,31 @@ extend Dir {
         let current = b".";
         let mut parentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let parent = if split.separator is ?index {
-            lowerNativeBytes(&bytes[0..index], &mut parentStorage[..], Operation::CreateDir).?
+            lowerNativeBytes(&bytes[0..index], &mut parentStorage[..], .CreateDir).?
         } else {
-            lowerNativeBytes(&current[..], &mut parentStorage[..], Operation::CreateDir).?
+            lowerNativeBytes(&current[..], &mut parentStorage[..], .CreateDir).?
         };
         let nameStart = if split.separator is ?index { index + 1 } else { 0 };
         let mut nameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let name = lowerNativeBytes(
             &bytes[nameStart..split.end],
             &mut nameStorage[..],
-            Operation::CreateDir,
+            .CreateDir,
         ).?;
         os::createDirAtBeneath(
-            self.borrowHandle().withOperation(Operation::CreateDir).?,
+            self.borrowHandle().withOperation(.CreateDir).?,
             parent.ptr(),
             name.ptr(),
             options.permissions(),
-        ).withOperation(Operation::CreateDir)
+        ).withOperation(.CreateDir)
     }
 
     pub fn deleteNativeFile(&self, path: RelativeNativePathView) OperationError!() {
-        self.deleteNative(path, Operation::DeleteFile, false, false)
+        self.deleteNative(path, .DeleteFile, false, false)
     }
 
     pub fn deleteNativeDir(&self, path: RelativeNativePathView) OperationError!() {
-        self.deleteNative(path, Operation::DeleteDir, true, true)
+        self.deleteNative(path, .DeleteDir, true, true)
     }
 
     fn deleteNative(
@@ -280,50 +280,50 @@ extend Dir {
         let current = b".";
         let mut oldParentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let oldParent = if oldSplit.separator is ?index {
-            lowerNativeBytes(&oldBytes[0..index], &mut oldParentStorage[..], Operation::Rename).?
+            lowerNativeBytes(&oldBytes[0..index], &mut oldParentStorage[..], .Rename).?
         } else {
-            lowerNativeBytes(&current[..], &mut oldParentStorage[..], Operation::Rename).?
+            lowerNativeBytes(&current[..], &mut oldParentStorage[..], .Rename).?
         };
         let oldNameStart = if oldSplit.separator is ?index { index + 1 } else { 0 };
         let mut oldNameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let oldName = lowerNativeBytes(
             &oldBytes[oldNameStart..oldSplit.end],
             &mut oldNameStorage[..],
-            Operation::Rename,
+            .Rename,
         ).?;
 
         let newBytes = newPath.bytes();
         let newSplit = parentSplit(newBytes, false);
         let mut newParentStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let newParent = if newSplit.separator is ?index {
-            lowerNativeBytes(&newBytes[0..index], &mut newParentStorage[..], Operation::Rename).?
+            lowerNativeBytes(&newBytes[0..index], &mut newParentStorage[..], .Rename).?
         } else {
-            lowerNativeBytes(&current[..], &mut newParentStorage[..], Operation::Rename).?
+            lowerNativeBytes(&current[..], &mut newParentStorage[..], .Rename).?
         };
         let newNameStart = if newSplit.separator is ?index { index + 1 } else { 0 };
         let mut newNameStorage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
         let newName = lowerNativeBytes(
             &newBytes[newNameStart..newSplit.end],
             &mut newNameStorage[..],
-            Operation::Rename,
+            .Rename,
         ).?;
 
         os::renameAtBeneath(
-            self.borrowHandle().withOperation(Operation::Rename).?,
+            self.borrowHandle().withOperation(.Rename).?,
             oldParent.ptr(),
             oldName.ptr(),
-            newDir.borrowHandle().withOperation(Operation::Rename).?,
+            newDir.borrowHandle().withOperation(.Rename).?,
             newParent.ptr(),
             newName.ptr(),
-        ).withOperation(Operation::Rename)
+        ).withOperation(.Rename)
     }
 
     pub fn nativeMetadata(&self, path: RelativeNativePathView, options: MetadataOptions) OperationError!Metadata {
         let metadata = os::metadataAtBeneath(
-            self.borrowHandle().withOperation(Operation::Metadata).?,
+            self.borrowHandle().withOperation(.Metadata).?,
             path.ptr(),
             options.followSymlinks(),
-        ).withOperation(Operation::Metadata).?;
+        ).withOperation(.Metadata).?;
         !metadata.asFsMetadata()
     }
 
@@ -336,47 +336,47 @@ extend File {
 
     pub fn open(path: PathView, options: OpenOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::OpenFile).?;
+        let native = path.encode(&mut storage[..]).withOperation(.OpenFile).?;
         let handle = os::openAt(
             os::cwd(),
             native.ptr(),
-            options.osMode().withOperation(Operation::OpenFile).?,
+            options.osMode().withOperation(.OpenFile).?,
             false,
             false,
             false,
             0,
-        ).withOperation(Operation::OpenFile).?;
-        !File::fromOwnedDescriptor(handle)
+        ).withOperation(.OpenFile).?;
+        !.fromOwnedDescriptor(handle)
     }
 
     pub fn create(path: PathView, options: CreateOptions) OperationError!File {
         let mut storage: [u8; os::maxPathBytes] = [0; os::maxPathBytes];
-        let native = path.encode(&mut storage[..]).withOperation(Operation::CreateFile).?;
+        let native = path.encode(&mut storage[..]).withOperation(.CreateFile).?;
         let handle = os::openAt(
             os::cwd(),
             native.ptr(),
-            options.osMode().withOperation(Operation::CreateFile).?,
+            options.osMode().withOperation(.CreateFile).?,
             true,
             options.truncate(),
             options.isExclusive(),
             options.permissions(),
-        ).withOperation(Operation::CreateFile).?;
-        !File::fromOwnedDescriptor(handle)
+        ).withOperation(.CreateFile).?;
+        !.fromOwnedDescriptor(handle)
     }
 
     pub fn seekTo(&self, offset: u64) Error!u64 {
         if offset > maxI64AsU64 {
             return .OutOfRange!;
         }
-        !(self.borrowHandle().?.seek(offset as i64, os::SeekWhence::Start).?)
+        !(self.borrowHandle().?.seek(offset as i64, .Start).?)
     }
 
     pub fn seekBy(&self, delta: i64) Error!u64 {
-        !(self.borrowHandle().?.seek(delta, os::SeekWhence::Current).?)
+        !(self.borrowHandle().?.seek(delta, .Current).?)
     }
 
     pub fn seekFromEnd(&self, delta: i64) Error!u64 {
-        !(self.borrowHandle().?.seek(delta, os::SeekWhence::End).?)
+        !(self.borrowHandle().?.seek(delta, .End).?)
     }
 
     pub fn len(&self) Error!u64 {
