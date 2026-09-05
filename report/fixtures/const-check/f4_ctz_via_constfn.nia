@@ -1,3 +1,0 @@
-const fn tz(v: u32) u32 { std::builtin::ctz[u32](v) }
-const W: u32 = tz(8u32);
-pub fn main() i32 { _ = W; 0 }

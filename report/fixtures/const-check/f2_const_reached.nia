@@ -1,4 +1,0 @@
-fn plain(v: u32) u32 { v }
-const fn viaPlain(v: u32) u32 { plain(v) }
-const W: u32 = viaPlain(1u32);
-pub fn main() i32 { _ = W; 0 }

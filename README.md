@@ -210,6 +210,8 @@ with the fallible `std::debug::print(...).?` boundary, and
   callback, and conformance boundaries.
 - [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
   discipline, acceptance rules, and roadmap-retirement policy.
+- [docs/const-evaluation-roadmap.md](docs/const-evaluation-roadmap.md): planned
+  const-evaluation extensions and their compiler ownership boundaries.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
 - [docs/project-conventions.md](docs/project-conventions.md): maintenance rules

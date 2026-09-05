@@ -1,3 +1,0 @@
-const MSG: [u8; 3] = b"hi\0";
-static S: [u8; 3] = MSG;
-pub fn main() i32 { S[0] as i32 - 104 }
