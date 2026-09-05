@@ -406,28 +406,28 @@ extend PlanEncoder {
                 self.writeString(command.program.text()).?;
                 self.writeCount(command.arguments.len()).?;
                 for &argument in command.arguments.iter() {
-                    if argument.kind == CommandArgumentKind::Literal {
+                    if argument.kind is (.Literal) {
                         self.writeU8(0).?;
                         self.writeString(argument.payload.value.text()).?;
-                    } else if argument.kind == CommandArgumentKind::PackageInput {
+                    } else if argument.kind is (.PackageInput) {
                         self.writeU8(1).?;
                         self.writePackagePath(argument.package, .init(argument.payload.value.text()), packages).?;
-                    } else if argument.kind == CommandArgumentKind::BuildInput {
+                    } else if argument.kind is (.BuildInput) {
                         self.writeU8(1).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
-                    } else if argument.kind == CommandArgumentKind::ArtifactInput {
+                    } else if argument.kind is (.ArtifactInput) {
                         let target = executables[argument.payload.artifact.index];
                         self.writeU8(1).?;
                         self.writeArtifactPath(target.name.text()).?;
-                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                    } else if argument.kind is (.ObjectInput) {
                         let target = objects[argument.payload.object.index];
                         self.writeU8(1).?;
                         self.writeArtifactPath(target.name.text()).?;
-                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                    } else if argument.kind is (.StaticArchiveInput) {
                         let target = staticArchives[argument.payload.staticArchive.index];
                         self.writeU8(1).?;
                         self.writeArtifactPath(target.name.text()).?;
-                    } else if argument.kind == CommandArgumentKind::BuildOutput {
+                    } else if argument.kind is (.BuildOutput) {
                         self.writeU8(2).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
                     } else {
@@ -454,30 +454,30 @@ extend PlanEncoder {
                 }
                 self.writeCount(inputCount).?;
                 for &argument in command.arguments.iter() {
-                    if argument.kind == CommandArgumentKind::PackageInput {
+                    if argument.kind is (.PackageInput) {
                         self.writePackagePath(argument.package, .init(argument.payload.value.text()), packages).?;
-                    } else if argument.kind == CommandArgumentKind::BuildInput {
+                    } else if argument.kind is (.BuildInput) {
                         self.writeBuildPath(argument.payload.value.text()).?;
-                    } else if argument.kind == CommandArgumentKind::ArtifactInput {
+                    } else if argument.kind is (.ArtifactInput) {
                         let target = executables[argument.payload.artifact.index];
                         self.writeArtifactPath(target.name.text()).?;
-                    } else if argument.kind == CommandArgumentKind::ObjectInput {
+                    } else if argument.kind is (.ObjectInput) {
                         let target = objects[argument.payload.object.index];
                         self.writeArtifactPath(target.name.text()).?;
-                    } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                    } else if argument.kind is (.StaticArchiveInput) {
                         let target = staticArchives[argument.payload.staticArchive.index];
                         self.writeArtifactPath(target.name.text()).?;
                     }
                 }
                 let mut outputCount: usize = 0;
                 for &argument in command.arguments.iter() {
-                    if argument.kind == CommandArgumentKind::BuildOutput {
+                    if argument.kind is (.BuildOutput) {
                         outputCount = PlanEncoder::addCount(outputCount, 1).?;
                     }
                 }
                 self.writeCount(outputCount).?;
                 for &argument in command.arguments.iter() {
-                    if argument.kind == CommandArgumentKind::BuildOutput {
+                    if argument.kind is (.BuildOutput) {
                         self.writeBuildPath(argument.payload.value.text()).?;
                     }
                 }
