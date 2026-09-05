@@ -119,10 +119,10 @@ extend PlanEncoder {
     }
 
     fn writePackageKey(&mut self, package: PackageHandle, packages: &[types::Package]) Error!() {
-        if packageIndex(package) == 0 {
+        if package.index() == 0 {
             return self.writeRootPackage();
         }
-        let index = packageIndex(package) - 1;
+        let index = package.index() - 1;
         if index >= packages.len() {
             return invalidPlan();
         }
@@ -131,6 +131,11 @@ extend PlanEncoder {
 
     fn writeNodeKey(&mut self, package: PackageHandle, name: &[char], packages: &[types::Package]) Error!() {
         self.writePackageKey(package, packages).?;
+        self.writeString(name)
+    }
+
+    fn writeRootNodeKey(&mut self, name: &[char]) Error!() {
+        self.writeRootPackage().?;
         self.writeString(name)
     }
 
@@ -145,15 +150,21 @@ extend PlanEncoder {
         self.writeLogicalPathText(path)
     }
 
-    fn writeArtifactPath(&mut self, name: &[char], packages: &[types::Package]) Error!() {
+    fn writeRootPackagePath(&mut self, path: fs::PathView) Error!() {
+        self.writeU8(0).?;
+        self.writeRootPackage().?;
+        self.writeLogicalPathText(path.text())
+    }
+
+    fn writeArtifactPath(&mut self, name: &[char]) Error!() {
         self.writeU8(4).?;
-        self.writeNodeKey(PackageHandle::init(0, 0), name, packages).?;
+        self.writeRootNodeKey(name).?;
         self.writeString(&"")
     }
 
-    fn writePackageRootPath(&mut self, packages: &[types::Package]) Error!() {
+    fn writePackageRootPath(&mut self) Error!() {
         self.writeU8(0).?;
-        self.writePackageKey(PackageHandle::init(0, 0), packages).?;
+        self.writeRootPackage().?;
         self.writeString(&"")
     }
 
@@ -230,7 +241,7 @@ extend PlanEncoder {
     }
 
     fn writeModule(&mut self, moduleRecord: Module, packages: &[types::Package]) Error!() {
-        self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+        self.writeRootNodeKey(moduleRecord.name.text()).?;
         match moduleRecord.sourceRoot {
             .Package => self.writePackagePath(moduleRecord.package, moduleRecord.rootSource.view(), packages).?,
             .Build => self.writeBuildPath(moduleRecord.rootSource.text()).?,
@@ -249,28 +260,28 @@ extend PlanEncoder {
         !()
     }
 
-    fn writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module], packages: &[types::Package]) Error!() {
+    fn writeArtifact(&mut self, target: ExecutableTarget, modules: &[Module]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
-        self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-        self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+        self.writeRootNodeKey(target.name.text()).?;
+        self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(0).?;
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(1)
     }
 
-    fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module], packages: &[types::Package]) Error!() {
+    fn writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
-        self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-        self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+        self.writeRootNodeKey(target.name.text()).?;
+        self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(1).?;
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(0)
     }
 
-    fn writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module], packages: &[types::Package]) Error!() {
+    fn writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module]) Error!() {
         let moduleRecord = modules[target.rootModule.index];
-        self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
-        self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+        self.writeRootNodeKey(target.name.text()).?;
+        self.writeRootNodeKey(moduleRecord.name.text()).?;
         self.writeU8(2).?;
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(0)
@@ -287,7 +298,7 @@ extend PlanEncoder {
         artifactTarget: TargetView,
         packages: &[types::Package],
     ) Error!() {
-        self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
+        self.writeRootNodeKey(step.name.text()).?;
         match step.kind {
             .Aggregate => self.writeU8(4),
             .GeneratedFile => {
@@ -303,33 +314,33 @@ extend PlanEncoder {
                 let target = executables[step.payload.executable.target.index];
                 let moduleRecord = modules[target.rootModule.index];
                 self.writeU8(0).?;
-                self.writeNodeKey(PackageHandle::init(0, 0), moduleRecord.name.text(), packages).?;
+                self.writeRootNodeKey(moduleRecord.name.text()).?;
                 self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
                 self.writeU8(1)
             },
             .EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
                 self.writeU8(1).?;
-                self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+                self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
                 self.writeCount(target.staticArchives.len()).?;
                 for &archive in target.staticArchives.iter() {
                     let archiveTarget = staticArchives[archive.index];
-                    self.writeNodeKey(PackageHandle::init(0, 0), archiveTarget.name.text(), packages).?;
+                    self.writeRootNodeKey(archiveTarget.name.text()).?;
                 }
                 !()
             },
             .EmitObject => {
                 let target = objects[step.payload.object.target.index];
                 self.writeU8(1).?;
-                self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+                self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
                 self.writeCount(0)
             },
             .EmitStaticArchive => {
                 let target = staticArchives[step.payload.staticArchive.target.index];
                 self.writeU8(1).?;
-                self.writeNodeKey(PackageHandle::init(0, 0), target.name.text(), packages).?;
+                self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targetForRole(target.targetRole, hostTarget, artifactTarget).?).?;
                 self.writeCount(0)
             },
@@ -337,17 +348,17 @@ extend PlanEncoder {
                 let run = step.payload.runExecutable;
                 let target = executables[run.target.index];
                 self.writeU8(2).?;
-                self.writeResourceClass(ActionResourceClass::Conservative).?;
-                self.writeCommandEnvironmentPolicy(CommandEnvironmentPolicy::Inherit).?;
-                self.writeCommandCachePolicy(CommandCachePolicy::Uncacheable).?;
+                self.writeResourceClass(.Conservative).?;
+                self.writeCommandEnvironmentPolicy(.Inherit).?;
+                self.writeCommandCachePolicy(.Uncacheable).?;
                 self.writeU8(0).?;
-                self.writeArtifactPath(target.name.text(), packages).?;
+                self.writeArtifactPath(target.name.text()).?;
                 self.writeCount(run.arguments.len()).?;
                 for &argument in run.arguments.iter() {
                     self.writeU8(0).?;
                     self.writeString(argument.text()).?;
                 }
-                self.writePackageRootPath(packages).?;
+                self.writePackageRootPath().?;
                 self.writeCount(0).?;
                 self.writeCount(0).?;
                 self.writeCount(0)
@@ -356,17 +367,17 @@ extend PlanEncoder {
                 let run = step.payload.runExecutable;
                 let target = executables[run.target.index];
                 self.writeU8(7).?;
-                self.writeResourceClass(ActionResourceClass::Cpu).?;
-                self.writeCommandEnvironmentPolicy(CommandEnvironmentPolicy::Inherit).?;
-                self.writeCommandCachePolicy(CommandCachePolicy::Uncacheable).?;
+                self.writeResourceClass(.Cpu).?;
+                self.writeCommandEnvironmentPolicy(.Inherit).?;
+                self.writeCommandCachePolicy(.Uncacheable).?;
                 self.writeU8(0).?;
-                self.writeArtifactPath(target.name.text(), packages).?;
+                self.writeArtifactPath(target.name.text()).?;
                 self.writeCount(run.arguments.len()).?;
                 for &argument in run.arguments.iter() {
                     self.writeU8(0).?;
                     self.writeString(argument.text()).?;
                 }
-                self.writePackageRootPath(packages).?;
+                self.writePackageRootPath().?;
                 self.writeCount(0).?;
                 self.writeCount(0).?;
                 self.writeCount(0)
@@ -375,22 +386,14 @@ extend PlanEncoder {
                 let install = step.payload.installExecutable;
                 let target = executables[install.target.index];
                 self.writeU8(6).?;
-                self.writeNodeKey(
-                    PackageHandle::init(0, 0),
-                    target.name.text(),
-                    packages,
-                ).?;
+                self.writeRootNodeKey(target.name.text()).?;
                 self.writeBuildPath(install.destination.text())
             },
             .InstallStaticArchive => {
                 let install = step.payload.installStaticArchive;
                 let target = staticArchives[install.target.index];
                 self.writeU8(6).?;
-                self.writeNodeKey(
-                    PackageHandle::init(0, 0),
-                    target.name.text(),
-                    packages,
-                ).?;
+                self.writeRootNodeKey(target.name.text()).?;
                 self.writeBuildPath(install.destination.text())
             },
             .ExternalCommand => {
@@ -408,22 +411,22 @@ extend PlanEncoder {
                         self.writeString(argument.payload.value.text()).?;
                     } else if argument.kind == CommandArgumentKind::PackageInput {
                         self.writeU8(1).?;
-                        self.writePackagePath(argument.package, fs::PathView::init(argument.payload.value.text()), packages).?;
+                        self.writePackagePath(argument.package, .init(argument.payload.value.text()), packages).?;
                     } else if argument.kind == CommandArgumentKind::BuildInput {
                         self.writeU8(1).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
                     } else if argument.kind == CommandArgumentKind::ArtifactInput {
                         let target = executables[argument.payload.artifact.index];
                         self.writeU8(1).?;
-                        self.writeArtifactPath(target.name.text(), packages).?;
+                        self.writeArtifactPath(target.name.text()).?;
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let target = objects[argument.payload.object.index];
                         self.writeU8(1).?;
-                        self.writeArtifactPath(target.name.text(), packages).?;
+                        self.writeArtifactPath(target.name.text()).?;
                     } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let target = staticArchives[argument.payload.staticArchive.index];
                         self.writeU8(1).?;
-                        self.writeArtifactPath(target.name.text(), packages).?;
+                        self.writeArtifactPath(target.name.text()).?;
                     } else if argument.kind == CommandArgumentKind::BuildOutput {
                         self.writeU8(2).?;
                         self.writeBuildPath(argument.payload.value.text()).?;
@@ -431,7 +434,7 @@ extend PlanEncoder {
                         return invalidPlan();
                     }
                 }
-                self.writePackagePath(PackageHandle::init(0, 0), command.workingDirectory.view(), packages).?;
+                self.writeRootPackagePath(command.workingDirectory.view()).?;
                 self.writeCount(command.environment.len()).?;
                 for &input in command.environment.iter() {
                     self.writeString(input.name.text()).?;
@@ -452,18 +455,18 @@ extend PlanEncoder {
                 self.writeCount(inputCount).?;
                 for &argument in command.arguments.iter() {
                     if argument.kind == CommandArgumentKind::PackageInput {
-                        self.writePackagePath(argument.package, fs::PathView::init(argument.payload.value.text()), packages).?;
+                        self.writePackagePath(argument.package, .init(argument.payload.value.text()), packages).?;
                     } else if argument.kind == CommandArgumentKind::BuildInput {
                         self.writeBuildPath(argument.payload.value.text()).?;
                     } else if argument.kind == CommandArgumentKind::ArtifactInput {
                         let target = executables[argument.payload.artifact.index];
-                        self.writeArtifactPath(target.name.text(), packages).?;
+                        self.writeArtifactPath(target.name.text()).?;
                     } else if argument.kind == CommandArgumentKind::ObjectInput {
                         let target = objects[argument.payload.object.index];
-                        self.writeArtifactPath(target.name.text(), packages).?;
+                        self.writeArtifactPath(target.name.text()).?;
                     } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
                         let target = staticArchives[argument.payload.staticArchive.index];
-                        self.writeArtifactPath(target.name.text(), packages).?;
+                        self.writeArtifactPath(target.name.text()).?;
                     }
                 }
                 let mut outputCount: usize = 0;
@@ -484,9 +487,9 @@ extend PlanEncoder {
         }
     }
 
-    fn writeStep(&mut self, build: &Build, step: Step, packages: &[types::Package]) Error!() {
-        self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
-        self.writeNodeKey(PackageHandle::init(0, 0), step.name.text(), packages).?;
+    fn writeStep(&mut self, build: &Build, step: Step) Error!() {
+        self.writeRootNodeKey(step.name.text()).?;
+        self.writeRootNodeKey(step.name.text()).?;
         let mut dependencyCount: usize = 0;
         for &edge in build.dependencies.iter() {
             if edge.step.index == step.index {
@@ -497,17 +500,17 @@ extend PlanEncoder {
         for &edge in build.dependencies.iter() {
             if edge.step.index == step.index {
                 let dependency = build.steps.asSlice()[edge.dependency.index];
-                self.writeNodeKey(PackageHandle::init(0, 0), dependency.name.text(), packages).?;
+                self.writeRootNodeKey(dependency.name.text()).?;
             }
         }
         !()
     }
 
-    fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle, packages: &[types::Package]) Error!() {
+    fn writeOptionalStep(&mut self, build: &Build, handle: ?types::StepHandle) Error!() {
         match handle {
             ?step => {
                 self.writeU8(1).?;
-                self.writeNodeKey(PackageHandle::init(0, 0), build.steps.asSlice()[step.index].name.text(), packages)
+                self.writeRootNodeKey(build.steps.asSlice()[step.index].name.text())
             },
             null => self.writeU8(0),
         }
@@ -535,13 +538,13 @@ extend PlanEncoder {
         let artifactCount = PlanEncoder::addCount(executableCount, build.staticArchives.len()).?;
         self.writeCount(artifactCount).?;
         for &target in build.executables.iter() {
-            self.writeArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
+            self.writeArtifact(target, build.modules.asSlice()).?;
         }
         for &target in build.objects.iter() {
-            self.writeObjectArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
+            self.writeObjectArtifact(target, build.modules.asSlice()).?;
         }
         for &target in build.staticArchives.iter() {
-            self.writeStaticArchiveArtifact(target, build.modules.asSlice(), build.packages.asSlice()).?;
+            self.writeStaticArchiveArtifact(target, build.modules.asSlice()).?;
         }
         self.writeCount(build.steps.len()).?;
         for &step in build.steps.iter() {
@@ -558,10 +561,10 @@ extend PlanEncoder {
         }
         self.writeCount(build.steps.len()).?;
         for &step in build.steps.iter() {
-            self.writeStep(build, step, build.packages.asSlice()).?;
+            self.writeStep(build, step).?;
         }
-        self.writeOptionalStep(build, build.defaultStep, build.packages.asSlice()).?;
-        self.writeOptionalStep(build, build.selectedStep, build.packages.asSlice())
+        self.writeOptionalStep(build, build.defaultStep).?;
+        self.writeOptionalStep(build, build.selectedStep)
     }
 }
 
@@ -673,14 +676,6 @@ fn containsNul(text: &[char]) bool {
 
 fn textEquals(left: &[char], right: &[char]) bool {
     left.equals(right)
-}
-
-fn packageIndex(package: PackageHandle) usize {
-    if package.ownerId() == 0 {
-        0
-    } else {
-        package.index
-    }
 }
 
 fn invalidPlan[T]() Error!T {
