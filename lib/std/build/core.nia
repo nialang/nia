@@ -133,7 +133,7 @@ extend Build {
             }
         }
         self.packages.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Packages).?;
-        self.pendingPackage = Package::init(handle.index());
+        self.pendingPackage = .init(handle.index());
         self.hasPendingPackage = true;
         if self.pendingPackage.initialize(self.allocator, options) is primary! {
             _ = self.cleanupPendingPackage();
@@ -181,11 +181,11 @@ extend Build {
     // Steps declare graph work only. Execution, process ownership, output
     // publication, caching, and cancellation belong to the Rust coordinator.
     pub fn addAggregateStep(&mut self, name: &[char]) Error!StepHandle {
-        self.addStepRecord(name, StepKind::Aggregate, StepPayload { aggregate: .init() })
+        self.addStepRecord(name, .Aggregate, StepPayload { aggregate: .init() })
     }
 
     pub fn addUncacheableStep(&mut self, name: &[char], description: &[char]) Error!StepHandle {
-        self.preparePendingStep(name, StepKind::Uncacheable).?;
+        self.preparePendingStep(name, .Uncacheable).?;
         if self.pendingStep.initializeUncacheable(self.allocator, name, description) is primary! {
             _ = self.cleanupPendingStep();
             return primary!;
@@ -201,7 +201,7 @@ extend Build {
                 subject: Subject::Step(handle.index()),
             }!;
         }
-        self.preparePendingStep(name, StepKind::GeneratedFile).?;
+        self.preparePendingStep(name, .GeneratedFile).?;
         if self.pendingStep.initializeGeneratedFile(
             self.allocator,
             name,
@@ -216,7 +216,7 @@ extend Build {
 
     pub fn addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         self.validateExecutableHandle(target).?;
-        self.addStepRecord(name, StepKind::CheckExecutable, StepPayload { executable: ExecutableStep::init(target) })
+        self.addStepRecord(name, .CheckExecutable, StepPayload { executable: .init(target) })
     }
 
     pub fn addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
@@ -240,8 +240,8 @@ extend Build {
         }
         let result = self.addStepRecord(
             name,
-            StepKind::EmitExecutable,
-            StepPayload { executable: ExecutableStep::init(target) },
+            .EmitExecutable,
+            StepPayload { executable: .init(target) },
         ).?;
         let dependencyStart = self.dependencies.len();
         if self.addExecutableArchiveDependencies(result, target) is primary! {
@@ -276,12 +276,12 @@ extend Build {
 
     pub fn addEmitObjectStep(&mut self, name: &[char], target: ObjectHandle) Error!StepHandle {
         self.validateObjectHandle(target).?;
-        self.addStepRecord(name, StepKind::EmitObject, StepPayload { object: ObjectStep::init(target) })
+        self.addStepRecord(name, .EmitObject, StepPayload { object: .init(target) })
     }
 
     pub fn addEmitStaticArchiveStep(&mut self, name: &[char], target: StaticArchiveHandle) Error!StepHandle {
         self.validateStaticArchiveHandle(target).?;
-        self.addStepRecord(name, StepKind::EmitStaticArchive, StepPayload { staticArchive: StaticArchiveStep::init(target) })
+        self.addStepRecord(name, .EmitStaticArchive, StepPayload { staticArchive: .init(target) })
     }
 
     pub fn addRunExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
@@ -296,7 +296,7 @@ extend Build {
         };
         self.validateRunnableExecutable(options.target, self.steps.len()).?;
         validateRunArguments(options.arguments, self.steps.len()).?;
-        self.addRunStepRecord(name, options, StepKind::RunExecutable, producer)
+        self.addRunStepRecord(name, options, .RunExecutable, producer)
     }
 
     pub fn addTestExecutableStep(&mut self, name: &[char], options: RunOptions) Error!StepHandle {
@@ -311,7 +311,7 @@ extend Build {
         };
         self.validateRunnableExecutable(options.target, self.steps.len()).?;
         validateRunArguments(options.arguments, self.steps.len()).?;
-        self.addRunStepRecord(name, options, StepKind::TestExecutable, producer)
+        self.addRunStepRecord(name, options, .TestExecutable, producer)
     }
 
     // A suite is one host executable whose root module may import any number
@@ -344,9 +344,9 @@ extend Build {
     ) Error!StepHandle {
         compileName.append(self.allocator, &".compile")
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).forHost()).?;
+        let executable = self.addExecutable(.init(name, rootModule).forHost()).?;
         _ = self.addEmitExecutableStep(compileName.text(), executable).?;
-        self.addTestExecutableStep(name, RunOptions::init(executable))
+        self.addTestExecutableStep(name, .init(executable))
     }
 
     fn addRunStepRecord(
@@ -442,7 +442,7 @@ extend Build {
         let mut artifactInputCount: usize = 0;
         if options.arguments is ?arguments {
             for &argument in arguments.iter() {
-                if argument.kind == CommandArgumentKind::ArtifactInput {
+                if argument.kind is (.ArtifactInput) {
                     let target = argument.payload.artifact;
                     self.validateExecutableHandle(target).?;
                     if self.findEmitStep(target) is null {
@@ -452,7 +452,7 @@ extend Build {
                         }!;
                     }
                     artifactInputCount += 1;
-                } else if argument.kind == CommandArgumentKind::ObjectInput {
+                } else if argument.kind is (.ObjectInput) {
                     let target = argument.payload.object;
                     self.validateObjectHandle(target).?;
                     if self.findEmitObjectStep(target) is null {
@@ -462,7 +462,7 @@ extend Build {
                         }!;
                     }
                     artifactInputCount += 1;
-                } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                } else if argument.kind is (.StaticArchiveInput) {
                     let target = argument.payload.staticArchive;
                     self.validateStaticArchiveHandle(target).?;
                     if self.findEmitStaticArchiveStep(target) is null {
@@ -472,7 +472,7 @@ extend Build {
                         }!;
                     }
                     artifactInputCount += 1;
-                } else if argument.kind == CommandArgumentKind::PackageInput {
+                } else if argument.kind is (.PackageInput) {
                     self.validatePackageHandle(argument.package).?;
                 }
             }
@@ -505,7 +505,7 @@ extend Build {
     ) Error!() {
         if arguments is ?arguments {
             for &argument in arguments.iter() {
-                if argument.kind == CommandArgumentKind::ArtifactInput {
+                if argument.kind is (.ArtifactInput) {
                     let producer = if self.findEmitStep(argument.payload.artifact) is ?producer {
                         producer
                     } else {
@@ -515,7 +515,7 @@ extend Build {
                         }!;
                     };
                     self.dependOn(step, producer).?;
-                } else if argument.kind == CommandArgumentKind::ObjectInput {
+                } else if argument.kind is (.ObjectInput) {
                     let producer = if self.findEmitObjectStep(argument.payload.object) is ?producer {
                         producer
                     } else {
@@ -525,7 +525,7 @@ extend Build {
                         }!;
                     };
                     self.dependOn(step, producer).?;
-                } else if argument.kind == CommandArgumentKind::StaticArchiveInput {
+                } else if argument.kind is (.StaticArchiveInput) {
                     let producer = if self.findEmitStaticArchiveStep(argument.payload.staticArchive) is ?producer {
                         producer
                     } else {
@@ -557,7 +557,7 @@ extend Build {
         }
         self.dependencies.push(
             self.allocator,
-            StepDependency::init(step, dependency),
+            .init(step, dependency),
         ).withBuildContext(Operation::Retain, Subject::Dependencies).?;
         self.planValidated = false;
         !()
@@ -577,14 +577,14 @@ extend Build {
         self.cleanupPendingModule().?;
         let handle = ModuleHandle::init(self.ownerId, self.modules.len());
 
-        if options.sourceRoot == ModuleSourceRoot::Package {
+        if options.sourceRoot is (.Package) {
             if options.package is ?package {
                 self.validatePackageHandle(package).?;
             }
         }
         if options.imports is ?imports {
             for &import in imports.iter() {
-                if import.sourceRoot == ModuleSourceRoot::Package {
+                if import.sourceRoot is (.Package) {
                     if import.package is ?package {
                         self.validatePackageHandle(package).?;
                     }
@@ -618,12 +618,12 @@ extend Build {
             null => self.defaultOptimization,
         };
         self.modules.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Modules).?;
-        self.pendingModule = Module::init(
+        self.pendingModule = .init(
             handle.index(),
             options.sourceRoot,
             match options.package {
                 ?package => package,
-                null => PackageHandle::init(self.ownerId, 0),
+                null => .init(self.ownerId, 0),
             },
             optimization,
         );
@@ -714,7 +714,7 @@ extend Build {
             }!;
         }
         self.executables.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Executables).?;
-        self.pendingExecutable = ExecutableTarget::init(
+        self.pendingExecutable = .init(
             handle.index(),
             options.rootModule,
             options.targetRole,
@@ -780,7 +780,7 @@ extend Build {
             }!;
         }
         self.objects.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::Objects).?;
-        self.pendingObject = ObjectTarget::init(
+        self.pendingObject = .init(
             handle.index(),
             options.rootModule,
             options.targetRole,
@@ -841,7 +841,7 @@ extend Build {
             }!;
         }
         self.staticArchives.reserve(self.allocator, 1).withBuildContext(Operation::Retain, Subject::StaticArchives).?;
-        self.pendingStaticArchive = StaticArchiveTarget::init(
+        self.pendingStaticArchive = .init(
             handle.index(),
             options.rootModule,
             options.targetRole,
@@ -881,7 +881,7 @@ extend Build {
         self.selectedStep = null;
         if self.requestedStep() is ?step {
             if self.findStep(step) is ?selected {
-                self.selectedStep = ?StepHandle::init(self.ownerId, selected.index);
+                self.selectedStep = ?.init(self.ownerId, selected.index);
             } else {
                 self.reportUnknownStep(step).?;
                 return .UnknownStep!;
@@ -889,8 +889,8 @@ extend Build {
         } else if self.testMode {
             let mut index: usize = 0;
             while index < self.steps.len() {
-                if self.steps.asSlice()[index].kind == StepKind::TestExecutable {
-                    self.selectedStep = ?StepHandle::init(self.ownerId, index);
+                if self.steps.asSlice()[index].kind is (.TestExecutable) {
+                    self.selectedStep = ?.init(self.ownerId, index);
                     break;
                 }
                 index += 1;
@@ -961,7 +961,7 @@ extend Build {
         };
         let moduleRecord = self.modules.asSlice()[moduleIndex];
         let mut count: usize = 0;
-        if moduleRecord.sourceRoot == ModuleSourceRoot::Build {
+        if moduleRecord.sourceRoot is (.Build) {
             let producer = self.requireGeneratedSourceProducer(
                 moduleRecord.rootSource.text(),
                 index,
@@ -978,7 +978,7 @@ extend Build {
             }
         }
         for &import in moduleRecord.imports.iter() {
-            if import.sourceRoot == ModuleSourceRoot::Build {
+            if import.sourceRoot is (.Build) {
                 let producer = self.requireGeneratedSourceProducer(
                     import.path.text(),
                     index,
@@ -1004,24 +1004,24 @@ extend Build {
             null => return !(),
         };
         let moduleRecord = self.modules.asSlice()[moduleIndex];
-        if moduleRecord.sourceRoot == ModuleSourceRoot::Build {
+        if moduleRecord.sourceRoot is (.Build) {
             let producer = self.requireGeneratedSourceProducer(
                 moduleRecord.rootSource.text(),
                 index,
                 moduleIndex,
             ).?;
-            self.dependOn(StepHandle::init(self.ownerId, index), producer).?;
+            self.dependOn(.init(self.ownerId, index), producer).?;
         }
         let mut importIndex: usize = 0;
         while importIndex < moduleRecord.imports.len() {
             let import = moduleRecord.imports.asSlice()[importIndex];
-            if import.sourceRoot == ModuleSourceRoot::Build {
+            if import.sourceRoot is (.Build) {
                 let producer = self.requireGeneratedSourceProducer(
                     import.path.text(),
                     index,
                     moduleIndex,
                 ).?;
-                self.dependOn(StepHandle::init(self.ownerId, index), producer).?;
+                self.dependOn(.init(self.ownerId, index), producer).?;
             }
             importIndex += 1;
         }
@@ -1220,7 +1220,7 @@ extend Build {
 
     fn addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
         self.prepareStepSlot(name).?;
-        self.pendingStep = Step::initSimple(self.steps.len(), kind, payload);
+        self.pendingStep = .initSimple(self.steps.len(), kind, payload);
         self.hasPendingStep = true;
         match self.pendingStep.initializeName(self.allocator, name) {
             !ok => _ = ok,
@@ -1234,10 +1234,10 @@ extend Build {
 
     fn preparePendingStep(&mut self, name: &[char], kind: StepKind) Error!() {
         self.prepareStepSlot(name).?;
-        self.pendingStep = if kind == StepKind::GeneratedFile {
-            Step::initGeneratedFile(self.steps.len())
+        self.pendingStep = if kind is (.GeneratedFile) {
+            .initGeneratedFile(self.steps.len())
         } else {
-            Step::initUncacheable(self.steps.len())
+            .initUncacheable(self.steps.len())
         };
         self.hasPendingStep = true;
         !()
@@ -1250,7 +1250,7 @@ extend Build {
         target: ExecutableHandle,
     ) Error!() {
         self.prepareStepSlot(name).?;
-        self.pendingStep = Step::initRunExecutable(self.steps.len(), kind, target);
+        self.pendingStep = .initRunExecutable(self.steps.len(), kind, target);
         self.hasPendingStep = true;
         !()
     }
@@ -1261,7 +1261,7 @@ extend Build {
         target: ExecutableHandle,
     ) Error!() {
         self.prepareStepSlot(name).?;
-        self.pendingStep = Step::initInstallExecutable(self.steps.len(), target);
+        self.pendingStep = .initInstallExecutable(self.steps.len(), target);
         self.hasPendingStep = true;
         !()
     }
@@ -1272,7 +1272,7 @@ extend Build {
         target: StaticArchiveHandle,
     ) Error!() {
         self.prepareStepSlot(name).?;
-        self.pendingStep = Step::initInstallStaticArchive(self.steps.len(), target);
+        self.pendingStep = .initInstallStaticArchive(self.steps.len(), target);
         self.hasPendingStep = true;
         !()
     }
@@ -1283,7 +1283,7 @@ extend Build {
         options: ExternalCommandOptions,
     ) Error!() {
         self.prepareStepSlot(name).?;
-        self.pendingStep = Step::initExternalCommand(self.steps.len(), options);
+        self.pendingStep = .initExternalCommand(self.steps.len(), options);
         self.hasPendingStep = true;
         !()
     }
