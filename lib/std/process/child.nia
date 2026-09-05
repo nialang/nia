@@ -143,14 +143,14 @@ extend ChildState {
     fn running(pid: ProcessId) ChildState {
         .{
             kind: ChildStateKind::Running,
-            payload: ChildStatePayload { running: .init(pid) },
+            payload: .{ running: .init(pid) },
         }
     }
 
     fn exited(pid: ProcessId, status: os::WaitStatus) ChildState {
         .{
             kind: ChildStateKind::Exited,
-            payload: ChildStatePayload { exited: .init(pid, status) },
+            payload: .{ exited: .init(pid, status) },
         }
     }
 
