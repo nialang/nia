@@ -40,7 +40,7 @@ pub trait Allocator {
             // range. Preserve that range for the caller's eventual free.
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
-            ?Block::empty(newLayout)
+            ?.empty(newLayout)
         } else {
             null
         }
@@ -57,13 +57,13 @@ pub trait Allocator {
         block.copyPrefixTo(newBlock);
         if self.free(block) is oldError! {
             if self.free(newBlock) is replacementError! {
-                return ReallocError::Rollback {
+                return .Rollback {
                     primary: oldError,
                     replacement: newBlock,
                     replacementError: replacementError,
                 }!;
             }
-            return ReallocError::OldFree(oldError)!;
+            return .OldFree(oldError)!;
         }
         !newBlock
     }

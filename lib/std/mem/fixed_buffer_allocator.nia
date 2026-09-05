@@ -87,7 +87,7 @@ extend FixedBufferAllocator {
 extend FixedBufferAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
         if layout.isEmpty() {
-            return !Block::empty(layout);
+            return !.empty(layout);
         }
 
         let base = self.buffer.ptrMut() as usize;
@@ -121,7 +121,7 @@ extend FixedBufferAllocator : Allocator {
         }
 
         self.endIndex = newEnd;
-        !Block::init(aligned as &mut u8, layout)
+        !.init(aligned as &mut u8, layout)
     }
 
     pub fn resize(&mut self, block: Block, newLayout: Layout) bool {
@@ -162,7 +162,7 @@ extend FixedBufferAllocator : Allocator {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
-            ?Block::empty(newLayout)
+            ?.empty(newLayout)
         } else {
             null
         }

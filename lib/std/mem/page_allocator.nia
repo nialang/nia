@@ -18,10 +18,10 @@ extend PageAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) types::Error!Block {
         _ = self;
         if layout.isEmpty() {
-            !Block::empty(layout)
+            !.empty(layout)
         } else {
             let mapping = os::mapPages(layout.size(), layout.align()).?;
-            !Block::initWithRelease(
+            !.initWithRelease(
                 mapping.ptr(),
                 layout,
                 mapping.releasePtr(),
@@ -51,7 +51,7 @@ extend PageAllocator : Allocator {
         if self.resize(block, newLayout) {
             ?block.withLayout(newLayout)
         } else if block.isEmpty() and newLayout.isEmpty() {
-            ?Block::empty(newLayout)
+            ?.empty(newLayout)
         } else {
             null
         }
