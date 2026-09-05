@@ -25,7 +25,7 @@ where H: Hasher
     pub fn hash(&self, hasher: &mut H) () {
         hasher.write(&[
             self.* as u8,
-            (self.* >> 8u16) as u8,
+            (self.* >> 8) as u8,
         ])
     }
 }
@@ -44,9 +44,9 @@ where H: Hasher
     pub fn hash(&self, hasher: &mut H) () {
         hasher.write(&[
             self.* as u8,
-            (self.* >> 8u32) as u8,
-            (self.* >> 16u32) as u8,
-            (self.* >> 24u32) as u8,
+            (self.* >> 8) as u8,
+            (self.* >> 16) as u8,
+            (self.* >> 24) as u8,
         ])
     }
 }
@@ -65,13 +65,13 @@ where H: Hasher
     pub fn hash(&self, hasher: &mut H) () {
         hasher.write(&[
             self.* as u8,
-            (self.* >> 8u64) as u8,
-            (self.* >> 16u64) as u8,
-            (self.* >> 24u64) as u8,
-            (self.* >> 32u64) as u8,
-            (self.* >> 40u64) as u8,
-            (self.* >> 48u64) as u8,
-            (self.* >> 56u64) as u8,
+            (self.* >> 8) as u8,
+            (self.* >> 16) as u8,
+            (self.* >> 24) as u8,
+            (self.* >> 32) as u8,
+            (self.* >> 40) as u8,
+            (self.* >> 48) as u8,
+            (self.* >> 56) as u8,
         ])
     }
 }
