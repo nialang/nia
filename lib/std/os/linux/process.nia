@@ -38,28 +38,28 @@ fn spawnWithResources(
     if options.stdin() == StdIo::Pipe {
         resources.stdin = match SpawnPipe::openCloseOnExec() {
             !pipe => pipe,
-            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+            error! => return .failure(.Setup(error)),
         };
     }
     if options.stdout() == StdIo::Pipe {
         resources.stdout = match SpawnPipe::openCloseOnExec() {
             !pipe => pipe,
-            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+            error! => return .failure(.Setup(error)),
         };
     }
     if options.stderr() == StdIo::Pipe {
         resources.stderr = match SpawnPipe::openCloseOnExec() {
             !pipe => pipe,
-            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+            error! => return .failure(.Setup(error)),
         };
     }
     resources.error = match SpawnPipe::openCloseOnExec() {
         !pipe => pipe,
-        error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+        error! => return .failure(.Setup(error)),
     };
     let ret = syscall::syscall0(syscall::fork);
     if ret < 0 {
-        SpawnAttempt::failure(SpawnError::Setup(ret.syscallError()))
+        .failure(.Setup(ret.syscallError()))
     } else if ret == 0 {
         resources.error.closeRead();
         if applyStdio(options, &mut resources.stdin, &mut resources.stdout, &mut resources.stderr) is error! {
@@ -71,9 +71,9 @@ fn spawnWithResources(
             exit(127);
         }
         let execRet = syscall::syscall3(syscall::execve, path as usize, argv as usize, envp as usize);
-        reportSpawnError(&resources.error, SpawnStage::Exec, execRet.syscallError());
+        reportSpawnError(&resources.error, .Exec, execRet.syscallError());
         exit(127);
-        SpawnAttempt::failure(.Setup(.Io))
+        .failure(.Setup(.Io))
     } else {
         resources.stdin.closeRead();
         resources.stdout.closeWrite();
@@ -81,7 +81,7 @@ fn spawnWithResources(
         resources.error.closeWrite();
         let pid = match ProcessId::fromSyscall(ret) {
             !pid => pid,
-            error! => return SpawnAttempt::failure(SpawnError::Setup(error)),
+            error! => return .failure(.Setup(error)),
         };
         let errorRead = if resources.error.takeRead() is ?fd {
             fd
@@ -93,7 +93,7 @@ fn spawnWithResources(
                 failedSpawnAttempt(pid, spawnError)
             },
             !null => {
-                SpawnAttempt::success(SpawnResult::init(
+                .success(.init(
                     pid,
                     resources.stdin.takeWrite(),
                     resources.stdout.takeRead(),
@@ -109,24 +109,21 @@ fn spawnWithResources(
 
 fn failedSpawnAttempt(pid: ProcessId, error: SpawnError) SpawnAttempt {
     if reapSpawnFailure(pid) is reapError! {
-        return SpawnAttempt::reapFailure(error, pid, reapError);
+        return .reapFailure(error, pid, reapError);
     }
-    SpawnAttempt::failure(error)
+    .failure(error)
 }
 
 fn reportSpawnError(pipe: &SpawnPipe, stage: SpawnStage, errno: Errno) () {
-    match pipe.write() {
-        !fd => {
-            writeSpawnError(fd, stage, errno);
-        },
-        error! => {
-            exit(127);
-        },
+    if pipe.write() is !fd {
+        writeSpawnError(fd, stage, errno);
+    } else {
+        exit(127);
     }
 }
 
 fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) () {
-    let mut record = SpawnErrorRecord::init(stage, errno);
+    let mut record: SpawnErrorRecord = .init(stage, errno);
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
     let mut written: usize = 0;
     // The parent treats EOF before a record as successful close-on-exec.
@@ -147,7 +144,7 @@ fn writeSpawnError(fd: types::FileDescriptor, stage: SpawnStage, errno: Errno) (
 }
 
 fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
-    let mut record = SpawnErrorRecord::init(SpawnStage::Setup, Errno::Io);
+    let mut record: SpawnErrorRecord = .init(.Setup, .Io);
     let mut bytes = &mut ((&mut record as &mut u8)[0..std::builtin::size[SpawnErrorRecord]()]);
     let mut readLen: usize = 0;
     while readLen < bytes.len() {
@@ -159,7 +156,7 @@ fn readSpawnError(fd: types::FileDescriptor) SpawnError! ?SpawnError {
                 continue;
             },
             error! => {
-                return finishSpawnError(fd, SpawnError::Setup(error)!);
+                return finishSpawnError(fd, .Setup(error)!);
             },
         };
         if amount == 0 {
@@ -185,7 +182,7 @@ fn finishSpawnError(
                     !value
                 },
                 error! => {
-                    SpawnError::Setup(error)!
+                    .Setup(error)!
                 },
             }
         },
@@ -250,7 +247,7 @@ extend SpawnAttempt {
             ?error => error,
             null => .Setup(.Invalid),
         };
-        SpawnError::Reap {
+        .Reap {
             stage: primary.stage(),
             primary: primary.primary(),
             cause: cause,
@@ -308,14 +305,11 @@ fn applyStdio(options: SpawnOptions, stdinPipe: &mut SpawnPipe, stdoutPipe: &mut
 }
 
 fn applyCwd(options: SpawnOptions) Errno!() {
-    match options.cwd() {
-        ?path => {
-            let ret = syscall::syscall1(syscall::chdir, path as usize);
-            ret.syscallSuccess()
-        },
-        null => {
-            !()
-        },
+    if options.cwd() is ?path {
+        let ret = syscall::syscall1(syscall::chdir, path as usize);
+        ret.syscallSuccess()
+    } else {
+        !()
     }
 }
 
@@ -493,10 +487,10 @@ fn isStandardTarget(fd: types::FileDescriptor, options: SpawnOptions) bool {
 extend SpawnResources {
     fn init() SpawnResources {
         .{
-            stdin: SpawnPipe::closed(),
-            stdout: SpawnPipe::closed(),
-            stderr: SpawnPipe::closed(),
-            error: SpawnPipe::closed(),
+            stdin: .closed(),
+            stdout: .closed(),
+            stderr: .closed(),
+            error: .closed(),
         }
     }
 
