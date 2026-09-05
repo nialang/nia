@@ -244,7 +244,7 @@ pub fn decodeUtf8First(bytes: &[u8]) Utf8DecodeError!DecodedUtf8Scalar {
         return .InvalidScalar!;
     }
     if fromScalarValue(code) is ?ch {
-        return !DecodedUtf8Scalar::init(ch, width);
+        return !.init(ch, width);
     }
     .InvalidScalar!
 }

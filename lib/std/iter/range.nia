@@ -32,7 +32,7 @@ extend[T] Range[T] {
     }
 
     fn fromBounds(bounds: T..T) Range[T] {
-        Range[T]::init(bounds.start(), bounds.end())
+        .init(bounds.start(), bounds.end())
     }
 
     pub fn start(&self) T {
@@ -101,7 +101,7 @@ where T: Step + Ord[T]
     type Iter = Range[T];
 
     pub fn iter(&self) Range[T] {
-        Range[T]::fromBounds(self.*)
+        .fromBounds(self.*)
     }
 }
 
@@ -113,7 +113,7 @@ where T: Ord[T]
     }
 
     fn fromBounds(bounds: T..=T) RangeInclusive[T] {
-        RangeInclusive[T]::init(bounds.start(), bounds.end())
+        .init(bounds.start(), bounds.end())
     }
 
     pub fn start(&self) T {
@@ -187,7 +187,7 @@ where T: Step + Ord[T] + Eq[T]
     type Iter = RangeInclusive[T];
 
     pub fn iter(&self) RangeInclusive[T] {
-        RangeInclusive[T]::fromBounds(self.*)
+        .fromBounds(self.*)
     }
 }
 
@@ -197,7 +197,7 @@ extend[T] RangeFrom[T] {
     }
 
     fn fromBounds(bounds: T..) RangeFrom[T] {
-        RangeFrom[T]::init(bounds.start())
+        .init(bounds.start())
     }
 
     pub fn start(&self) T {
@@ -231,7 +231,7 @@ where T: Step
     type Iter = RangeFrom[T];
 
     pub fn iter(&self) RangeFrom[T] {
-        RangeFrom[T]::fromBounds(self.*)
+        .fromBounds(self.*)
     }
 }
 
