@@ -11,6 +11,18 @@ use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, Modu
 use nia_span::Span;
 use nia_symbol::{SymbolMap, SymbolText, known, symbol_text_from_optional_resolver};
 
+/// Build profile used for profile-conditional source selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum BuildProfile {
+    /// Development profile with debug-only source enabled.
+    #[default]
+    Debug,
+    /// Production profile with release-only source enabled.
+    Release,
+    /// Host test profile with test-only source enabled.
+    Test,
+}
+
 /// Target identity values exposed to conditional compilation expressions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
@@ -62,7 +74,7 @@ pub struct PruneResult {
 
 /// Prunes a module using the default symbol-resolution behavior.
 pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
-    prune_module_for_target_with_symbols(module, config, None)
+    prune_module_for_target_with_profile_and_symbols(module, config, BuildProfile::default(), None)
 }
 
 /// Prunes a module and uses an optional symbol provider for diagnostics.
@@ -71,8 +83,33 @@ pub fn prune_module_for_target_with_symbols(
     config: &TargetConfig,
     symbols: Option<&dyn SymbolText>,
 ) -> PruneResult {
+    prune_module_for_target_with_profile_and_symbols(
+        module,
+        config,
+        BuildProfile::default(),
+        symbols,
+    )
+}
+
+/// Prunes a module using a target and build profile.
+pub fn prune_module_for_target_with_profile(
+    module: Module,
+    config: &TargetConfig,
+    profile: BuildProfile,
+) -> PruneResult {
+    prune_module_for_target_with_profile_and_symbols(module, config, profile, None)
+}
+
+/// Prunes a module using a target, build profile, and optional symbol provider.
+pub fn prune_module_for_target_with_profile_and_symbols(
+    module: Module,
+    config: &TargetConfig,
+    profile: BuildProfile,
+    symbols: Option<&dyn SymbolText>,
+) -> PruneResult {
     let mut pruner = Pruner {
         config,
+        profile,
         symbols,
         diagnostics: Vec::new(),
     };
@@ -114,6 +151,7 @@ pub fn eval_config_bool_with_symbols(
 
 struct Pruner<'a> {
     config: &'a TargetConfig,
+    profile: BuildProfile,
     symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -543,22 +581,45 @@ impl Pruner<'_> {
     }
 
     fn attributes_active(&mut self, attributes: &[Attribute], owner_span: Span) -> bool {
+        let mut selected_profile = None;
         for attribute in attributes {
-            let AttributeKind::If(cond) = &attribute.kind else {
-                continue;
-            };
-            match ConditionEvaluator::new(self.config, self.symbols).eval_bool(cond) {
-                Ok(true) => {}
-                Ok(false) => return false,
-                Err(err) => {
-                    let _ = owner_span;
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TARGET_CONFIG,
-                        err.span,
-                        err.message,
-                    ));
-                    return false;
+            if let AttributeKind::Profile(profile) = attribute.kind {
+                if let Some(previous) = selected_profile {
+                    if previous != profile {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TARGET_CONFIG,
+                            attribute.span,
+                            "an item cannot use more than one build profile",
+                        ));
+                        return false;
+                    }
                 }
+                selected_profile = Some(profile);
+            }
+        }
+        for attribute in attributes {
+            match &attribute.kind {
+                AttributeKind::If(cond) => {
+                    match ConditionEvaluator::new(self.config, self.symbols).eval_bool(cond) {
+                        Ok(true) => {}
+                        Ok(false) => return false,
+                        Err(err) => {
+                            let _ = owner_span;
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TARGET_CONFIG,
+                                err.span,
+                                err.message,
+                            ));
+                            return false;
+                        }
+                    }
+                }
+                AttributeKind::Profile(profile) => {
+                    if !profile_matches(*profile, self.profile) {
+                        return false;
+                    }
+                }
+                AttributeKind::Meta(_) => {}
             }
         }
         true
@@ -684,6 +745,19 @@ impl ConditionResolver for Pruner<'_> {
                 message: err.message,
             })
     }
+
+    fn resolve_profile(&mut self, profile: nia_ast::ProfileKind) -> Result<bool, ItemTreeError> {
+        Ok(profile_matches(profile, self.profile))
+    }
+}
+
+fn profile_matches(attribute: nia_ast::ProfileKind, profile: BuildProfile) -> bool {
+    matches!(
+        (attribute, profile),
+        (nia_ast::ProfileKind::Debug, BuildProfile::Debug)
+            | (nia_ast::ProfileKind::Release, BuildProfile::Release)
+            | (nia_ast::ProfileKind::Test, BuildProfile::Test)
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -853,6 +927,42 @@ fn main() i32 {
         let active_body = active_function.body.as_ref().expect("expected body");
         assert_eq!(active_body.stmts.len(), 1);
         assert!(matches!(active_body.stmts[0].kind, StmtKind::Expr(_)));
+    }
+
+    #[test]
+    fn profile_pruning_selects_only_the_active_profile() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+@[debug]
+fn debugOnly() () {}
+@[release]
+fn releaseOnly() () {}
+@[test]
+fn testOnly() () {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        for (profile, expected) in [
+            (BuildProfile::Debug, "debugOnly"),
+            (BuildProfile::Release, "releaseOnly"),
+            (BuildProfile::Test, "testOnly"),
+        ] {
+            let active = prune_module_for_target_with_profile(
+                module.clone(),
+                &TargetConfig::host(),
+                profile,
+            )
+            .active_item_tree
+            .to_module();
+            assert_eq!(active.items.len(), 1);
+            let ItemKind::Function(function) = &active.items[0].kind else {
+                panic!("expected function");
+            };
+            assert_eq!(
+                function.name,
+                nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(expected))
+            );
+        }
     }
 
     #[test]

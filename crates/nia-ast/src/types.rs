@@ -7,8 +7,8 @@ use crate::{
     ArrayElements, AssignOp, Attribute, AttributeKind, BinaryOp, Block, BracketArg,
     ConditionBinaryOp, ConditionExpr, ConditionExprKind, ConditionUnaryOp, Expr, ExprKind,
     FieldInit, IfPatternChainClause, IndexArg, MatchArmBody, NominalPatternFields, Pattern,
-    PatternKind, SliceRange, Stmt, StmtKind, StringLiteral, UnaryOp, UsingGroupItem, UsingItem,
-    UsingName, UsingSelector,
+    PatternKind, ProfileKind, SliceRange, Stmt, StmtKind, StringLiteral, UnaryOp, UsingGroupItem,
+    UsingItem, UsingName, UsingSelector,
 };
 
 /// Kind of one source path segment.
@@ -985,6 +985,15 @@ fn write_attributes_identity(out: &mut String, attributes: &[Attribute]) {
         AttributeKind::If(condition) => {
             out.push_str("if(");
             write_condition_identity(out, condition);
+            out.push(')');
+        }
+        AttributeKind::Profile(profile) => {
+            out.push_str("profile(");
+            out.push_str(match profile {
+                ProfileKind::Debug => "debug",
+                ProfileKind::Release => "release",
+                ProfileKind::Test => "test",
+            });
             out.push(')');
         }
         AttributeKind::Meta(meta) => {

@@ -43,8 +43,21 @@ pub struct Attribute {
 pub enum AttributeKind {
     /// Conditional compilation expression.
     If(ConditionExpr),
+    /// Build-profile selection.
+    Profile(ProfileKind),
     /// Metadata path and arguments.
     Meta(AttributeMeta),
+}
+
+/// Built-in compilation profiles selected by the build invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileKind {
+    /// Development profile with debug-only source enabled.
+    Debug,
+    /// Production profile with release-only source enabled.
+    Release,
+    /// Host test profile with test-only source enabled.
+    Test,
 }
 
 /// Metadata attribute path and expression arguments.

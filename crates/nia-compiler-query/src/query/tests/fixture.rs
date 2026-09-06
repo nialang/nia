@@ -128,6 +128,7 @@ impl LoadedProgramFixture {
             provider_fact_revision: crate::ProviderFactRevision::default(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
+            profile: nia_target_config::BuildProfile::Debug,
             runtime: RuntimeModel::Bare,
             toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
             modules: self.modules.clone(),

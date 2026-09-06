@@ -455,6 +455,21 @@ impl FrontendCacheNamespace {
         runtime: RuntimeModel,
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
+        Self::for_toolchain_with_profile(
+            target,
+            runtime,
+            nia_target_config::BuildProfile::default(),
+            toolchain,
+        )
+    }
+
+    /// Derives a namespace including the selected build profile.
+    pub fn for_toolchain_with_profile(
+        target: &TargetConfig,
+        runtime: RuntimeModel,
+        profile: nia_target_config::BuildProfile,
+        toolchain: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Self {
         let mut builder = QueryFingerprintBuilder::new(CACHE_NAMESPACE_DOMAIN);
         builder.write_u64(FRONTEND_CACHE_SCHEMA_VERSION);
         for part in toolchain.parts() {
@@ -474,6 +489,11 @@ impl FrontendCacheNamespace {
         builder.write_u8(match runtime {
             RuntimeModel::Bare => 0,
             RuntimeModel::FreestandingExecutable => 1,
+        });
+        builder.write_u8(match profile {
+            nia_target_config::BuildProfile::Debug => 0,
+            nia_target_config::BuildProfile::Release => 1,
+            nia_target_config::BuildProfile::Test => 2,
         });
         Self(builder.finish())
     }
@@ -805,6 +825,15 @@ extend Value {
                 &target,
                 RuntimeModel::Bare,
                 nia_toolchain::ToolchainIdentityFingerprint::from_parts([9, 11]),
+            )
+        );
+        assert_ne!(
+            baseline,
+            FrontendCacheNamespace::for_toolchain_with_profile(
+                &target,
+                RuntimeModel::Bare,
+                nia_target_config::BuildProfile::Release,
+                nia_toolchain::ToolchainIdentityFingerprint::current(),
             )
         );
         assert_eq!(

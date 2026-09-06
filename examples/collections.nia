@@ -1,4 +1,4 @@
-using std::debug;
+using std::io;
 using std::fmt;
 using std::mem;
 using std::process;
@@ -45,7 +45,7 @@ pub fn main(init: Init) ExitCode!() {
 
     let mut listLength = values.len();
     let mut mapLength = scores.len();
-    debug::print(&"list={} map={} total={} answer={}\n", &[
+    io::debugPrint(&"list={} map={} total={} answer={}\n", &[
         &listLength,
         &mapLength,
         &listTotal,

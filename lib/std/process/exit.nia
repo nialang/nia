@@ -1,5 +1,5 @@
 using pkg::cstring;
-using pkg::debug;
+using pkg::io;
 using pkg::error;
 using pkg::result;
 using pkg::test;
@@ -19,7 +19,7 @@ extend test::Error : error::IntoError[ExitCode] {
     }
 }
 
-extend debug::Error : error::IntoError[ExitCode] {
+extend io::DebugPrintError : error::IntoError[ExitCode] {
     const fn intoError(self) ExitCode {
         match self {
             .Format(cause) => cause.asExitCode(),
@@ -28,15 +28,15 @@ extend debug::Error : error::IntoError[ExitCode] {
     }
 }
 
-extend debug::Error {
+extend io::DebugPrintError {
     pub const fn asExitCode(self) ExitCode {
         self.intoError()
     }
 }
 
-extend[T] debug::Error!T {
+extend[T] io::DebugPrintError!T {
     pub fn exit(self) ExitCode!T {
-        self.mapError(&\cause: debug::Error -> cause.intoError())
+        self.mapError(&\cause: io::DebugPrintError -> cause.intoError())
     }
 }
 

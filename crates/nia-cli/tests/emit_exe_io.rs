@@ -751,41 +751,41 @@ fn emit_exe_std_debug_print_returns_format_and_flush_errors() {
     std::fs::write(
         &main,
         r#"
-using std::debug;
+using std::io;
 using std::fmt;
 using std::fs;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!() {
     _ = init;
-    match debug::print(&"{", &[]) {
+    match io::debugPrint(&"{", &[]) {
         !ok => {
             _ = ok;
             return process::exit(1)!;
         },
-        debug::Error::Format(fmt::Error::InvalidTemplate)! => {},
+        io::DebugPrintError::Format(fmt::Error::InvalidTemplate)! => {},
         error! => {
             _ = error;
             return process::exit(2)!;
         },
     }
 
-    match debug::print(&"closed stderr\n", &[]) {
+    match io::debugPrint(&"closed stderr\n", &[]) {
         !ok => {
             _ = ok;
             return process::exit(3)!;
         },
-        debug::Error::Flush(fs::Error::BadFd)! => {},
+        io::DebugPrintError::Flush(fs::Error::BadFd)! => {},
         error! => {
             _ = error;
             return process::exit(4)!;
         },
     }
 
-    if (debug::Error::Format(fmt::Error::MissingArgument).asExitCode() as i32) != 22 {
+    if (io::DebugPrintError::Format(fmt::Error::MissingArgument).asExitCode() as i32) != 22 {
         return process::exit(5)!;
     }
-    if (debug::Error::Flush(fs::Error::BadFd).asExitCode() as i32) != 9 {
+    if (io::DebugPrintError::Flush(fs::Error::BadFd).asExitCode() as i32) != 9 {
         return process::exit(6)!;
     }
 

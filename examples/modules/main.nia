@@ -3,7 +3,7 @@ pub module colors;
 pub module config;
 pub module geometry;
 
-using std::debug;
+using std::io;
 using std::fmt;
 using std::process;
 using entry::api;
@@ -23,6 +23,6 @@ pub fn main(init: Init) ExitCode!() {
     if sum + len2 + color + diff != 38 {
         return exit(1)!;
     }
-    debug::print(&"sum={} len2={} color={} diff={}\n", &[&sum, &len2, &color, &diff]).?;
+    io::debugPrint(&"sum={} len2={} color={} diff={}\n", &[&sum, &len2, &color, &diff]).?;
     !()
 }

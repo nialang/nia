@@ -97,6 +97,12 @@ pub struct ItemTreeError {
 pub trait ConditionResolver {
     /// Resolves one condition or returns a source-located failure.
     fn resolve_condition(&mut self, cond: &ConditionExpr) -> Result<bool, ItemTreeError>;
+
+    /// Resolves one build-profile marker. Older resolvers that only model
+    /// target conditions treat profile markers as active.
+    fn resolve_profile(&mut self, _profile: nia_ast::ProfileKind) -> Result<bool, ItemTreeError> {
+        Ok(true)
+    }
 }
 
 impl ModuleItemTree {
@@ -385,6 +391,7 @@ fn item_attributes_declaration_eq(lhs: &[Attribute], rhs: &[Attribute]) -> bool 
 fn attribute_kind_declaration_eq(lhs: &AttributeKind, rhs: &AttributeKind) -> bool {
     match (lhs, rhs) {
         (AttributeKind::If(lhs), AttributeKind::If(rhs)) => condition_declaration_eq(lhs, rhs),
+        (AttributeKind::Profile(lhs), AttributeKind::Profile(rhs)) => lhs == rhs,
         (AttributeKind::Meta(lhs), AttributeKind::Meta(rhs)) => {
             lhs.path == rhs.path
                 && lhs.args.len() == rhs.args.len()
@@ -883,11 +890,18 @@ fn item_is_active(
     resolver: &mut impl ConditionResolver,
 ) -> Result<bool, ItemTreeError> {
     for attribute in &item.attributes {
-        let AttributeKind::If(cond) = &attribute.kind else {
-            continue;
-        };
-        if !resolver.resolve_condition(cond)? {
-            return Ok(false);
+        match &attribute.kind {
+            AttributeKind::If(cond) => {
+                if !resolver.resolve_condition(cond)? {
+                    return Ok(false);
+                }
+            }
+            AttributeKind::Profile(profile) => {
+                if !resolver.resolve_profile(*profile)? {
+                    return Ok(false);
+                }
+            }
+            AttributeKind::Meta(_) => {}
         }
     }
     Ok(true)

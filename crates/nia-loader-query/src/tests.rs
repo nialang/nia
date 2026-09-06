@@ -207,6 +207,7 @@ fn test_loader_context(
         diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
+        profile: nia_target_config::BuildProfile::Debug,
         entry_runtime: EntryRuntime::None,
         toolchain_identity: test_toolchain_layout().identity().fingerprint(),
         package_roots_with_used_paths: HashSet::new(),

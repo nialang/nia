@@ -18,6 +18,7 @@ nia-linker.workspace = true
 nia-source.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
+nia-target-config.workspace = true
 
 [dev-dependencies]
 libc.workspace = true

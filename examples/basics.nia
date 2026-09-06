@@ -1,4 +1,4 @@
-using std::debug;
+using std::io;
 using std::fmt;
 using std::process;
 using process::{Init, ExitCode, exit};
@@ -54,6 +54,6 @@ pub fn main(init: Init) ExitCode!() {
         _ => return exit(2)!,
     }
 
-    debug::print(&"distance={} total={} score={}\n", &[&distance, &total, &samples[2]]).?;
+    io::debugPrint(&"distance={} total={} score={}\n", &[&distance, &total, &samples[2]]).?;
     !()
 }

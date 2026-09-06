@@ -13,7 +13,6 @@ pub module build;
 pub module cmp;
 pub module collections;
 pub module cstring;
-pub module debug;
 pub module error;
 pub module fmt;
 pub module fs;

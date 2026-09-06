@@ -12,7 +12,7 @@ Every executable uses the same entry point:
 pub fn main(process::Init) process::ExitCode!()
 ```
 
-The examples use `std::debug::print` for compact diagnostic output. `io.nia`
+The examples use `std::io::debugPrint` for compact diagnostic output. `io.nia`
 shows the explicit stdout path. Errors are propagated with `.?`, and mutable
 resources are released with `defer` in the order required by their owners.
 `collections.nia` shows the usual ownership arrangement: containers borrow a

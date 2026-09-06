@@ -217,7 +217,7 @@ pub fn walk_generic_param<'ast, V: Visitor<'ast> + ?Sized>(
 
 fn walk_attribute<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, attribute: &'ast Attribute) {
     match &attribute.kind {
-        AttributeKind::If(_) => {}
+        AttributeKind::If(_) | AttributeKind::Profile(_) => {}
         AttributeKind::Meta(meta) => {
             for arg in &meta.args {
                 visitor.visit_expr(arg);

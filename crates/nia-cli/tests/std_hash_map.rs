@@ -1405,7 +1405,7 @@ fn emit_exe_std_hash_map_formats_entries() {
         r#"
 using std;
 using std::HashMap;
-using std::debug;
+using std::io;
 using std::fmt;
 using std::hash;
 using std::mem;
@@ -1419,7 +1419,7 @@ fn run(init: process::Init) process::ExitCode!() {
 
     _ = map.insert(&mut page, 1, 10).exit().?;
     _ = map.insert(&mut page, 2, 20).exit().?;
-    debug::print(&"hash_map={}\n", &[&map]).exit().?;
+    io::debugPrint(&"hash_map={}\n", &[&map]).?;
     !()
 }
 

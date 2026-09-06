@@ -25,7 +25,7 @@ use nia_linker::{
 use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, SourceInputManifest};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
-use nia_target_config::TargetConfig;
+use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::ToolchainLayout;
 
 use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
@@ -55,6 +55,8 @@ pub struct CheckRequest {
     pub timings: TimingMode,
     /// Runtime startup mode.
     pub runtime: Runtime,
+    /// Build profile used for conditional source selection.
+    pub profile: BuildProfile,
 }
 
 /// Checked program paired with the exact source closure used to produce it.
@@ -1541,6 +1543,7 @@ impl Driver {
             package_root: request.package_root.clone(),
             module_map: request.module_map.clone(),
             target: self.config.artifact_target.clone(),
+            profile: request.profile,
             entry_runtime: entry_runtime(request.runtime),
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
@@ -1551,6 +1554,7 @@ impl Driver {
                     .with_module_map(key.module_map.clone())
                     .with_sources(self.sources.clone())
                     .with_target(key.target.clone())
+                    .with_profile(key.profile)
                     .with_entry_runtime(key.entry_runtime)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
@@ -1815,6 +1819,7 @@ struct LoaderKey {
     package_root: Option<SourcePath>,
     module_map: ModuleMap,
     target: TargetConfig,
+    profile: BuildProfile,
     entry_runtime: EntryRuntime,
 }
 
@@ -1858,6 +1863,7 @@ impl CheckRequest {
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
             runtime: Runtime::Bare,
+            profile: BuildProfile::default(),
         }
     }
 
@@ -1888,6 +1894,12 @@ impl CheckRequest {
     /// Selects runtime startup semantics.
     pub fn with_runtime(mut self, runtime: Runtime) -> Self {
         self.runtime = runtime;
+        self
+    }
+
+    /// Selects the build profile used for conditional source selection.
+    pub fn with_profile(mut self, profile: BuildProfile) -> Self {
+        self.profile = profile;
         self
     }
 }

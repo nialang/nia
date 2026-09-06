@@ -316,6 +316,10 @@ pub trait LoaderFactProvider: Send + Sync {
     fn symbols(&self) -> SymbolTable;
     /// Returns the target configuration used for this compilation.
     fn target(&self) -> TargetConfig;
+    /// Returns the build profile used for conditional source selection.
+    fn profile(&self) -> nia_target_config::BuildProfile {
+        nia_target_config::BuildProfile::default()
+    }
     /// Returns the runtime model used for this compilation.
     fn runtime(&self) -> RuntimeModel;
     /// Returns the toolchain identity used for cache compatibility.
@@ -335,6 +339,8 @@ pub struct LoadedProgram {
     pub symbols: SymbolTable,
     /// Target configuration used to load the program.
     pub target: TargetConfig,
+    /// Build profile used to load the program.
+    pub profile: nia_target_config::BuildProfile,
     /// Runtime model selected for the program.
     pub runtime: RuntimeModel,
     /// Toolchain identity captured with the loaded products.
@@ -490,6 +496,10 @@ impl LoaderFactProvider for LoadedProgram {
 
     fn target(&self) -> TargetConfig {
         self.target.clone()
+    }
+
+    fn profile(&self) -> nia_target_config::BuildProfile {
+        self.profile
     }
 
     fn runtime(&self) -> RuntimeModel {
