@@ -116,9 +116,9 @@ extend CStringView {
         .{ ptr, len }
     }
 
-    // The process startup ABI guarantees each argv/envp entry is NUL-terminated.
-    // This package-private boundary records that trusted length once; ordinary
-    // callers must use `fromBytes`, which validates a bounded slice first.
+    // Startup arguments arrive with a guaranteed NUL terminator. This internal
+    // boundary records that length; external data should use `fromBytes` for
+    // bounded validation.
     pub(pkg) fn fromTerminatedPtr(ptr: &u8) CStringView {
         let mut len: usize = 0;
         while ptr[len] != 0 {

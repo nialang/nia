@@ -145,8 +145,8 @@ pub struct SpawnAttempt {
     storage: SpawnStorage,
 }
 
-// AllocatorSpawnAttempt keeps custom-allocator staging reachable. Every finish
-// retry must receive the allocator that created the staging blocks.
+// AllocatorSpawnAttempt keeps custom-allocator staging reachable. Retrying
+// `finish` uses the allocator that created those staging blocks.
 pub struct AllocatorSpawnAttempt {
     storage: SpawnStorage,
 }

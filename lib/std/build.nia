@@ -1,52 +1,13 @@
 // Declarative package-build facade.
 //
-// `nia build` constructs one `Build` for the package containing `build.nia`.
-// `packageRoot()` names that package, `buildDir()` is its `.nia-build/` output
-// root, and `cacheDir()` is its reusable `.nia-cache/` root. Build scripts
-// declare packages, modules, artifacts, actions, and dependencies; the generated
-// runner validates and encodes the graph but never executes an action.
+// A build script describes packages, modules, artifacts, actions, and their
+// dependencies. Paths identify the package, build, and cache roots; target
+// options distinguish the invocation artifact from host tools.
 //
-// Public options are borrowed call descriptors. `Build` copies every retained
-// string, path, argument, import, target, and handle relation into
-// allocator-owned storage. Handles belong to one live `Build` and are rejected
-// when passed to another. `BuildPathView` is always relative to `.nia-build/`;
-// package paths use `fs::PathView` together with an explicit package handle.
-//
-// Artifact options target the invocation artifact by default; `forHost()` is
-// the explicit host-tool role. External commands inherit the environment and
-// remain uncacheable unless they clear it, declare outputs, and opt into the
-// declared-input cache contract. `deinit()` releases the complete retained
-// graph and reports the first cleanup error after attempting every release.
-// When an owned graph element cannot be released, its containing list remains
-// attached so a later `deinit()` call can reach the residual owner.
-// `Build::init` returns a `BuildInitAttempt`; callers must retry `finish()` when
-// allocator cleanup fails. The attempt publishes the initialized `Build` or
-// the original initialization error only after every partial owner is retired.
-// Package insertion reserves its owning list before retaining fields. A
-// partially initialized package stays in a Build-owned pending slot when
-// rollback cleanup fails and is retried by the next insertion or `deinit()`.
-// Object and static-archive targets use the same pending-record transaction for
-// their retained names and output names.
-// Executable targets additionally keep their static-archive handle-list backing
-// in the pending record until every owned field is ready for transfer.
-// Module insertion appends empty import records only after reserving both list
-// levels, so nested import name/path cleanup remains reachable from Build.
-// Generated-file and uncacheable steps use a kind-correct pending Step whose
-// name and payload owners transfer only after post-reserve initialization.
-// Run/test steps keep argument strings in that pending owner. Dependency-edge
-// failure preserves the primary error while moving the popped step back to the
-// pending slot for cleanup retry.
-// Executable and static-archive install steps apply the same transaction to
-// their destination strings and producer dependency edge.
-// External-command steps attach argument and environment slots before retaining
-// their nested strings, and roll back all producer edges as one transaction.
-// addTestSuite creates one host executable, its compile step, and its test
-// step; the root module can import the complete suite through normal modules.
-// Simple aggregate/check/emit steps also use the pending slot, and all
-// multi-edge additions use explicit suffix rollback. Build contains no fallible
-// cleanup defer paths.
-// `fs::File::close` consumes its descriptor before attempting the OS close; a
-// caller must not retry it after an error unless it owns a fresh descriptor.
+// Build retains the descriptors it needs in allocator-owned storage. Handles
+// belong to their Build, and paths and commands keep their ownership and cache
+// rules explicit. Initialization and teardown preserve partially owned state
+// so failed cleanup can be retried without losing the original error.
 
 pub(pkg) module commands;
 pub(pkg) module core;

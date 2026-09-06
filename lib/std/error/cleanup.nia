@@ -3,9 +3,9 @@
 //     attempt(a); attempt(b); finish()
 //       run a       run b       report first failure
 //
-// The accumulator keeps only the first failure and never allocates while
-// recording it. It does not own resources: each operation must retain a
-// failed owner so a later deinit can retry that operation.
+// The accumulator records the first failure without allocating. Resource
+// ownership stays with each operation, so a failed owner remains available for
+// a later deinit retry.
 
 pub struct CleanupAccumulator[Failure] {
     firstFailure: ?Failure,

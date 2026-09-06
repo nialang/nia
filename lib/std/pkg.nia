@@ -1,11 +1,7 @@
 // Nia standard library root facade.
 //
-// Files are modules in Nia. This root facade re-exports selected items that
-// are intentionally available as `std::name`; it does not re-export the
-// standard-library implementation modules themselves.
-//
-// Owned values keep allocation and release explicit. Borrowed views do not
-// extend backing storage lifetimes, and typed errors preserve domain causes.
+// Common value types and entry points are re-exported here for concise
+// `std::name` paths. Domain-specific APIs remain under their modules.
 
 pub module atomic;
 pub module builtin;

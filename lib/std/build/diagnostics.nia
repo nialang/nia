@@ -1,7 +1,7 @@
 // Build diagnostics output.
 //
-// Reporting is intentionally independent from Build state. Keeping the IO
-// boundary here lets graph declaration and validation remain pure of streams.
+// Reporting is separate from Build state, so graph declaration and validation
+// can remain independent of output streams.
 
 using pkg::io;
 using pkg::fmt;

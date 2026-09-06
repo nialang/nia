@@ -39,8 +39,8 @@ pub enum CaseStatus: i32 {
     _
 }
 
-// One named test function. The runner borrows this record and never owns the
-// name or callback, so a suite can keep its case table in static storage.
+// One named test function. The runner borrows the record, name, and callback,
+// so a suite can keep its case table in static storage.
 pub struct Case {
     name: &[char],
     callback: &Fn() Error!(),

@@ -1,9 +1,8 @@
 // Build construction and complete graph teardown.
 //
-// The public constructor returns an attempt so partially retained state stays
-// reachable until cleanup has succeeded. All lifecycle helpers are package
-// visible because Build's declaration and its other ownership operations live
-// in separate implementation modules.
+// Initialization returns an attempt so partially owned state remains reachable
+// until cleanup succeeds. Teardown reports the first failure after attempting
+// every release and leaves failed owners available for a later retry.
 
 using pkg::collections;
 using pkg::fs;
@@ -37,9 +36,8 @@ using types::{
 };
 
 extend Build {
-    // The generated runner supplies these values from the resolved toolchain
-    // invocation. Ordinary build scripts receive the initialized value and do
-    // not construct alternate roots, targets, or protocol versions.
+    // These values describe the current package invocation and its resolved
+    // toolchain.
     pub fn init(
         allocator: &mut mem::Allocator,
         packageRoot: fs::PathView,

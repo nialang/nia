@@ -33,7 +33,7 @@ using types::{
 
 extend CommandArgument {
     // Each constructor records the logical root used for dependency validation
-    // and cache identity. Literal values intentionally declare no file input.
+    // and cache identity. Literal values declare no file input.
     pub fn literal(value: &[char]) CommandArgument {
         .{ kind: .Literal, payload: .{ value }, package: .init(0, 0) }
     }
@@ -192,9 +192,9 @@ fn environmentNameInvalid(text: &[char]) bool {
 
 
 extend ExternalCommandOptions {
-    // Search commands inherit the process environment and are uncacheable by
-    // default. Persistent reuse requires `withClearedEnvironment`, explicit
-    // typed inputs/outputs, and `withDeclaredInputCache`.
+    // Search commands inherit the process environment. Persistent reuse is
+    // available after clearing the environment and declaring typed inputs and
+    // outputs through `withDeclaredInputCache`.
     pub fn search(program: &[char]) ExternalCommandOptions {
         .{
             program,
