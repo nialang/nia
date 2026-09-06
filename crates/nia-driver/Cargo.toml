@@ -5,8 +5,13 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["llvm-dynamic"]
+llvm-dynamic = ["nia-codegen-llvm/llvm-dynamic"]
+llvm-static = ["nia-codegen-llvm/llvm-static"]
+
 [dependencies]
-nia-codegen-llvm.workspace = true
+nia-codegen-llvm = { workspace = true, default-features = false }
 nia-compiler-query.workspace = true
 nia-compat.workspace = true
 nia-diagnostic.workspace = true

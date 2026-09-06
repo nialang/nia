@@ -5,6 +5,11 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["llvm-dynamic"]
+llvm-dynamic = ["llvm-sys/prefer-dynamic"]
+llvm-static = ["llvm-sys/force-static"]
+
 [dependencies]
 nia-diagnostic.workspace = true
 nia-ice.workspace = true

@@ -536,9 +536,10 @@ impl FlowChecker<'_> {
                     clauses_flow &= flow.falls_through;
                 }
                 let then_flow = self.check_block(&chain.then_branch);
-                let failure_flow = chain.else_branch.as_deref().map_or(true, |else_branch| {
-                    self.check_expr_flow(else_branch).falls_through
-                });
+                let failure_flow = chain
+                    .else_branch
+                    .as_deref()
+                    .is_none_or(|else_branch| self.check_expr_flow(else_branch).falls_through);
                 Flow {
                     falls_through: clauses_flow && (then_flow.falls_through || failure_flow),
                 }

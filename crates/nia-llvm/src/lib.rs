@@ -5,6 +5,9 @@
 //! crates. Higher-level codegen should depend on this wrapper instead of using
 //! raw `llvm-sys` handles directly.
 
+#[cfg(all(feature = "llvm-static", feature = "llvm-dynamic"))]
+compile_error!("llvm-static and llvm-dynamic features are mutually exclusive");
+
 mod llvm_api;
 mod llvm_facade;
 

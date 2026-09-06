@@ -46,6 +46,11 @@ follows the default LLVM release in the newest stable Fedora release. The
 package, and managed workflow installation move together when that LLVM
 identity changes.
 
+Development builds may use a host LLVM installation. Release builds use the
+pinned LLVM toolchain and are checked for a self-contained LLVM dependency.
+Target sysroots, CRT objects, libc, and the target dynamic loader remain
+platform inputs rather than general host requirements.
+
 Ubuntu hosted runners install the matching LLVM release from `apt.llvm.org`.
 Ubuntu is an execution venue, not the version authority. Managed runs report
 the resolved Rust, Cargo, Clippy, rustfmt, and `llvm-config` identities so a

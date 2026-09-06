@@ -5,11 +5,16 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["llvm-dynamic"]
+llvm-dynamic = ["nia-driver/llvm-dynamic"]
+llvm-static = ["nia-driver/llvm-static"]
+
 [dependencies]
 libc.workspace = true
 nia-compat.workspace = true
 nia-compiler-query.workspace = true
-nia-driver.workspace = true
+nia-driver = { workspace = true, default-features = false }
 nia-imports.workspace = true
 nia-loader-query.workspace = true
 nia-linker.workspace = true

@@ -34,9 +34,9 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
         "cargo maintain check",
         "cargo maintain baseline build",
         "cargo fmt --all -- --check",
-        "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-        "cargo check --workspace --all-targets --all-features",
-        "cargo test --workspace --all-features",
+        "cargo clippy --workspace --all-targets -- -D warnings",
+        "cargo check --workspace --all-targets",
+        "cargo test --workspace",
         "cargo test -p nia-cli --test build_cases",
         "cargo test -p nia-cli --test toolchain_relocation",
     ] {

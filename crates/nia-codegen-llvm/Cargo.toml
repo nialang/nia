@@ -5,6 +5,11 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["llvm-dynamic"]
+llvm-dynamic = ["nia-llvm/llvm-dynamic"]
+llvm-static = ["nia-llvm/llvm-static"]
+
 [dependencies]
 nia-ast.workspace = true
 nia-backend-ir.workspace = true
@@ -20,7 +25,7 @@ nia-ids.workspace = true
 nia-layout.workspace = true
 nia-literals.workspace = true
 nia-mangle.workspace = true
-nia-llvm.workspace = true
+nia-llvm = { workspace = true, default-features = false }
 nia-opt.workspace = true
 nia-query.workspace = true
 nia-source.workspace = true

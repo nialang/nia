@@ -90,10 +90,10 @@ jobs:
       - name: Format and lint
         run: |
           cargo fmt --all -- --check
-          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Check workspace
-        run: cargo check --workspace --all-targets --all-features
+        run: cargo check --workspace --all-targets
 
       - name: Check portable 32-bit semantic owners
         run: |
@@ -114,7 +114,6 @@ jobs:
           cargo check \
             --workspace \
             --all-targets \
-            --all-features \
             --target i686-unknown-linux-gnu
 
       - name: Run build/std integration suites
@@ -124,7 +123,7 @@ jobs:
           cargo test -p nia-cli --test commands --no-default-features -- --nocapture
 
       - name: Run workspace tests
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace
 
       - name: Build release compiler
         run: cargo build --release -p nia-cli
