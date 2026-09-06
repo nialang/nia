@@ -2236,9 +2236,8 @@ extend types::Unused {
 
 #[test]
 fn facade_reexported_generic_alias_exposes_methods_and_contextual_constructors() {
-    let root = temp_dir(
-        "facade_reexported_generic_alias_exposes_methods_and_contextual_constructors",
-    );
+    let root =
+        temp_dir("facade_reexported_generic_alias_exposes_methods_and_contextual_constructors");
     write(
         &root.join("main.nia"),
         r#"

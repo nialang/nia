@@ -1,7 +1,7 @@
 // Build-local capabilities and initialization handoff.
 //
-// Handles pair a dense index with the owning Build identity. They are runtime
-// capabilities only and must not enter serialized plans or persistent keys.
+// Handles pair a dense index with the owning Build identity. They identify live
+// graph entries; serialized plans use the retained records instead.
 
 using pkg::build::error;
 using pkg::build::types;

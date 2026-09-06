@@ -1,7 +1,7 @@
 // Dependency-graph queries shared by Build plan validation.
 //
-// These helpers are deliberately free functions: they inspect retained graph
-// records but do not mutate Build state or own a second Build extension.
+// These helpers inspect retained graph records through free functions, keeping
+// dependency checks separate from Build mutation.
 
 using pkg::build::types;
 

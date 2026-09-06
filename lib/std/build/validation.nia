@@ -1,8 +1,7 @@
 // Stateless validation rules for retained build-graph references.
 //
-// Build methods supply graph-local counts and target views. The rules here do
-// not inspect or mutate Build itself, keeping ownership checks reusable and
-// separate from declaration transactions.
+// Each check receives the owning Build identity and the relevant handle count,
+// so ownership validation stays independent of graph mutation.
 
 using pkg::build::error;
 using pkg::build::handles;
@@ -112,7 +111,7 @@ pub(pkg) fn validateRunnableTarget(
     stepIndex: usize,
 ) Error!() {
     // Run and test actions execute while constructing this build, so their
-    // program must match the host. An artifact-role executable remains
+    // program uses the host target. An artifact-role executable remains
     // runnable for native builds because both roles resolve to one target.
     let runsOnHost = match role {
         .Host => true,

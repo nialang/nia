@@ -12,8 +12,8 @@ pub trait Writer {
 
     fn shortWrite(&self) Error;
 
-    // Implementations must never report more bytes than the supplied slice.
-    // Consumers use this fallback when an implementation violates that contract.
+    // A write reports at most the number of bytes available in the source
+    // slice; larger reports are converted to the standard I/O error.
     fn invalidWrite(&self) Error {
         self.shortWrite()
     }
@@ -58,8 +58,8 @@ pub trait Reader {
 
     fn endOfStream(&self) Error;
 
-    // Implementations must never report more bytes than the supplied slice.
-    // Consumers use this fallback when an implementation violates that contract.
+    // A read reports at most the number of bytes available in the destination
+    // slice; larger reports are converted to the standard I/O error.
     fn invalidRead(&self) Error {
         self.endOfStream()
     }

@@ -5,8 +5,8 @@ using pkg::string;
 using pkg::build::error;
 
 // Protocol-visible kinds have explicit tags. The final `_` keeps unknown
-// persisted tags representable so the encoder can reject them explicitly;
-// they must never fall back to an older or less constrained action contract.
+// persisted tags representable so the encoder can reject them explicitly
+// instead of interpreting them as another action contract.
 pub enum StepKind: i32 {
     Aggregate = 1,
     CheckExecutable = 2,
@@ -45,8 +45,8 @@ pub(pkg) enum ModuleSourceRoot: i32 {
     _
 }
 
-// A build-root path is a lexical path below `.nia-build/`. It is not an
-// arbitrary process path and cannot select package, cache, or toolchain files.
+// A build-root path is a lexical path below `.nia-build/`; package, cache, and
+// toolchain files use their own path capabilities.
 pub struct BuildPathView {
     path: &[char],
 }
@@ -71,8 +71,8 @@ pub(pkg) struct TargetStorage {
     pointerWidth: u32,
 }
 
-// Handles are process-local capabilities owned by one `Build`. Their indices
-// and owner ids never enter the serialized plan or persistent identities.
+// Handles are process-local capabilities owned by one `Build`. Serialized plans
+// and persistent identities use the records they refer to rather than handles.
 pub struct StepHandle {
     ownerId: usize,
     index: usize,
@@ -277,8 +277,8 @@ pub struct StepDependency {
 }
 
 // Module paths are package-rooted by default. `fromBuild` records generated
-// roots and imports, whose exact producer must be in each consuming compiler
-// step's dependency closure.
+// roots and imports, whose exact producer is recorded in each consuming
+// compiler step's dependency closure.
 pub struct ModuleOptions {
     name: &[char],
     sourceRoot: ModuleSourceRoot,

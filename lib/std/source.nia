@@ -1,6 +1,6 @@
 // Stable source coordinates produced by the compiler.
 //
-// The file is a logical UTF-8 source identity, not an absolute host path.
+// Coordinates refer to logical UTF-8 source identity rather than host paths.
 // Lines and columns are one-based; columns count Unicode scalar values.
 
 using pkg::fmt;

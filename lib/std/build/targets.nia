@@ -225,8 +225,8 @@ extend TargetStorage {
 }
 
 extend ExecutableOptions {
-    // Artifact target is the default. `forHost` is reserved for tools that must
-    // execute during this build; arbitrary target construction is not exposed.
+    // Artifact target is the default. Use `forHost` for tools that execute
+    // during this build.
     pub fn init(name: &[char], rootModule: ModuleHandle) ExecutableOptions {
         .{
             name,
