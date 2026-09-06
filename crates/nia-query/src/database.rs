@@ -8,6 +8,79 @@
 use super::*;
 
 impl<C> QueryDb<C> {
+    pub(super) fn retire_scope_during_retirement(&self, retain: &dyn Fn(&QueryFrame) -> bool) {
+        let ids = {
+            let slots = self
+                .inner
+                .slots
+                .lock()
+                .expect("query cache slot lock poisoned");
+            slots
+                .entries
+                .iter()
+                .filter_map(|(index, record)| {
+                    (!retain(&record.identity.frame())).then_some(QueryNodeId {
+                        db_id: self.inner.id,
+                        index: *index,
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let retained = {
+            let slots = self
+                .inner
+                .slots
+                .lock()
+                .expect("query cache slot lock poisoned");
+            slots
+                .entries
+                .iter()
+                .filter_map(|(index, record)| {
+                    retain(&record.identity.frame()).then_some(QueryNodeId {
+                        db_id: self.inner.id,
+                        index: *index,
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        for id in &retained {
+            self.inner.session.slot(*id).stabilize();
+        }
+        for id in &ids {
+            self.inner.session.slot(*id).invalidate();
+        }
+        let node_set = FastHashSet::from_iter(ids.iter().copied());
+        self.inner
+            .caches
+            .lock()
+            .expect("query cache lock poisoned")
+            .values()
+            .for_each(|cache| cache.remove_nodes(&node_set));
+        {
+            let mut slots = self
+                .inner
+                .slots
+                .lock()
+                .expect("query cache slot lock poisoned");
+            for id in &ids {
+                slots.remove(self.inner.id, *id);
+            }
+        }
+        let mut dependencies = self
+            .inner
+            .session
+            .inner
+            .dependencies
+            .lock()
+            .expect("query dependency lock poisoned");
+        for id in &ids {
+            dependencies.remove_node(*id);
+        }
+        for id in retained {
+            dependencies.remove_dependencies_from(id);
+        }
+    }
+
     /// Creates an unregistered database with an isolated default session.
     pub fn new(context: C) -> Self
     where
@@ -783,14 +856,32 @@ impl<C> QueryDb<C> {
             return QueryInvalidation::default();
         };
         let is_green = {
-            let state = slot.state.lock().expect("query cache lock poisoned");
+            let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
                 QueryState::Empty | QueryState::Consumed | QueryState::Published { .. } => {
                     return QueryInvalidation::default();
                 }
-                QueryState::Computing { .. }
-                | QueryState::Validating { .. }
-                | QueryState::PotentiallyOutdated { .. } => false,
+                QueryState::Computing { .. } | QueryState::Validating { .. } => false,
+                QueryState::PotentiallyOutdated { fingerprint, .. } => {
+                    if *fingerprint == current_fingerprint {
+                        let QueryState::PotentiallyOutdated {
+                            value,
+                            fingerprint,
+                            dependency_fingerprints,
+                        } = std::mem::replace(&mut *state, QueryState::Empty)
+                        else {
+                            unreachable!()
+                        };
+                        *state = QueryState::Ready {
+                            value,
+                            fingerprint: Some(fingerprint),
+                            dependency_fingerprints,
+                        };
+                        true
+                    } else {
+                        false
+                    }
+                }
                 QueryState::Ready { fingerprint, .. } => *fingerprint == Some(current_fingerprint),
             }
         };
@@ -826,11 +917,12 @@ impl<C> QueryDb<C> {
         if let Some(registry) = &self.inner.registry {
             registry.assert_registered::<C, K>();
         }
-        let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
-        let Some(cache) = caches.get_mut(&TypeId::of::<K>()) else {
+        let caches = self.inner.caches.lock().expect("query cache lock poisoned");
+        let Some(cache) = caches.get(&TypeId::of::<K>()) else {
             return false;
         };
         let cache = cache
+            .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
@@ -879,11 +971,12 @@ impl<C> QueryDb<C> {
             registry.assert_registered::<C, K>();
         }
         let _retirement = self.inner.session.enter_retirement();
-        let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
-        let Some(cache) = caches.get_mut(&TypeId::of::<K>()) else {
+        let caches = self.inner.caches.lock().expect("query cache lock poisoned");
+        let Some(cache) = caches.get(&TypeId::of::<K>()) else {
             return false;
         };
         let cache = cache
+            .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
@@ -990,8 +1083,9 @@ impl<C> QueryDb<C> {
             .or_insert_with(|| {
                 Box::new(Mutex::new(
                     FastHashMap::<Arc<K>, Arc<QuerySlot<K::Value>>>::default(),
-                ))
+                )) as Box<dyn ErasedQueryCache>
             })
+            .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
@@ -1030,6 +1124,7 @@ impl<C> QueryDb<C> {
         let caches = self.inner.caches.lock().expect("query cache lock poisoned");
         let cache = caches
             .get(&TypeId::of::<K>())?
+            .as_any()
             .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         cache

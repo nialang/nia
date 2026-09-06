@@ -53,6 +53,40 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
 }
 
 #[test]
+fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
+    let db = QueryDb::new(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    assert_eq!(*db.expect_get(DoubleTwice(7)), 28);
+    let old_node = db
+        .cached_slot(&Double(7))
+        .expect("cached child slot")
+        .node_id;
+
+    db.session()
+        .invalidate_scope(|frame| frame.name == "double_twice");
+
+    let trace = db.query_trace();
+    assert_eq!(trace.queries.len(), 1);
+    assert!(trace.dependencies.is_empty());
+    assert!(
+        db.inner
+            .session
+            .database(db.inner.id)
+            .slot(old_node)
+            .is_none()
+    );
+
+    assert_eq!(*db.expect_get(Double(7)), 14);
+    let new_node = db
+        .cached_slot(&Double(7))
+        .expect("replacement child slot")
+        .node_id;
+    assert_ne!(old_node, new_node);
+    assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation() {
     let db = QueryDb::new(TestContext {
         executions: AtomicUsize::new(0),

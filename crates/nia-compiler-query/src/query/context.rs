@@ -5,7 +5,7 @@ use crate::{
     RuntimeModel, TimingMode,
 };
 use nia_ids::ModuleId;
-use nia_imports::StableModuleKey;
+use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
 use nia_opt::OptimizationPolicy;
 use nia_source::{SourceIdentity, SourceVersion};
 use nia_target_config::TargetConfig;
@@ -16,6 +16,7 @@ use std::{
 
 pub(super) struct CompilerContext {
     pub(super) inputs: Arc<RwLock<CompilerInputs>>,
+    pub(super) observed_graph: std::sync::Mutex<ModuleGraphSnapshot>,
     pub(super) loader_facts: Arc<dyn crate::LoaderFactProvider>,
     pub(super) providers: CompilerQueryProviders,
     pub(super) executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,

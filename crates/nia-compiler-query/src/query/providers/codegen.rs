@@ -728,11 +728,10 @@ pub(super) fn closure_safety_diagnostics(
             })
         })
         .collect::<Vec<_>>();
-    let support_module_ids = db
-        .get(ModuleGraphQuery)?
-        .modules()
-        .map(|module| module.id)
-        .collect();
+    let support_module_ids = resolve_stable_module_sequence_from_current_inputs(
+        db,
+        db.get(LoadedModulesQuery)?.as_ref(),
+    )?;
     let support_modules = materialize_checked_modules(db, support_module_ids)?;
     let support_functions = support_modules
         .iter()
