@@ -184,16 +184,16 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
     let timing_format = cli.timing_format;
     match cli.command {
-        CliCommand::Build { root, step, jobs } => run_build(
+        CliCommand::Build { root, step, jobs } => run_build(BuildContext {
             root,
             step,
             jobs,
-            cli.optimization,
-            cli.profile,
-            cli.timings,
+            optimization: cli.optimization,
+            profile: cli.profile,
+            timings: cli.timings,
             timing_format,
             toolchain,
-        ),
+        }),
         CliCommand::Test {
             root,
             filter,
@@ -1249,6 +1249,15 @@ struct CheckRunOptions {
     package_root: Option<SourcePath>,
 }
 
+struct DriverCheckOptions {
+    module_map: ModuleMap,
+    package_root: Option<SourcePath>,
+    optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
+    timings: nia_driver::TimingMode,
+    runtime: Runtime,
+}
+
 fn run_check(
     path: &str,
     source: &str,
@@ -1279,12 +1288,14 @@ fn run_check(
             codegen_with_driver(
                 &driver,
                 path,
-                module_map,
-                options.package_root.as_ref(),
-                options.optimization,
-                options.profile,
-                options.timings,
-                options.runtime,
+                DriverCheckOptions {
+                    module_map,
+                    package_root: options.package_root.clone(),
+                    optimization: options.optimization,
+                    profile: options.profile,
+                    timings: options.timings,
+                    runtime: options.runtime,
+                },
             )
         });
         let codegen = match codegen_program_from_output(output, path, source) {
@@ -1298,21 +1309,16 @@ fn run_check(
 
 fn check_with_driver(
     path: &str,
-    module_map: ModuleMap,
-    package_root: Option<&SourcePath>,
-    optimization: NiaOptimizationLevel,
-    profile: BuildProfile,
-    timings: nia_driver::TimingMode,
-    runtime: Runtime,
+    options: DriverCheckOptions,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
 ) -> nia_driver::DriverOutput<nia_driver::CheckedProgram> {
     nia_driver::Driver::new(toolchain).check_entry(
-        check_request(path, package_root)
-            .with_module_map(module_map)
-            .with_optimization(optimization)
-            .with_profile(profile)
-            .with_timings(timings)
-            .with_runtime(runtime),
+        check_request(path, options.package_root.as_ref())
+            .with_module_map(options.module_map)
+            .with_optimization(options.optimization)
+            .with_profile(options.profile)
+            .with_timings(options.timings)
+            .with_runtime(options.runtime),
     )
 }
 
@@ -1347,20 +1353,15 @@ fn checked_program_from_output(
 fn codegen_with_driver(
     driver: &nia_driver::Driver,
     path: &str,
-    module_map: ModuleMap,
-    package_root: Option<&SourcePath>,
-    optimization: NiaOptimizationLevel,
-    profile: BuildProfile,
-    timings: nia_driver::TimingMode,
-    runtime: Runtime,
+    options: DriverCheckOptions,
 ) -> nia_driver::DriverOutput<nia_driver::CodegenProgram> {
     driver.codegen(
-        check_request(path, package_root)
-            .with_module_map(module_map)
-            .with_optimization(optimization)
-            .with_profile(profile)
-            .with_timings(timings)
-            .with_runtime(runtime),
+        check_request(path, options.package_root.as_ref())
+            .with_module_map(options.module_map)
+            .with_optimization(options.optimization)
+            .with_profile(options.profile)
+            .with_timings(options.timings)
+            .with_runtime(options.runtime),
     )
 }
 
@@ -1432,7 +1433,7 @@ fn run_emit(path: &str, source: &str, target: EmitTarget, context: EmitContext) 
     }
 }
 
-fn run_build(
+struct BuildContext {
     root: Option<PathBuf>,
     step: Option<String>,
     jobs: Option<NonZeroUsize>,
@@ -1441,7 +1442,19 @@ fn run_build(
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
-) -> ExitCode {
+}
+
+fn run_build(context: BuildContext) -> ExitCode {
+    let BuildContext {
+        root,
+        step,
+        jobs,
+        optimization,
+        profile,
+        timings,
+        timing_format,
+        toolchain,
+    } = context;
     let mut request = nia_build::BuildRequest::new(toolchain);
     if let Some(root) = root {
         request = request.with_root(root);
@@ -1537,12 +1550,14 @@ fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitCon
     let output = time_summary_stage(context.timings, "check", || {
         check_with_driver(
             path,
-            context.module_map,
-            context.package_root.as_ref(),
-            context.optimization,
-            context.profile,
-            context.timings,
-            runtime,
+            DriverCheckOptions {
+                module_map: context.module_map,
+                package_root: context.package_root,
+                optimization: context.optimization,
+                profile: context.profile,
+                timings: context.timings,
+                runtime,
+            },
             context.toolchain,
         )
     });
@@ -1560,12 +1575,14 @@ fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitCon
         codegen_with_driver(
             &driver,
             path,
-            context.module_map,
-            context.package_root.as_ref(),
-            context.optimization,
-            context.profile,
-            context.timings,
-            runtime,
+            DriverCheckOptions {
+                module_map: context.module_map,
+                package_root: context.package_root,
+                optimization: context.optimization,
+                profile: context.profile,
+                timings: context.timings,
+                runtime,
+            },
         )
     });
     let program = match codegen_program_from_output(output, path, source) {
@@ -2204,7 +2221,7 @@ mod tests {
                 root: Some(root),
                 step: None,
                 ..
-            } if root == PathBuf::from(".")
+            } if root == Path::new(".")
         ));
 
         let command = parse_build_command(vec!["check".to_string()])
