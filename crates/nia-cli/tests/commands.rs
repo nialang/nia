@@ -112,18 +112,14 @@ fn repository_examples_parse_and_check() {
         .expect("nia-cli lives under crates/")
         .join("examples");
     let examples = [
-        "00_minimal.nia",
-        "01_values_control_flow.nia",
-        "02_slices_and_strings.nia",
-        "03_stdout.nia",
-        "04_array_list.nia",
-        "05_traits_generics.nia",
-        "06_optional_error.nia",
-        "07_arena_allocator.nia",
-        "08_general_purpose_allocator.nia",
-        "09_hash_map.nia",
-        "10_process_command.nia",
-        "11_iterator_closures.nia",
+        "hello.nia",
+        "basics.nia",
+        "data.nia",
+        "errors.nia",
+        "generic.nia",
+        "collections.nia",
+        "io.nia",
+        "process.nia",
         "modules/main.nia",
     ];
 

@@ -1,0 +1,59 @@
+using std::debug;
+using std::fmt;
+using std::process;
+using process::{Init, ExitCode, exit};
+
+const width: usize = 4;
+static stable_bytes_storage = b"nia";
+
+fn byteSum(bytes: &[u8]) usize {
+    let mut total: usize = 0;
+    for &byte in bytes {
+        total += byte as usize;
+    }
+    total
+}
+
+fn writeFirst(values: &mut [i32], value: i32) () {
+    values[0] = value;
+}
+
+fn copyBytes(output: &mut [u8], source: &[u8]) usize {
+    output.copyFrom(source)
+}
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+
+    let mut values: [i32; width] = [1, 2, 3, 4];
+    let window = &values[1..=2];
+    let mut writable: [i32; 4] = [0; 4];
+    writeFirst(&mut writable, window[0]);
+
+    let name = "nia";
+    let bytes = b"ni" b"a";
+    let cName = b"nia\0";
+    let stable: &[u8] = &stable_bytes_storage;
+    let mut storage: [u8; 8] = [0; 8];
+    let copied = copyBytes(&mut storage[..3], &bytes);
+
+    if writable[0] != 2 or name.len() != 3 or bytes[2] != b'a' {
+        return exit(1)!;
+    }
+    if cName[3] != 0 or byteSum(&bytes) != 312 {
+        return exit(2)!;
+    }
+    if stable[2] != b'a' or copied != 3 {
+        return exit(3)!;
+    }
+
+    let mut windowLength = window.len();
+    let mut nameLength = name.len();
+    let mut bytesLength = bytes.len();
+    let mut stableLength = stable.len();
+    debug::print(
+        &"window={} name={} bytes={} stable={}\n",
+        &[&windowLength, &nameLength, &bytesLength, &stableLength],
+    ).?;
+    !()
+}

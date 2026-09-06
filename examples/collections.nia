@@ -1,0 +1,55 @@
+using std::debug;
+using std::fmt;
+using std::mem;
+using std::process;
+using process::{Init, ExitCode, exit};
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+
+    let mut page = mem::PageAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    defer allocator.deinit().ok().?;
+    // A later binding may reuse the name after changing the view type.
+    let allocator = &mut allocator;
+
+    let mut values = std::ArrayList[i32]::init();
+    defer values.deinit(allocator).?;
+    values.push(allocator, 10).?;
+    values.push(allocator, 20).?;
+    values.push(allocator, 30).?;
+
+    let mut scores = std::HashMap[i32, i32]::init();
+    defer scores.deinit(allocator).?;
+    scores.reserve(allocator, 4).?;
+    _ = scores.insert(allocator, 7, 70).?;
+    _ = scores.insert(allocator, 42, 420).?;
+    _ = scores.insert(allocator, 9, 90).?;
+
+    match scores.getEntryMut(&42) {
+        mut ?entry => entry.valueMut().* = entry.value().* + 10,
+        null => return exit(1)!,
+    }
+
+    let mut listTotal = 0;
+    for &value in values {
+        listTotal += value;
+    }
+    let mut answer = match scores.get(&42) {
+        ?value => value.*,
+        null => return exit(2)!,
+    };
+    if listTotal != 60 or answer != 430 {
+        return exit(3)!;
+    }
+
+    let mut listLength = values.len();
+    let mut mapLength = scores.len();
+    debug::print(&"list={} map={} total={} answer={}\n", &[
+        &listLength,
+        &mapLength,
+        &listTotal,
+        &answer,
+    ]).?;
+    !()
+}

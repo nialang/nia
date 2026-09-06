@@ -80,18 +80,15 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
         ),
         (
             "strings_slices".to_owned(),
-            vec![
-                "check".to_owned(),
-                path("examples/02_slices_and_strings.nia"),
-            ],
+            vec!["check".to_owned(), path("examples/data.nia")],
         ),
         (
             "array_list".to_owned(),
-            vec!["check".to_owned(), path("examples/04_array_list.nia")],
+            vec!["check".to_owned(), path("examples/collections.nia")],
         ),
         (
             "traits".to_owned(),
-            vec!["check".to_owned(), path("examples/05_traits_generics.nia")],
+            vec!["check".to_owned(), path("examples/generic.nia")],
         ),
         (
             "const_eval".to_owned(),
@@ -136,7 +133,7 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             vec![
                 "emit".to_owned(),
                 "--exe".to_owned(),
-                path("examples/04_array_list.nia"),
+                path("examples/collections.nia"),
                 "-o".to_owned(),
                 output.join("array_list").to_string_lossy().into_owned(),
             ],
