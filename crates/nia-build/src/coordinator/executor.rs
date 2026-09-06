@@ -6,6 +6,7 @@
 //! publication uses the manifest returned by the completed compiler request.
 
 use super::*;
+use crate::action_cache::CompilerCheckCacheIdentityInput;
 use std::io::{Seek as _, SeekFrom};
 
 #[cfg(unix)]
@@ -406,16 +407,16 @@ impl DriverActionExecutor {
                 error: Box::new(error),
             })?;
         let cache = CompilerCheckCache::new(self.invocation.cache_dir.clone());
-        let precheck_identity = CompilerCheckCacheIdentity::new(
-            &action.key,
+        let precheck_identity = CompilerCheckCacheIdentity::new(CompilerCheckCacheIdentityInput {
+            action: &action.key,
             module,
-            self.plan.packages(),
+            packages: self.plan.packages(),
             target,
-            self.invocation.profile,
+            profile: self.invocation.profile,
             runtime,
-            &precheck_manifest,
-            self.invocation.toolchain.identity(),
-        );
+            manifest: &precheck_manifest,
+            toolchain: self.invocation.toolchain.identity(),
+        });
         let miss_reason = match precheck_identity.as_ref() {
             None => ActionCacheMissReason::Uncacheable,
             Some(identity) => match cache.lookup(identity) {
@@ -438,16 +439,18 @@ impl DriverActionExecutor {
                 ActionCacheMissReason::Uncacheable,
             )));
         }
-        let Some(final_identity) = CompilerCheckCacheIdentity::new(
-            &action.key,
-            module,
-            self.plan.packages(),
-            target,
-            self.invocation.profile,
-            runtime,
-            &checked.source_manifest,
-            self.invocation.toolchain.identity(),
-        ) else {
+        let Some(final_identity) =
+            CompilerCheckCacheIdentity::new(CompilerCheckCacheIdentityInput {
+                action: &action.key,
+                module,
+                packages: self.plan.packages(),
+                target,
+                profile: self.invocation.profile,
+                runtime,
+                manifest: &checked.source_manifest,
+                toolchain: self.invocation.toolchain.identity(),
+            })
+        else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
             )));

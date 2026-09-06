@@ -30,7 +30,8 @@ mod compiler_emit;
 mod external_command;
 
 pub(crate) use compiler_check::{
-    CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheLookup,
+    CompilerCheckCache, CompilerCheckCacheIdentity, CompilerCheckCacheIdentityInput,
+    CompilerCheckCacheLookup,
 };
 pub(crate) use compiler_emit::{
     CompilerEmitCache, CompilerEmitCacheIdentity, CompilerEmitCacheIdentityInput,
