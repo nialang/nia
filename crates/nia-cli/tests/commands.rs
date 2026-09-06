@@ -316,12 +316,14 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&help.stderr)
     );
     let help_stdout = String::from_utf8_lossy(&help.stdout);
+    assert!(help_stdout.starts_with("Nia compiler\n"), "{help_stdout}");
     assert!(help_stdout.contains("Usage:\n  nia"), "{help_stdout}");
     assert!(
-        help_stdout.contains("emit --<target> <file.nia|dir>"),
+        help_stdout.contains("emit --<target> <path>"),
         "{help_stdout}"
     );
-    assert!(help_stdout.contains("build [step|dir]"), "{help_stdout}");
+    assert!(help_stdout.contains("build [step]"), "{help_stdout}");
+    assert!(!help_stdout.contains("step|dir"), "{help_stdout}");
     assert!(!help_stdout.contains("lex <file.nia>"), "{help_stdout}");
     assert!(!help_stdout.contains("parse <file.nia>"), "{help_stdout}");
     assert!(
@@ -359,17 +361,7 @@ fn help_and_version_use_nia_command_name() {
         check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
         "{check_stdout}"
     );
-    assert!(
-        check_stdout.contains("optimization policy, enabled passes, change count, and changes"),
-        "{check_stdout}"
-    );
     assert!(check_stdout.contains("--timings"), "{check_stdout}");
-    assert!(check_stdout.contains("--timings-format"), "{check_stdout}");
-    assert!(check_stdout.contains("--timing-trace"), "{check_stdout}");
-    assert!(
-        check_stdout.contains("Timing reports are written to stderr"),
-        "{check_stdout}"
-    );
 
     let build_help = support::nia_command()
         .arg("help")
@@ -381,20 +373,13 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&build_help.stderr)
     );
     let build_stdout = String::from_utf8_lossy(&build_help.stdout);
-    assert!(
-        build_stdout.contains("nia build [step|dir]"),
-        "{build_stdout}"
-    );
+    assert!(build_stdout.contains("nia build [step]"), "{build_stdout}");
     assert!(build_stdout.contains("--root <dir>"), "{build_stdout}");
     assert!(build_stdout.contains("--jobs <count>"), "{build_stdout}");
     assert!(build_stdout.contains("build.nia"), "{build_stdout}");
-    assert!(
-        build_stdout
-            .contains("Global options such as --timings may appear before or after `build`"),
-        "{build_stdout}"
-    );
-    assert!(build_stdout.contains(".nia-build/"), "{build_stdout}");
-    assert!(build_stdout.contains(".nia-cache/"), "{build_stdout}");
+    assert!(!build_stdout.contains("std::build"), "{build_stdout}");
+    assert!(!build_stdout.contains("build runner"), "{build_stdout}");
+    assert!(!build_stdout.contains(".nia-cache/"), "{build_stdout}");
 
     let emit_help = support::nia_command()
         .arg("help")
@@ -417,32 +402,35 @@ fn help_and_version_use_nia_command_name() {
     ] {
         assert!(emit_stdout.contains(target), "{emit_stdout}");
     }
+    assert!(!emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
+    assert!(!emit_stdout.contains("--link-arg <arg>"), "{emit_stdout}");
+
+    let exe_help = support::nia_command()
+        .args(["help", "emit", "--exe"])
+        .output_timeout_for_runtime("run nia help emit --exe");
     assert!(
-        emit_stdout.contains("nia emit --obj <file.nia|dir>"),
-        "{emit_stdout}"
+        exe_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&exe_help.stderr)
     );
-    assert!(emit_stdout.contains("--out-dir <dir>"), "{emit_stdout}");
+    let exe_stdout = String::from_utf8_lossy(&exe_help.stdout);
+    assert!(exe_stdout.starts_with("nia emit --exe\n"), "{exe_stdout}");
+    assert!(exe_stdout.contains("--link-arg <arg>"), "{exe_stdout}");
+    assert!(exe_stdout.contains("--linker <program>"), "{exe_stdout}");
+    assert!(!exe_stdout.contains("--out-dir <dir>"), "{exe_stdout}");
+
+    let obj_help = support::nia_command()
+        .args(["emit", "--obj", "--help"])
+        .output_timeout_for_runtime("run nia emit --obj --help");
     assert!(
-        emit_stdout.contains("--runtime <bare|freestanding>"),
-        "{emit_stdout}"
+        obj_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&obj_help.stderr)
     );
-    assert!(emit_stdout.contains("--link-arg <arg>"), "{emit_stdout}");
-    assert!(emit_stdout.contains("--opt-report"), "{emit_stdout}");
-    assert!(emit_stdout.contains("--timings"), "{emit_stdout}");
-    assert!(emit_stdout.contains("--timings-format"), "{emit_stdout}");
-    assert!(emit_stdout.contains("--timing-trace"), "{emit_stdout}");
-    assert!(
-        emit_stdout
-            .contains("optimization policy, enabled passes, change count, and changes to stderr"),
-        "{emit_stdout}"
-    );
-    for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
-        assert!(emit_stdout.contains(level), "{emit_stdout}");
-    }
-    assert!(
-        emit_stdout.contains("Timing reports are written to stderr"),
-        "{emit_stdout}"
-    );
+    let obj_stdout = String::from_utf8_lossy(&obj_help.stdout);
+    assert!(obj_stdout.starts_with("nia emit --obj\n"), "{obj_stdout}");
+    assert!(obj_stdout.contains("--out-dir <dir>"), "{obj_stdout}");
+    assert!(!obj_stdout.contains("--linker <program>"), "{obj_stdout}");
 
     let version = support::nia_command()
         .arg("--version")
@@ -459,6 +447,45 @@ fn help_and_version_use_nia_command_name() {
         .arg("--version")
         .status_timeout("run nia --version status");
     assert!(version_status.success());
+}
+
+#[test]
+fn cli_errors_point_to_the_closest_help_topic() {
+    let unknown = support::nia_command()
+        .arg("frobnicate")
+        .output_timeout_for_runtime("run unknown nia command");
+    assert!(!unknown.status.success());
+    let stderr = String::from_utf8_lossy(&unknown.stderr);
+    assert!(
+        stderr.contains("error: unknown command `frobnicate`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Usage:\n  nia <command>"), "{stderr}");
+    assert!(stderr.contains("run `nia help`"), "{stderr}");
+    assert!(!stderr.contains("Commands:"), "{stderr}");
+    assert!(!stderr.contains("Examples:"), "{stderr}");
+
+    let build_path = support::nia_command()
+        .args(["build", "."])
+        .output_timeout_for_runtime("run nia build with a positional root");
+    assert!(!build_path.status.success());
+    let stderr = String::from_utf8_lossy(&build_path.stderr);
+    assert!(stderr.contains("must be passed with `--root`"), "{stderr}");
+    assert!(stderr.contains("nia build [step]"), "{stderr}");
+    assert!(stderr.contains("run `nia help build`"), "{stderr}");
+
+    let emit = support::nia_command()
+        .args(["emit", "--llvm", "missing.nia", "extra"])
+        .output_timeout_for_runtime("run invalid nia emit --llvm invocation");
+    assert!(!emit.status.success());
+    let stderr = String::from_utf8_lossy(&emit.stderr);
+    assert!(stderr.contains("unexpected argument `extra`"), "{stderr}");
+    assert!(
+        stderr.contains("Usage:\n  nia emit --llvm <path>"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("run `nia help emit --llvm`"), "{stderr}");
+    assert!(!stderr.contains("Targets:"), "{stderr}");
 }
 
 #[test]

@@ -262,7 +262,7 @@ fn run_inspection_contracts(source: &Path) {
     }
     assert_failure(
         command(["emit", "obj"], source),
-        &["old `nia emit obj` syntax was removed; use `nia emit --obj`"],
+        &["emit targets are flags; use `--obj`"],
     );
     assert_failure(command(["emit"], source), &["missing emit target flag"]);
     assert_failure(

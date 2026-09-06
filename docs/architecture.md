@@ -704,7 +704,7 @@ code.
 The `nia` command-line compiler frontend. Owns CLI parsing, toolchain resolution, command
 dispatch, and ICE boundaries. Core pipeline commands:
 
-- `nia build [step|dir] [--root dir]` - discovers and runs package build.nia
+- `nia build [step] [--root dir]` - discovers and runs package build.nia
 - `nia check <file.nia>` - validates without codegen
 - `nia emit --tokens|--ast|--checked|--backend|--llvm|--obj|--exe <file.nia>` - emits intermediate or final products
 
