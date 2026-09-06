@@ -1,14 +1,7 @@
 # Nia Language Specification
 
-Status: normative language reference
-
-This document defines the current Nia language. It is intended to be the main
-reference for users, implementers, tests, and maintenance work. Version
-numbers are tracked by Git tags and release history, not by this file name.
-
-Nia is a small systems programming language. It keeps the directness of C while
-removing declaration syntax baggage, hidden runtime policy, and large semantic
-systems that would make the language hard to implement and maintain.
+Nia is a statically typed systems programming language with explicit control over
+memory, data representation, and external interfaces.
 
 ## 1. Language Scope
 
@@ -17,8 +10,7 @@ Nia provides:
 - a small statically typed language for systems programming;
 - direct memory-oriented types: integers, booleans, arrays, pointers, slices,
   structs, unions, function pointers, and C-style enums;
-- simple type generics for functions, structs, and methods, implemented by
-  monomorphization;
+- type generics for functions, structs, and methods;
 - methods declared in `extend` blocks;
 - traits implemented by `extend Type : Trait` blocks;
 - expression-oriented blocks and `if`;
@@ -30,37 +22,12 @@ Nia provides:
 - C ABI interop through `extern`;
 - explicit file modules declared with `module`, `using`, and `pub using`;
 - a small visibility model based on `pub`;
-- freestanding executable startup through the standard library, with object and
-  LLVM output available for custom build flows.
 
-The current core language keeps these systems outside the language surface:
-
-- garbage collection;
-- exceptions;
-- general algebraic data types. Nia provides nominal enums, including tuple and
-  named payload variants, but does not provide a general structural algebraic
-  data type system. Enum layout, ABI, and exhaustiveness remain explicit and
-  are fixed by each declaration;
-- an ownership and lifetime borrow checker. Nia does not track aliasing or
-  infer lifetimes, and it has no RAII destructor protocol. It does perform the
-  flow-sensitive checks needed to reject clearly invalid programs, including
-  callable-view and captured-address escape analysis, so the absence of a borrow
-  checker is not an absence of static checking;
-- implicit allocation. No core form allocates: the language has no built-in
-  allocator, no owning container, and no growable type, and no expression,
-  literal, aggregate, or control-flow construct acquires storage on its own.
-  Allocation is ordinary library code that takes an explicit `mem::Allocator`
-  argument and returns a typed failure. This is a deliberate constraint rather
-  than an omission: because the core syntax and semantics never presuppose a
-  heap, the same language runs on bare metal and in deeply embedded targets
-  without a reduced dialect;
-- a hidden runtime startup model. Startup is explicit instead: the standard
-  library provides the injected facade selected per target, the entry contract
-  is a visible `process::Init` parameter, and `--runtime bare` omits injection
-  entirely;
-- package management and a registry as part of the core language. The
-  toolchain-owned build system is developed in this repository and is a library
-  and command surface rather than language grammar.
+Nia has no language-level garbage collector, exception mechanism, implicit
+allocation, ownership checker, or destructor protocol. Allocation and resource
+management are ordinary library operations. Package management, command-line
+interfaces, and runtime selection are toolchain concerns rather than language
+syntax.
 
 ## 2. Source Files And Programs
 
@@ -69,13 +36,8 @@ Nia source files use the `.nia` extension.
 A compilation unit is UTF-8 text. Source locations are tracked with byte offsets
 and reported through source spans.
 
-An executable is started by the standard library. The compiler loads the entry
-source as the reserved `root` module and injects a standard-library package
-startup facade; that facade selects the target startup implementation and calls
-the public user entry function through `root::main`. The startup facade is an
-implementation detail, not a public `std` API.
-
-The current user entry contract is intentionally single-shaped:
+Executable startup is supplied by the selected runtime. For the standard
+freestanding runtime, the user entry function has this shape:
 
 ```nia
 using std::process;
@@ -86,14 +48,10 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 ```
 
-Returning `!()` means process success. `process::ExitCode` is an open enum
-backed by `i32`; `process::ExitCode::Success` names status `0`, and the
-standard-library constructor for an unnamed status is `process::exit(code)`.
-The language also permits an explicit `code as process::ExitCode` cast because
-`ExitCode` is an open integer-backed enum, but ordinary executable code uses
-the constructor so the conversion remains visible and searchable at one API
-boundary. Returning an error payload such as
-`process::exit(1)!` asks the startup layer to terminate with that exit status:
+Returning `!()` denotes success. The standard library's `process::ExitCode`
+type represents an exit status.
+Returning an error payload such as `process::exit(1)!` requests termination with
+that status:
 
 ```nia
 using std::process;
@@ -104,29 +62,9 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 ```
 
-Nia distinguishes two execution models:
-
-- executable emission: the driver injects the standard-library package startup
-  facade for the selected runtime. The current default is freestanding startup
-  linked without CRT startup; the current target implementation is Linux
-  x86_64. The user entry remains the Nia-level
-  `root::main(process::Init) process::ExitCode!()` contract.
-- bare/object/IR emission: no startup logic is injected and `main` is not
-  required. The compiler
-  emits LLVM IR or object files for an external build system, custom entry
-  symbol, linker script, or freestanding runtime.
-
-Other Nia functions named `main` use normal Nia internal symbol naming unless
-they are declared `extern`. The compiler does not export the root user `main`
-as the C ABI entry point; that responsibility belongs to the injected startup
-facade.
-The `std::start` module path is reserved for the injected standard-library
-runtime and is not visible to user packages.
-
-The standard library is a toolchain component rather than part of the core
-language grammar. Its current facade, ownership, allocation, and error
-contracts live in [`lib/README.md`](../lib/README.md) and the owning
-`lib/std` source modules.
+Other functions named `main` are ordinary Nia functions. A runtime may expose
+an entry symbol or omit startup entirely; those choices do not change the
+source-level function rules defined here.
 
 ## 3. Lexical Structure
 
@@ -264,20 +202,20 @@ not determine the type of the value being shifted.
 Scalar integer division and remainder trap when the divisor is zero. Signed
 scalar division and remainder also trap for `MIN / -1` and `MIN % -1`, since
 the mathematical quotient is not representable in the operand type. During
-constant evaluation these traps are source diagnostics; runtime lowering checks
-the same conditions before emitting the LLVM integer operation. Floating-point
+constant evaluation these traps are source diagnostics; runtime execution checks
+the same conditions before performing the integer operation. Floating-point
 division and remainder follow their floating-point semantics and are not
 covered by this scalar integer trap rule.
 
 During constant evaluation, integer addition, subtraction, multiplication, and
 negation are checked at every operation against the concrete operand type. The
-same scalar runtime operations trap on overflow before an LLVM operation can
-produce poison. An overflowing const intermediate is a source diagnostic even
+same scalar runtime operations trap on overflow. An overflowing const
+intermediate is a source diagnostic even
 when a later operation would return the final value to range. The concrete type
 comes from ordinary semantic inference, including expected types, instantiated
 generic parameters, the defining module of an imported `const fn`, and the
-target width of `usize` and `isize`; literal spelling and the compiler host
-integer width do not define
+target width of `usize` and `isize`; literal spelling and the implementation
+host's integer width do not define
 these rules. A constant integer shift count must be non-negative and smaller
 than the concrete left operand width. The same count rule applies to scalar
 runtime shifts: a negative signed count or a count greater than or equal to the
@@ -383,7 +321,7 @@ use `\\`:
 \\syscall
 
 b\\mov rax, 60
-\\syscall
+ \\syscall
 ```
 
 For multiline strings, indentation before the delimiter is ignored, the delimiter
@@ -534,8 +472,7 @@ expressions cannot be materialized; unit expressions may be materialized as
 zero-sized temporaries.
 
 When the pointee type is a trait name, `&Trait[...]` and `&mut Trait[...]`
-denote trait object pointers, not thin object pointers. A trait object is a Nia
-fat pointer carrying an object pointer plus implementation metadata. Bare
+denote trait object pointers. Bare
 `Trait[...]` remains a trait type for bounds and projections; it is not a valid
 value, field, parameter, or array element type.
 
@@ -681,9 +618,8 @@ reference forms:
 ```
 
 `&[T]` is a read-only contiguous range. `&mut [T]` is a writable contiguous
-range. The language does not expose slice fields; an implementation may represent
-a slice as `{ ptr, len }`, where `ptr` points to the first element and `len` has
-type `usize`.
+range. Slice representation is defined by the ABI; slice fields are not exposed
+as source-language members.
 
 Slices may be constructed by combining range indexing with address-of:
 
@@ -744,9 +680,10 @@ read(arr);      // error
 read([1, 2, 3]); // error
 ```
 
-String and byte string literal expressions have type `&[char; N]` and `&[u8; N]`.
-When a slice is expected, the ordinary pointer-array-to-slice coercion can
-produce `&[char]` or `&[u8]`. Method resolution applies the same coercion when
+String and byte string literal expressions have type `[char; N]` and `[u8; N]`.
+Taking their address produces `&[char; N]` or `&[u8; N]`. When a slice is
+expected, the ordinary pointer-array-to-slice coercion can produce `&[char]`
+or `&[u8]`. Method resolution applies the same coercion when
 `&[T; N]` or `&mut [T; N]` has no matching method but the corresponding slice does.
 Methods defined for the fixed-length array remain more direct and take
 priority. The selected method's receiver kind controls the final coercion, so a
@@ -784,82 +721,21 @@ unsuffixed integer literals in slice bounds are inferred as `usize`. Omitted
 slice bounds are interpreted by the slice operation, not by rewriting the range
 value to `0` or `usize::MAX`.
 
-Bounded range values expose their present bounds through inherent compiler-backed
-methods. `a..b` and `a..=b` provide both `start()` and `end()`; `a..` provides
+Bounded range values expose their present bounds through inherent methods.
+`a..b` and `a..=b` provide both `start()` and `end()`; `a..` provides
 only `start()`; `..b` and `..=b` provide only `end()`; `..` provides neither.
 Each method returns the range's bound type. These accessors have no public trait
 identity or associated-type projection. An ordinary visible extension method
-with the same name takes priority over the compiler fallback. Range values do
+with the same name takes priority over the built-in fallback. Range values do
 not implement `Len`.
 
-Nia does not provide built-in runtime bounds checks. The programmer is
-responsible for ensuring that the selected memory range is valid.
+Indexing and range formation are unchecked language primitives. Callers must
+ensure that each selected memory range is valid.
 
-With `std::slice` loaded, slices provide checked library operations for
-ordinary data-dependent access. `get(index)` and `getMut(index)` return an
-optional element reference. `first`/`firstMut` and `last`/`lastMut` do the same
-for the endpoints. `getRange(start, end)` and `getRangeMut(start, end)` use a
-half-open range and return an optional slice; they return `null` when
-`start > end` or `end > len`, while `len, len` is a valid empty range. These
-methods validate before using the native indexing or slicing operation.
-
-Direct `slice[index]` and `&slice[start..end]` remain the explicit unchecked
-language primitives. The standard library does not duplicate them under an
-`unchecked` method name. A single read-only checked branch can use
-`if slice.get(index) is ?value`; mutable optional references use an explicitly
-mutable pattern such as `match slice.getMut(index) { mut ?value => ... }`.
-
-When `T: Eq[T]`, `equals`, `startsWith`, `endsWith`, `find`, and `contains`
-operate on complete contiguous element sequences. `find` returns the first
-matching element index as `?usize`. An empty needle matches at zero, including
-against an empty slice; a needle longer than the receiver does not match.
-Mutable slice values can call these read-only receiver methods directly: method
-resolution applies the same `&mut [T]` to `&[T]` coercion accepted at ordinary
-typed boundaries.
-
-`split(separator)` returns an allocation-free `std::slice::SliceSplit[T]` whose
-iterator items are borrowed `&[T]` segments. Matching is left-to-right and
-non-overlapping. Leading, trailing, and adjacent separators therefore produce
-empty segments; an empty receiver produces one empty segment. An empty
-separator performs no split and yields the complete receiver once, because
-ordinary element iteration already has the direct `for &item in slice`
-spelling. The iterator borrows both slices, so the receiver and separator must
-remain valid and unchanged until iteration ends. `SliceSplit` is intentionally
-not double-ended: reverse matching of self-overlapping multi-element separators
-requires a separate boundary/search model rather than hidden rescanning.
-
-Scalar text provides `replaceAll(allocator, needle, replacement)` on both
-borrowed `[char]` and owned `String` receivers. It returns a new owned `String`
-and never mutates or consumes the source. Matches use the same left-to-right,
-non-overlapping boundaries as `split`; an empty needle performs no replacement
-and returns an independent copy. The implementation computes the exact output
-length before allocation, allocates once, and returns `mem::Error::OutOfMemory`
-without a partial result. `replacement` may borrow from the source because the
-source remains unchanged while the independent result is built.
-
-A borrowed text sequence `&[&[char]]` provides
-`join(allocator, separator)`. The result is an independent `String`; input
-parts and the separator remain borrowed and unchanged. Empty input produces an
-empty string, one part produces an independent copy without a separator, and
-an empty separator concatenates the parts. Join scans the repeatable input
-slice once to compute the exact scalar length and then once to fill a single
-allocation. Length overflow and allocation failure both report
-`mem::Error::OutOfMemory` without a partial result. A literal collection uses
-one contextual annotation:
-
-```nia
-let parts: [&[char]; 3] = [&"build", &"λ", owned.text()];
-let mut joined = (&parts).join(allocator, &"/").?;
-```
-
-`copyFrom(source)` is the ordinary slice copy operation. It copies
-`min(receiver.len(), source.len())` initialized element representations,
-handles overlapping ranges, and returns that element count. The return value
-makes a short destination observable and cannot be ignored implicitly.
-`copyFrom` is a shallow value copy; it does not call a user cloning or cleanup
-protocol. For `T: Ord[T]`, `compare(other)` compares elements
-lexicographically and returns `std::cmp::Ordering`. If their common prefix is
-equal, the shorter slice compares less.
+The standard library may provide checked access, searching, splitting, joining,
+and copying operations for slices. Those APIs are documented with their owning
+facades. Direct indexing and range formation remain the language's unchecked
+slice primitives.
 
 The base of a slice construction may be an array, another slice, or a
 single-element pointer:
@@ -917,7 +793,7 @@ function. For `?T`, `value.?` returns `T` on the present path and returns `null`
 from the current function on the empty path. For `Source!T`, `value.?` returns
 `T` on the success path. If the current function returns `Target!U`, the error
 path is propagated directly when `Source` and `Target` are the same type.
-Otherwise the compiler requires one applicable
+Otherwise the expression requires one applicable
 `Source: std::error::IntoError[Target]` implementation and calls
 `intoError` only on the error path. Optional propagation requires an optional
 function return type and never uses `IntoError`.
@@ -939,12 +815,12 @@ pub trait IntoError[Target] {
 
 The target error type comes from the enclosing function return type, so callers
 normally write `operation().?` rather than an explicit conversion. Resolution
-uses the ordinary trait solver, including the current function's `where`
-predicates and normal impl specificity rules. An unsatisfied or ambiguous goal
-is a type error. Conversion is exactly one step: the compiler does not search
-for chains such as `Source -> Intermediate -> Target`. The source expression is
-evaluated once, the conversion is skipped on success, and the compiler does not
-introduce allocation or type erasure. An `IntoError` implementation is expected
+uses the ordinary trait rules, including the current function's `where`
+predicates and normal implementation specificity rules. An unsatisfied or
+ambiguous goal is a type error. Conversion is exactly one step; chains such as
+`Source -> Intermediate -> Target` are not selected. The source expression is
+evaluated once, the conversion is skipped on success, and propagation introduces
+no allocation or type erasure. An `IntoError` implementation is expected
 to be an infallible error mapping; conversions that add values not present in
 the source, such as an operation name or path, remain explicit adapters.
 Diagnostics distinguish a missing direct implementation from a malformed
@@ -955,112 +831,21 @@ than executed as multiple conversions.
 
 Automatic conversion is available during const evaluation only when the
 selected `intoError` witness is a `const fn`. Const evaluation performs that
-call only on the failure edge, just like runtime lowering; exact-type and
+call only on the failure edge, just like runtime execution; exact-type and
 optional propagation do not need a witness. A runtime-only `intoError`
 implementation is rejected in const code rather than executed as a fallback.
 
-Optional callback operations live in `std::option`. `map` transforms a
-present payload, while `andThen` continues with a callback that produces
-another optional:
+The standard library may provide mapping and recovery methods for optional
+values. Their contracts are documented with the owning library facade; the
+language-level pattern and propagation rules are defined here.
 
-```nia
-using std::option;
+The standard library may provide mapping and recovery methods for error-union
+values. These methods do not alter the language-level propagation semantics.
 
-let doubled = maybe.map(&\value: i32 -> value * 2);
-let positive = doubled.andThen(&\value: i32 -> {
-    if value > 0 { ?value } else { null }
-});
-```
-
-Both operations evaluate the receiver once and skip the borrowed callback for
-`null`. `isPresent` and `isNull` expose the two cases as booleans for predicate
-composition. When a branch needs the payload immediately, prefer the language
-pattern `if maybe is ?value` rather than querying and then matching again.
-
-Error unions provide result operations in `std::result`:
-`map` transforms `!value`, and `andThen` continues it with a callback returning
-another error union with the same error type. Both preserve an existing error
-without invoking the callback. Together with error-side `mapError` and
-`orElse`, these operations cover transformation and fallible continuation on
-both sides without implicit flattening or allocation. `isSuccess` and
-`isError` expose the active case when a composed boolean is required.
-
-Error unions also provide the explicit `mapError` extension:
-
-```nia
-using std::result;
-
-let mapped = operation().mapError(&\[context] cause: SourceError -> {
-    _ = context;
-    _ = cause;
-    TargetError::Unknown
-});
-```
-
-`Source!T::mapError` evaluates its receiver once, returns `!value` unchanged
-on success, and invokes the borrowed `&Fn(Source) Target` view only on the
-error path. The callback is synchronous and cannot be retained by the
-operation; it receives no inferred lifetime extension or allocator ownership.
-The target error type is inferred from the callback's explicit return type,
-including when the callback is an inline closure. `mapError` is an explicit
-mapping operation and is not an additional automatic propagation conversion.
-Callable-view calls are runtime-only, so `mapError` is not available in const
-evaluation.
-
-Error unions also provide `inspectError` for infallibly observing a failure
-while preserving the original result:
-
-```nia
-let checked = operation().inspectError(&cause -> log(cause));
-```
-
-`Source!Value::inspectError` evaluates its receiver once, invokes the borrowed
-synchronous `&Fn(Source) ()` callback only on the error path, and returns the
-same `Source!Value` unchanged. The callback cannot replace, convert, retain,
-or recover the error, and the operation performs no allocation or type
-erasure. It is intended for logging, tracing, counters, and similar
-infallible observation; cleanup, rollback, and fallible recovery use their
-dedicated APIs. Like other callable-view combinators, `inspectError` is not
-available during const evaluation.
-
-Fallible recovery uses `orElse`:
-
-```nia
-let recovered = operation().orElse(&\[fallback] cause: SourceError -> {
-    if canRecover(cause) {
-        !fallback
-    } else {
-        TargetError::Unavailable!
-    }
-});
-```
-
-`Source!Value::orElse` also evaluates its receiver once and skips the callback
-on success. On failure, its callback returns `Target!Value`, so it may recover
-with a success value or replace the error. The success type remains exactly
-`Value`; callbacks that produce another success type are rejected. The result
-has one error-union layer, with no implicit conversion or recursive flattening.
-Like `mapError`, `orElse` borrows a readonly synchronous callable and is not
-available during const evaluation.
-
-For cleanup that must continue after an individual release failure, the
-standard library provides `std::error::cleanup::CleanupAccumulator[Failure]`
-(re-exported as `std::error::CleanupAccumulator[Failure]`). It keeps the first
-failure without allocating and never short-circuits a later `attempt`:
-
-```nia
-let mut cleanup = std::error::CleanupAccumulator[ReleaseError]::init();
-cleanup.attempt(first.deinit());
-cleanup.attempt(second.deinit());
-cleanup.finish();
-```
-
-`attempt` always evaluates its argument and records only the first error.
-`finish` returns that error after all attempts, or `!()` when every attempt
-succeeded. The accumulator does not own or detach resources: each cleanup
-operation must retain a failed owner so a later call can retry it. Use the
-accumulator for teardown/error aggregation, not for ordinary error propagation
-where `.?` and `orElse` intentionally short-circuit or recover.
+The standard library may provide mapping, observation, recovery, and cleanup
+helpers for error unions. Their callback, ownership, and allocation contracts
+are documented with the owning library facade; they do not change the
+language-level `.?` propagation rule.
 
 Patterns can destructure optional and error-union values:
 
@@ -1202,8 +987,9 @@ let mut len = s.len;
 s.len = 4;
 ```
 
-Struct field order is source order. Ordinary `struct` uses Nia layout rules.
-`extern struct` uses C ABI-visible layout for C interop:
+Struct fields have source declaration order and stable names. The physical layout
+of an ordinary `struct` is determined by the Nia ABI and may differ from that
+order. `extern struct` uses C ABI-visible declaration order for interop:
 
 ```nia
 extern struct CPoint {
@@ -1237,10 +1023,11 @@ let mut n = bits.i;
 bits.f = 1.0;
 ```
 
-Reading a union field other than the field most recently written is a low-level
-reinterpretation operation. The programmer is responsible for ensuring that the
-active field and access type are meaningful for the target ABI and program
-invariants.
+Unions are untagged. Writing a field changes the bytes occupied by that field;
+the language does not add an active-field tag. Reading a different field is a
+low-level reinterpretation of the same storage. Such a read is only meaningful
+when the target representation and the program's invariants make the
+reinterpretation valid.
 
 Generic unions are allowed:
 
@@ -1389,18 +1176,11 @@ fn main() i32 {
 }
 ```
 
-The body checker collects constraints through locals, calls, nested closures,
-tuples, pointers, conditionals, assignments, and ordinary callable shapes
-before checking the body with the resolved signature. Explicit parameter type
-annotations remain valid and act as constraints; the return type is inferred
-from the expression and callable context. Conflicting constraints are
-diagnosed. A closure is monomorphic: using one closure value
-with incompatible argument types is a type error, rather than implicit
-let-polymorphism. If no callable context or body constraint determines a
-parameter type, the compiler reports that parameter as unresolved and an
-annotation or a callable context is required. Inference is function-local and
-temporary; unresolved inference identities never enter semantic facts, cached
-queries, ABI/layout data, or persisted types.
+Parameter annotations and callable context constrain omitted closure parameter
+types. The return type is inferred from the body and callable context. Conflicting
+constraints are errors. A closure is monomorphic: one closure value cannot be
+used with incompatible argument types. If no context determines a parameter
+type, the parameter requires an annotation or an expected callable type.
 
 Inference cannot invent a type that appears in neither the closure body nor
 its callable context. For example, a callback that constructs only the success
@@ -1428,59 +1208,18 @@ error and should instead use a matching `&Fn(...)` callable view. This bounded
 no-capture conversion does not make `&fn(...)` and `&Fn(...)`
 representation-equivalent type families.
 
-Native LLVM emission implements this conversion with a generated zero-state
-adapter: the adapter has the ordinary thin function-pointer ABI and supplies a
-private state token when it calls the concrete closure entry.
-
 Callable views are non-owning and stack-backed by default. A view created from a
 concrete closure must remain within the lexical lifetime of that closure state:
 it may be called and copied into local aggregates, but it cannot be returned,
 stored through a pointer or global, passed to a call that may retain it, or
-assigned into an outer scope after the closure state's scope ends. The compiler
-closure escape stage follows this provenance through direct function summaries;
-function-pointer, dynamic-dispatch, and unknown calls are treated as potentially
-retaining. No allocator-backed escaping owner is implied by `&Fn` or `&mut Fn`.
+assigned into an outer scope after the closure state's scope ends. Passing a view
+to an operation whose contract permits retention is likewise invalid. No
+allocator-backed escaping owner is implied by `&Fn` or `&mut Fn`.
 If a closure captures a pointer whose storage is a local or temporary stack
 address, the closure state likewise cannot be returned, stored through memory,
 or passed to a retaining call. Ordinary raw-pointer flow is outside this rule;
-the restriction begins when the address becomes part of closure state.
-
-The standard library provides an explicit owner for callers that need a
-callable view to outlive the lexical scope of its closure state. `mem::Allocator`
-allocates raw storage, while `Allocator::allocValue[T](value)` constructs an
-`mem::Allocated[T]` handle containing the typed storage pointer plus the
-returned allocator Block layout and release range required to free the original
-block. The Block layout remains distinct from `Layout::of[T]`: a custom
-allocator may attach real storage to a zero-sized typed value.
-The operation is library code: the compiler does not select an allocator,
-insert heap operations, or attach an implicit destructor to `T`. A caller may
-obtain `valueMut()`, create the explicit callable view, and move that view into
-`Allocated::intoCallable`, producing `mem::CallableAllocation[V]` for a sized
-callable-view type such as `&mut Fn(i32) i32`:
-
-```nia
-let mut allocated = allocator.allocValue(\[base] value: i32 -> { base + value }).?;
-let mut state = allocated.valueMut();
-let callback: &mut Fn(i32) i32 = &mut state.*;
-let mut owner = allocated.intoCallable(callback);
-let result = owner.callback()(8);
-owner.deinit(&mut allocator).?;
-```
-
-`CallableAllocation` is still an ordinary value. It carries the original
-allocator release range through the explicit owner transfer; it does not make
-the callable view immortal, infer ownership for captured pointers, or make
-allocation failure disappear. `deinit` is explicit and must receive the allocator that
-produced the block; cleanup errors remain typed. Copying the owner does not
-duplicate the block: copies alias the same allocation, so callers must arrange
-that only one logical owner performs `deinit`. A view returned by `callback()`
-becomes invalid when that owner is released. The raw storage contract is
-caller-managed because Nia has no ownership checker. `allocValue`
-evaluates the value before the allocator call; this is an abstract
-value-construction rule, not a requirement to materialize a temporary closure
-object and copy it to the block. LLVM may keep captures in SSA and store them
-directly into the caller-provided destination, although no unoptimized ABI
-boundary promises zero-copy behavior.
+the restriction begins when the address becomes part of closure state. A
+longer-lived callable requires an explicit owner supplied by a library API.
 
 A function declaration name is a function item, not an ordinary runtime value.
 Function items cannot be used bare:
@@ -1555,20 +1294,19 @@ fn word() usize {
 
 The whole file must still parse, so inactive declarations and statements must
 be syntactically valid Nia. After parsing, inactive conditional items and
-statements are removed for the active target before later semantic phases.
+statements are ignored for the active target before later semantic checks.
 Invalid names, types, imports, or calls in inactive code are not diagnosed for
-that target. Multi-target validation is expected to run the compiler for each
-target a project supports.
+that target. A project that supports multiple targets validates the source once
+for each target.
 
 Attributes are the only source syntax introduced by `@`. A bare `@foo` is not
-an expression form; compiler-backed functions are declared by `std::builtin`
+an expression form; built-in functions are declared by `std::builtin`
 and called through ordinary paths such as `std::builtin::size[T]()`. The
-standard-library declarations use `@[builtin(...)]` to identify their compiler
-contract, while every AST attribute uses the bracketed `@[...]` form.
+standard-library declarations use `@[builtin(...)]` to identify their built-in
+semantics, while every AST attribute uses the bracketed `@[...]` form.
 
-The compiler also injects a reserved `builtin` module root. It is a normal
-module for name resolution and imports, but its source is generated from the
-active target rather than read from disk:
+The language provides a reserved `builtin` module root. It is a normal module
+for name resolution and imports, and exposes facts about the active target:
 
 ```nia
 using builtin;
@@ -1592,23 +1330,19 @@ cannot add the attribute when the declared trait method does not have it.
 `std::SourceLocation` contains a logical UTF-8 source identity and one-based
 line and column numbers. Columns count Unicode scalar values. In an ordinary
 function, `std::callerLocation()` returns its own lexical expression location.
-It is const-capable, including calls through tracked `const fn` chains. Source
-locations never require a runtime registry, stack walk, unwind information, or
-heap allocation.
+It is const-capable, including calls through tracked `const fn` chains.
 
-Tracked functions have a distinct internal ABI and cannot be converted to an
-ordinary `&fn(...)` or `&Fn(...)` value. This avoids hiding caller metadata in
-a source-level function type that cannot carry it.
+Tracked functions cannot be converted to an ordinary `&fn(...)` or `&Fn(...)`
+value. Their caller metadata is part of the tracked call contract.
 
 The parser accepts attributes on top-level items and on `struct`/`union` fields.
 An unknown attribute is reserved and has no language-defined effect until this
 specification assigns one. Unknown attributes do not change visibility, ABI,
 layout, symbol names, type checking, or code generation.
 
-ABI selection is still expressed by declarations. In particular, Nia does not
-use `@[repr(C)]`: `extern struct` and `extern union` are the C ABI aggregate
-forms. Nia also does not currently define `@[export]`; C ABI symbol definitions
-are written as `extern fn` definitions.
+ABI selection is expressed by declarations. `extern struct` and `extern union`
+are the C ABI aggregate forms. C ABI symbol definitions are written as
+`extern fn` definitions; `@[repr(C)]` and `@[export]` are not language forms.
 
 ### 5.2 Functions
 
@@ -1872,8 +1606,8 @@ through `return`, `break`, or `continue`. Every `match`, including one used
 only for effects, must be exhaustive; write `_ => {}` when intentionally doing
 nothing for remaining values. Exhaustiveness is computed across recursive
 product patterns rather than independently per field, and diagnostics include
-one missing-pattern witness. Open enums require `_`, even if every currently
-named variant is covered.
+one missing-pattern witness. Open enums require `_`, even if every named variant
+is covered.
 
 ### 5.6 Let And Const Bindings
 
@@ -1960,14 +1694,9 @@ fn first_value() i32 {
 ```
 
 `const` may appear at module, associated-value, and local binding positions. A
-`const` binding must have an initializer. Its initializer must be evaluable
-with the current compile-time value evaluator. Current compile-time values cover
-integer, boolean, string, array, struct, and ABI-scalar union literal values;
-struct and supported union field access;
-casts that preserve the underlying value; boolean `not`, `and`, and `or`;
-equality comparisons between matching primitive const value kinds; simple
-integer arithmetic and bit operations; and references to other visible
-`const` bindings. Cyclic `const` dependencies are errors.
+`const` binding must have an initializer that can be evaluated at compile time.
+The initializer may use the ordinary expression forms and types described by
+the constant-evaluation rules below. Cyclic `const` dependencies are errors.
 
 Top-level `pub const` bindings participate in normal module visibility and
 may be used through imports:
@@ -1996,75 +1725,19 @@ const p: Point = Point{x: 2, y: 3};
 const width: usize = p.x + p.y;
 ```
 
-Const union values preserve target storage semantics rather than behaving like
-single-field structs. Integer, floating-point, `bool`, and `char` fields use the
-artifact target's widths and endianness. Fixed arrays recursively composed from
-supported types encode each element in array order with the same target rules.
-Nominal structs recursively composed from supported fields use their substituted
-artifact layout, including field reordering and offsets. Their field bytes are
-initialized, while inter-field and trailing padding remains uninitialized.
-Nested unions recursively preserve the same raw bytes and initialization state;
-they do not acquire an active-field tag or field-construction identity.
-SIMD vectors preserve lane order and artifact endianness. Numeric lane payloads
-are stored consecutively, boolean mask lanes are bit-packed with lane 0 as the
-least significant bit, and vector allocation-tail padding remains
-uninitialized. Target-sized integer lanes use the artifact pointer width.
-Reading the struct itself decodes only its fields; reinterpreting it through a
-union field that covers padding is an uninitialized-storage error. Reading any
-other union field otherwise decodes the same bytes as runtime union access. A
-write changes only the bytes occupied by the selected field. Bytes outside the
-field used for initial construction are uninitialized rather than implicitly
-zero. Invalid `bool` or `char` representations inside an array or struct are
-diagnosed at the containing element or field.
-
-The current const ABI codec supports scalars, pointers, fixed arrays, SIMD
-vectors, nominal structs, and untagged unions recursively composed from those
-types.
-Nominal type and const arguments are substituted by declaration parameter kind
-and order; semantically equal const expressions and literal arguments identify
-the same concrete field type. Pointer storage is represented by a typed
-artifact-width relocation, never by encoding a host address into the byte
-buffer. Reading a pointer field requires one exact relocation; integer bytes
-cannot fabricate a pointer, and reading relocation-bearing storage through a
-scalar or vector field is rejected. Relocations survive recursive aggregate and
-nested-union copies and participate in pointer lifetime validation. Partially
-overwriting a relocation leaves its unwritten fragment uninitialized; it does
-not expose placeholder bytes as an integer representation. Relocations retain
-their promoted-allocation identity and typed pointee through body and function
-IR, including imported reachability and artifact fingerprinting. A relocation
-to a scalar, fixed array, string, byte-string, SIMD-vector, nominal struct, or
-untagged union constant materializes at runtime through one readonly allocation
-per source origin; equal contents at distinct origins do not imply pointer
-equality. Nested relocations in fixed arrays, structs, and unions are preserved
-as pointer-valued artifact relocations at their ABI offsets. Initialized bytes
-retain their values, while union and struct padding remains uninitialized; no
-host address is serialized into constant storage. Zero-sized promoted
-allocations retain the same source-origin pointer identity even though their
-pointee type has no value bytes; this does not change the pointee's size or
-alignment. Readonly const array, string, and slice storage uses the same rule:
-frozen pointers retain their expression origin, while compiler-provided string
-constants use their defining const item. Repeated runtime uses therefore share
-one allocation, and equal contents from distinct definitions do not imply
-pointer equality. Imported generic `const fn` calls preserve that provenance
-when pointer-bearing union values cross arguments and returns; generic
-instantiation does not create a new allocation identity for provenance carried
-into or returned unchanged from the call. A promotion whose source expression
-is itself inside a generic function template is instead owned by the concrete
-function instance, because substitution may change its pointee type or
-initializer. A `static` address is distinct from promoted readonly const
-storage even when both allocations have the same contents and defining module.
-Other unsupported field kinds are still rejected in a `const fn` declaration.
-Ordinary runtime unions retain the full semantics described in section 4.7.
+Constant evaluation preserves the source-level value and type of an expression.
+It does not introduce a second structural type system. Aggregate values use the
+same nominal structs, arrays, tuples, enums, and untagged unions as runtime
+values. Target-dependent layout and representation are defined by the ABI.
+Invalid representations and reads of uninitialized storage are diagnosed during
+constant evaluation.
 
 Conditional source selection is expressed with `@[if ...]`, not with
 `const`. `const` is reserved for compile-time values and functions.
 
-`const fn` declares a function that is valid during constant evaluation. It is
-not a const-eval-only function kind: the same function may be called from
-runtime code, where it is lowered and executed as an ordinary runtime
-function. A constant expression may call `const fn`, but may not call an
-ordinary `fn`. This gives one implementation a dual-stage contract rather than
-separate compile-time and runtime definitions.
+`const fn` declares a function that may be called during constant evaluation.
+The same function may also be called by runtime code as an ordinary function.
+A constant expression may call a `const fn`, but may not call an ordinary `fn`.
 
 The const-capability contract is checked at the declaration, independently of
 whether the function is used. Tail expressions, explicit returns, expression
@@ -2095,13 +1768,10 @@ const fn adjustedSum(point: Point) i32 {
 }
 ```
 
-Each call receives fresh local state. Taking the
-address of a local creates a transient place pointer to that call's allocation;
-dereferencing it reads the current allocation value rather than a snapshot, and
-pointer equality compares allocation plus projection identity rather than
-pointee contents. That state cannot modify a module or associated `const`, has
-no host address or cross-query identity, and a pointer to it cannot escape into
-the returned const value:
+Each call receives fresh local state. A pointer to a local is valid while that
+local is live, but cannot escape the call in the resulting constant value. A
+pointer received from the caller may be returned unchanged when its allocation
+outlives the callee.
 
 ```nia
 const fn width() usize {
@@ -2115,21 +1785,13 @@ const fn width() usize {
 const arrayWidth: usize = width();
 ```
 
-A pointer received from the caller may be returned unchanged because its
-allocation outlives the callee frame. Taking a pointer to a value expression
-inside a function or block creates a temporary allocation owned by that scope;
-it may be passed to a nested call and used while the scope is live, but it may
-not escape. A module or local `const` initializer may instead directly promote a
-read-only value expression into a frozen allocation with stable source
-provenance. Writable const promotion is rejected. These rules apply recursively when pointers
-are stored in arrays, structs, optionals, error unions, or enum payloads.
-Mutable write-through remains outside the current const pointer capability;
-mutable receiver writeback is a separate call contract.
-
-Pointer-containing untagged unions are const-capable through typed relocations.
-A pointer is never converted to host address bytes or a fabricated compile-time
-integer. Relocation-bearing union values cannot yet cross into runtime code;
-that boundary requires IR and backend relocation materialization.
+A pointer to a value expression inside a function or block is temporary: it may
+be passed to a nested call while the expression's scope is live, but it may not
+escape. A read-only value in a `const` initializer may be promoted to storage
+with the initializer's lifetime. Writable promotion is rejected. These rules
+apply recursively when pointers are stored in aggregates. Constant evaluation
+does not convert pointers to host addresses or fabricate pointer values from
+integers.
 
 Calls are staged by their use site:
 
@@ -2145,22 +1807,13 @@ fn runtimeDouble(value: usize) usize {
 }
 ```
 
-Function pointer types describe an ordinary runtime call signature; they do not
-currently carry a const-callable capability. Runtime code may take the address
-of a `const fn` and call it indirectly, and that reference makes the target a
-runtime-reachable function. Constant evaluation may call the same definition
-directly, but may neither form a function pointer value nor call through one.
-Supporting const indirect calls would require an explicit const-callable
-function type or an equivalent statically checked capability, not inference
-from a pointer value's local origin.
+Function pointer types describe ordinary runtime calls and do not carry a
+const-callable capability. Constant evaluation calls `const fn` definitions
+directly; indirect const calls are not part of the language.
 
-Constant evaluation is resource bounded. One outer evaluation currently has a
-1,000,000-step budget and a maximum const-function call depth of 256; an
-individual `while` or `loop` is additionally limited to 100,000 iterations.
-Nested calls and loops consume the same outer step budget. Exceeding a limit is
-a source diagnostic at the active expression or call site, not a runtime stack
-overflow or an indefinitely running compiler. These limits constrain compiler
-execution and do not make a non-terminating const expression valid.
+Implementations may impose resource limits on constant evaluation. Such a limit
+must produce a diagnostic and must not change the result of an evaluation that
+completes within the implementation's supported limits.
 
 ### 5.7 Static Storage
 
@@ -2383,12 +2036,12 @@ trait. `Iterable::Iter` must implement the builtin `Iterator` trait, and its
 `Iterator::next` provider. It does not perform ordinary method lookup for
 methods with those names and does not bind to any standard-library module path.
 Types expose collection-specific iteration by implementing `Iterable`; an
-`Iterator` also satisfies `Iterable` intrinsically with itself as `Iter`.
+`Iterator` value also satisfies `Iterable` with itself as `Iter`.
 
 Inside a `const fn`, every selected user-provided `Iterable::iter` and
 `Iterator::next` witness must itself be declared `const fn`. This is checked
 when the containing const function is declared, even when it is unused. The
-intrinsic `Iterator: Iterable` adaptation has no function witness to check.
+built-in `Iterator: Iterable` adaptation has no function witness to check.
 An inherent method named `iter` or `next` does not satisfy this requirement,
 because `for-in` dispatches through the builtin traits rather than ordinary
 method lookup.
@@ -2600,12 +2253,10 @@ where T: Eq[T] {
 }
 ```
 
-Primitive numeric, integer, boolean, pointer, and enum implementations are
-compiler-known only for the operations they support. Lowering represents these
-operators as builtin operator calls; backend lowering either keeps a primitive
-builtin operator call or dispatches to the visible trait implementation method.
-LLVM code generation emits the corresponding primitive operation after generic
-instantiation.
+Primitive numeric, integer, boolean, pointer, and enum operations are defined
+for the operand types listed in this specification. A visible trait
+implementation may provide the corresponding operation when the language rules
+permit it; otherwise the primitive operation is selected directly.
 
 ### 8.6 Calls, Indexing, Fields, And Methods
 
@@ -2659,15 +2310,13 @@ _ = log("done");  // allowed even if log returns ()
 abort();          // allowed if abort returns never
 ```
 
-### 8.7 Compiler-Backed Operations
+### 8.7 Built-in Declarations
 
-Nia exposes compiler-backed operations as ordinary declarations in
-`std::builtin`. Call sites use normal path, generic-argument, and call syntax;
-there is no separate `@name(...)` builtin expression syntax. The compiler
-recognizes the standard-library declarations through their internal
-`@[builtin(...)]` contract.
+Built-in operations are exposed as ordinary declarations in
+`std::builtin` and are invoked with normal path, generic-argument, and call
+syntax.
 
-The current surface is:
+The standard library exposes declarations for:
 
 ```nia
 std::builtin::size[T]()
@@ -2681,6 +2330,9 @@ range.end()
 slice.ptr()
 slice.ptrMut()
 std::builtin::load_unaligned[T](ptr)
+std::builtin::memcpy[T](destination, source)
+std::builtin::memmove[T](destination, source)
+std::builtin::memset(destination, byte)
 std::builtin::splat[Vec](value)
 std::builtin::extract(vector, index)
 std::builtin::insert(vector, index, value)
@@ -2696,6 +2348,11 @@ std::builtin::cmpxchg_weak[T](ptr, expected, desired, success, failure)
 std::builtin::fence(order)
 std::builtin::asm(std::builtin::AsmConfig {...})
 ```
+
+These declarations use ordinary Nia call syntax. Their signatures and any
+target-dependent behavior are part of the owning standard-library facade; this
+section records only language-level constraints that affect type checking and
+constant evaluation.
 
 `std::builtin::size[T]()` returns the ABI size of `T` in bytes as `usize`.
 
@@ -2714,7 +2371,7 @@ not the process working directory. `std::builtin::embed` is only valid in a
 bytes.
 
 `std::builtin::size[T]()` and `std::builtin::align[T]()` require `T: Sized`.
-For concrete layout-known types this predicate is compiler-proven. In generic
+For concrete layout-known types this predicate is known. In generic
 code it must be written in the `where` clause:
 
 ```nia
@@ -2733,36 +2390,27 @@ instantiated. A concrete layout-builtin array length participates in
 const-generic inference just like a literal or evaluated const expression,
 with the same result for compile-time and runtime calls.
 
-`value.len()` calls the ordinary source-defined `Len` trait method. The loader
-makes `Len` available as a demand-loaded prelude trait when source uses the
-method or names the trait, so the common call requires no explicit import.
-`std::builtin` defines ordinary implementations for `[T; N]` and `[T]`. The array
-body returns the const generic `N`; the slice body uses the narrow `sliceLen`
-representation intrinsic to read runtime slice metadata. The compiler does not
-assign `Len` a builtin trait identity. User types implement the same trait with
-`const fn len(&self) usize`, usable from both const and runtime calls.
+`value.len()` calls the source-defined `Len` trait method. The standard library
+provides implementations for arrays and slices, and user types may implement
+the same trait.
 
-`range.start()` and `range.end()` are inherent compiler-backed operations on
+`range.start()` and `range.end()` are inherent operations on
 structural range types. They are available only for range shapes that carry the
 requested bound and return that bound's integer type. They do not introduce a
 trait obligation or an associated `Output` type; ordinary visible extensions
 remain higher-priority method candidates.
 
-`slice.ptr()` and `slice.ptrMut()` are inherent compiler-backed projections of
-slice data pointers. `ptr()` accepts read-only or writable slices and returns
-`&T`; `ptrMut()` requires a writable slice and returns `&mut T`. They introduce
-no trait obligation or associated `Target` projection. Ordinary visible
-extensions named `ptr` or `ptrMut` remain higher-priority method candidates.
+`slice.ptr()` and `slice.ptrMut()` project a slice data pointer. `ptr()` accepts
+read-only or writable slices and returns `&T`; `ptrMut()` requires a writable
+slice and returns `&mut T`. They introduce no trait obligation or associated
+type projection. Ordinary visible extensions with the same names take priority.
 
 Array values do not expose these methods. An existing `&[T; N]` or `&mut [T; N]`
 receiver may use the ordinary array-pointer-to-slice coercion, so
 `b"name\0".ptr()` is valid and explicitly produces a pointer to the first
-byte. Runtime projection also preserves the slice data pointer for an empty
-slice, although dereferencing it is invalid. During const evaluation, non-empty
-array-backed slices preserve frozen or place provenance and may use both
-methods. Empty const slices are currently rejected because the const pointer
-representation cannot yet encode an allocation-base/dangling element pointer;
-the evaluator must not fabricate a pointee value.
+byte. An empty slice may expose its data pointer, but dereferencing it is
+invalid. Constant evaluation does not fabricate a pointee value for an empty
+slice.
 
 `std::builtin::load_unaligned[T](ptr)` reads a `T` from a byte pointer with
 alignment 1. `ptr` must have type `&u8` or `&mut u8`, and `T` must be `Sized`.
@@ -2777,9 +2425,8 @@ readable source elements and writable destination elements. `memcpy` copies
 forward and requires the copied ranges not to overlap in a way that changes a
 later source element; `memmove` selects a safe direction and permits overlap.
 `std::builtin::memset(destination, byte)` fills every byte of a mutable `u8`
-slice. These are compiler primitives for std and low-level code. Ordinary code
-uses `slice.copyFrom`, whose count result exposes short copies and whose
-implementation selects the overlap-safe primitive.
+slice. These declarations are intended for low-level code; ordinary code may
+use the higher-level slice operations provided by the standard library.
 
 SIMD vector builtins operate on primitive vector types such as `u8x16` and
 `boolx16`. `std::builtin::splat[Vec](value)` constructs a vector whose lanes all
@@ -2799,7 +2446,7 @@ or lower to runtime SIMD instructions.
 
 Vector comparisons return boolean mask vectors such as `boolx16`.
 `std::builtin::bitmask` packs a boolean mask vector into `usize`, with lane 0 in
-the least significant bit. It currently supports masks up to 64 lanes.
+the least significant bit. The supported lane count is target-defined.
 
 Integer-vector addition, subtraction, multiplication, and negation apply the
 scalar checked operation independently to every lane. If any lane's
@@ -2808,8 +2455,7 @@ operation traps. Boolean mask vectors are not numeric vectors and do not
 support arithmetic or negation; their bitwise operations remain available.
 Integer-vector division and remainder likewise trap the whole operation if any
 lane has a zero divisor, or if any signed lane evaluates `MIN / -1` or
-`MIN % -1`. Only after every lane passes these checks does the lane-wise LLVM
-operation execute. Integer-vector shifts use a count vector of the same type
+`MIN % -1`. Integer-vector shifts use a count vector of the same type
 and lane count as the left operand; a uniform count is expressed explicitly by
 splatting a scalar. Counts are checked per lane, and any negative signed count
 or count at least as wide as the lane type traps the whole operation. Left
@@ -2825,10 +2471,8 @@ and result both have type `T`. `std::builtin::ctz[T](0)` and
 `std::builtin::clz[T](0)` are defined to return the bit width of `T`.
 
 These builtins are declared `const fn` and may be called from constant
-expressions. Their result uses the target primitive's width and signedness;
-the zero-input behavior above is identical during runtime and const
-evaluation. Implementation notes and future const-evaluation work are tracked
-in [the const-evaluation roadmap](const-evaluation-roadmap.md).
+expressions. Their result uses the target primitive's width and signedness; the
+zero-input behavior above is identical during runtime and const evaluation.
 
 Atomic builtins provide the low-level primitive operations behind `std::atomic`.
 Their `order` and `op` arguments must be compile-time integer constants. The
@@ -2848,7 +2492,7 @@ read-modify-write operation, and returns the previous value.
 `null` on success or `?old_value` on failure. `std::builtin::fence(order)` emits
 an atomic fence and returns `()`.
 
-The current supported atomic value types are bool, integer, enum, and ordinary
+The supported atomic value types are bool, integer, enum, and ordinary
 object pointer types whose width does not exceed the target pointer width.
 Volatile pointer types are not atomic value types. Floating point, slices,
 structs, arrays, and unions are not atomic value types. Legal ordering sets
@@ -2862,14 +2506,15 @@ SeqCst.
 `std::builtin::asm(std::builtin::AsmConfig {...})` is the inline assembly escape hatch for syscalls,
 special registers, port I/O, CPU instructions, and freestanding runtime glue.
 Its argument must be an `AsmConfig` literal. It returns `()`. The config,
-input, and output types are compiler contracts without runtime layout:
+input, and output types follow the target's assembly and ABI contract:
 
 ```nia
 fn syscall1(sys_num: usize, arg1: usize) isize {
     let mut ret: isize = 0;
     std::builtin::asm(std::builtin::AsmConfig {
         code:
-            b\\syscall
+            b\\mov rax, 60
+             \\syscall
         ,
         outputs: std::builtin::AsmOutputs { rax: ret },
         inputs: std::builtin::AsmInputs {
@@ -2888,14 +2533,12 @@ that map register classes or fixed registers to expressions or places. `reg`
 means a general register class. `freg` means a floating-point register class.
 Other field names are fixed registers such as `rax` and `rdi`. Output values
 must be assignable places. `clobbers` is an array of byte string literals.
-`options` is a byte string literal or an array of byte string literals;
-currently only `b"volatile"` is defined.
+`options` is a byte string literal or an array of byte string literals. The
+available options are target-defined.
 
-Inline assembly is target-specific. The compiler communicates with the optimizer
-only through explicit inputs, outputs, clobbers, and options; it does not
-understand the semantics of the assembly string. Larger startup code, complex
-ABI glue, or independently maintainable assembly modules should still be
-expressed through `extern` plus object/archive/linker input.
+Inline assembly is target-specific. Its semantics are supplied by the target
+assembler and the surrounding ABI; the assembly string itself is opaque to the
+Nia type system.
 
 Unknown `@...` forms are reserved.
 
@@ -2961,8 +2604,8 @@ struct Box[T] where T: Eq[T] {
 }
 ```
 
-Generics are implemented by monomorphization. Type parameters have no runtime
-representation. The generic surface is explicit type parameters on functions,
+Type parameters have no source-level runtime representation. The generic
+surface is explicit type parameters on functions,
 structs, unions, traits, and methods. Local `let` bindings cannot declare
 generic parameters; array length is part of array type syntax.
 
@@ -3196,7 +2839,7 @@ defined by the language. Operator expressions are checked through these traits:
 | `a < b`, `a <= b`, `a > b`, `a >= b` | `Ord[Rhs]` | `bool` |
 
 `not` is boolean logical not. `~` is bitwise not. Primitive implementations are
-compiler-proven for the primitive types that support the operation. Non-primitive
+defined for the primitive types that support the operation. Non-primitive
 operator support comes from visible `extend Type : Trait[...]` implementations.
 
 Builtin operator traits have fixed method names. Binary arithmetic and bitwise
@@ -3243,16 +2886,11 @@ trait SliceMut[R] : Slice[R] {
 
 ```
 
-The compiler proves builtin implementations for primitive operations,
-layout-known types, pointers, arrays, and slices where the operation is native
-to the language. User implementations of builtin traits are allowed when they
-do not overlap a compiler-proven implementation. For example, a custom
-container may implement `Slice[..]`, but `[T; N]` may not provide a manual
-`Slice[..]` implementation because array slicing is already
-compiler-proven. Range bound and slice data-pointer access are instead inherent
-operations limited to their structural representation shapes. User types
-expose their own ordinary inherent or trait methods without claiming
-language-owned `Start`/`End` or `Ptr`/`PtrMut` capabilities.
+The language supplies implementations for the primitive operations and
+structural types defined by this specification. User implementations may not
+overlap those built-in operations. Range-bound and slice data-pointer access
+are inherent operations limited to their structural types; user types expose
+their own ordinary inherent or trait methods.
 
 Index expressions lower through `Index` or `IndexMut`; slice expressions
 lower through `Slice` or `SliceMut`. Native array, pointer, and slice
@@ -3417,24 +3055,15 @@ where T: Ord[U] + Show, U: Eq[U] {
 }
 ```
 
-The current compiler parses and lowers trait bounds, validates trait
-implementation blocks, and supports receiver-method calls through generic
-`where` bounds. A call such as `a.same(b)` in
-`fn same[T](...) where T: Comparable` is
-kept as a trait-method obligation in the generic body and resolved to the
-visible concrete implementation when the generic function is instantiated.
-Default methods may call other methods from the same trait; those calls are
-resolved through the visible concrete implementation when available, or through
-another default body. Associated type projections are normalized through the
-current function's associated type bound bindings or through the visible
-concrete trait implementation during checking and monomorphization. Supertrait
-method obligations are resolved through the same visible concrete implementation
-lookup.
+Within a generic body, a trait method call is resolved using the applicable
+bound. For a concrete instantiation, the selected implementation supplies the
+method body and associated type projections. Default methods may call other
+methods from the same trait, and supertrait methods follow the same lookup
+rules.
 
-Trait object pointer types are represented as fat pointers carrying an erased
-object pointer and implementation metadata. A concrete pointer may be coerced to
-a trait object pointer when the pointed-to type satisfies the selected trait and
-associated type bindings:
+Trait object pointers support dynamic dispatch. A concrete pointer may be
+coerced to a trait object pointer when the pointed-to type satisfies the
+selected trait and associated type bindings:
 
 ```nia
 trait Source {
@@ -3466,11 +3095,10 @@ fn use_child(child: & Child) () {
 }
 ```
 
-The compiler records this as a trait-object upcast, not as a plain bitcast, and
-remaps metadata to the target supertrait's vtable region. When the target
-supertrait object binds associated types, the source object type must carry
-matching bindings. Bindings for non-primary supertraits use explicit projection
-keys:
+An upcast to a supertrait object is valid when the target is a declared
+supertrait and mutability matches. When the target supertrait object binds
+associated types, the source object type must carry matching bindings. Bindings
+for non-primary supertraits use explicit projection keys:
 
 ```nia
 fn use_child(
@@ -3485,17 +3113,13 @@ fn use_child(
 
 Each `.nia` file is one module. Module loading is explicit: a source file may
 declare child modules with `module name;` or `pub module name;`. A `using` item
-opens names that are already available through the current module graph or a
-module-map pkg root; it does not implicitly discover files.
+opens names that are already available through the module graph; it does not
+implicitly discover files.
 
-A compilation has one reserved entry package named `root`. The reserved
-`pkg` root names the current module's own package. The CLI also provides a
-default `std` pkg root and accepts additional package roots with
-`-M name=path` or `--module name=path`. One `-M` entry is one package. A mapped
-directory is resolved through its required `pkg.nia` source root; a mapped file
-is retained as an explicit compatibility form while package roots migrate to
-that convention. Package roots are lazy: they are loaded when referenced by
-`using`, or when executable emission injects the standard startup contract.
+The logical roots `root`, `pkg`, and `std` identify the entry package, the
+current package, and the standard library package respectively. Additional
+package roots are toolchain-defined. Their physical paths and loading policy
+are outside this specification.
 
 ### 12.1 Module Declarations
 
@@ -3506,55 +3130,31 @@ module math;
 pub module geom;
 ```
 
-For an entry file at `src/app/main.nia`, `module math;` loads
-`src/app/math.nia`. If `math.nia` declares `module ops;`, that declaration loads
-`src/app/math/ops.nia`. Nia intentionally has no `mod.rs` form.
-
-The child module's logical name is taken from its declaration site. A file may
-change the logical child name it exposes by declaring a nested module itself:
-
-```nia
-// src/app/main.nia
-module foo;
-
-// src/app/foo.nia
-module zoo; // loads src/app/foo/zoo.nia
-```
+The child module's logical name is taken from its declaration site. The mapping
+from a module declaration to source files is toolchain-defined.
 
 `pub module name;` makes the child module namespace part of the current module's
 public surface. Plain `module name;` loads the child for the current module but
 keeps the namespace private to the package visibility rules.
 
-### 12.2 Pkg Roots And Paths
+### 12.2 Package Roots
 
 The reserved path roots are:
 
-- `root`, the compilation entry package, regardless of the current module;
-- `pkg`, the current module's pkg root;
-- `std`, the standard-library pkg root unless overridden with `-M std=...`;
-- any additional pkg root supplied with `-M name=path`.
-
-Examples:
-
-```bash
-nia check src/main.nia -M std=/usr/share/nia/std/pkg.nia -M math=vendor/math.nia
-```
+- `root`, the compilation entry package;
+- `pkg`, the current package root;
+- `std`, the standard-library package root.
 
 ```nia
 using std;
 using std::io;
-using math;
 using pkg::internal;
+using root::config;
 ```
 
-A mapped package root file is the pkg root module. Tail segments select declared
-child modules below that root. If `std` maps to `/usr/share/nia/std/pkg.nia`, then
-`using std::io;` refers to the `io` child declared by that root and backed by
-`/usr/share/nia/std/io.nia`.
-
-For a package directory mapping, the equivalent form is
-`-M std=/usr/share/nia/std`; the CLI resolves it to
-`/usr/share/nia/std/pkg.nia`.
+Additional package roots and their names are supplied by the toolchain. A path
+such as `std::io` selects a declared child module of the `std` package; the
+source-file mapping for that package is not part of the language contract.
 
 Within a loaded module, `self` names the current module and `super` names the
 parent module. `pkg` names the current pkg root, while `root` still
@@ -3567,10 +3167,9 @@ using pkg::internal;
 using root::config;
 ```
 
-Package implementation code should use `pkg::...` for absolute references
-to its own modules. For example, the standard library's implementation modules
-use `pkg::io` and `pkg::process`; user packages still refer to those
-public modules as `std::io` and `std::process`.
+Package implementation code can use `pkg::...` for absolute references to its
+own modules. Public package names are selected by the package root used by the
+toolchain.
 
 ### 12.3 Using
 
@@ -3674,16 +3273,12 @@ Wildcard `pub using Enum::*` re-exports every enum variant.
 Modules and declarations are private by default. Public APIs are marked with
 `pub`, and restricted visibility can be written as `pub(super)` or
 `pub(pkg)`. `pub(super)` exposes the item to the parent module and its
-children. `pub(pkg)` exposes it within the package selected by one `-M`
-entry or by the reserved `root`/`std` packages.
-Restricted visibility is still cross-module visibility. Multi-object emission
-must retain a `pub(super)` or `pub(pkg)` definition for callers in its visible
-scope; only a truly private definition is eligible for module-local dead-code
-elimination without whole-program reference evidence.
+children. `pub(pkg)` exposes it within the current package.
+Restricted visibility is still cross-module visibility. A definition must remain
+available to callers in its visible scope.
 
 `pub` may be applied to `module`, `fn`, `struct`, `enum`, `type`, `let`, `let mut`,
 `extern` declarations, and `using`. Nia has no separate `mod` or `use` syntax.
-Package management is outside the language specification.
 
 ## 13. ABI, Runtime, And Symbols
 
@@ -3715,109 +3310,16 @@ does not infer or check a borrow lifetime for the pointer; callers that need a
 longer-lived view must place the array in storage with that lifetime or copy it
 into owned storage.
 
-### 13.1 Internal Symbol Names
+### 13.1 Symbol Names
 
-Nia uses deterministic, readable internal symbol names. The format is not meant
-to be compatible with C++ or Rust. It is meant to make debugging, linking, and
-monomorphized instances traceable.
+Non-`extern` symbols use implementation-defined internal names. `extern`
+declarations use the names required by their declared ABI. The language does
+not expose a source-level mangling format.
 
-The following symbols use internal naming:
+Symbol spelling, type encodings, object-file layout, and calling-convention
+details are ABI contracts documented in [`nia-abi.md`](nia-abi.md).
 
-- non-extern functions, methods, globals, and struct definitions;
-- concrete generic function and method instances;
-- type encodings inside instance names.
-
-`extern` functions and globals do not use internal mangling. Their symbol name is
-the source declaration name. An `extern fn` with a body is also unmangled.
-
-Base symbol format:
-
-```text
-nia__m<M>__d<D>__<name>
-```
-
-`M` is the module id, `D` is the definition id, and `<name>` is the source name
-after symbol sanitization. Sanitization keeps ASCII letters, digits, and `_`;
-other characters become `_`; an empty result becomes `_`.
-
-Generic function or method instances append an instance suffix:
-
-```text
-<base>__inst__<arg1>__<arg2>__...
-```
-
-Type encoding rules:
-
-- primitive types use their names, such as `i32`, `u8`, `bool`, `never`;
-- unit uses `unit`; opaque uses `opaque`; tuple types encode as
-  `tuple__len__<arity>__<element encodings>`;
-- `&T` encodes as `ptr_read__<T>`;
-- `&mut T` encodes as `ptr__<T>`;
-- `^T` encodes as `vptr_read__<T>`;
-- `^mut T` encodes as `vptr__<T>`;
-- trait object pointers encode as `trait_obj__<trait>...` or
-  `trait_obj_read__<trait>...`;
-- `[T; N]` encodes as `arr__<len>__<elem>`;
-- function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
-  `__variadic` appended for variadic function pointers;
-- readonly callable views encode as
-  `callable_read__pc<N>__<p1>__...__ret__<ret>` and writable callable views as
-  `callable__pc<N>__<p1>__...__ret__<ret>`;
-- unsized callable interfaces encode as
-  `callable_pointee__pc<N>__<p1>__...__ret__<ret>`;
-- optional types encode as `opt__<T>`;
-- error union types encode as `err_union__<E>__<T>`;
-- nominal types encode as `nom__<base>` and, with arguments, as
-  `nom__<base>__argc<N>__<arg1>__...`;
-- generic parameters encode as `gen__<name>`;
-- error types encode as `ty_error`.
-
-Array length encodings include:
-
-- inferred length: `infer`;
-- literal or expression length: `len__<text>`;
-- builtin length: `builtin__<name>__<ty>`.
-
-The rules should stay readable, deterministic, and structurally explicit.
-
-## 14. Required Compiler Surface
-
-A conforming Nia compiler supports:
-
-- lexing and parsing `.nia` files;
-- source-span diagnostics;
-- primitive type checking;
-- arrays, slices, pointers, optional types, error union types, structs, unions,
-  C-style enums, and function types;
-- `let mut`, `let`, and `const` bindings;
-- expression blocks and tail expressions;
-- `if` expressions;
-- the three `for` forms;
-- `defer`;
-- `match` and enum exhaustiveness checks;
-- `std::builtin::size[T]()`, `std::builtin::align[T]()`, `value.len()`,
-  `range.start()`, `range.end()`, `slice.ptr()`, `slice.ptrMut()`, and
-  `std::builtin::asm(std::builtin::AsmConfig {...})`;
-- explicit `module` declarations, module-map package roots, and `using`;
-- global static storage from top-level `static mut` and `static`;
-- top-level `pub` visibility;
-- `extern` C declarations, definitions, and calls;
-- generic functions and structs via monomorphization;
-- methods declared through `extend`;
-- trait declarations, associated types, and direct trait implementation checks;
-- lowering to a typed backend IR;
-- LLVM IR or object emission;
-- freestanding executable emission for Linux x86_64, with experimental i686
-  support, when a target linker is available.
-
-Standard-library APIs are specified beside their owning `lib/std` facades.
-The `nia` command surface is documented by its help output and the repository
-README, while build-script APIs and execution ownership live in
-[`lib/std/build.nia`](../lib/std/build.nia) and
-[`crates/nia-build/README.md`](../crates/nia-build/README.md). These toolchain
-surfaces are not additional language grammar.
-
-## 15. Outside The Language Contract
+## 14. Outside The Language Contract
 
 This specification defines only the syntax and semantics stated in its current
 sections. An unmentioned construct has no reserved syntax or implied behavior.
@@ -3826,11 +3328,11 @@ compile-time operations are ordinary invalid source unless a current section
 defines them.
 
 Package management, editor protocols, compiler command spelling, build-script
-APIs, and standard-library APIs belong to their owning toolchain or library
-interfaces. They do not become language grammar through omission from this
-specification.
+APIs, target support, and standard-library APIs belong to their owning toolchain
+or library interfaces. They do not become language grammar through omission
+from this specification.
 
-## 16. Example
+## 15. Example
 
 ```nia
 using std;
