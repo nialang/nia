@@ -12,9 +12,10 @@ fn at(values: &[i32], index: usize) ?i32 {
 }
 
 fn requireAt(values: &[i32], index: usize) i32!i32 {
-    match at(values, index) {
-        ?value => !value,
-        null => 1i32!,
+    if at(values, index) is ?value {
+        !value
+    } else {
+        1i32!
     }
 }
 

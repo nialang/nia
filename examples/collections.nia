@@ -7,24 +7,22 @@ using process::{Init, ExitCode, exit};
 pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut page = mem::PageAllocator::init();
-    let mut allocator = mem::GeneralPurposeAllocator::init(&mut page);
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(&mut page);
     defer allocator.deinit().ok().?;
-    // A later binding may reuse the name after changing the view type.
-    let allocator = &mut allocator;
 
-    let mut values = std::ArrayList[i32]::init();
-    defer values.deinit(allocator).?;
-    values.push(allocator, 10).?;
-    values.push(allocator, 20).?;
-    values.push(allocator, 30).?;
+    let mut values: std::ArrayList[i32] = .init();
+    defer values.deinit(&mut allocator).?;
+    values.push(&mut allocator, 10).?;
+    values.push(&mut allocator, 20).?;
+    values.push(&mut allocator, 30).?;
 
-    let mut scores = std::HashMap[i32, i32]::init();
-    defer scores.deinit(allocator).?;
-    scores.reserve(allocator, 4).?;
-    _ = scores.insert(allocator, 7, 70).?;
-    _ = scores.insert(allocator, 42, 420).?;
-    _ = scores.insert(allocator, 9, 90).?;
+    let mut scores: std::HashMap[i32, i32] = .init();
+    defer scores.deinit(&mut allocator).?;
+    scores.reserve(&mut allocator, 4).?;
+    _ = scores.insert(&mut allocator, 7, 70).?;
+    _ = scores.insert(&mut allocator, 42, 420).?;
+    _ = scores.insert(&mut allocator, 9, 90).?;
 
     match scores.getEntryMut(&42) {
         mut ?entry => entry.valueMut().* = entry.value().* + 10,
@@ -35,7 +33,7 @@ pub fn main(init: Init) ExitCode!() {
     for &value in values {
         listTotal += value;
     }
-    let mut answer = match scores.get(&42) {
+    let answer = match scores.get(&42) {
         ?value => value.*,
         null => return exit(2)!,
     };
@@ -43,8 +41,8 @@ pub fn main(init: Init) ExitCode!() {
         return exit(3)!;
     }
 
-    let mut listLength = values.len();
-    let mut mapLength = scores.len();
+    let listLength = values.len();
+    let mapLength = scores.len();
     io::debugPrint(&"list={} map={} total={} answer={}\n", &[
         &listLength,
         &mapLength,

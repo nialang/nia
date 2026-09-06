@@ -22,9 +22,9 @@ enum Band: u8 {
 
 fn classify(score: i32) Band {
     match score {
-        0..60 => Band::Low,
-        60..90 => Band::Middle,
-        _ => Band::High,
+        0..60 => .Low,
+        60..90 => .Middle,
+        _ => .High,
     }
 }
 
@@ -40,9 +40,9 @@ pub fn main(init: Init) ExitCode!() {
     _ = init;
 
     let mut point = Point { x: 3, y: 4 };
-    let mut distance = point.distanceSquared();
-    let mut samples = [distance, 60, 87];
-    let mut total = sum(&samples);
+    let distance = point.distanceSquared();
+    let samples = [distance, 60, 87];
+    let total = sum(&samples);
     let band = classify(samples[2]);
     defer point.x = point.x + 1;
 
@@ -50,7 +50,7 @@ pub fn main(init: Init) ExitCode!() {
         return exit(1)!;
     }
     match band {
-        Band::High => {},
+        .High => {},
         _ => return exit(2)!,
     }
 

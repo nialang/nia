@@ -15,10 +15,10 @@ pub fn main(init: Init) ExitCode!() {
     _ = init;
     let point = Point { x: 3, y: 4 };
     let values: [i32; config::width] = [1, 2, 3, 4];
-    let mut sum = plus(values[0], values[3]);
-    let mut len2 = point.len2();
-    let mut color = api::colorCode(Green);
-    let mut diff = api::geometry::sub(10, 5);
+    let sum = plus(values[0], values[3]);
+    let len2 = point.len2();
+    let color = api::colorCode(Green);
+    let diff = api::geometry::sub(10, 5);
 
     if sum + len2 + color + diff != 38 {
         return exit(1)!;
