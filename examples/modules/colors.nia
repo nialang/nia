@@ -6,8 +6,8 @@ pub enum Color: u8 {
 
 pub fn code(color: Color) i32 {
     match color {
-        Color::Red => 1,
-        Color::Black => 2,
-        Color::Green => 3,
+        .Red => 1,
+        .Black => 2,
+        .Green => 3,
     }
 }

@@ -71,6 +71,10 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
+        // Contextual `.method(...)` calls receive the expected type directly;
+        // normalize aliases before looking up extensions so aliases and their
+        // underlying nominal targets share the same associated-function path.
+        let target_ty = self.normalize_aliases_in_type(target_ty);
         let span = expr.span;
         let candidates = self.method_candidates_for_target(target_ty, name);
         let trait_candidates = if candidates.is_empty() {

@@ -25,7 +25,7 @@ fn copyBytes(output: &mut [u8], source: &[u8]) usize {
 pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut values: [i32; width] = [1, 2, 3, 4];
+    let values: [i32; width] = [1, 2, 3, 4];
     let window = &values[1..=2];
     let mut writable: [i32; 4] = [0; 4];
     writeFirst(&mut writable, window[0]);
@@ -47,10 +47,10 @@ pub fn main(init: Init) ExitCode!() {
         return exit(3)!;
     }
 
-    let mut windowLength = window.len();
-    let mut nameLength = name.len();
-    let mut bytesLength = bytes.len();
-    let mut stableLength = stable.len();
+    let windowLength = window.len();
+    let nameLength = name.len();
+    let bytesLength = bytes.len();
+    let stableLength = stable.len();
     io::debugPrint(
         &"window={} name={} bytes={} stable={}\n",
         &[&windowLength, &nameLength, &bytesLength, &stableLength],

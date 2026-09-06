@@ -2235,9 +2235,9 @@ extend types::Unused {
 }
 
 #[test]
-fn facade_reexported_generic_alias_exposes_target_public_inherent_extension_methods() {
+fn facade_reexported_generic_alias_exposes_methods_and_contextual_constructors() {
     let root = temp_dir(
-        "facade_reexported_generic_alias_exposes_target_public_inherent_extension_methods",
+        "facade_reexported_generic_alias_exposes_methods_and_contextual_constructors",
     );
     write(
         &root.join("main.nia"),
@@ -2249,7 +2249,8 @@ using entry::facade;
 
 fn main() usize {
     let mut bag = facade::Bag[i32]::init();
-    bag.len()
+    let contextual: facade::Bag[i32] = .init();
+    bag.len() + contextual.len()
 }
 "#,
     );
