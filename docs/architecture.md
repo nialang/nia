@@ -74,30 +74,30 @@ The pipeline is organized into four product layers. A later layer consumes the
 products of the preceding layer; it does not reinterpret their source representation:
 
 ```text
-+-----------------------+    requests    +-------------------------------+
-| CLI and driver        | --------------> | Query session                 |
-| nia-cli / nia-driver  |                | nia-compiler-query / nia-query|
-+-----------+-----------+                +-------------------------------+
++-----------------------+    requests     +--------------------------------+
+| CLI and driver        | --------------> | Query session                  |
+| nia-cli / nia-driver  |                 | nia-compiler-query / nia-query |
++-----------+-----------+                 +--------------------------------+
             |
             v
-+-----------+-------------------------------------------------------------+
-| Source and declaration products                                         |
-| source -> tokens -> syntax/AST -> ItemTree -> Defs/Imports              |
++-----------+--------------------------------------------------------------+
+| Source and declaration products                                          |
+| source -> tokens -> syntax/AST -> ItemTree -> Defs/Imports               |
 |                                      -> TypeResolution -> Signatures     |
-+-----------+-------------------------------------------------------------+
++-----------+--------------------------------------------------------------+
             | typed handles and declaration facts
             v
-+-----------+-------------------------------------------------------------+
++-----------+--------------------------------------------------------------+
 | Semantic products                                                        |
 | TypeLowering/Normalization -> Value/LocalResolution                      |
 | ConstCheck/Layout/ABI -> BodyCheck -> BodyFacts + BodyIr                 |
-+-----------+-------------------------------------------------------------+
++-----------+--------------------------------------------------------------+
             | checked IR and executable facts
             v
-+-----------+-------------------------------------------------------------+
++-----------+--------------------------------------------------------------+
 | Native products                                                          |
 | FunctionIr -> Reachability -> Monomorphization -> BackendIr -> LLVM/link |
-+---------------------------------------------------------------------------+
++--------------------------------------------------------------------------+
 ```
 
 The shared objects crossing these layers are handles and immutable products:
@@ -226,21 +226,21 @@ layer, but must not import a higher-level semantic or backend crate.
 +--------------------------------------------------------------+
 | Native backend: nia-linker, nia-codegen-llvm, nia-llvm       |
 +--------------------------------------------------------------+
-| Backend model: nia-backend-lower, nia-backend-ir              |
+| Backend model: nia-backend-lower, nia-backend-ir             |
 +--------------------------------------------------------------+
-| Executable and function IR: reachability, monomorphize,       |
-| nia-function-lower, nia-function-opt, nia-function-ir         |
+| Executable and function IR: reachability, monomorphize,      |
+| nia-function-lower, nia-function-opt, nia-function-ir        |
 +--------------------------------------------------------------+
 | Semantic analysis: body, flow, closure, const, static,       |
-| layout, ABI, trait solving, normalization                     |
+| layout, ABI, trait solving, normalization                    |
 +--------------------------------------------------------------+
-| Declaration and resolution: defs, imports, signatures,        |
-| type/value/local resolution, public surface                   |
+| Declaration and resolution: defs, imports, signatures,       |
+| type/value/local resolution, public surface                  |
 +--------------------------------------------------------------+
-| Syntax: item tree, parser, AST, syntax, lexer, literals       |
+| Syntax: item tree, parser, AST, syntax, lexer, literals      |
 +--------------------------------------------------------------+
-| Shared foundation: query, loader, types, ids, source, spans,   |
-| symbols, diagnostics, target and compatibility                 |
+| Shared foundation: query, loader, types, ids, source, spans, |
+| symbols, diagnostics, target and compatibility               |
 +--------------------------------------------------------------+
 ```
 
@@ -722,24 +722,24 @@ through the store, while producers receive the narrower `TypeStoreAppend` capabi
 
 ```text
                          +----------------------+
-                         | TypeStore             |
+                         | TypeStore            |
                          | canonical TyKind map |
-                         | immutable kind arena  |
+                         | immutable kind arena |
                          +----------+-----------+
                                     ^
                          read       | append synthesized types
                                     |
-+-------------+       +------------+-------------+       +----------------+
-| signatures  | ----> | TypeStoreAppend         | <---- | body checking  |
-| normalization|      | module-scoped capability |       | layout/backend |
-+-------------+       +--------------------------+       +----------------+
++--------------+       +------------+-------------+       +----------------+
+| signatures   | ----> | TypeStoreAppend          | <---- | body checking  |
+| normalization|       | module-scoped capability |       | layout/backend |
++--------------+       +--------------------------+       +----------------+
         |
         | publishes
         v
 InternedTyId { store_id, index }
         |
-        +--> TypeStore::get(id) -> TyKind
-        +--> layout / trait solving / lowering
+        ├─> TypeStore::get(id) -> TyKind
+        └─> layout / trait solving / lowering
 ```
 
 The store boundary prevents two failure modes. A foreign-session handle is
@@ -773,16 +773,16 @@ Body checking consumes declarations, types, names, trait results, and const fact
 It publishes two products with different consumers:
 
 ```text
-AST body + semantic inputs
-             |
-             v
-      +----------------+
-      | nia-body-check |
-      +--------+-------+
-               |
-       +-------+--------+
-       |                |
-       v                v
+    AST body + semantic inputs
+                |
+                v
+        +---------------+
+        |nia-body-check |
+        +-------+-------+
+                |
+       +--------+--------+
+       |                 |
+       v                 v
 +--------------+  +--------------+
 | BodyFacts    |  | BodyIr       |
 | expression   |  | typed body   |
@@ -792,15 +792,15 @@ AST body + semantic inputs
        |                 |
        | reachability    | lowering
        v                 v
-+--------------+  +--------------+
-| executable   |  | FunctionIr   |
-| facts        |  | blocks, ops, |
-+--------------+  | terminators  |
++--------------+   +--------------+
+| executable   |   | FunctionIr   |
+| facts        |   | blocks, ops, |
++--------------+   | terminators  |
        |           +------+-------+
        |                  |
        +--------+---------+
                 v
-        backend planning/lowering
+    backend planning/lowering
 ```
 
 `BodyFacts` records semantic facts that are useful without reconstructing the
@@ -840,10 +840,10 @@ root::main
     v
 BodyFacts / FunctionIr references
     |
-    +--> direct functions and globals
-    +--> generic function and method instances
-    +--> trait implementations and vtables
-    +--> static addresses and type-only module owners
+    ├──> direct functions and globals
+    ├──> generic function and method instances
+    ├──> trait implementations and vtables
+    ├──> static addresses and type-only module owners
     |
     v
 ExecutableReachability
@@ -882,19 +882,20 @@ type store.
 Query keys, products, and storage policies form one contract:
 
 ```text
-+------------------+       +----------------------+       +-------------------+
-| typed query key  | ----> | provider execution   | ----> | query slot        |
-+------------------+       +----------+-----------+       +---------+---------+
-                                      |                             |
-                                      | records dependencies       |
-                                      v                             v
-                              QueryDependencyGraph          product ownership
-                                                                  |
-                                      +---------------------------+----------------+
-                                      |                                            |
-                                      v                                            v
-                             CacheOwnedArc                                 SingleConsumerOwned
-                         shared immutable product                         one consumer moves value
++------------------+       +----------------------+       +-------------+
+| typed query key  | ----> | provider execution   | ----> | query slot  |
++------------------+       +----------+-----------+       +------+------+
+                                      |                          |
+                                      | records dependencies     |
+                                      v                          v
+                              QueryDependencyGraph        product ownership
+                                                                 |
+                                                                 |
+                                     +---------------------------+----------------+
+                                     |                                            |
+                                     v                                            v
+                               CacheOwnedArc                              SingleConsumerOwned
+                          shared immutable product                      one consumer moves value
 ```
 
 A cache-owned product may be shared by multiple consumers and fingerprinted when

@@ -184,4 +184,4 @@ revision, controlled runner class, selected main baseline run and artifact name,
 and comparison result when a prior artifact was available.
 
 Performance evidence is interpreted under the end-to-end acceptance and failed
-experiment rules in [compiler-maintenance.md](compiler-maintenance.md).
+experiment rules in [compiler-maintenance.md](../docs/compiler-maintenance.md).

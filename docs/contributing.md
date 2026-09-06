@@ -26,6 +26,23 @@ Open a discussion before starting work on:
 Small bug fixes, focused tests, typo fixes, and local documentation improvements
 can usually be proposed directly.
 
+## Change Routing
+
+Start a change with the owner of the contract it modifies:
+
+| Change | Primary owner |
+| --- | --- |
+| Language syntax or semantics | `language-spec.md` and the owning compiler phase |
+| Compiler phase or crate boundary | `architecture.md` and the affected crate |
+| ABI, layout, or runtime representation | `nia-abi.md` and the layout/backend owners |
+| Build API or build execution | `lib/std/build/` and `crates/nia-build/` |
+| Standard-library API | The owning `lib/std` module and [`lib/README.md`](../lib/README.md) |
+| Repository audit or performance baseline | [`maintain/`](../maintain/) |
+
+Keep detailed behavior and ownership rules beside their implementation owner;
+use this document for contribution policy rather than as a second architecture
+index.
+
 ## Code Standards
 
 Compiler changes should follow the existing crate boundaries and local patterns.
