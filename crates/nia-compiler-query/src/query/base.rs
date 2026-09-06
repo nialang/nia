@@ -419,13 +419,17 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
+        let loaded = db.get(LoadedModulesQuery)?;
+        let loaded_ids = resolve_stable_module_sequence(db, &loaded)?;
         let mut modules = Vec::new();
-        for module in graph.modules() {
-            modules.push((module.id, *db.get(ModuleSourceVersionQuery(module.id))?));
+        for module_id in loaded_ids.iter().copied() {
+            modules.push((module_id, *db.get(ModuleSourceVersionQuery(module_id))?));
         }
         let runtime_root_modules = graph
             .modules()
-            .filter(|module| graph.is_executable_root_module(module.id))
+            .filter(|module| {
+                loaded_ids.contains(&module.id) && graph.is_executable_root_module(module.id)
+            })
             .map(|module| module.id)
             .collect();
         Ok(ExecutableFactEpoch {
@@ -454,12 +458,19 @@ impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         let graph = db.get(ModuleGraphQuery)?;
+        let loaded = db.get(LoadedModulesQuery)?;
+        let loaded_ids = resolve_stable_module_sequence(db, &loaded)?;
         let runtime_root_modules = graph
             .modules()
-            .filter(|module| graph.is_executable_root_module(module.id))
+            .filter(|module| {
+                loaded_ids.contains(&module.id) && graph.is_executable_root_module(module.id)
+            })
             .map(|module| module.id)
             .collect();
-        Ok((graph.entry(), runtime_root_modules))
+        Ok((
+            loaded_ids.first().copied().unwrap_or_else(|| graph.entry()),
+            runtime_root_modules,
+        ))
     }
 }
 

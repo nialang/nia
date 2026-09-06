@@ -235,6 +235,12 @@ where
         };
         ensure(&QueryDb { inner }, key.as_ref())
     }
+
+    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) {
+        if let Some(inner) = self.inner.upgrade() {
+            QueryDb { inner }.retire_scope_during_retirement(retain);
+        }
+    }
 }
 
 impl<C> Clone for QueryDb<C> {

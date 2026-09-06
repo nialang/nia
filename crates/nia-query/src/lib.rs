@@ -68,6 +68,25 @@ pub struct QuerySession {
     inner: Arc<QuerySessionInner>,
 }
 
+impl QuerySession {
+    /// Retires values tied to a replaced input scope while preserving selected
+    /// stable-identity queries across the transition.
+    pub fn invalidate_scope(&self, retain: impl Fn(&QueryFrame) -> bool) {
+        let _retirement = self.enter_retirement();
+        let databases = self
+            .inner
+            .databases
+            .lock()
+            .expect("query session database lock poisoned")
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for database in databases {
+            database.invalidate_scope(&retain);
+        }
+    }
+}
+
 struct QuerySessionInner {
     id: QuerySessionId,
     executor: QueryExecutor,
@@ -295,7 +314,7 @@ struct QueryDbInner<C> {
     context: C,
     timings: nia_timing::TimingMode,
     registry: Option<QueryRegistry>,
-    caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
+    caches: Mutex<FastHashMap<TypeId, Box<dyn ErasedQueryCache>>>,
     slots: Mutex<QuerySlotTable<C>>,
 }
 
@@ -369,6 +388,27 @@ struct QuerySlotRecord<C> {
     identity: QuerySlotIdentity,
     slot: Arc<dyn ErasedQuerySlot>,
     ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
+}
+
+trait ErasedQueryCache: Any + Send + Sync {
+    fn remove_nodes(&self, nodes: &FastHashSet<QueryNodeId>);
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<K, V> ErasedQueryCache for Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<V>>>>
+where
+    K: Eq + Hash + Send + Sync + 'static,
+    V: Send + Sync + 'static,
+{
+    fn remove_nodes(&self, nodes: &FastHashSet<QueryNodeId>) {
+        self.lock()
+            .expect("query cache lock poisoned")
+            .retain(|_, slot| !nodes.contains(&slot.node_id));
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl<C> QuerySlotTable<C> {
@@ -498,6 +538,7 @@ trait ErasedQuerySlot: Send + Sync {
     fn mark_potentially_outdated(&self) -> QueryInvalidationDisposition;
     fn fingerprint(&self) -> Option<QueryFingerprint>;
     fn stats(&self) -> QueryFrameStats;
+    fn stabilize(&self);
 }
 
 impl<V> ErasedQuerySlot for QuerySlot<V>
@@ -582,6 +623,21 @@ where
     fn stats(&self) -> QueryFrameStats {
         self.stats.snapshot()
     }
+
+    fn stabilize(&self) {
+        let mut state = self.state.lock().expect("query cache lock poisoned");
+        match &mut *state {
+            QueryState::Ready {
+                dependency_fingerprints,
+                ..
+            }
+            | QueryState::PotentiallyOutdated {
+                dependency_fingerprints,
+                ..
+            } => dependency_fingerprints.clear(),
+            _ => {}
+        }
+    }
 }
 
 /// Stable diagnostic identity for one typed query slot.
@@ -645,6 +701,7 @@ trait ErasedQueryDatabase: Send + Sync {
     fn frame(&self, node_id: QueryNodeId) -> Option<QueryFrame>;
     fn slot(&self, node_id: QueryNodeId) -> Option<Arc<dyn ErasedQuerySlot>>;
     fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()>;
+    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool);
 }
 
 struct QueryDbRegistration<C> {

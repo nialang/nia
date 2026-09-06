@@ -503,6 +503,33 @@ impl CompilerDatabase {
             self.db.context().verify_frontend_cache,
             "Nia ICE: compiler frontend cache verification cannot change within a query session"
         );
+        let new_graph = request.loader_facts.module_graph()?;
+        let graph_changed = {
+            let observed = self
+                .db
+                .context()
+                .observed_graph
+                .lock()
+                .expect("compiler graph observation lock poisoned");
+            *observed != new_graph
+        };
+        let handle_generation_changed = {
+            let observed = self
+                .db
+                .context()
+                .observed_graph
+                .lock()
+                .expect("compiler graph observation lock poisoned");
+            observed.modules().any(|old| {
+                let Some(key) = observed.stable_key(old.id) else {
+                    return false;
+                };
+                new_graph
+                    .modules()
+                    .find(|module| new_graph.stable_key(module.id) == Some(key))
+                    .is_none_or(|new| new.id != old.id)
+            })
+        };
         let new_inputs = CompilerInputs::new(request);
         let optimization_changed = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
@@ -510,7 +537,46 @@ impl CompilerDatabase {
             *inputs = new_inputs;
             optimization_changed
         };
-        self.invalidate_inputs(optimization_changed)
+        let mut invalidation = CompilerInvalidation::default();
+        if graph_changed {
+            // The executable fact epoch contains session-local module handles;
+            // a graph replacement makes that value and every dependent red.
+            invalidation.extend(self.db.invalidate(ExecutableFactEpochQuery));
+            if handle_generation_changed {
+                self.db
+                    .session()
+                    .invalidate_scope(|frame| frame.name == "loaded_modules");
+            }
+            let loaded_modules = StableModuleSequence::from_source_identities(
+                self.db
+                    .context()
+                    .loader_facts()
+                    .loaded_module_source_identities()?,
+            );
+            invalidation.extend(self.db.validate_input(LoadedModulesQuery, &loaded_modules));
+            if handle_generation_changed {
+                *self
+                    .db
+                    .context()
+                    .executable_fact_session
+                    .lock()
+                    .expect("executable fact session lock poisoned") =
+                    ExecutableFactSession::default();
+            }
+        }
+        let inputs_invalidation = self.invalidate_inputs(optimization_changed)?;
+        invalidation
+            .invalidated
+            .extend(inputs_invalidation.invalidated);
+        if graph_changed {
+            *self
+                .db
+                .context()
+                .observed_graph
+                .lock()
+                .expect("compiler graph observation lock poisoned") = new_graph;
+        }
+        Ok(invalidation)
     }
 
     /// Returns a snapshot of query execution and reuse counters.
@@ -662,6 +728,9 @@ fn compiler_database_with_providers_in_session(
     });
     let verify_frontend_cache = request.verify_frontend_cache;
     let loader_facts = Arc::clone(&request.loader_facts);
+    let observed_graph = loader_facts
+        .module_graph()
+        .expect("initial compiler module graph");
     if let Some(loader_session) = loader_facts.query_session() {
         assert!(
             session.ptr_eq(&loader_session),
@@ -675,6 +744,7 @@ fn compiler_database_with_providers_in_session(
     let db = QueryDb::new_registered_with_timings_in_session(
         CompilerContext {
             inputs: inputs.clone(),
+            observed_graph: std::sync::Mutex::new(observed_graph),
             loader_facts,
             providers,
             executable_fact_session,
