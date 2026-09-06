@@ -109,6 +109,7 @@ pub struct ToolchainLayout {
     host_target: TargetConfig,
     artifact_target: TargetConfig,
     runtime: RuntimeResources,
+    bundled_lld: Option<PathBuf>,
 }
 
 impl ToolchainLayout {
@@ -162,6 +163,16 @@ impl ToolchainLayout {
             &freestanding_start_module,
             ResourceRole::FreestandingRuntime,
         )?;
+        let bundled_lld = resource_root
+            .parent()
+            .and_then(std::path::Path::parent)
+            .map(|prefix| prefix.join("libexec/nia/ld.lld"));
+        let bundled_lld = match bundled_lld {
+            Some(path) if path.exists() => {
+                Some(validate_optional_file(&path, ResourceRole::BundledLinker)?)
+            }
+            _ => None,
+        };
 
         Ok(Self {
             compiler_executable: request.compiler_executable,
@@ -173,6 +184,7 @@ impl ToolchainLayout {
             runtime: RuntimeResources {
                 freestanding_start_module,
             },
+            bundled_lld,
         })
     }
 
@@ -209,6 +221,11 @@ impl ToolchainLayout {
     /// Returns validated runtime resource paths.
     pub const fn runtime(&self) -> &RuntimeResources {
         &self.runtime
+    }
+
+    /// Returns the bundled LLD executable when the resource tree provides one.
+    pub fn bundled_lld(&self) -> Option<&std::path::Path> {
+        self.bundled_lld.as_deref()
     }
 }
 
@@ -290,6 +307,8 @@ pub enum ResourceRole {
     StandardLibrary,
     /// Startup source module for freestanding executables.
     FreestandingRuntime,
+    /// LLVM LLD executable shipped with a release resource tree.
+    BundledLinker,
 }
 
 impl fmt::Display for ResourceRole {
@@ -299,6 +318,7 @@ impl fmt::Display for ResourceRole {
             Self::ResourceRoot => "toolchain resource root",
             Self::StandardLibrary => "standard-library root module",
             Self::FreestandingRuntime => "freestanding runtime module",
+            Self::BundledLinker => "bundled LLD linker",
         })
     }
 }
@@ -475,6 +495,24 @@ fn validate_file(path: &std::path::Path, role: ResourceRole) -> Result<(), Toolc
         });
     }
     Ok(())
+}
+
+fn validate_optional_file(
+    path: &std::path::Path,
+    role: ResourceRole,
+) -> Result<PathBuf, ToolchainLayoutError> {
+    let metadata = fs::metadata(path).map_err(|error| ToolchainLayoutError::ReadResource {
+        role,
+        path: path.to_path_buf(),
+        error,
+    })?;
+    if !metadata.is_file() {
+        return Err(ToolchainLayoutError::NotFile {
+            role,
+            path: path.to_path_buf(),
+        });
+    }
+    Ok(path.to_path_buf())
 }
 
 #[derive(Default)]
@@ -693,6 +731,19 @@ mod tests {
         .expect("relocated layout");
         assert_eq!(relocated.identity(), installed.identity());
         assert_ne!(relocated.resource_root(), installed.resource_root());
+    }
+
+    #[test]
+    fn exposes_bundled_lld_from_release_layout() {
+        let root = temp_dir("bundled_lld");
+        let executable = write_layout(&root);
+        let lld = root.join("libexec/nia/ld.lld");
+        fs::create_dir_all(lld.parent().expect("lld parent")).expect("create lld directory");
+        fs::write(&lld, b"lld").expect("write bundled lld");
+
+        let layout = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
+            .expect("release layout");
+        assert_eq!(layout.bundled_lld(), Some(lld.as_path()));
     }
 
     #[test]

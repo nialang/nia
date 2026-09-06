@@ -273,6 +273,7 @@ pub struct ExecutableLinker {
     pub program: String,
     /// Command-line protocol used by the program.
     pub flavor: LinkerFlavor,
+    bundled_program: Option<String>,
 }
 
 impl ExecutableLinker {
@@ -291,6 +292,7 @@ impl ExecutableLinker {
         Self {
             program: program.into(),
             flavor: LinkerFlavor::Gnu,
+            bundled_program: None,
         }
     }
 
@@ -299,6 +301,7 @@ impl ExecutableLinker {
         Self {
             program: program.into(),
             flavor,
+            bundled_program: None,
         }
     }
 
@@ -307,7 +310,14 @@ impl ExecutableLinker {
         Self {
             program: String::new(),
             flavor: LinkerFlavor::Lld,
+            bundled_program: None,
         }
+    }
+
+    /// Supplies a package-provided fallback for LLD discovery.
+    pub fn with_bundled_program(mut self, program: impl Into<String>) -> Self {
+        self.bundled_program = Some(program.into());
+        self
     }
 }
 
@@ -1236,7 +1246,7 @@ impl ExecutableLinker {
                 flavor: self.flavor,
             }),
             LinkerFlavor::Lld => Ok(ResolvedLinker {
-                program: resolve_lld_program(&self.program)?,
+                program: resolve_lld_program(&self.program, self.bundled_program.as_deref())?,
                 flavor: self.flavor,
             }),
             LinkerFlavor::SelfHostedElf => Err(LinkerConfigError::UnsupportedFlavor(self.flavor)),
@@ -1309,7 +1319,10 @@ impl std::fmt::Display for LinkerConfigError {
 
 impl std::error::Error for LinkerConfigError {}
 
-fn resolve_lld_program(program: &str) -> Result<String, LinkerConfigError> {
+fn resolve_lld_program(
+    program: &str,
+    bundled_program: Option<&str>,
+) -> Result<String, LinkerConfigError> {
     if !program.is_empty() {
         return Ok(program.to_string());
     }
@@ -1317,6 +1330,11 @@ fn resolve_lld_program(program: &str) -> Result<String, LinkerConfigError> {
         && !program.is_empty()
     {
         return Ok(program);
+    }
+    if let Some(program) = bundled_program
+        && is_executable_file(Path::new(program))
+    {
+        return Ok(program.to_string());
     }
     find_program_on_path("ld.lld").ok_or_else(|| LinkerConfigError::LinkerNotFound {
         flavor: LinkerFlavor::Lld,

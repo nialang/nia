@@ -1174,6 +1174,16 @@ impl Driver {
             let mut request = request;
             request.link_options.target =
                 LinkTarget::from_target_config(&self.config.artifact_target);
+            if request.link_options.linker.flavor == nia_linker::LinkerFlavor::Lld
+                && request.link_options.linker.program.is_empty()
+                && let Some(lld) = self.config.toolchain.bundled_lld()
+            {
+                request.link_options.linker = request
+                    .link_options
+                    .linker
+                    .clone()
+                    .with_bundled_program(lld.to_string_lossy());
+            }
             let timings = request.check.timings;
             let output = nia_timing::time_stage(
                 timings,

@@ -166,7 +166,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .build_store(tag_ptr, tag)
                 .map_err(|_| self.error(span, "failed to store enum constructor tag"))?;
 
-            let payload_offset = layout.payload_offset.expect("payload offset checked above");
+            let Some(payload_offset) = layout.payload_offset else {
+                return Err(self.error(span, "enum constructor payload layout is missing"));
+            };
             for ((field_ty, field_layout), classification) in payload_types
                 .iter()
                 .zip(&variant_layout.fields)

@@ -57,8 +57,17 @@ Before submitting compiler changes, run:
 rustup toolchain install stable --component clippy --component rustfmt
 cargo maintain check
 cargo fmt --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+```
+
+For a release compiler, build the pinned static LLVM prefix first and invoke
+`tools/release/build.sh`. Do not use the default development feature for a
+release artifact:
+
+```sh
+tools/llvm/build-static.sh
+tools/release/build.sh
 ```
 
 The repository intentionally follows the newest Rust stable toolchain rather

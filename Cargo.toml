@@ -113,9 +113,9 @@ nia-imports = { path = "crates/nia-imports" }
 nia-query = { path = "crates/nia-query" }
 nia-compiler-query = { path = "crates/nia-compiler-query" }
 nia-loader-query = { path = "crates/nia-loader-query" }
-nia-build = { path = "crates/nia-build" }
+nia-build = { path = "crates/nia-build", default-features = false }
 nia-linker = { path = "crates/nia-linker" }
-nia-driver = { path = "crates/nia-driver" }
+nia-driver = { path = "crates/nia-driver", default-features = false }
 nia-type-resolve = { path = "crates/nia-type-resolve" }
 nia-value-resolve = { path = "crates/nia-value-resolve" }
 nia-local-resolve = { path = "crates/nia-local-resolve" }
@@ -146,13 +146,13 @@ nia-monomorphize = { path = "crates/nia-monomorphize" }
 nia-mangle = { path = "crates/nia-mangle" }
 nia-backend-ir = { path = "crates/nia-backend-ir" }
 nia-backend-lower = { path = "crates/nia-backend-lower" }
-nia-llvm = { path = "crates/nia-llvm" }
-nia-codegen-llvm = { path = "crates/nia-codegen-llvm" }
+nia-llvm = { path = "crates/nia-llvm", default-features = false }
+nia-codegen-llvm = { path = "crates/nia-codegen-llvm", default-features = false }
 nia-layout = { path = "crates/nia-layout" }
 nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
 nia-opt = { path = "crates/nia-opt" }
-llvm-sys = { version = "221.0.1", features = ["prefer-dynamic"] }
+llvm-sys = { version = "221.0.1" }
 
 [profile.dev]
 debug = "line-tables-only"

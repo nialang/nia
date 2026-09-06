@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::support::{LoweringContext, MatchExprArmContext, PatternConditionContext};
+use super::support::{
+    IfPatternChainEntryContext, LoweringContext, MatchExprArmContext, PatternConditionContext,
+};
 use super::*;
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod};
 
@@ -429,12 +431,14 @@ impl FunctionLowerer<'_> {
         let then_scope = self.alloc_scope(Some(scope), chain.then_branch.span);
         let (success_target, success_ops) = self.lower_if_pattern_chain_entry(
             &chain.clauses,
-            scope,
-            then_scope,
-            failure_target,
-            current,
-            ops,
-            blocks,
+            IfPatternChainEntryContext {
+                outer_scope: scope,
+                success_scope: then_scope,
+                failure_target,
+                current,
+                ops,
+                blocks,
+            },
         );
         let body_entry = if success_ops.is_empty() {
             success_target

@@ -33,28 +33,38 @@ pub(super) struct MatchExprArmContext<'a> {
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
 }
 
+pub(super) struct IfPatternChainEntryContext<'a> {
+    pub(super) outer_scope: FunctionScopeId,
+    pub(super) success_scope: FunctionScopeId,
+    pub(super) failure_target: FunctionBlockId,
+    pub(super) current: &'a mut FunctionBlockId,
+    pub(super) ops: &'a mut Vec<FunctionOp>,
+    pub(super) blocks: &'a mut Vec<FunctionBlock>,
+}
+
 impl FunctionLowerer<'_> {
     pub(super) fn lower_if_pattern_chain_entry(
         &mut self,
         clauses: &[nia_body_ir::TypedIfPatternClause],
-        outer_scope: FunctionScopeId,
-        success_scope: FunctionScopeId,
-        failure_target: FunctionBlockId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
+        context: IfPatternChainEntryContext<'_>,
     ) -> (FunctionBlockId, Vec<FunctionOp>) {
         for (index, clause) in clauses.iter().enumerate() {
             let scope = if index == 0 {
-                outer_scope
+                context.outer_scope
             } else {
-                success_scope
+                context.success_scope
             };
             let (cond, span, binding) = match clause {
                 nia_body_ir::TypedIfPatternClause::Pattern { target, pattern } => {
-                    let target_value = self.lower_value_expr(target, scope, current, ops, blocks);
+                    let target_value = self.lower_value_expr(
+                        target,
+                        scope,
+                        context.current,
+                        context.ops,
+                        context.blocks,
+                    );
                     let target_local = self.alloc_temp_local(target.span, target.ty);
-                    ops.push(FunctionOp::StoreLocal {
+                    context.ops.push(FunctionOp::StoreLocal {
                         local_id: target_local,
                         value: target_value,
                         span: target.span,
@@ -66,9 +76,9 @@ impl FunctionLowerer<'_> {
                     };
                     let mut condition_context = PatternConditionContext {
                         scope,
-                        current,
-                        ops,
-                        blocks,
+                        current: context.current,
+                        ops: context.ops,
+                        blocks: context.blocks,
                         bool_ty: self.types.intern(TyKind::Primitive(PrimitiveTy::Bool)),
                     };
                     let cond = self
@@ -81,35 +91,41 @@ impl FunctionLowerer<'_> {
                     (cond, pattern.span, Some((pattern, target)))
                 }
                 nia_body_ir::TypedIfPatternClause::Condition(condition) => (
-                    self.lower_value_expr(condition, scope, current, ops, blocks),
+                    self.lower_value_expr(
+                        condition,
+                        scope,
+                        context.current,
+                        context.ops,
+                        context.blocks,
+                    ),
                     condition.span,
                     None,
                 ),
             };
             let success_target = self.alloc_block();
             self.finish_block(
-                blocks,
-                *current,
+                context.blocks,
+                *context.current,
                 scope,
                 span,
-                std::mem::take(ops),
+                std::mem::take(context.ops),
                 FunctionTerminator::If {
                     cond,
                     then_target: success_target,
-                    else_target: failure_target,
+                    else_target: context.failure_target,
                     span,
                 },
             );
-            *current = success_target;
+            *context.current = success_target;
             if let Some((pattern, target)) = binding {
                 let mut binding_ops = Vec::new();
                 self.lower_pattern_binding(pattern, &target, &mut binding_ops);
                 if index + 1 < clauses.len() {
                     let next_target = self.alloc_block();
                     self.finish_block(
-                        blocks,
+                        context.blocks,
                         success_target,
-                        success_scope,
+                        context.success_scope,
                         pattern.span,
                         binding_ops,
                         FunctionTerminator::Branch {
@@ -117,7 +133,7 @@ impl FunctionLowerer<'_> {
                             span: pattern.span,
                         },
                     );
-                    *current = next_target;
+                    *context.current = next_target;
                 } else {
                     return (success_target, binding_ops);
                 }
@@ -125,10 +141,10 @@ impl FunctionLowerer<'_> {
                 // A plain predicate has no binding block, but still needs a
                 // distinct entry so the next target is evaluated only after
                 // this condition succeeds.
-                *current = success_target;
+                *context.current = success_target;
             }
         }
-        (*current, std::mem::take(ops))
+        (*context.current, std::mem::take(context.ops))
     }
 
     pub(super) fn try_kind(&self, ty: InternedTyId) -> Option<FunctionTryKind> {

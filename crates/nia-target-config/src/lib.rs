@@ -584,15 +584,15 @@ impl Pruner<'_> {
         let mut selected_profile = None;
         for attribute in attributes {
             if let AttributeKind::Profile(profile) = attribute.kind {
-                if let Some(previous) = selected_profile {
-                    if previous != profile {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TARGET_CONFIG,
-                            attribute.span,
-                            "an item cannot use more than one build profile",
-                        ));
-                        return false;
-                    }
+                if let Some(previous) = selected_profile
+                    && previous != profile
+                {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TARGET_CONFIG,
+                        attribute.span,
+                        "an item cannot use more than one build profile",
+                    ));
+                    return false;
                 }
                 selected_profile = Some(profile);
             }

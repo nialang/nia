@@ -144,6 +144,34 @@ fn lld_invocation_reports_missing_program() {
 }
 
 #[test]
+fn lld_invocation_uses_bundled_program_before_path() {
+    let _guard = ENV_LOCK.lock().expect("env test lock");
+    let root = env::temp_dir().join(format!("nia-linker-lld-bundled-{}", std::process::id()));
+    fs::create_dir_all(&root).expect("create bundled linker directory");
+    let linker = root.join("ld.lld");
+    fs::write(&linker, "").expect("write bundled linker");
+    make_executable(&linker);
+    let previous_path = env::var_os("PATH");
+    let previous_nia_lld = env::var_os("NIA_LLD");
+    unsafe {
+        env::set_var("PATH", "");
+        env::remove_var("NIA_LLD");
+    }
+
+    let options = LinkOptions {
+        linker: ExecutableLinker::lld().with_bundled_program(linker.to_string_lossy()),
+        ..LinkOptions::default()
+    };
+    let invocation = options
+        .invocation(&link_inputs("main.o"), PathBuf::from("main"))
+        .expect("bundled linker invocation");
+    assert_eq!(invocation.program, linker.to_string_lossy());
+
+    restore_env("PATH", previous_path);
+    restore_env("NIA_LLD", previous_nia_lld);
+}
+
+#[test]
 fn self_hosted_elf_flavor_is_reserved() {
     let options = LinkOptions {
         linker: ExecutableLinker::with_program_and_flavor("nia-link", LinkerFlavor::SelfHostedElf),
