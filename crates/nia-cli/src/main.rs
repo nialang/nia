@@ -17,6 +17,7 @@ use std::{
 };
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
+use nia_target_config::BuildProfile;
 use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
 
 mod help;
@@ -81,6 +82,7 @@ struct Cli {
     resource_root: Option<PathBuf>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
     timing_format: TimingFormat,
@@ -187,6 +189,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             step,
             jobs,
             cli.optimization,
+            cli.profile,
             cli.timings,
             timing_format,
             toolchain,
@@ -204,6 +207,11 @@ fn run_cli(cli: Cli) -> ExitCode {
             fail_fast,
             jobs,
             optimization: cli.optimization,
+            profile: if cli.profile == BuildProfile::Debug {
+                BuildProfile::Test
+            } else {
+                cli.profile
+            },
             timings: cli.timings,
             timing_format,
             toolchain,
@@ -241,6 +249,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                 cli.module_map,
                 CheckRunOptions {
                     optimization: cli.optimization,
+                    profile: cli.profile,
                     timings: cli.timings,
                     opt_report,
                     runtime,
@@ -283,6 +292,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                 EmitContext {
                     module_map: cli.module_map,
                     optimization: cli.optimization,
+                    profile: cli.profile,
                     timings: cli.timings,
                     opt_report,
                     package_root,
@@ -404,6 +414,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             resource_root: global_options.resource_root,
             module_map: global_options.module_map,
             optimization: global_options.optimization,
+            profile: global_options.profile,
             timings: global_options.timings,
             timing_trace: global_options.timing_trace,
             timing_format: global_options.timing_format,
@@ -416,6 +427,7 @@ struct GlobalOptions {
     resource_root: Option<PathBuf>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
     timing_format: TimingFormat,
@@ -428,6 +440,7 @@ fn extract_global_options(
     let mut map = ModuleMap::new();
     let mut resource_root = None;
     let mut optimization = NiaOptimizationLevel::default();
+    let mut profile = BuildProfile::default();
     let mut timings = nia_driver::TimingMode::Off;
     let mut timing_trace = TimingTrace::Off;
     let mut timing_format = TimingFormat::Text;
@@ -484,6 +497,25 @@ fn extract_global_options(
             optimization = level.map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if matches!(arg.as_str(), "--debug" | "--release" | "--test") {
+            profile = match arg.as_str() {
+                "--debug" => BuildProfile::Debug,
+                "--release" => BuildProfile::Release,
+                _ => BuildProfile::Test,
+            };
+            continue;
+        }
+        if arg == "--profile" {
+            let value = iter
+                .next()
+                .ok_or_else(|| CliError::new("missing profile after `--profile`", help))?;
+            profile = parse_profile(&value).map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--profile=") {
+            profile = parse_profile(value).map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
         if let Some(mode) = parse_timings_flag(&arg) {
             timings = mode.map_err(|message| CliError::new(message, help))?;
             continue;
@@ -504,6 +536,7 @@ fn extract_global_options(
             resource_root,
             module_map: map,
             optimization,
+            profile,
             timings,
             timing_trace,
             timing_format,
@@ -576,6 +609,17 @@ fn parse_optimization_flag(arg: &str) -> Option<Result<NiaOptimizationLevel, Str
         _ => return None,
     };
     Some(Ok(level))
+}
+
+fn parse_profile(value: &str) -> Result<BuildProfile, String> {
+    match value {
+        "debug" => Ok(BuildProfile::Debug),
+        "release" => Ok(BuildProfile::Release),
+        "test" => Ok(BuildProfile::Test),
+        _ => Err(format!(
+            "unknown profile `{value}`; expected debug, release, or test"
+        )),
+    }
 }
 
 fn parse_timings_flag(arg: &str) -> Option<Result<nia_driver::TimingMode, String>> {
@@ -1197,6 +1241,7 @@ fn run_parse(path: &str, source: &str) -> ExitCode {
 
 struct CheckRunOptions {
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     opt_report: bool,
     runtime: Runtime,
@@ -1220,6 +1265,7 @@ fn run_check(
             check_request(path, options.package_root.as_ref())
                 .with_module_map(module_map.clone())
                 .with_optimization(options.optimization)
+                .with_profile(options.profile)
                 .with_timings(options.timings)
                 .with_runtime(options.runtime),
         )
@@ -1236,6 +1282,7 @@ fn run_check(
                 module_map,
                 options.package_root.as_ref(),
                 options.optimization,
+                options.profile,
                 options.timings,
                 options.runtime,
             )
@@ -1254,6 +1301,7 @@ fn check_with_driver(
     module_map: ModuleMap,
     package_root: Option<&SourcePath>,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -1262,6 +1310,7 @@ fn check_with_driver(
         check_request(path, package_root)
             .with_module_map(module_map)
             .with_optimization(optimization)
+            .with_profile(profile)
             .with_timings(timings)
             .with_runtime(runtime),
     )
@@ -1301,6 +1350,7 @@ fn codegen_with_driver(
     module_map: ModuleMap,
     package_root: Option<&SourcePath>,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
 ) -> nia_driver::DriverOutput<nia_driver::CodegenProgram> {
@@ -1308,6 +1358,7 @@ fn codegen_with_driver(
         check_request(path, package_root)
             .with_module_map(module_map)
             .with_optimization(optimization)
+            .with_profile(profile)
             .with_timings(timings)
             .with_runtime(runtime),
     )
@@ -1363,6 +1414,7 @@ struct EmitContext {
     module_map: ModuleMap,
     package_root: Option<SourcePath>,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     opt_report: bool,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -1385,6 +1437,7 @@ fn run_build(
     step: Option<String>,
     jobs: Option<NonZeroUsize>,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -1401,6 +1454,7 @@ fn run_build(
     }
     request = request
         .with_optimization(build_optimization(optimization))
+        .with_profile(profile)
         .with_timings(timings)
         .with_timing_format(timing_format);
     match nia_build::run_build(request) {
@@ -1419,6 +1473,7 @@ struct TestContext {
     fail_fast: bool,
     jobs: Option<NonZeroUsize>,
     optimization: NiaOptimizationLevel,
+    profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_format: TimingFormat,
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
@@ -1432,6 +1487,7 @@ fn run_test(context: TestContext) -> ExitCode {
         fail_fast,
         jobs,
         optimization,
+        profile,
         timings,
         timing_format,
         toolchain,
@@ -1450,6 +1506,7 @@ fn run_test(context: TestContext) -> ExitCode {
         .with_test_list(list)
         .with_test_fail_fast(fail_fast)
         .with_optimization(build_optimization(optimization))
+        .with_profile(profile)
         .with_timings(timings)
         .with_timing_format(timing_format);
     match nia_build::run_build(request) {
@@ -1483,6 +1540,7 @@ fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitCon
             context.module_map,
             context.package_root.as_ref(),
             context.optimization,
+            context.profile,
             context.timings,
             runtime,
             context.toolchain,
@@ -1505,6 +1563,7 @@ fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitCon
             context.module_map,
             context.package_root.as_ref(),
             context.optimization,
+            context.profile,
             context.timings,
             runtime,
         )
@@ -1527,6 +1586,7 @@ fn run_emit_llvm(path: &str, source: &str, runtime: Runtime, context: EmitContex
             check_request(path, context.package_root.as_ref())
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
+                .with_profile(context.profile)
                 .with_timings(context.timings)
                 .with_runtime(runtime),
         ))
@@ -1572,6 +1632,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
             check_request(path, context.package_root.as_ref())
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
+                .with_profile(context.profile)
                 .with_timings(context.timings)
                 .with_runtime(options.runtime),
         ))
@@ -1626,6 +1687,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
             check: check_request(path, context.package_root.as_ref())
                 .with_module_map(context.module_map)
                 .with_optimization(context.optimization)
+                .with_profile(context.profile)
                 .with_timings(context.timings)
                 .with_runtime(Runtime::Freestanding),
             output: options.output.clone(),

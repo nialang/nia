@@ -107,7 +107,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     assert_module_loaded(&program, host_freestanding_start_module());
     assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/atomic.nia");
-    assert_module_not_loaded(&program, "lib/std/debug.nia");
+    assert_module_not_loaded(&program, "lib/std/io/debug.nia");
 }
 
 #[test]

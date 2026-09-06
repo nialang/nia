@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::parser::*;
 pub(super) use nia_ast::{
-    ExprKind, MatchArmBody, PathSegmentKind, Pattern, PatternKind, TypeArg, TypeKind, TypeRef,
+    AttributeKind, ExprKind, MatchArmBody, PathSegmentKind, Pattern, PatternKind, ProfileKind,
+    TypeArg, TypeKind, TypeRef,
 };
 pub(super) use nia_node_id::{NodePosition, NodeStore, SyntaxKind};
 pub(super) use nia_source::{SourceId, SourceRevision, SourceVersion};

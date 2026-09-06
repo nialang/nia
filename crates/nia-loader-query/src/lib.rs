@@ -27,7 +27,7 @@ use nia_imports::{ModuleMap, StableModuleKey};
 use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
-use nia_target_config::TargetConfig;
+use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::ToolchainLayout;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
@@ -289,6 +289,7 @@ impl LoaderDatabase {
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
                 symbols,
                 target: request.target,
+                profile: request.profile,
                 entry_runtime: request.entry_runtime,
                 toolchain_identity,
                 package_roots_with_used_paths,
@@ -744,6 +745,10 @@ impl LoaderFactProvider for LoaderDatabase {
         self.db.context().target.clone()
     }
 
+    fn profile(&self) -> BuildProfile {
+        self.db.context().profile
+    }
+
     fn runtime(&self) -> nia_compiler_query::RuntimeModel {
         queries::runtime_model(self.db.context().entry_runtime)
     }
@@ -766,6 +771,8 @@ pub struct LoadRequest {
     pub sources: SourceDatabase,
     /// Artifact target used for conditional frontend selection.
     pub target: TargetConfig,
+    /// Build profile used for profile-conditional frontend selection.
+    pub profile: BuildProfile,
     /// Entry runtime model.
     pub entry_runtime: EntryRuntime,
     /// Whether package-root `using` paths participate in the source manifest.
@@ -792,6 +799,7 @@ impl LoadRequest {
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
+            profile: BuildProfile::default(),
             entry_runtime: EntryRuntime::None,
             package_root_used_paths: false,
             frontend_cache_dir: None,
@@ -821,6 +829,12 @@ impl LoadRequest {
     /// Selects the artifact target used by conditional item selection.
     pub fn with_target(mut self, target: TargetConfig) -> Self {
         self.target = target;
+        self
+    }
+
+    /// Selects the build profile used by conditional source selection.
+    pub fn with_profile(mut self, profile: BuildProfile) -> Self {
+        self.profile = profile;
         self
     }
 
@@ -901,6 +915,7 @@ fn load_program_trace(
             diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()),
             symbols: SymbolTable::new(),
             target: TargetConfig::host(),
+            profile: BuildProfile::default(),
             entry_runtime: EntryRuntime::None,
             toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
             package_roots_with_used_paths: HashSet::new(),
@@ -943,6 +958,7 @@ pub(crate) struct LoaderContext {
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
+    pub(crate) profile: BuildProfile,
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
@@ -956,9 +972,10 @@ pub(crate) struct LoaderContext {
 
 impl LoaderContext {
     pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
-        FrontendCacheNamespace::for_toolchain(
+        FrontendCacheNamespace::for_toolchain_with_profile(
             &self.target,
             queries::runtime_model(self.entry_runtime),
+            self.profile,
             self.toolchain_identity,
         )
     }

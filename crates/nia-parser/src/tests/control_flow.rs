@@ -231,6 +231,7 @@ fn main() i32 {
     _ = value;
     value
 }
+
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -249,6 +250,33 @@ fn main() i32 {
     assert!(matches!(
         body.stmts[1].attributes[0].kind,
         AttributeKind::If(_)
+    ));
+}
+
+#[test]
+fn parses_profile_attributes() {
+    let (module, errors) = parse_module(
+        r#"
+@[debug]
+fn debugOnly() () {}
+@[release]
+fn releaseOnly() () {}
+@[test]
+fn testOnly() () {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(matches!(
+        module.items[0].attributes[0].kind,
+        AttributeKind::Profile(ProfileKind::Debug)
+    ));
+    assert!(matches!(
+        module.items[1].attributes[0].kind,
+        AttributeKind::Profile(ProfileKind::Release)
+    ));
+    assert!(matches!(
+        module.items[2].attributes[0].kind,
+        AttributeKind::Profile(ProfileKind::Test)
     ));
 }
 

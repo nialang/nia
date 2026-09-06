@@ -30,9 +30,10 @@ pub(super) struct CompilerContext {
 
 impl CompilerContext {
     pub(super) fn frontend_cache_namespace(&self) -> crate::FrontendCacheNamespace {
-        crate::FrontendCacheNamespace::for_toolchain(
+        crate::FrontendCacheNamespace::for_toolchain_with_profile(
             &self.loader_facts.target(),
             self.loader_facts.runtime(),
+            self.loader_facts.profile(),
             self.loader_facts.toolchain_identity(),
         )
     }

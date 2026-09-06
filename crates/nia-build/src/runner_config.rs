@@ -263,6 +263,7 @@ mod tests {
             timing_format: nia_timing::TimingFormat::Text,
             max_parallel_actions: None,
             optimization: OptimizationMode::Oz,
+            profile: nia_target_config::BuildProfile::Debug,
         }
     }
 

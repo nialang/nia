@@ -19,6 +19,7 @@ use nia_compiler_query::SourceContentFingerprint;
 use nia_driver::{ExecutableCacheEnvironment, ExecutableCacheReference, SourceInputManifest};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
+use nia_target_config::BuildProfile;
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
@@ -147,6 +148,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) module: &'a PlanModule,
     pub(crate) packages: &'a [PlanPackage],
     pub(crate) target: &'a TargetSpec,
+    pub(crate) profile: BuildProfile,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
@@ -160,6 +162,7 @@ impl CompilerEmitCacheIdentity {
             input.module,
             input.packages,
             input.target,
+            input.profile,
             crate::Runtime::Freestanding,
             input.manifest,
             input.toolchain,

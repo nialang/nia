@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_ast::ProfileKind;
+
 use super::*;
 
 impl Parser {
@@ -130,6 +132,20 @@ impl Parser {
         let end = self
             .expect(TokenKind::RBracket, "expected `]` after attribute")?
             .end;
+        if args.is_empty() && path.len() == 1 {
+            let profile = match path[0] {
+                nia_symbol::known::DEBUG => Some(ProfileKind::Debug),
+                nia_symbol::known::RELEASE => Some(ProfileKind::Release),
+                nia_symbol::known::TEST => Some(ProfileKind::Test),
+                _ => None,
+            };
+            if let Some(profile) = profile {
+                return Some(Attribute {
+                    kind: AttributeKind::Profile(profile),
+                    span: Span::new(start, end),
+                });
+            }
+        }
         Some(Attribute {
             kind: AttributeKind::Meta(AttributeMeta { path, args }),
             span: Span::new(start, end),

@@ -2,12 +2,12 @@ using pkg::fmt;
 using pkg::fs;
 using pkg::io;
 
-pub enum Error {
+pub enum DebugPrintError {
     Format(fmt::Error),
     Flush(fs::Error),
 }
 
-pub fn print(template: &[char], args: &[&fmt::Format]) Error!() {
+pub fn debugPrint(template: &[char], args: &[&fmt::Format]) DebugPrintError!() {
     let mut buffer: [u8; 512] = [0; 512];
     let mut stderr = io::FileWriter::stderr(&mut buffer);
 

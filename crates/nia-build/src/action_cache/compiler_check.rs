@@ -19,6 +19,7 @@ use nia_driver::{SourceInputContent, SourceInputManifest};
 use nia_imports::StableModuleKey;
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
+use nia_target_config::BuildProfile;
 use nia_toolchain::ToolchainIdentity;
 
 use super::{
@@ -167,6 +168,7 @@ impl CompilerCheckCacheIdentity {
         module: &PlanModule,
         packages: &[PlanPackage],
         target: &TargetSpec,
+        profile: BuildProfile,
         runtime: Runtime,
         manifest: &SourceInputManifest,
         toolchain: &ToolchainIdentity,
@@ -179,7 +181,7 @@ impl CompilerCheckCacheIdentity {
             std::iter::once(&module.root_source)
                 .chain(module.imports.iter().map(|import| &import.path)),
         )?;
-        let target_identity = target_identity(target);
+        let target_identity = target_identity(target, profile);
         let optimization = optimization_tag(module.optimization);
         let runtime = runtime_tag(runtime);
         Some(Self {
@@ -734,7 +736,7 @@ fn module_identity(module: &PlanModule) -> Vec<u8> {
     encoded
 }
 
-fn target_identity(target: &TargetSpec) -> Vec<u8> {
+fn target_identity(target: &TargetSpec, profile: BuildProfile) -> Vec<u8> {
     let mut encoded = Vec::new();
     for field in [
         &target.arch,
@@ -747,6 +749,11 @@ fn target_identity(target: &TargetSpec) -> Vec<u8> {
         write_text(&mut encoded, field);
     }
     encoded.extend_from_slice(&u64::from(target.pointer_width).to_le_bytes());
+    encoded.push(match profile {
+        BuildProfile::Debug => 0,
+        BuildProfile::Release => 1,
+        BuildProfile::Test => 2,
+    });
     encoded
 }
 
@@ -852,7 +859,7 @@ mod tests {
             byte_len: 19,
         }];
         let module_identity = module_identity(&module);
-        let target_identity = target_identity(&target);
+        let target_identity = target_identity(&target, BuildProfile::Debug);
         let package_roots = vec![0, 0, 0, 0, 0, 0, 0, 0];
         let fingerprints = FingerprintSet::new(
             &action,

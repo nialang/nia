@@ -130,6 +130,9 @@ pub mod known {
     known_symbol!(STD, "std");
     known_symbol!(NAKED, "naked");
     known_symbol!(TRACK_CALLER, "trackCaller");
+    known_symbol!(DEBUG, "debug");
+    known_symbol!(RELEASE, "release");
+    known_symbol!(TEST, "test");
 
     known_symbol!(MAIN, "main");
     known_symbol!(START_ENTRY, "_start");

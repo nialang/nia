@@ -1,9 +1,9 @@
-using std::debug;
+using std::io;
 using std::process;
 using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!() {
     _ = init;
-    debug::print(&"hello from nia\n", &[]).?;
+    io::debugPrint(&"hello from nia\n", &[]).?;
     !()
 }

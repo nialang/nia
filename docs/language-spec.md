@@ -1299,6 +1299,19 @@ Invalid names, types, imports, or calls in inactive code are not diagnosed for
 that target. A project that supports multiple targets validates the source once
 for each target.
 
+The built-in profile attributes `@[debug]`, `@[release]`, and `@[test]` are
+conditional compilation marks. A declaration or statement carrying one is
+active only when the compilation profile has the same name. The default profile
+is `debug`; the compiler may select another profile through its build interface.
+Profiles are independent of target facts, optimization level, and runtime
+selection. In particular, `-O0` does not select the debug profile, and a profile
+does not change mandatory language semantics such as ownership, overflow, ABI,
+or pointer validity. As with `@[if ...]`, inactive profile code is omitted after
+parsing and before semantic checking for the active profile.
+
+An item must not carry more than one profile mark. A declaration with
+conflicting profile marks is ill-formed.
+
 Attributes are the only source syntax introduced by `@`. A bare `@foo` is not
 an expression form; built-in functions are declared by `std::builtin`
 and called through ordinary paths such as `std::builtin::size[T]()`. The

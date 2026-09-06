@@ -8,6 +8,7 @@ pub(pkg) module error;
 pub(pkg) module file_adapter;
 pub(pkg) module fixed_buffer;
 pub(pkg) module limit;
+pub(pkg) module debug;
 pub(pkg) module traits;
 
 using pkg::io::buffered;
@@ -15,6 +16,7 @@ using pkg::io::error;
 using pkg::io::file_adapter;
 using pkg::io::fixed_buffer;
 using pkg::io::limit;
+using pkg::io::debug;
 
 pub using traits::{BufferError, Reader, Writer};
 pub using error::{Error, SystemError};
@@ -22,3 +24,4 @@ pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter}
 pub using buffered::{BufferedReader, BufferedWriter};
 pub using file_adapter::{FileReader, FileWriter};
 pub using limit::{Limit, LimitedReader};
+pub using debug::{DebugPrintError, debugPrint};

@@ -360,6 +360,10 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
         right: "set optimization level; -O means -O2",
     },
     HelpRow {
+        left: "--profile <debug|release|test>",
+        right: "select profile-conditional source; --debug, --release, and --test are aliases",
+    },
+    HelpRow {
         left: "-M, --module <name=path>",
         right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
     },

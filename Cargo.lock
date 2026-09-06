@@ -304,6 +304,7 @@ dependencies = [
  "nia-linker",
  "nia-loader-query",
  "nia-source",
+ "nia-target-config",
  "nia-test-support",
  "nia-timing",
  "nia-toolchain",

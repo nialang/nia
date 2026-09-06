@@ -27,6 +27,7 @@ use nia_driver::{
 };
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
+use nia_target_config::BuildProfile;
 use nia_timing::{TimingFormat, TimingOptions};
 
 const RUNNER_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
@@ -69,6 +70,8 @@ pub struct BuildRequest {
     pub max_parallel_actions: Option<NonZeroUsize>,
     /// Optimization mode passed to compiler actions.
     pub optimization: OptimizationMode,
+    /// Profile used for profile-conditional source selection.
+    pub profile: BuildProfile,
     /// Select test executable actions instead of the declared default step.
     pub test_mode: bool,
     /// Optional substring filter applied to test step names.
@@ -90,6 +93,7 @@ impl BuildRequest {
             timing_format: TimingFormat::Text,
             max_parallel_actions: None,
             optimization: OptimizationMode::O0,
+            profile: BuildProfile::Debug,
             test_mode: false,
             test_filter: None,
             test_list: false,
@@ -130,6 +134,12 @@ impl BuildRequest {
     /// Selects the optimization mode for compiler actions.
     pub fn with_optimization(mut self, optimization: OptimizationMode) -> Self {
         self.optimization = optimization;
+        self
+    }
+
+    /// Selects the profile used for conditional source selection.
+    pub fn with_profile(mut self, profile: BuildProfile) -> Self {
+        self.profile = profile;
         self
     }
 
@@ -197,6 +207,8 @@ pub struct BuildInvocation {
     pub max_parallel_actions: Option<NonZeroUsize>,
     /// Optimization mode inherited from the request.
     pub optimization: OptimizationMode,
+    /// Profile inherited from the request.
+    pub profile: BuildProfile,
 }
 
 /// How the coordinator selects a step from a frozen build plan.
@@ -722,6 +734,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         timing_format: request.timing_format,
         max_parallel_actions: request.max_parallel_actions,
         optimization: request.optimization,
+        profile: request.profile,
     })
 }
 
@@ -1254,6 +1267,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
     let output = driver.link_executable(LinkExecutableRequest::new(
         CheckRequest::new(runner.path.clone())
             .with_module_map(build_runner_module_map(invocation))
+            .with_profile(invocation.profile)
             .with_timings(invocation.timings),
         &invocation.runner_executable,
     ));

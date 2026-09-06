@@ -192,7 +192,7 @@ standard-library I/O, collections, generics, traits, error handling, and
 multi-file imports. They use the current
 executable entry contract:
 `pub fn main(process::Init) process::ExitCode!()`. They print visible results
-with the fallible `std::debug::print(...).?` boundary, and
+with the fallible `std::io::debugPrint(...).?` boundary, and
 `io.nia` shows explicit stdout output through `std::io` and `std::fmt`.
 
 ## Documentation
