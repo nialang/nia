@@ -162,31 +162,34 @@ pub(crate) struct CompilerCheckCacheIdentity {
     pub(super) sources: Vec<SourceRecord>,
 }
 
+pub(crate) struct CompilerCheckCacheIdentityInput<'a> {
+    pub(crate) action: &'a ActionKey,
+    pub(crate) module: &'a PlanModule,
+    pub(crate) packages: &'a [PlanPackage],
+    pub(crate) target: &'a TargetSpec,
+    pub(crate) profile: BuildProfile,
+    pub(crate) runtime: Runtime,
+    pub(crate) manifest: &'a SourceInputManifest,
+    pub(crate) toolchain: &'a ToolchainIdentity,
+}
+
 impl CompilerCheckCacheIdentity {
-    pub(crate) fn new(
-        action: &ActionKey,
-        module: &PlanModule,
-        packages: &[PlanPackage],
-        target: &TargetSpec,
-        profile: BuildProfile,
-        runtime: Runtime,
-        manifest: &SourceInputManifest,
-        toolchain: &ToolchainIdentity,
-    ) -> Option<Self> {
-        let sources = source_records(manifest)?;
-        let source_fingerprint = QueryFingerprint::from_parts(manifest.fingerprint()?.parts());
-        let module_identity = module_identity(module);
+    pub(crate) fn new(input: CompilerCheckCacheIdentityInput<'_>) -> Option<Self> {
+        let sources = source_records(input.manifest)?;
+        let source_fingerprint =
+            QueryFingerprint::from_parts(input.manifest.fingerprint()?.parts());
+        let module_identity = module_identity(input.module);
         let package_roots = package_roots_identity(
-            packages,
-            std::iter::once(&module.root_source)
-                .chain(module.imports.iter().map(|import| &import.path)),
+            input.packages,
+            std::iter::once(&input.module.root_source)
+                .chain(input.module.imports.iter().map(|import| &import.path)),
         )?;
-        let target_identity = target_identity(target, profile);
-        let optimization = optimization_tag(module.optimization);
-        let runtime = runtime_tag(runtime);
+        let target_identity = target_identity(input.target, input.profile);
+        let optimization = optimization_tag(input.module.optimization);
+        let runtime = runtime_tag(input.runtime);
         Some(Self {
             fingerprints: FingerprintSet::new(
-                action,
+                input.action,
                 FingerprintSetInput {
                     module: &module_identity,
                     package_roots: &package_roots,
@@ -194,10 +197,10 @@ impl CompilerCheckCacheIdentity {
                     optimization,
                     runtime,
                     sources: source_fingerprint,
-                    toolchain: ToolchainComponents::new(toolchain),
+                    toolchain: ToolchainComponents::new(input.toolchain),
                 },
             ),
-            action: action_identity(action),
+            action: action_identity(input.action),
             module: module_identity,
             package_roots,
             target: target_identity,

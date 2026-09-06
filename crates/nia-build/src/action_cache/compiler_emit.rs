@@ -28,9 +28,10 @@ use super::{
     compiler_check::{
         COMPILER_CHECK_MODULE_DOMAIN, COMPILER_CHECK_OPTIMIZATION_DOMAIN,
         COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, COMPILER_CHECK_RUNTIME_DOMAIN,
-        COMPILER_CHECK_TARGET_DOMAIN, CompilerCheckCacheIdentity, FingerprintComponents,
-        SourceRecord, action_fingerprint, bytes_fingerprint, integer_fingerprint,
-        invalidations as compiler_invalidations, read_tag, source_records_fingerprint,
+        COMPILER_CHECK_TARGET_DOMAIN, CompilerCheckCacheIdentity, CompilerCheckCacheIdentityInput,
+        FingerprintComponents, SourceRecord, action_fingerprint, bytes_fingerprint,
+        integer_fingerprint, invalidations as compiler_invalidations, read_tag,
+        source_records_fingerprint,
     },
     fingerprint_text, logical_path_identity, read_bounded_compiler_cache_entry, read_bytes,
     read_fingerprint, read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
@@ -157,16 +158,16 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
 
 impl CompilerEmitCacheIdentity {
     pub(crate) fn new(input: CompilerEmitCacheIdentityInput<'_>) -> Option<Self> {
-        let compiler = CompilerCheckCacheIdentity::new(
-            input.action,
-            input.module,
-            input.packages,
-            input.target,
-            input.profile,
-            crate::Runtime::Freestanding,
-            input.manifest,
-            input.toolchain,
-        )?;
+        let compiler = CompilerCheckCacheIdentity::new(CompilerCheckCacheIdentityInput {
+            action: input.action,
+            module: input.module,
+            packages: input.packages,
+            target: input.target,
+            profile: input.profile,
+            runtime: crate::Runtime::Freestanding,
+            manifest: input.manifest,
+            toolchain: input.toolchain,
+        })?;
         let output = logical_path_identity(&input.artifact.output);
         let artifact = artifact_identity(input.artifact);
         let link_environment = input.link_environment.encode().to_vec();
