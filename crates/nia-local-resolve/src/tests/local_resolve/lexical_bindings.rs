@@ -59,6 +59,32 @@ value
 }
 
 #[test]
+fn sequential_locals_shadow_previous_binding() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let source = r#"
+fn main() i32 {
+let value = 1;
+let value = value + 1;
+value
+}
+"#;
+    let (module, errors) = parse_module(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+    assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+    assert_eq!(locals.node_local_defs.len(), 2);
+    assert!(
+        locals
+            .node_uses
+            .values()
+            .any(|use_kind| matches!(use_kind, LocalUse::Local(_)))
+    );
+}
+
+#[test]
 fn if_pattern_payload_locals_shadow_external_values_in_field_lhs() {
     let mut module_ids = ModuleIdAllocator::new();
     let module_id = module_ids.allocate();

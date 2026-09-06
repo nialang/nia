@@ -24,7 +24,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
         .and_then(Path::parent)
         .expect("nia-cli lives under crates/");
     copy_tree(&workspace_root.join("lib"), &first.join("lib/nia"));
-    let source = workspace_root.join("examples/00_minimal.nia");
+    let source = workspace_root.join("examples/hello.nia");
 
     assert_success(
         Command::new(first.join("bin/nia"))

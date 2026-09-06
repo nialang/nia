@@ -3,7 +3,7 @@
 //!
 //! The resolver preserves stable node identities and separates local, module,
 //! static, and type-prefix use categories for downstream semantic phases.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{
     ArrayLen, BindingItem, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg,

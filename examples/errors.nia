@@ -1,0 +1,47 @@
+using std::debug;
+using std::fmt;
+using std::process;
+using process::{Init, ExitCode, exit};
+
+fn at(values: &[i32], index: usize) ?i32 {
+    if values.get(index) is ?value {
+        ?value.*
+    } else {
+        null
+    }
+}
+
+fn requireAt(values: &[i32], index: usize) i32!i32 {
+    match at(values, index) {
+        ?value => !value,
+        null => 1i32!,
+    }
+}
+
+fn checkedPair(values: &[i32]) i32!i32 {
+    let left = requireAt(values, 0).?;
+    let right = requireAt(values, 2).?;
+    !(left + right)
+}
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+    let values: [i32; 3] = [10, 20, 32];
+    let mut pairSum = 0;
+
+    if checkedPair(&values) is !sum {
+        pairSum = sum;
+    } else {
+        return exit(1)!;
+    }
+    if pairSum != 42 {
+        return exit(2)!;
+    }
+    if requireAt(&values, 9) is !value {
+        _ = value;
+        return exit(3)!;
+    }
+
+    debug::print(&"pair_sum={} missing=error\n", &[&pairSum]).?;
+    !()
+}

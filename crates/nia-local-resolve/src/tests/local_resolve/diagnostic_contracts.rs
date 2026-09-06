@@ -163,7 +163,7 @@ x
     let defs = collect_module_defs(module_id, &module);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
-    assert_eq!(locals.diagnostics.len(), 2);
+    assert_eq!(locals.diagnostics.len(), 1);
     assert!(
         locals
             .diagnostics
@@ -171,10 +171,34 @@ x
             .any(|diagnostic| diagnostic.summary.contains("duplicate parameter name"))
     );
     assert!(
-        locals
+        !locals
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.summary.contains("duplicate local binding"))
+    );
+}
+
+#[test]
+fn reports_duplicate_bindings_within_one_pattern() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
+    let (module, errors) = parse_module(
+        r#"
+fn main() i32 {
+let (x, x) = (1, 2);
+x
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(module_id, &module);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+    assert_eq!(locals.diagnostics.len(), 1);
+    assert!(
+        locals.diagnostics[0]
+            .summary
+            .contains("duplicate local binding")
     );
 }
 

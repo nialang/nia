@@ -120,7 +120,7 @@ Make sure `~/.local/bin` is on `PATH`, then verify the command:
 
 ```sh
 nia --resource-root "$PWD/lib" --version
-nia --resource-root "$PWD/lib" check examples/00_minimal.nia --runtime freestanding
+nia --resource-root "$PWD/lib" check examples/hello.nia --runtime freestanding
 ```
 
 This explicit source-tree workflow is the recommended pre-1.0 installation
@@ -186,14 +186,14 @@ cargo run -p nia-cli -- --resource-root lib check examples/modules/main.nia --ru
 ```
 
 See [examples/README.md](examples/README.md) for the reading order. The example
-source files are the main tutorial material and include inline comments for Nia
-syntax and standard-library idioms. They cover real Nia executables, arrays and
-slices, structs and enums, control flow, standard-library I/O, collections,
-generics, traits, error handling, and multi-file imports. They use the current
+source files are the main tutorial material. They cover complete Nia
+executables, arrays and slices, structs and enums, control flow,
+standard-library I/O, collections, generics, traits, error handling, and
+multi-file imports. They use the current
 executable entry contract:
 `pub fn main(process::Init) process::ExitCode!()`. They print visible results
 with the fallible `std::debug::print(...).?` boundary, and
-`03_stdout.nia` shows explicit stdout output through `std::io` and `std::fmt`.
+`io.nia` shows explicit stdout output through `std::io` and `std::fmt`.
 
 ## Documentation
 

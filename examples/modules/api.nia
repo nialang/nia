@@ -1,0 +1,8 @@
+using entry::geometry;
+using entry::colors;
+
+pub using geometry;
+pub using geometry::{Point, add};
+pub using colors::Color;
+pub using colors::Color::*;
+pub using colors::code as colorCode;

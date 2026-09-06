@@ -7,7 +7,6 @@ pub fn main(init: Init) ExitCode!() {
     let environment: [process::EnvEntry; 1] = [
         process::EnvEntry::init(&"NIA_EXAMPLE_MODE", &"typed environment"),
     ];
-    // The executable path becomes argv[0]; arguments contains only user arguments.
     let command = process::Command::init(fs::PathView::init(&"/bin/sh"), init.env())
         .withArguments(&arguments)
         .withEnvironment(&environment)

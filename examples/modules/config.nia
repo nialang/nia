@@ -1,3 +1,1 @@
-// const values can be used where the compiler needs a constant, such as an
-// array length in another module.
 pub const width: usize = 4;

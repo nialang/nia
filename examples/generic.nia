@@ -1,0 +1,72 @@
+using std::debug;
+using std::fmt;
+using std::process;
+using process::{Init, ExitCode, exit};
+
+trait Measured {
+    fn measure(&self) i32;
+}
+
+struct Count {
+    value: i32,
+}
+
+extend Count : Measured {
+    fn measure(&self) i32 {
+        self.value
+    }
+}
+
+extend Count : Add[Count] {
+    type Output = Count;
+
+    fn add(self, rhs: Count) Count {
+        Self { value: self.value + rhs.value }
+    }
+}
+
+fn combine[T](left: T, right: T) T
+where T: Add[T, Output = T]
+{
+    left + right
+}
+
+fn measure[T](value: &T) i32
+where T: Measured
+{
+    value.measure()
+}
+
+pub fn main(init: Init) ExitCode!() {
+    _ = init;
+
+    let total = combine(Count { value: 20 }, Count { value: 22 });
+    let measured = measure(&total);
+    let offset = 1;
+    let summary = (1..5).iter().fold(
+        (0, 0),
+        &\[offset] state: (i32, i32), value: i32 -> {
+            (state.0 + value + offset, state.1 + 1)
+        },
+    );
+    let target = 3;
+    let position = (1..5).iter().position(&\[target] value: i32 -> {
+        value == target
+    });
+
+    let found = match position {
+        ?index => index,
+        null => return exit(1)!,
+    };
+    if measured != 42 or summary.0 != 14 or summary.1 != 4 or found != 2 {
+        return exit(2)!;
+    }
+
+    debug::print(&"measured={} sum={} count={} position={}\n", &[
+        &measured,
+        &summary.0,
+        &summary.1,
+        &found,
+    ]).?;
+    !()
+}

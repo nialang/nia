@@ -1873,6 +1873,22 @@ let mut x: i32 = 1;
 let mut name: [u8; 4] = b"nia\0";
 ```
 
+Bindings are introduced in source order. A later local binding may reuse the
+name of an earlier local binding in the same block or in an enclosing scope;
+the later binding shadows the earlier one from the end of its declaration
+onward. The initializer and explicit type of the new binding are resolved
+before it becomes visible, so the initializer can refer to the binding being
+replaced:
+
+```nia
+let value = 1;
+let value = value + 1;
+```
+
+Each declaration still receives a distinct local identity. Duplicate names
+within one pattern, duplicate parameter names, and conflicts between a local
+binding and a local static remain errors.
+
 Assignment to an existing place:
 
 ```nia

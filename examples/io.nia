@@ -5,20 +5,16 @@ using process::{Init, ExitCode};
 
 pub fn main(init: Init) ExitCode!() {
     let mut buffer: [u8; 128] = [0; 128];
-    // Application stdout goes through std::io. The writer keeps pointers to
-    // the runtime I/O state and caller-provided scratch buffer.
     let mut stdout = io::FileWriter::stdout(&mut buffer);
     let name = "nia";
     let answer: i32 = 42;
     let byte: u8 = 171;
     let ptr = &answer;
 
-    // .? maps std I/O errors into process exit errors and propagates.
     stdout.print(
         &"name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
         &[&name, &answer, &byte, &ptr],
     ).?;
     stdout.flush().?;
-
     !()
 }

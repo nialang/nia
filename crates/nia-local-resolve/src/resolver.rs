@@ -25,6 +25,7 @@ pub(super) fn resolve_module_locals_from_filtered_items(
         scopes: Vec::new(),
         closure_scope_starts: Vec::new(),
         self_locals: Vec::new(),
+        pattern_names: Vec::new(),
         definition_ids: Some(allocated.node_local_defs),
     };
     resolver.resolve_items(filtered_items);
@@ -59,6 +60,7 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
         scopes: Vec::new(),
         closure_scope_starts: Vec::new(),
         self_locals: Vec::new(),
+        pattern_names: Vec::new(),
         definition_ids: None,
     };
     resolver.resolve_items(items);
@@ -99,6 +101,9 @@ struct LocalResolver<'a> {
     /// entry function.
     closure_scope_starts: Vec<usize>,
     self_locals: Vec<Option<ScopedLocal>>,
+    /// Names already introduced by the pattern currently being resolved.
+    /// Sequential bindings may shadow, but one pattern cannot bind a name twice.
+    pattern_names: Vec<HashSet<SymbolId>>,
     definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
 }
 
@@ -270,9 +275,8 @@ impl<'a> LocalResolver<'a> {
         fallback_key: VersionedNodeKey,
     ) {
         // Resolve the initializer before publishing the pattern's locals. This
-        // is an intentional non-recursive binding rule: inference may collect
-        // every local id up front, but an initializer must not resolve its own
-        // name (or manufacture a recursive closure type) through that table.
+        // makes sequential shadowing refer to the previous binding while still
+        // preventing a binding from resolving its own name recursively.
         if let Some(ty) = &binding.ty {
             self.resolve_type(ty);
         }
@@ -287,12 +291,14 @@ impl<'a> LocalResolver<'a> {
         } else {
             LocalKind::ImmutableBinding
         };
+        self.pattern_names.push(HashSet::new());
         self.resolve_pattern_with_span(
             &binding.pattern,
             default_kind,
             span,
             "duplicate local binding",
         );
+        self.pattern_names.pop();
     }
 
     fn resolve_static(&mut self, span: Span, binding: &BindingItem) {
@@ -669,7 +675,9 @@ impl<'a> LocalResolver<'a> {
         binding_kind: LocalKind,
         duplicate: &'static str,
     ) {
+        self.pattern_names.push(HashSet::new());
         self.resolve_pattern_with_span(pattern, binding_kind, pattern.span, duplicate);
+        self.pattern_names.pop();
     }
 
     fn resolve_pattern_with_span(
@@ -904,13 +912,22 @@ impl<'a> LocalResolver<'a> {
             );
             return None;
         };
-        if let Some(existing) = scope.locals.get(name) {
+        if let Some(names) = self.pattern_names.last_mut()
+            && !names.insert(*name)
+        {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
                 format!("{duplicate_message}: `{display_name}`"),
             ));
-            let _ = existing.span;
+            return None;
+        }
+        if matches!(kind, LocalKind::Param) && scope.locals.contains_key(name) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::LOCAL_RESOLUTION,
+                span,
+                format!("{duplicate_message}: `{display_name}`"),
+            ));
             return None;
         }
         if let Some(existing) = scope.statics.get(name) {
