@@ -25,6 +25,9 @@ machine-readable schemas. `check` runs every fast repository audit; Cargo owns
 compilation, Clippy, and tests, and the command does not run compiler or build
 baselines.
 
+Compiler workload definitions, baseline comparison rules, and managed CI trend
+artifacts are documented in [`performance.md`](performance.md).
+
 Fixtures belong in `maintain/fixtures/`, integration contracts in
 `maintain/tests/`, and implementation tests beside their owning Rust
 modules. Do not add another top-level executable; add a typed command to
