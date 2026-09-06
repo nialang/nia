@@ -31,14 +31,24 @@ pub(crate) fn help_text(topic: HelpTopic, style: HelpStyle) -> String {
     render_help(help_doc(topic), style)
 }
 
+pub(crate) fn error_help_text(topic: HelpTopic, style: HelpStyle) -> String {
+    let doc = help_doc(topic);
+    let mut out = String::new();
+    push_lines(&mut out, "Usage", doc.usage, style);
+    out.push_str("For more information, run `");
+    out.push_str(help_command(topic));
+    out.push_str("`.\n");
+    out
+}
+
 struct HelpDoc {
     title: &'static str,
     about: &'static str,
     usage: &'static [&'static str],
     commands: &'static [HelpRow],
+    targets: &'static [HelpRow],
     options: &'static [HelpRow],
     examples: &'static [&'static str],
-    notes: &'static [&'static str],
 }
 
 #[derive(Clone, Copy)]
@@ -50,335 +60,411 @@ struct HelpRow {
 fn help_doc(topic: HelpTopic) -> HelpDoc {
     match topic {
         HelpTopic::Main => HelpDoc {
-            title: "Nia compiler driver",
-            about: "Compile, inspect, and check Nia source files.",
-            usage: &["nia [options] <command> [args]", "nia help [command]"],
+            title: "Nia compiler",
+            about: "Build, check, and inspect Nia programs.",
+            usage: &["nia <command> [options]", "nia help [command]"],
             commands: &[
                 HelpRow {
-                    left: "build [step|dir]",
-                    right: "run a package build graph from build.nia",
+                    left: "build [step]",
+                    right: "build the current package",
                 },
                 HelpRow {
                     left: "test",
-                    right: "build and run registered host test suites",
+                    right: "run package tests",
                 },
                 HelpRow {
-                    left: "check <file.nia|dir>",
-                    right: "run semantic checks; directories select main.nia or pkg.nia",
+                    left: "check <path>",
+                    right: "check a package or source file",
                 },
                 HelpRow {
-                    left: "emit --<target> <file.nia|dir>",
-                    right: "write compiler output or inspection data; directories select main.nia or pkg.nia",
+                    left: "emit --<target> <path>",
+                    right: "inspect or write compiler output",
+                },
+                HelpRow {
+                    left: "help [command]",
+                    right: "show command help",
                 },
             ],
+            targets: &[],
             options: GLOBAL_OPTIONS,
-            examples: &[
-                "nia build",
-                "nia test --filter parser",
-                "nia build install --root .",
-                "nia check src/main.nia",
-                "nia emit --ast src/main.nia",
-                "nia -O2 emit --obj src/main.nia --out-dir build/obj",
-                "nia emit --exe src/main.nia -o build/main -M share=share/share.nia",
-            ],
-            notes: &["Use `nia help <command>` for command-specific details."],
+            examples: &["nia build", "nia check src/main.nia"],
         },
         HelpTopic::Build => HelpDoc {
             title: "nia build",
-            about: "Run a package build script from the Nia toolchain.",
-            usage: &["nia build [step|dir] [--root <dir>] [--jobs <count>]"],
+            about: "Build a package with its build.nia script.",
+            usage: &["nia build [step] [--root <dir>] [options]"],
             commands: &[],
+            targets: &[],
             options: &[
                 HelpRow {
                     left: "--root <dir>",
-                    right: "select the package root search start; defaults to the current directory",
+                    right: "start package discovery here instead of the current directory",
                 },
                 HelpRow {
                     left: "-j, --jobs <count>",
-                    right: "limit concurrent ready build actions; compiler resource budgets remain independent",
+                    right: "limit concurrent build actions",
                 },
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
                 HelpRow {
                     left: "-h, --help",
-                    right: "show this help text",
+                    right: "show this help",
                 },
             ],
             examples: &[
                 "nia build",
-                "nia build .",
                 "nia build check",
                 "nia build install --root tools/example",
-            ],
-            notes: &[
-                "`nia build` searches for build.nia in the selected directory and then each parent directory; pkg.nia marks a package boundary.",
-                "Global options such as --timings may appear before or after `build`.",
-                "build.nia is compiled and run as ordinary Nia code through a toolchain-owned runner.",
-                "std::build::Build exposes packageRoot(), buildDir(), cacheDir(), and toolchainExecutable() so scripts do not guess toolchain paths.",
-                "std::build::ModuleOptions::init(name, rootSource) declares a stable named source module; addExecutable(options) declares an artifact that references it.",
-                "Module optimization and executable runtime options are forwarded to the current toolchain.",
-                "std::build::Build::setDefaultStep(step) selects what `nia build` runs when no step name is passed; addTestExecutableStep records a target test relation.",
-                "Build outputs belong under .nia-build/ and reusable package or compiler cache entries belong under .nia-cache/.",
-                "The build runner lives in the Nia toolchain instead of a separate paw binary or C API bridge.",
             ],
         },
         HelpTopic::Test => HelpDoc {
             title: "nia test",
-            about: "Build and run explicitly registered host test executables.",
-            usage: &[
-                "nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast] [--jobs <count>]",
-            ],
+            about: "Build and run package test suites.",
+            usage: &["nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast] [options]"],
             commands: &[],
+            targets: &[],
             options: &[
                 HelpRow {
                     left: "--root <dir>",
-                    right: "select the package root search start",
+                    right: "start package discovery here instead of the current directory",
                 },
                 HelpRow {
                     left: "--filter <text>",
-                    right: "run or list test steps whose stable name contains text",
+                    right: "select suites whose names contain this text",
                 },
                 HelpRow {
                     left: "--list",
-                    right: "list matching test steps without executing them",
+                    right: "list selected suites without running them",
                 },
                 HelpRow {
                     left: "--fail-fast",
-                    right: "stop scheduling later suites after the first failure",
+                    right: "stop after the first failed suite",
                 },
                 HelpRow {
                     left: "-j, --jobs <count>",
-                    right: "limit concurrent ready test and build actions",
+                    right: "limit concurrent test and build actions",
                 },
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
                 HelpRow {
                     left: "-h, --help",
-                    right: "show this help text",
+                    right: "show this help",
                 },
             ],
-            examples: &["nia test", "nia test --list", "nia test --filter parser"],
-            notes: &["Tests are registered as explicit build steps and run on the host target."],
+            examples: &["nia test", "nia test --filter parser", "nia test --list"],
         },
         HelpTopic::Check => HelpDoc {
             title: "nia check",
-            about: "Run the frontend and semantic checking pipeline.",
-            usage: &["nia check <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]"],
+            about: "Check a package or source file without producing an artifact.",
+            usage: &["nia check <path> [options]"],
             commands: &[],
+            targets: &[],
             options: &[
                 HelpRow {
                     left: "--runtime <bare|freestanding>",
-                    right: "select checking runtime; bare is the default, freestanding injects the executable startup runtime",
+                    right: "select the program runtime (default: bare)",
                 },
                 HelpRow {
                     left: "--opt-report",
-                    right: "print backend optimization policy, enabled passes, change count, and changes",
+                    right: "print the optimization report",
                 },
                 HelpRow {
                     left: "--cache-dir <path>",
-                    right: "reuse persistent frontend artifacts from the selected cache directory",
+                    right: "reuse compiler artifacts from this directory",
                 },
-                HelpRow {
-                    left: OPTIMIZATION_OPTION_HELP,
-                    right: "set optimization level; -O means -O2",
-                },
-                HelpRow {
-                    left: "-M, --module <name=path>",
-                    right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
-                },
-                HelpRow {
-                    left: TIMINGS_OPTION_HELP,
-                    right: "print compiler stage timings to stderr; detail also includes aggregated query timings",
-                },
-                HelpRow {
-                    left: TIMING_FORMAT_OPTION_HELP,
-                    right: "select human-readable text or one-line machine-readable JSON timing output",
-                },
-                HelpRow {
-                    left: TIMING_TRACE_OPTION_HELP,
-                    right: "also print raw timing events; intended for diagnosing the timing system",
-                },
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
                 HelpRow {
                     left: "-h, --help",
-                    right: "show this help text",
+                    right: "show this help",
                 },
             ],
             examples: &[
-                "nia check src/main.nia",
                 "nia check .",
                 "nia check src/main.nia --runtime freestanding",
-                "nia -O1 check src/main.nia --opt-report",
-                "nia check src/main.nia -M std=/usr/share/nia/std/pkg.nia",
-                "nia check src/main.nia -M math=vendor/math",
             ],
-            notes: &["Timing reports are written to stderr."],
         },
         HelpTopic::Emit => HelpDoc {
             title: "nia emit",
-            about: "Run a selected compiler output stage.",
-            usage: &[
-                "nia emit --tokens <file.nia|dir> [options]",
-                "nia emit --ast <file.nia|dir> [options]",
-                "nia emit --checked <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --backend <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --llvm <file.nia|dir> [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --obj <file.nia|dir> [-o <file.o> | --out-dir <dir>] [--runtime <runtime>] [--opt-report] [options]",
-                "nia emit --exe <file.nia|dir> [-o <executable>] [--runtime freestanding] [link options] [--opt-report] [options]",
-            ],
+            about: "Inspect or write one compiler output.",
+            usage: &["nia emit --<target> <path> [options]"],
             commands: &[],
+            targets: EMIT_TARGETS,
+            options: &[HELP_ROW],
+            examples: &[
+                "nia emit --ast src/main.nia",
+                "nia emit --exe src/main.nia -o build/main",
+            ],
+        },
+        HelpTopic::EmitTokens => inspection_help(
+            "nia emit --tokens",
+            "Print source tokens and byte spans.",
+            TOKENS_USAGE,
+            TOKENS_EXAMPLES,
+        ),
+        HelpTopic::EmitAst => inspection_help(
+            "nia emit --ast",
+            "Print the parsed syntax tree.",
+            AST_USAGE,
+            AST_EXAMPLES,
+        ),
+        HelpTopic::EmitChecked => HelpDoc {
+            title: "nia emit --checked",
+            about: "Print the checked program.",
+            usage: &["nia emit --checked <path> [options]"],
+            commands: &[],
+            targets: &[],
+            options: &[
+                RUNTIME_ROW,
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
+                HELP_ROW,
+            ],
+            examples: &["nia emit --checked src/main.nia"],
+        },
+        HelpTopic::EmitBackend => backend_help(
+            "nia emit --backend",
+            "Print optimized Nia backend IR.",
+            BACKEND_USAGE,
+            BACKEND_EXAMPLES,
+        ),
+        HelpTopic::EmitLlvm => backend_help(
+            "nia emit --llvm",
+            "Print LLVM IR.",
+            LLVM_USAGE,
+            LLVM_EXAMPLES,
+        ),
+        HelpTopic::EmitObj => HelpDoc {
+            title: "nia emit --obj",
+            about: "Write native object files.",
+            usage: &["nia emit --obj <path> [-o <file> | --out-dir <dir>] [options]"],
+            commands: &[],
+            targets: &[],
             options: &[
                 HelpRow {
-                    left: "--tokens",
-                    right: "tokenize and print token kinds with byte spans",
-                },
-                HelpRow {
-                    left: "--ast",
-                    right: "parse and print the AST",
-                },
-                HelpRow {
-                    left: "--checked",
-                    right: "run checking and print the checked program",
-                },
-                HelpRow {
-                    left: "--backend",
-                    right: "write optimized backend IR to stdout",
-                },
-                HelpRow {
-                    left: "--llvm",
-                    right: "write LLVM IR to stdout",
-                },
-                HelpRow {
-                    left: "--obj",
-                    right: "write native object file(s)",
-                },
-                HelpRow {
-                    left: "--exe",
-                    right: "link a freestanding executable",
-                },
-                HelpRow {
-                    left: "--runtime <bare|freestanding>",
-                    right: "select runtime for checked/backend/llvm inspection and --obj; bare is the default, --exe supports freestanding",
-                },
-                HelpRow {
-                    left: "--link-arg <arg>",
-                    right: "pass an extra argument to the executable linker; may appear multiple times",
-                },
-                HelpRow {
-                    left: "--linker <program>",
-                    right: "select the executable linker program for --exe",
-                },
-                HelpRow {
-                    left: "--linker-flavor <gnu|lld|self-hosted-elf>",
-                    right: "select how Nia translates structured link options",
-                },
-                HelpRow {
-                    left: "--dynamic-linker <auto|none|path>",
-                    right: "link a dynamic executable with an ELF interpreter policy",
-                },
-                HelpRow {
-                    left: "--no-dynamic-linker",
-                    right: "link a dynamic executable without an ELF interpreter",
-                },
-                HelpRow {
-                    left: "-L, --library-path <dir>",
-                    right: "add a native library search path for --exe",
-                },
-                HelpRow {
-                    left: "-l, --library <name>",
-                    right: "link a native library by name for --exe",
-                },
-                HelpRow {
-                    left: "--rpath <path>",
-                    right: "add a runtime library search path for --exe",
-                },
-                HelpRow {
-                    left: "-o <file.o>",
-                    right: "write a single object file for --obj, or executable for --exe",
+                    left: "-o <file>",
+                    right: "write a single object file",
                 },
                 HelpRow {
                     left: "--out-dir <dir>",
-                    right: "write one object per codegen unit for --obj",
+                    right: "write one file per codegen unit",
                 },
+                RUNTIME_ROW,
                 HelpRow {
-                    left: "--opt-report",
-                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr for checked/backend/llvm/obj/exe",
+                    left: "--cache-dir <path>",
+                    right: "reuse compiler artifacts from this directory",
                 },
-                HelpRow {
-                    left: OPTIMIZATION_OPTION_HELP,
-                    right: "set optimization level; -O means -O2",
-                },
-                HelpRow {
-                    left: "-M, --module <name=path>",
-                    right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
-                },
-                HelpRow {
-                    left: TIMINGS_OPTION_HELP,
-                    right: "print compiler stage timings to stderr; detail also includes aggregated query timings",
-                },
-                HelpRow {
-                    left: TIMING_FORMAT_OPTION_HELP,
-                    right: "select human-readable text or one-line machine-readable JSON timing output",
-                },
-                HelpRow {
-                    left: TIMING_TRACE_OPTION_HELP,
-                    right: "also print raw timing events; intended for diagnosing the timing system",
-                },
-                HelpRow {
-                    left: "-h, --help",
-                    right: "show this help text",
-                },
+                OPT_REPORT_ROW,
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
+                HELP_ROW,
             ],
             examples: &[
-                "nia emit --tokens src/main.nia",
-                "nia emit --ast src/main.nia",
-                "nia -O2 emit --backend src/main.nia --opt-report",
-                "nia emit --llvm src/main.nia --runtime freestanding",
+                "nia emit --obj src/main.nia -o build/main.o",
                 "nia emit --obj src/main.nia --out-dir build/obj",
-                "nia emit --obj src/main.nia --runtime freestanding -o build/startup.o",
-                "nia emit --exe src/main.nia -o build/main",
             ],
-            notes: &[
-                "Use exactly one emit target flag.",
-                "The optimization report is written to stderr so stdout remains inspection output and native targets remain file-only.",
-                "Timing reports are written to stderr so stdout remains inspection output and native targets remain file-only.",
-                "`emit --checked`, `emit --backend`, and `emit --llvm` default to the bare runtime; pass --runtime freestanding to inspect executable lowering with startup injection and reachability pruning.",
-                "`emit --obj` defaults to the bare runtime and does not inject startup code.",
-                "Use --out-dir when --obj emits multiple codegen units.",
-                "-o for --obj is accepted only when one object file is produced.",
-                "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
-                "For --linker-flavor lld, an explicit --linker wins; otherwise NIA_LLD or PATH is used to find ld.lld.",
-                "The default executable runtime is freestanding and enters through the injected standard-library startup facade; Linux x86_64 is maintained and i686 is experimental.",
-                "Missing parent directories for -o and --out-dir are created automatically.",
+        },
+        HelpTopic::EmitExe => HelpDoc {
+            title: "nia emit --exe",
+            about: "Build a freestanding executable.",
+            usage: &["nia emit --exe <path> [-o <file>] [options]"],
+            commands: &[],
+            targets: &[],
+            options: &[
+                HelpRow {
+                    left: "-o <file>",
+                    right: "write the executable to this path",
+                },
+                HelpRow {
+                    left: "--cache-dir <path>",
+                    right: "reuse compiler artifacts from this directory",
+                },
+                HelpRow {
+                    left: "--link-arg <arg>",
+                    right: "pass an argument to the linker; may be repeated",
+                },
+                HelpRow {
+                    left: "--linker <program>",
+                    right: "use this linker program",
+                },
+                HelpRow {
+                    left: "--linker-flavor <gnu|lld|self-hosted-elf>",
+                    right: "select the linker command style",
+                },
+                HelpRow {
+                    left: "--dynamic-linker <auto|none|path>",
+                    right: "select the ELF interpreter",
+                },
+                HelpRow {
+                    left: "--no-dynamic-linker",
+                    right: "omit the ELF interpreter",
+                },
+                HelpRow {
+                    left: "-L, --library-path <dir>",
+                    right: "add a native library search path",
+                },
+                HelpRow {
+                    left: "-l, --library <name>",
+                    right: "link a native library",
+                },
+                HelpRow {
+                    left: "--rpath <path>",
+                    right: "add a runtime library search path",
+                },
+                OPT_REPORT_ROW,
+                RUNTIME_EXE_ROW,
+                OPTIMIZATION_ROW,
+                PROFILE_ROW,
+                MODULE_ROW,
+                TIMINGS_ROW,
+                TIMING_FORMAT_ROW,
+                TIMING_TRACE_ROW,
+                RESOURCE_ROW,
+                HELP_ROW,
+            ],
+            examples: &[
+                "nia emit --exe src/main.nia -o build/main",
+                "nia emit --exe src/main.nia -L vendor/lib -lfoo",
             ],
         },
     }
 }
 
+fn inspection_help(
+    title: &'static str,
+    about: &'static str,
+    usage: &'static [&'static str],
+    examples: &'static [&'static str],
+) -> HelpDoc {
+    HelpDoc {
+        title,
+        about,
+        usage,
+        commands: &[],
+        targets: &[],
+        options: &[
+            OPTIMIZATION_ROW,
+            PROFILE_ROW,
+            MODULE_ROW,
+            TIMINGS_ROW,
+            TIMING_FORMAT_ROW,
+            TIMING_TRACE_ROW,
+            RESOURCE_ROW,
+            HELP_ROW,
+        ],
+        examples,
+    }
+}
+
+fn backend_help(
+    title: &'static str,
+    about: &'static str,
+    usage: &'static [&'static str],
+    examples: &'static [&'static str],
+) -> HelpDoc {
+    HelpDoc {
+        title,
+        about,
+        usage,
+        commands: &[],
+        targets: &[],
+        options: &[
+            RUNTIME_ROW,
+            OPT_REPORT_ROW,
+            OPTIMIZATION_ROW,
+            PROFILE_ROW,
+            MODULE_ROW,
+            TIMINGS_ROW,
+            TIMING_FORMAT_ROW,
+            TIMING_TRACE_ROW,
+            RESOURCE_ROW,
+            HELP_ROW,
+        ],
+        examples,
+    }
+}
+
+fn help_command(topic: HelpTopic) -> &'static str {
+    match topic {
+        HelpTopic::Main => "nia help",
+        HelpTopic::Build => "nia help build",
+        HelpTopic::Test => "nia help test",
+        HelpTopic::Check => "nia help check",
+        HelpTopic::Emit => "nia help emit",
+        HelpTopic::EmitTokens => "nia help emit --tokens",
+        HelpTopic::EmitAst => "nia help emit --ast",
+        HelpTopic::EmitChecked => "nia help emit --checked",
+        HelpTopic::EmitBackend => "nia help emit --backend",
+        HelpTopic::EmitLlvm => "nia help emit --llvm",
+        HelpTopic::EmitObj => "nia help emit --obj",
+        HelpTopic::EmitExe => "nia help emit --exe",
+    }
+}
+
+const EMIT_TARGETS: &[HelpRow] = &[
+    HelpRow {
+        left: "--tokens",
+        right: "print source tokens",
+    },
+    HelpRow {
+        left: "--ast",
+        right: "print the parsed syntax tree",
+    },
+    HelpRow {
+        left: "--checked",
+        right: "print the checked program",
+    },
+    HelpRow {
+        left: "--backend",
+        right: "print optimized Nia backend IR",
+    },
+    HelpRow {
+        left: "--llvm",
+        right: "print LLVM IR",
+    },
+    HelpRow {
+        left: "--obj",
+        right: "write native object files",
+    },
+    HelpRow {
+        left: "--exe",
+        right: "build a freestanding executable",
+    },
+];
+
 const GLOBAL_OPTIONS: &[HelpRow] = &[
-    HelpRow {
-        left: "--resource-root <path>",
-        right: "use an explicit versioned toolchain resource tree instead of the installed executable-relative layout",
-    },
-    HelpRow {
-        left: OPTIMIZATION_OPTION_HELP,
-        right: "set optimization level; -O means -O2",
-    },
-    HelpRow {
-        left: "--profile <debug|release|test>",
-        right: "select profile-conditional source; --debug, --release, and --test are aliases",
-    },
-    HelpRow {
-        left: "-M, --module <name=path>",
-        right: "map a package root file or directory; directories resolve `pkg.nia`; `entry`, `pkg`, and `builtin` are reserved",
-    },
-    HelpRow {
-        left: TIMINGS_OPTION_HELP,
-        right: "print compiler stage timings to stderr; use detail for aggregated query timings",
-    },
-    HelpRow {
-        left: TIMING_FORMAT_OPTION_HELP,
-        right: "select human-readable text or one-line machine-readable JSON timing output",
-    },
-    HelpRow {
-        left: TIMING_TRACE_OPTION_HELP,
-        right: "also print raw timing events; intended for diagnosing the timing system",
-    },
+    OPTIMIZATION_ROW,
+    PROFILE_ROW,
+    MODULE_ROW,
+    TIMINGS_ROW,
+    TIMING_FORMAT_ROW,
+    TIMING_TRACE_ROW,
+    RESOURCE_ROW,
     HelpRow {
         left: "-h, --help",
         right: "show help",
@@ -389,10 +475,59 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     },
 ];
 
-const OPTIMIZATION_OPTION_HELP: &str = "-O, -O0, -O1, -O2, -O3, -Os, -Oz";
-const TIMINGS_OPTION_HELP: &str = "--timings[=summary|detail]";
-const TIMING_FORMAT_OPTION_HELP: &str = "--timings-format=<text|json>";
-const TIMING_TRACE_OPTION_HELP: &str = "--timing-trace <off|events>";
+const OPTIMIZATION_ROW: HelpRow = HelpRow {
+    left: "-O, -O0, -O1, -O2, -O3, -Os, -Oz",
+    right: "set the optimization level (-O means -O2)",
+};
+const PROFILE_ROW: HelpRow = HelpRow {
+    left: "--profile <debug|release|test>",
+    right: "select the build profile",
+};
+const MODULE_ROW: HelpRow = HelpRow {
+    left: "-M, --module <name=path>",
+    right: "map a package name to a source root",
+};
+const TIMINGS_ROW: HelpRow = HelpRow {
+    left: "--timings[=summary|detail]",
+    right: "print compiler timings",
+};
+const TIMING_FORMAT_ROW: HelpRow = HelpRow {
+    left: "--timings-format=<text|json>",
+    right: "select the timing output format",
+};
+const TIMING_TRACE_ROW: HelpRow = HelpRow {
+    left: "--timing-trace <off|events>",
+    right: "print individual timing events",
+};
+const RESOURCE_ROW: HelpRow = HelpRow {
+    left: "--resource-root <path>",
+    right: "use resources from this toolchain directory",
+};
+const RUNTIME_ROW: HelpRow = HelpRow {
+    left: "--runtime <bare|freestanding>",
+    right: "select the program runtime (default: bare)",
+};
+const RUNTIME_EXE_ROW: HelpRow = HelpRow {
+    left: "--runtime freestanding",
+    right: "select the executable runtime",
+};
+const OPT_REPORT_ROW: HelpRow = HelpRow {
+    left: "--opt-report",
+    right: "print the optimization report",
+};
+const HELP_ROW: HelpRow = HelpRow {
+    left: "-h, --help",
+    right: "show this help",
+};
+
+const TOKENS_USAGE: &[&str] = &["nia emit --tokens <path> [options]"];
+const TOKENS_EXAMPLES: &[&str] = &["nia emit --tokens src/main.nia"];
+const AST_USAGE: &[&str] = &["nia emit --ast <path> [options]"];
+const AST_EXAMPLES: &[&str] = &["nia emit --ast src/main.nia"];
+const BACKEND_USAGE: &[&str] = &["nia emit --backend <path> [options]"];
+const BACKEND_EXAMPLES: &[&str] = &["nia emit --backend src/main.nia"];
+const LLVM_USAGE: &[&str] = &["nia emit --llvm <path> [options]"];
+const LLVM_EXAMPLES: &[&str] = &["nia emit --llvm src/main.nia"];
 
 fn render_help(doc: HelpDoc, style: HelpStyle) -> String {
     let mut out = String::new();
@@ -401,9 +536,9 @@ fn render_help(doc: HelpDoc, style: HelpStyle) -> String {
     out.push_str("\n\n");
     push_lines(&mut out, "Usage", doc.usage, style);
     push_rows(&mut out, "Commands", doc.commands, style);
+    push_rows(&mut out, "Targets", doc.targets, style);
     push_rows(&mut out, "Options", doc.options, style);
     push_lines(&mut out, "Examples", doc.examples, style);
-    push_lines(&mut out, "Notes", doc.notes, style);
     out
 }
 

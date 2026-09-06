@@ -22,7 +22,7 @@ use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
 
 mod help;
 
-use help::{HelpStyle, help_text};
+use help::{HelpStyle, error_help_text, help_text};
 
 #[cfg(feature = "perf-alloc")]
 #[global_allocator]
@@ -55,12 +55,16 @@ fn main() -> ExitCode {
                 print!("{}", help_text(error.help, HelpStyle::for_stdout()));
                 return ExitCode::SUCCESS;
             }
-            eprintln!("error: {}", error.message);
-            eprintln!();
-            eprint!("{}", help_text(error.help, HelpStyle::for_stderr()));
+            report_cli_error(&error.message, error.help);
             ExitCode::FAILURE
         }
     }
+}
+
+fn report_cli_error(message: &str, help: HelpTopic) {
+    eprintln!("error: {message}");
+    eprintln!();
+    eprint!("{}", error_help_text(help, HelpStyle::for_stderr()));
 }
 
 fn run_with_ice_boundary(
@@ -141,13 +145,20 @@ enum CliAction {
     Run(Cli),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HelpTopic {
     Main,
     Build,
     Test,
     Check,
     Emit,
+    EmitTokens,
+    EmitAst,
+    EmitChecked,
+    EmitBackend,
+    EmitLlvm,
+    EmitObj,
+    EmitExe,
 }
 
 struct CliError {
@@ -566,6 +577,7 @@ fn emit_target_option_takes_value(arg: &str) -> bool {
         arg,
         "-o" | "--out-dir"
             | "--runtime"
+            | "--cache-dir"
             | "--link-arg"
             | "--dynamic-linker"
             | "--library-path"
@@ -682,7 +694,7 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
     };
     let rest = args.collect::<Vec<_>>();
     match command.as_str() {
-        "help" => Ok(ParsedCommand::Help(help_topic_from_args(&rest))),
+        "help" => help_topic_from_args(&rest).map(ParsedCommand::Help),
         "build" => parse_build_command(rest).map(ParsedCommand::Run),
         "test" => parse_test_command(rest).map(ParsedCommand::Run),
         "check" => parse_check_command(rest).map(ParsedCommand::Run),
@@ -694,17 +706,26 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
     }
 }
 
-fn help_topic_from_args(args: &[String]) -> HelpTopic {
-    match args {
-        [] => HelpTopic::Main,
-        [command] if command == "build" => HelpTopic::Build,
-        [command] if command == "test" => HelpTopic::Test,
-        [command] if command == "check" => HelpTopic::Check,
-        [command] if command == "emit" => HelpTopic::Emit,
-        [command, target] if command == "emit" && emit_target_flag(target).is_some() => {
-            HelpTopic::Emit
-        }
-        _ => HelpTopic::Main,
+fn help_topic_from_args(args: &[String]) -> Result<HelpTopic, CliError> {
+    let args = args
+        .iter()
+        .filter(|arg| *arg != "-h" && *arg != "--help")
+        .collect::<Vec<_>>();
+    match args.as_slice() {
+        [] => Ok(HelpTopic::Main),
+        [command] if *command == "build" => Ok(HelpTopic::Build),
+        [command] if *command == "test" => Ok(HelpTopic::Test),
+        [command] if *command == "check" => Ok(HelpTopic::Check),
+        [command] if *command == "emit" => Ok(HelpTopic::Emit),
+        [command, target] if *command == "emit" => emit_target_flag(target)
+            .map(ParsedEmitTarget::help_topic)
+            .ok_or_else(|| {
+                CliError::new(format!("unknown emit target `{target}`"), HelpTopic::Emit)
+            }),
+        [topic, ..] => Err(CliError::new(
+            format!("unknown help topic `{topic}`"),
+            HelpTopic::Main,
+        )),
     }
 }
 
@@ -757,8 +778,11 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                     HelpTopic::Build,
                 ));
             }
-            _ if root.is_none() && looks_like_build_root(&arg) => {
-                root = Some(PathBuf::from(arg));
+            _ if looks_like_path_argument(&arg) => {
+                return Err(CliError::new(
+                    format!("package path `{arg}` must be passed with `--root`"),
+                    HelpTopic::Build,
+                ));
             }
             _ if step.is_none() => step = Some(arg),
             _ => {
@@ -772,7 +796,7 @@ fn parse_build_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     Ok(CliCommand::Build { root, step, jobs })
 }
 
-fn looks_like_build_root(arg: &str) -> bool {
+fn looks_like_path_argument(arg: &str) -> bool {
     matches!(arg, "." | "..") || arg.contains('/') || arg.contains('\\')
 }
 
@@ -961,7 +985,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         return Err(CliError::help(HelpTopic::Emit));
     }
     if has_help_flag(&args) {
-        return Err(CliError::help(HelpTopic::Emit));
+        return Err(CliError::help(emit_help_topic(&args)));
     }
 
     let mut target = None;
@@ -986,9 +1010,9 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 target = Some(flag);
                 continue;
             }
-            None if looks_like_removed_emit_target(&arg) && path.is_none() => {
+            None if looks_like_emit_target_name(&arg) && path.is_none() => {
                 return Err(CliError::new(
-                    format!("old `nia emit {arg}` syntax was removed; use `nia emit --{arg}`"),
+                    format!("emit targets are flags; use `--{arg}`"),
                     HelpTopic::Emit,
                 ));
             }
@@ -1001,8 +1025,10 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 target_args.push(arg);
             }
             _ if arg.starts_with("--runtime=")
+                || arg.starts_with("--cache-dir=")
                 || arg.starts_with("--link-arg=")
                 || arg.starts_with("--dynamic-linker=")
+                || arg == "--no-dynamic-linker"
                 || arg.starts_with("--library-path=")
                 || arg.starts_with("-L")
                 || arg.starts_with("--library=")
@@ -1014,9 +1040,10 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 target_args.push(arg);
             }
             _ if arg.starts_with('-') && path.is_none() => {
+                let help = target.map_or(HelpTopic::Emit, ParsedEmitTarget::help_topic);
                 return Err(CliError::new(
                     format!("unknown `nia emit` option `{arg}`"),
-                    HelpTopic::Emit,
+                    help,
                 ));
             }
             _ if path.is_none() => path = Some(arg),
@@ -1031,15 +1058,16 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             HelpTopic::Emit,
         ));
     };
+    let target_help = target.help_topic();
     let (runtime, target_args) = if target.accepts_runtime() {
-        parse_emit_runtime_args(target_args)?
+        parse_emit_runtime_args(target_args, target_help)?
     } else {
         (Runtime::Bare, target_args)
     };
     let Some(path) = path else {
         return Err(CliError::new(
             "missing source file for `nia emit`",
-            HelpTopic::Emit,
+            target_help,
         ));
     };
     if !target.accepts_target_args()
@@ -1050,7 +1078,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 "unexpected argument `{arg}` for `nia emit {}`",
                 target.flag_name()
             ),
-            HelpTopic::Emit,
+            target_help,
         ));
     }
     if opt_report && !target.accepts_opt_report() {
@@ -1059,7 +1087,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 "`--opt-report` is not valid for `nia emit {}`",
                 target.flag_name()
             ),
-            HelpTopic::Emit,
+            target_help,
         ));
     }
     let target = match target {
@@ -1078,7 +1106,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     })
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ParsedEmitTarget {
     Tokens,
     Ast,
@@ -1113,35 +1141,57 @@ impl ParsedEmitTarget {
     fn accepts_runtime(self) -> bool {
         matches!(self, Self::Checked | Self::Backend | Self::Llvm)
     }
+
+    fn help_topic(self) -> HelpTopic {
+        match self {
+            Self::Tokens => HelpTopic::EmitTokens,
+            Self::Ast => HelpTopic::EmitAst,
+            Self::Checked => HelpTopic::EmitChecked,
+            Self::Backend => HelpTopic::EmitBackend,
+            Self::Llvm => HelpTopic::EmitLlvm,
+            Self::Obj => HelpTopic::EmitObj,
+            Self::Exe => HelpTopic::EmitExe,
+        }
+    }
 }
 
-fn parse_emit_runtime_args(args: Vec<String>) -> Result<(Runtime, Vec<String>), CliError> {
+fn parse_emit_runtime_args(
+    args: Vec<String>,
+    help: HelpTopic,
+) -> Result<(Runtime, Vec<String>), CliError> {
     let mut runtime = Runtime::Bare;
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--runtime=") {
-            runtime = parse_runtime(value).map_err(|message| {
-                CliError::new(format!("{message} for `nia emit`"), HelpTopic::Emit)
-            })?;
+            runtime = parse_runtime(value)
+                .map_err(|message| CliError::new(format!("{message} for `nia emit`"), help))?;
             continue;
         }
         match arg.as_str() {
             "--runtime" => {
                 let Some(value) = iter.next() else {
-                    return Err(CliError::new(
-                        "missing runtime after `--runtime`",
-                        HelpTopic::Emit,
-                    ));
+                    return Err(CliError::new("missing runtime after `--runtime`", help));
                 };
-                runtime = parse_runtime(&value).map_err(|message| {
-                    CliError::new(format!("{message} for `nia emit`"), HelpTopic::Emit)
-                })?;
+                runtime = parse_runtime(&value)
+                    .map_err(|message| CliError::new(format!("{message} for `nia emit`"), help))?;
             }
             _ => remaining.push(arg),
         }
     }
     Ok((runtime, remaining))
+}
+
+fn emit_help_topic(args: &[String]) -> HelpTopic {
+    let mut targets = args.iter().filter_map(|arg| emit_target_flag(arg));
+    let Some(target) = targets.next() else {
+        return HelpTopic::Emit;
+    };
+    if targets.next().is_some() {
+        HelpTopic::Emit
+    } else {
+        target.help_topic()
+    }
 }
 
 fn emit_target_flag(arg: &str) -> Option<ParsedEmitTarget> {
@@ -1157,7 +1207,7 @@ fn emit_target_flag(arg: &str) -> Option<ParsedEmitTarget> {
     }
 }
 
-fn looks_like_removed_emit_target(arg: &str) -> bool {
+fn looks_like_emit_target_name(arg: &str) -> bool {
     matches!(
         arg,
         "tokens" | "ast" | "checked" | "backend" | "llvm" | "obj" | "exe"
@@ -1636,7 +1686,7 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
         Err(message) => {
-            eprintln!("{message}");
+            report_cli_error(&message, HelpTopic::EmitObj);
             return ExitCode::FAILURE;
         }
     };
@@ -1691,7 +1741,7 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, context: EmitContex
     let options = match parse_emit_exe_options(path, args) {
         Ok(options) => options,
         Err(message) => {
-            eprintln!("{message}");
+            report_cli_error(&message, HelpTopic::EmitExe);
             return ExitCode::FAILURE;
         }
     };
@@ -2212,9 +2262,13 @@ mod tests {
     }
 
     #[test]
-    fn build_accepts_directory_entry_without_confusing_named_steps() {
-        let command = parse_build_command(vec![".".to_string()])
-            .unwrap_or_else(|error| panic!("parse build directory: {}", error.message));
+    fn build_requires_explicit_root_without_confusing_named_steps() {
+        let error = parse_build_command(vec![".".to_string()])
+            .expect_err("positional package paths must fail");
+        assert!(error.message.contains("must be passed with `--root`"));
+
+        let command = parse_build_command(vec!["--root".to_string(), ".".to_string()])
+            .unwrap_or_else(|error| panic!("parse build root: {}", error.message));
         assert!(matches!(
             command,
             CliCommand::Build {
