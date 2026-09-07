@@ -1,5 +1,5 @@
 # Nia toolchain resource compatibility identity.
 resource-layout-schema=1
-compiler-version=0.1.0
+compiler-version=0.2.0-dev
 std-schema=1
 build-protocol-schema=1
