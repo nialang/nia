@@ -86,7 +86,7 @@ pub mod formats {
 
     /// Shared namespace for persistent frontend products.
     pub const FRONTEND_CACHE: PersistedNamespace =
-        PersistedNamespace::new("frontend-cache", 4, "v4");
+        PersistedNamespace::new("frontend-cache", 5, "v5");
     /// Source dependency manifest for validating a frontend cache entry.
     pub const FRONTEND_DEPENDENCY_MANIFEST: PersistedFormat =
         PersistedFormat::new("frontend-dependency-manifest", b"NIAFDM02", 2);
@@ -148,16 +148,16 @@ pub mod formats {
         PersistedFormat::new("external-command-entry", b"NIACMD03", 3);
     /// Build-action cache namespace for compiler checks.
     pub const COMPILER_CHECK_CACHE: PersistedNamespace =
-        PersistedNamespace::new("compiler-check-cache", 2, "v2");
+        PersistedNamespace::new("compiler-check-cache", 3, "v3");
     /// Cached compiler-check action result.
     pub const COMPILER_CHECK_ENTRY: PersistedFormat =
-        PersistedFormat::new("compiler-check-entry", b"NIACKC02", 2);
+        PersistedFormat::new("compiler-check-entry", b"NIACKC03", 3);
     /// Build-action cache namespace for compiler emission.
     pub const COMPILER_EMIT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("compiler-emit-cache", 3, "v3");
+        PersistedNamespace::new("compiler-emit-cache", 4, "v4");
     /// Cached compiler-emission action result.
     pub const COMPILER_EMIT_ENTRY: PersistedFormat =
-        PersistedFormat::new("compiler-emit-entry", b"NIAKCE03", 3);
+        PersistedFormat::new("compiler-emit-entry", b"NIAKCE04", 4);
 
     /// Namespace for recoverable output publication transactions.
     pub const OUTPUT_TRANSACTION: PersistedNamespace =

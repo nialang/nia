@@ -22,7 +22,7 @@ use nia_query::{
     QueryKey, QueryResult, QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
-use nia_target_config::prune_module_for_target_with_profile_and_symbols;
+use nia_target_config::prune_module_for_target_with_profile_mode_and_symbols;
 use std::sync::Arc;
 
 const SOURCE_STATUS_DOMAIN: FingerprintDomain =
@@ -57,6 +57,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             symbols: db.context().symbols.clone(),
             target: db.context().target.clone(),
             profile: db.context().profile,
+            compilation_mode: db.context().compilation_mode,
             runtime: runtime_model(db.context().entry_runtime),
             toolchain_identity: db.context().toolchain_identity,
             modules,
@@ -72,6 +73,7 @@ pub(crate) struct LoadedProgramValue {
     pub(crate) symbols: nia_symbol_table::SymbolTable,
     pub(crate) target: nia_target_config::TargetConfig,
     pub(crate) profile: nia_target_config::BuildProfile,
+    pub(crate) compilation_mode: nia_target_config::CompilationMode,
     pub(crate) runtime: RuntimeModel,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) modules: Vec<LoadedModule>,
@@ -86,6 +88,7 @@ impl LoadedProgramValue {
             symbols: self.symbols.clone(),
             target: self.target.clone(),
             profile: self.profile,
+            compilation_mode: self.compilation_mode,
             runtime: self.runtime,
             toolchain_identity: self.toolchain_identity,
             modules: self.modules.clone(),
@@ -292,10 +295,11 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
                 db.context().symbols.clone(),
             );
         let item_tree = ModuleItemTree::from_module(&raw_module);
-        let prune_result = prune_module_for_target_with_profile_and_symbols(
+        let prune_result = prune_module_for_target_with_profile_mode_and_symbols(
             raw_module,
             &db.context().target,
             db.context().profile,
+            db.context().compilation_mode,
             Some(&db.context().symbols),
         );
         Ok(ParsedModuleValue {

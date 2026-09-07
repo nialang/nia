@@ -320,6 +320,10 @@ pub trait LoaderFactProvider: Send + Sync {
     fn profile(&self) -> nia_target_config::BuildProfile {
         nia_target_config::BuildProfile::default()
     }
+    /// Returns whether test-only source is enabled for this compilation.
+    fn compilation_mode(&self) -> nia_target_config::CompilationMode {
+        nia_target_config::CompilationMode::default()
+    }
     /// Returns the runtime model used for this compilation.
     fn runtime(&self) -> RuntimeModel;
     /// Returns the toolchain identity used for cache compatibility.
@@ -341,6 +345,8 @@ pub struct LoadedProgram {
     pub target: TargetConfig,
     /// Build profile used to load the program.
     pub profile: nia_target_config::BuildProfile,
+    /// Compilation mode used to load the program.
+    pub compilation_mode: nia_target_config::CompilationMode,
     /// Runtime model selected for the program.
     pub runtime: RuntimeModel,
     /// Toolchain identity captured with the loaded products.
@@ -500,6 +506,10 @@ impl LoaderFactProvider for LoadedProgram {
 
     fn profile(&self) -> nia_target_config::BuildProfile {
         self.profile
+    }
+
+    fn compilation_mode(&self) -> nia_target_config::CompilationMode {
+        self.compilation_mode
     }
 
     fn runtime(&self) -> RuntimeModel {

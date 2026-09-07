@@ -57,6 +57,8 @@ pub struct CheckRequest {
     pub runtime: Runtime,
     /// Build profile used for conditional source selection.
     pub profile: BuildProfile,
+    /// Whether test-only source participates in compilation.
+    pub compilation_mode: nia_target_config::CompilationMode,
 }
 
 /// Checked program paired with the exact source closure used to produce it.
@@ -1554,6 +1556,7 @@ impl Driver {
             module_map: request.module_map.clone(),
             target: self.config.artifact_target.clone(),
             profile: request.profile,
+            compilation_mode: request.compilation_mode,
             entry_runtime: entry_runtime(request.runtime),
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
@@ -1565,6 +1568,7 @@ impl Driver {
                     .with_sources(self.sources.clone())
                     .with_target(key.target.clone())
                     .with_profile(key.profile)
+                    .with_compilation_mode(key.compilation_mode)
                     .with_entry_runtime(key.entry_runtime)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
@@ -1830,6 +1834,7 @@ struct LoaderKey {
     module_map: ModuleMap,
     target: TargetConfig,
     profile: BuildProfile,
+    compilation_mode: nia_target_config::CompilationMode,
     entry_runtime: EntryRuntime,
 }
 
@@ -1874,6 +1879,7 @@ impl CheckRequest {
             timings: TimingMode::Off,
             runtime: Runtime::Bare,
             profile: BuildProfile::default(),
+            compilation_mode: nia_target_config::CompilationMode::default(),
         }
     }
 
@@ -1910,6 +1916,12 @@ impl CheckRequest {
     /// Selects the build profile used for conditional source selection.
     pub fn with_profile(mut self, profile: BuildProfile) -> Self {
         self.profile = profile;
+        self
+    }
+
+    /// Selects whether test-only source participates in compilation.
+    pub fn with_compilation_mode(mut self, mode: nia_target_config::CompilationMode) -> Self {
+        self.compilation_mode = mode;
         self
     }
 }

@@ -19,7 +19,15 @@ pub enum BuildProfile {
     Debug,
     /// Production profile with release-only source enabled.
     Release,
-    /// Host test profile with test-only source enabled.
+}
+
+/// Whether test-only source participates in the compilation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum CompilationMode {
+    /// Ordinary build, check, run, or emit compilation.
+    #[default]
+    Normal,
+    /// Test compilation with test-only source enabled.
     Test,
 }
 
@@ -107,9 +115,37 @@ pub fn prune_module_for_target_with_profile_and_symbols(
     profile: BuildProfile,
     symbols: Option<&dyn SymbolText>,
 ) -> PruneResult {
+    prune_module_for_target_with_profile_mode_and_symbols(
+        module,
+        config,
+        profile,
+        CompilationMode::Normal,
+        symbols,
+    )
+}
+
+/// Prunes a module using a target, build profile, and compilation mode.
+pub fn prune_module_for_target_with_profile_and_mode(
+    module: Module,
+    config: &TargetConfig,
+    profile: BuildProfile,
+    mode: CompilationMode,
+) -> PruneResult {
+    prune_module_for_target_with_profile_mode_and_symbols(module, config, profile, mode, None)
+}
+
+/// Prunes a module using the complete conditional-compilation context.
+pub fn prune_module_for_target_with_profile_mode_and_symbols(
+    module: Module,
+    config: &TargetConfig,
+    profile: BuildProfile,
+    mode: CompilationMode,
+    symbols: Option<&dyn SymbolText>,
+) -> PruneResult {
     let mut pruner = Pruner {
         config,
         profile,
+        mode,
         symbols,
         diagnostics: Vec::new(),
     };
@@ -152,6 +188,7 @@ pub fn eval_config_bool_with_symbols(
 struct Pruner<'a> {
     config: &'a TargetConfig,
     profile: BuildProfile,
+    mode: CompilationMode,
     symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -582,19 +619,32 @@ impl Pruner<'_> {
 
     fn attributes_active(&mut self, attributes: &[Attribute], owner_span: Span) -> bool {
         let mut selected_profile = None;
+        let mut has_test = false;
         for attribute in attributes {
-            if let AttributeKind::Profile(profile) = attribute.kind {
-                if let Some(previous) = selected_profile
-                    && previous != profile
-                {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TARGET_CONFIG,
-                        attribute.span,
-                        "an item cannot use more than one build profile",
-                    ));
-                    return false;
+            match attribute.kind {
+                AttributeKind::Profile(profile) => {
+                    if selected_profile.is_some() {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TARGET_CONFIG,
+                            attribute.span,
+                            "an item cannot use more than one build profile",
+                        ));
+                        return false;
+                    }
+                    selected_profile = Some(profile);
                 }
-                selected_profile = Some(profile);
+                AttributeKind::Test => {
+                    if has_test {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            codes::TARGET_CONFIG,
+                            attribute.span,
+                            "an item cannot use `@[test]` more than once",
+                        ));
+                        return false;
+                    }
+                    has_test = true;
+                }
+                AttributeKind::If(_) | AttributeKind::Meta(_) => {}
             }
         }
         for attribute in attributes {
@@ -616,6 +666,11 @@ impl Pruner<'_> {
                 }
                 AttributeKind::Profile(profile) => {
                     if !profile_matches(*profile, self.profile) {
+                        return false;
+                    }
+                }
+                AttributeKind::Test => {
+                    if self.mode != CompilationMode::Test {
                         return false;
                     }
                 }
@@ -749,6 +804,10 @@ impl ConditionResolver for Pruner<'_> {
     fn resolve_profile(&mut self, profile: nia_ast::ProfileKind) -> Result<bool, ItemTreeError> {
         Ok(profile_matches(profile, self.profile))
     }
+
+    fn resolve_test(&mut self) -> Result<bool, ItemTreeError> {
+        Ok(self.mode == CompilationMode::Test)
+    }
 }
 
 fn profile_matches(attribute: nia_ast::ProfileKind, profile: BuildProfile) -> bool {
@@ -756,7 +815,6 @@ fn profile_matches(attribute: nia_ast::ProfileKind, profile: BuildProfile) -> bo
         (attribute, profile),
         (nia_ast::ProfileKind::Debug, BuildProfile::Debug)
             | (nia_ast::ProfileKind::Release, BuildProfile::Release)
-            | (nia_ast::ProfileKind::Test, BuildProfile::Test)
     )
 }
 
@@ -930,7 +988,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn profile_pruning_selects_only_the_active_profile() {
+    fn profile_and_test_pruning_are_independent() {
         let (module, errors) = nia_parser::parse_module(
             r#"
 @[debug]
@@ -939,29 +997,82 @@ fn debugOnly() () {}
 fn releaseOnly() () {}
 @[test]
 fn testOnly() () {}
+@[debug]
+@[test]
+fn debugTestOnly() () {}
+@[release]
+@[test]
+fn releaseTestOnly() () {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        for (profile, expected) in [
-            (BuildProfile::Debug, "debugOnly"),
-            (BuildProfile::Release, "releaseOnly"),
-            (BuildProfile::Test, "testOnly"),
+        for (profile, mode, expected) in [
+            (
+                BuildProfile::Debug,
+                CompilationMode::Normal,
+                &["debugOnly"][..],
+            ),
+            (
+                BuildProfile::Release,
+                CompilationMode::Normal,
+                &["releaseOnly"][..],
+            ),
+            (
+                BuildProfile::Debug,
+                CompilationMode::Test,
+                &["debugOnly", "testOnly", "debugTestOnly"][..],
+            ),
+            (
+                BuildProfile::Release,
+                CompilationMode::Test,
+                &["releaseOnly", "testOnly", "releaseTestOnly"][..],
+            ),
         ] {
-            let active = prune_module_for_target_with_profile(
+            let active = prune_module_for_target_with_profile_and_mode(
                 module.clone(),
                 &TargetConfig::host(),
                 profile,
+                mode,
             )
             .active_item_tree
             .to_module();
-            assert_eq!(active.items.len(), 1);
-            let ItemKind::Function(function) = &active.items[0].kind else {
-                panic!("expected function");
-            };
             assert_eq!(
-                function.name,
-                nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(expected))
+                active
+                    .items
+                    .iter()
+                    .map(|item| match &item.kind {
+                        ItemKind::Function(function) => function.name,
+                        _ => panic!("expected function"),
+                    })
+                    .collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .map(
+                        |name| nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(
+                            name
+                        ))
+                    )
+                    .collect::<Vec<_>>()
             );
+        }
+    }
+
+    #[test]
+    fn duplicate_profile_and_test_attributes_are_rejected() {
+        for source in [
+            "@[debug]\n@[debug]\nfn duplicate() () {}",
+            "@[debug]\n@[release]\nfn conflicting() () {}",
+            "@[test]\n@[test]\nfn duplicate() () {}",
+        ] {
+            let (module, errors) = nia_parser::parse_module(source);
+            assert!(errors.is_empty(), "{errors:?}");
+            let pruned = prune_module_for_target_with_profile_and_mode(
+                module,
+                &TargetConfig::host(),
+                BuildProfile::Debug,
+                CompilationMode::Test,
+            );
+            assert_eq!(pruned.diagnostics.len(), 1, "{source}");
         }
     }
 

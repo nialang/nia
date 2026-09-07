@@ -276,7 +276,7 @@ fn testOnly() () {}
     ));
     assert!(matches!(
         module.items[2].attributes[0].kind,
-        AttributeKind::Profile(ProfileKind::Test)
+        AttributeKind::Test
     ));
 }
 

@@ -264,7 +264,7 @@ cargo test
 ```
 
 Compiler and CLI integration tests share an automatic resource budget and
-remove their scoped scratch trees when each test ends. The test profile uses
+remove their scoped scratch trees when each test ends. The test suite uses
 light optimization because these tests execute the compiler as the program
 under test; line-table debug information keeps artifacts inspectable without
 the full-debug target growth. Environment variables used by the project are cataloged in

@@ -26,12 +26,12 @@ use super::{
     ActionCacheInvalidation, ActionCacheMissReason, BoundedCacheEntry, CACHE_STAGE_SEQUENCE,
     MAX_COMPILER_CACHE_ENTRY_BYTES,
     compiler_check::{
-        COMPILER_CHECK_MODULE_DOMAIN, COMPILER_CHECK_OPTIMIZATION_DOMAIN,
-        COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, COMPILER_CHECK_RUNTIME_DOMAIN,
-        COMPILER_CHECK_TARGET_DOMAIN, CompilerCheckCacheIdentity, CompilerCheckCacheIdentityInput,
-        FingerprintComponents, SourceRecord, action_fingerprint, bytes_fingerprint,
-        integer_fingerprint, invalidations as compiler_invalidations, read_tag,
-        source_records_fingerprint,
+        COMPILER_CHECK_COMPILATION_MODE_DOMAIN, COMPILER_CHECK_MODULE_DOMAIN,
+        COMPILER_CHECK_OPTIMIZATION_DOMAIN, COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN,
+        COMPILER_CHECK_PROFILE_DOMAIN, COMPILER_CHECK_RUNTIME_DOMAIN, COMPILER_CHECK_TARGET_DOMAIN,
+        CompilerCheckCacheIdentity, CompilerCheckCacheIdentityInput, FingerprintComponents,
+        SourceRecord, action_fingerprint, bytes_fingerprint, integer_fingerprint,
+        invalidations as compiler_invalidations, read_tag, source_records_fingerprint,
     },
     fingerprint_text, logical_path_identity, read_bounded_compiler_cache_entry, read_bytes,
     read_fingerprint, read_u64, validate_compiler_cache_entry_size, write_bytes, write_fingerprint,
@@ -77,6 +77,8 @@ pub(crate) struct CompilerEmitCacheIdentity {
     module: Vec<u8>,
     package_roots: Vec<u8>,
     target: Vec<u8>,
+    profile: u8,
+    compilation_mode: u8,
     optimization: u8,
     runtime: u8,
     sources: Vec<SourceRecord>,
@@ -150,6 +152,7 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) packages: &'a [PlanPackage],
     pub(crate) target: &'a TargetSpec,
     pub(crate) profile: BuildProfile,
+    pub(crate) compilation_mode: nia_target_config::CompilationMode,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
@@ -164,6 +167,7 @@ impl CompilerEmitCacheIdentity {
             packages: input.packages,
             target: input.target,
             profile: input.profile,
+            compilation_mode: input.compilation_mode,
             runtime: crate::Runtime::Freestanding,
             manifest: input.manifest,
             toolchain: input.toolchain,
@@ -193,6 +197,8 @@ impl CompilerEmitCacheIdentity {
             module: compiler.module,
             package_roots: compiler.package_roots,
             target: compiler.target,
+            profile: compiler.profile,
+            compilation_mode: compiler.compilation_mode,
             optimization: compiler.optimization,
             runtime: compiler.runtime,
             sources: compiler.sources,
@@ -499,6 +505,8 @@ struct DecodedEntry {
     module: Vec<u8>,
     package_roots: Vec<u8>,
     target: Vec<u8>,
+    profile: u8,
+    compilation_mode: u8,
     optimization: u8,
     runtime: u8,
     sources: Vec<SourceRecord>,
@@ -520,6 +528,8 @@ fn encode_entry(
     write_bytes(&mut encoded, &identity.module);
     write_bytes(&mut encoded, &identity.package_roots);
     write_bytes(&mut encoded, &identity.target);
+    encoded.push(identity.profile);
+    encoded.push(identity.compilation_mode);
     encoded.push(identity.optimization);
     encoded.push(identity.runtime);
     encoded.extend_from_slice(&(identity.sources.len() as u64).to_le_bytes());
@@ -551,6 +561,8 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
     let module = read_bytes(&mut cursor, encoded.len())?;
     let package_roots = read_bytes(&mut cursor, encoded.len())?;
     let target = read_bytes(&mut cursor, encoded.len())?;
+    let profile = read_tag(&mut cursor, 2)?;
+    let compilation_mode = read_tag(&mut cursor, 2)?;
     let optimization = read_tag(&mut cursor, 6)?;
     let runtime = read_tag(&mut cursor, 2)?;
     let source_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
@@ -588,6 +600,11 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
         module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, &module),
         package_roots: bytes_fingerprint(COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, &package_roots),
         target: bytes_fingerprint(COMPILER_CHECK_TARGET_DOMAIN, &target),
+        profile: integer_fingerprint(COMPILER_CHECK_PROFILE_DOMAIN, u64::from(profile)),
+        compilation_mode: integer_fingerprint(
+            COMPILER_CHECK_COMPILATION_MODE_DOMAIN,
+            u64::from(compilation_mode),
+        ),
         optimization: integer_fingerprint(
             COMPILER_CHECK_OPTIMIZATION_DOMAIN,
             u64::from(optimization),
@@ -617,6 +634,8 @@ fn decode_entry(encoded: &[u8]) -> Option<DecodedEntry> {
             module,
             package_roots,
             target,
+            profile,
+            compilation_mode,
             optimization,
             runtime,
             sources,
@@ -636,6 +655,8 @@ fn write_fingerprint_set(encoded: &mut Vec<u8>, fingerprints: EmitFingerprintSet
         fingerprints.components.compiler.module,
         fingerprints.components.compiler.package_roots,
         fingerprints.components.compiler.target,
+        fingerprints.components.compiler.profile,
+        fingerprints.components.compiler.compilation_mode,
         fingerprints.components.compiler.optimization,
         fingerprints.components.compiler.runtime,
         fingerprints.components.compiler.compiler,
@@ -661,6 +682,8 @@ fn read_fingerprint_set(cursor: &mut Cursor<&[u8]>) -> Option<EmitFingerprintSet
                 module: read_fingerprint(cursor)?,
                 package_roots: read_fingerprint(cursor)?,
                 target: read_fingerprint(cursor)?,
+                profile: read_fingerprint(cursor)?,
+                compilation_mode: read_fingerprint(cursor)?,
                 optimization: read_fingerprint(cursor)?,
                 runtime: read_fingerprint(cursor)?,
                 compiler: read_fingerprint(cursor)?,
@@ -682,6 +705,8 @@ fn entry_matches(entry: &DecodedEntry, identity: &CompilerEmitCacheIdentity) -> 
         && entry.module == identity.module
         && entry.package_roots == identity.package_roots
         && entry.target == identity.target
+        && entry.profile == identity.profile
+        && entry.compilation_mode == identity.compilation_mode
         && entry.optimization == identity.optimization
         && entry.runtime == identity.runtime
         && entry.sources == identity.sources
@@ -853,6 +878,8 @@ mod tests {
             module: bytes_fingerprint(COMPILER_CHECK_MODULE_DOMAIN, &module),
             package_roots: bytes_fingerprint(COMPILER_CHECK_PACKAGE_ROOTS_DOMAIN, &[]),
             target: bytes_fingerprint(COMPILER_CHECK_TARGET_DOMAIN, &target),
+            profile: integer_fingerprint(COMPILER_CHECK_PROFILE_DOMAIN, 0),
+            compilation_mode: integer_fingerprint(COMPILER_CHECK_COMPILATION_MODE_DOMAIN, 0),
             optimization: integer_fingerprint(
                 COMPILER_CHECK_OPTIMIZATION_DOMAIN,
                 u64::from(optimization),
@@ -891,6 +918,8 @@ mod tests {
             module,
             package_roots: Vec::new(),
             target,
+            profile: 0,
+            compilation_mode: 0,
             optimization,
             runtime,
             sources,
@@ -966,6 +995,26 @@ mod tests {
                     ..baseline
                 },
                 ActionCacheInvalidation::PackageRoots,
+            ),
+            (
+                EmitFingerprintComponents {
+                    compiler: FingerprintComponents {
+                        profile: fingerprint(20),
+                        ..baseline.compiler
+                    },
+                    ..baseline
+                },
+                ActionCacheInvalidation::Profile,
+            ),
+            (
+                EmitFingerprintComponents {
+                    compiler: FingerprintComponents {
+                        compilation_mode: fingerprint(20),
+                        ..baseline.compiler
+                    },
+                    ..baseline
+                },
+                ActionCacheInvalidation::CompilationMode,
             ),
             (
                 EmitFingerprintComponents {

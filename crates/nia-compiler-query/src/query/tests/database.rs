@@ -137,6 +137,7 @@ fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProg
         symbols: facts.symbols(),
         target: facts.target(),
         profile: facts.profile(),
+        compilation_mode: facts.compilation_mode(),
         runtime: facts.runtime(),
         toolchain_identity: facts.toolchain_identity(),
         modules,

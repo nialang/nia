@@ -992,10 +992,10 @@ fn write_attributes_identity(out: &mut String, attributes: &[Attribute]) {
             out.push_str(match profile {
                 ProfileKind::Debug => "debug",
                 ProfileKind::Release => "release",
-                ProfileKind::Test => "test",
             });
             out.push(')');
         }
+        AttributeKind::Test => out.push_str("test"),
         AttributeKind::Meta(meta) => {
             out.push_str("meta(");
             write_joined(out, &meta.path, |out, symbol| {

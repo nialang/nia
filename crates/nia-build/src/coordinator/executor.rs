@@ -413,6 +413,7 @@ impl DriverActionExecutor {
             packages: self.plan.packages(),
             target,
             profile: self.invocation.profile,
+            compilation_mode: self.invocation.compilation_mode,
             runtime,
             manifest: &precheck_manifest,
             toolchain: self.invocation.toolchain.identity(),
@@ -446,6 +447,7 @@ impl DriverActionExecutor {
                 packages: self.plan.packages(),
                 target,
                 profile: self.invocation.profile,
+                compilation_mode: self.invocation.compilation_mode,
                 runtime,
                 manifest: &checked.source_manifest,
                 toolchain: self.invocation.toolchain.identity(),
@@ -579,6 +581,7 @@ impl DriverActionExecutor {
                 packages: self.plan.packages(),
                 target,
                 profile: self.invocation.profile,
+                compilation_mode: self.invocation.compilation_mode,
                 manifest: &precheck_manifest,
                 toolchain: self.invocation.toolchain.identity(),
                 link_environment: environment,
@@ -644,6 +647,7 @@ impl DriverActionExecutor {
             packages: self.plan.packages(),
             target,
             profile: self.invocation.profile,
+            compilation_mode: self.invocation.compilation_mode,
             manifest: &linked.source_manifest,
             toolchain: self.invocation.toolchain.identity(),
             link_environment,
@@ -904,6 +908,7 @@ impl DriverActionExecutor {
             .with_module_map(module_map)
             .with_optimization(optimization(module.optimization))
             .with_profile(self.invocation.profile)
+            .with_compilation_mode(self.invocation.compilation_mode)
             .with_timings(self.invocation.timings)
             .with_runtime(runtime_mode(runtime)))
     }

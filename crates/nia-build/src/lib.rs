@@ -27,7 +27,7 @@ use nia_driver::{
 };
 use nia_imports::ModuleMap;
 use nia_source::SourcePath;
-use nia_target_config::BuildProfile;
+use nia_target_config::{BuildProfile, CompilationMode};
 use nia_timing::{TimingFormat, TimingOptions};
 
 const RUNNER_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
@@ -207,8 +207,10 @@ pub struct BuildInvocation {
     pub max_parallel_actions: Option<NonZeroUsize>,
     /// Optimization mode inherited from the request.
     pub optimization: OptimizationMode,
-    /// Profile inherited from the request.
+    /// Build profile inherited from the request.
     pub profile: BuildProfile,
+    /// Conditional-compilation mode inherited from the selected workflow.
+    pub compilation_mode: CompilationMode,
 }
 
 /// How the coordinator selects a step from a frozen build plan.
@@ -643,6 +645,16 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
                                     "build.action_cache_invalidation_target",
                                     1,
                                 ),
+                                ActionCacheInvalidation::Profile => nia_timing::emit_counter(
+                                    "build.action_cache_invalidation_profile",
+                                    1,
+                                ),
+                                ActionCacheInvalidation::CompilationMode => {
+                                    nia_timing::emit_counter(
+                                        "build.action_cache_invalidation_compilation_mode",
+                                        1,
+                                    )
+                                }
                                 ActionCacheInvalidation::Optimization => nia_timing::emit_counter(
                                     "build.action_cache_invalidation_optimization",
                                     1,
@@ -708,6 +720,11 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
     let build_dir = package_root.join(".nia-build");
     let runner_dir = build_dir.join("runner");
     let transient_name = next_build_invocation_name();
+    let compilation_mode = if request.test_mode {
+        CompilationMode::Test
+    } else {
+        CompilationMode::Normal
+    };
     Ok(BuildInvocation {
         toolchain: request.toolchain,
         cache_dir: package_root.join(".nia-cache"),
@@ -735,6 +752,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         max_parallel_actions: request.max_parallel_actions,
         optimization: request.optimization,
         profile: request.profile,
+        compilation_mode,
     })
 }
 
@@ -1268,6 +1286,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         CheckRequest::new(runner.path.clone())
             .with_module_map(build_runner_module_map(invocation))
             .with_profile(invocation.profile)
+            .with_compilation_mode(invocation.compilation_mode)
             .with_timings(invocation.timings),
         &invocation.runner_executable,
     ));
@@ -1885,6 +1904,26 @@ mod tests {
         .expect("build invocation");
 
         assert_eq!(invocation.max_parallel_actions, Some(limit));
+    }
+
+    #[test]
+    fn test_selection_is_independent_of_the_build_profile() {
+        let root = temp_root("test_selection_is_independent_of_the_build_profile");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+
+        for profile in [BuildProfile::Debug, BuildProfile::Release] {
+            let invocation = resolve_build_invocation(
+                BuildRequest::new(test_toolchain_layout())
+                    .with_root(&root)
+                    .with_profile(profile)
+                    .with_test_mode(true),
+            )
+            .expect("test invocation");
+
+            assert_eq!(invocation.profile, profile);
+            assert_eq!(invocation.compilation_mode, CompilationMode::Test);
+            assert_eq!(invocation.step, BuildStepSelection::Tests);
+        }
     }
 
     #[test]

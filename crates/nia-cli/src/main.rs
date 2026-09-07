@@ -139,6 +139,7 @@ enum EmitTarget {
     Exe { args: Vec<String> },
 }
 
+#[derive(Debug)]
 enum CliAction {
     Help(HelpTopic),
     Version,
@@ -161,6 +162,7 @@ enum HelpTopic {
     EmitExe,
 }
 
+#[derive(Debug)]
 struct CliError {
     message: String,
     help: HelpTopic,
@@ -218,11 +220,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             fail_fast,
             jobs,
             optimization: cli.optimization,
-            profile: if cli.profile == BuildProfile::Debug {
-                BuildProfile::Test
-            } else {
-                cli.profile
-            },
+            profile: cli.profile,
             timings: cli.timings,
             timing_format,
             toolchain,
@@ -419,12 +417,15 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             _ => {}
         }
     }
+    let optimization = global_options
+        .optimization
+        .unwrap_or_else(|| default_profile_optimization(global_options.profile));
     match parse_command(remaining)? {
         ParsedCommand::Help(topic) => Ok(CliAction::Help(topic)),
         ParsedCommand::Run(command) => Ok(CliAction::Run(Cli {
             resource_root: global_options.resource_root,
             module_map: global_options.module_map,
-            optimization: global_options.optimization,
+            optimization,
             profile: global_options.profile,
             timings: global_options.timings,
             timing_trace: global_options.timing_trace,
@@ -437,7 +438,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
 struct GlobalOptions {
     resource_root: Option<PathBuf>,
     module_map: ModuleMap,
-    optimization: NiaOptimizationLevel,
+    optimization: Option<NiaOptimizationLevel>,
     profile: BuildProfile,
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
@@ -450,7 +451,7 @@ fn extract_global_options(
 ) -> Result<(Vec<String>, GlobalOptions), CliError> {
     let mut map = ModuleMap::new();
     let mut resource_root = None;
-    let mut optimization = NiaOptimizationLevel::default();
+    let mut optimization = None;
     let mut profile = BuildProfile::default();
     let mut timings = nia_driver::TimingMode::Off;
     let mut timing_trace = TimingTrace::Off;
@@ -505,14 +506,14 @@ fn extract_global_options(
             continue;
         }
         if let Some(level) = parse_optimization_flag(&arg) {
-            optimization = level.map_err(|message| CliError::new(message, help))?;
+            optimization = Some(level.map_err(|message| CliError::new(message, help))?);
             continue;
         }
-        if matches!(arg.as_str(), "--debug" | "--release" | "--test") {
-            profile = match arg.as_str() {
-                "--debug" => BuildProfile::Debug,
-                "--release" => BuildProfile::Release,
-                _ => BuildProfile::Test,
+        if matches!(arg.as_str(), "--debug" | "--release") {
+            profile = if arg == "--debug" {
+                BuildProfile::Debug
+            } else {
+                BuildProfile::Release
             };
             continue;
         }
@@ -627,10 +628,16 @@ fn parse_profile(value: &str) -> Result<BuildProfile, String> {
     match value {
         "debug" => Ok(BuildProfile::Debug),
         "release" => Ok(BuildProfile::Release),
-        "test" => Ok(BuildProfile::Test),
         _ => Err(format!(
-            "unknown profile `{value}`; expected debug, release, or test"
+            "unknown profile `{value}`; expected debug or release"
         )),
+    }
+}
+
+fn default_profile_optimization(profile: BuildProfile) -> NiaOptimizationLevel {
+    match profile {
+        BuildProfile::Debug => NiaOptimizationLevel::O0,
+        BuildProfile::Release => NiaOptimizationLevel::O2,
     }
 }
 
@@ -2077,6 +2084,57 @@ fn print_optimization_report_to_stderr(program: &nia_driver::CodegenProgram) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_defaults_and_release_optimization_are_workflow_based() {
+        let CliAction::Run(debug) = parse_cli(vec!["build".into()]).expect("parse debug build")
+        else {
+            panic!("expected build command");
+        };
+        assert_eq!(debug.optimization, NiaOptimizationLevel::O0);
+        assert_eq!(debug.profile, BuildProfile::Debug);
+
+        let CliAction::Run(release) =
+            parse_cli(vec!["--release".into(), "build".into()]).expect("parse release build")
+        else {
+            panic!("expected build command");
+        };
+        assert_eq!(release.optimization, NiaOptimizationLevel::O2);
+        assert_eq!(release.profile, BuildProfile::Release);
+
+        let CliAction::Run(test) = parse_cli(vec!["test".into()]).expect("parse test workflow")
+        else {
+            panic!("expected test command");
+        };
+        assert_eq!(test.optimization, NiaOptimizationLevel::O0);
+        assert_eq!(test.profile, BuildProfile::Debug);
+
+        let CliAction::Run(test_release) = parse_cli(vec!["test".into(), "--release".into()])
+            .expect("parse release test workflow")
+        else {
+            panic!("expected test command");
+        };
+        assert_eq!(test_release.optimization, NiaOptimizationLevel::O2);
+        assert_eq!(test_release.profile, BuildProfile::Release);
+    }
+
+    #[test]
+    fn explicit_optimization_overrides_profile_default() {
+        let CliAction::Run(cli) = parse_cli(vec!["--release".into(), "-O0".into(), "build".into()])
+            .expect("parse release build with explicit optimization")
+        else {
+            panic!("expected build command");
+        };
+        assert_eq!(cli.profile, BuildProfile::Release);
+        assert_eq!(cli.optimization, NiaOptimizationLevel::O0);
+    }
+
+    #[test]
+    fn test_is_a_command_workflow_not_a_profile_name() {
+        let error = parse_cli(vec!["--profile".into(), "test".into(), "build".into()])
+            .expect_err("test must not be a build profile");
+        assert!(error.message.contains("expected debug or release"));
+    }
 
     #[test]
     fn module_map_directory_resolves_package_root() {
