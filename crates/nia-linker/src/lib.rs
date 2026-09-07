@@ -24,7 +24,7 @@ use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target_config::TargetConfig;
 
 const LINK_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-components.v2");
+    FingerprintDomain::new("nia.link-result-components.v1");
 const ARCHIVE_RESULT_FINGERPRINT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.archive-result-components.v1");
 const ARCHIVE_TOOLCHAIN_DOMAIN: FingerprintDomain =
@@ -39,17 +39,17 @@ const ARCHIVE_INPUTS_DOMAIN: FingerprintDomain =
 const STATIC_ARCHIVE_LINK_INPUT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.static-archive-link-input.v1");
 const LINK_RESULT_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-cache-key.v2");
+    FingerprintDomain::new("nia.link-result-cache-key.v1");
 const LINK_RESULT_INPUTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-inputs.v2");
+    FingerprintDomain::new("nia.link-result-inputs.v1");
 const LINK_RESULT_TOOLCHAIN_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.link-result-toolchain.v1");
 const LINK_RESULT_TARGET_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-target.v2");
+    FingerprintDomain::new("nia.link-result-target.v1");
 const LINK_RESULT_LINKER_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-linker.v2");
+    FingerprintDomain::new("nia.link-result-linker.v1");
 const LINK_RESULT_OPTIONS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-options.v2");
+    FingerprintDomain::new("nia.link-result-options.v1");
 const MAX_LD_SO_CONF_FILE_BYTES: usize = 1024 * 1024;
 const MAX_LD_SO_CONF_TOTAL_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LD_SO_CONF_FILES: usize = 1024;

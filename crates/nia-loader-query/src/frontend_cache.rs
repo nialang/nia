@@ -1926,7 +1926,9 @@ mod tests {
         let plan_key = FrontendProviderDemandPlanCacheKey::from_parts([3, 4]);
         let provider_path = cache.provider_summary_path(provider_key);
         let plan_path = cache.provider_demand_plan_path(plan_key);
-        let expected_root = root.join("artifacts/frontend/v5");
+        let expected_root = root
+            .join("artifacts/frontend")
+            .join(FRONTEND_CACHE.path_component);
         assert_eq!(
             provider_path.parent().and_then(Path::parent),
             Some(expected_root.as_path())

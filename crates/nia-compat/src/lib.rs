@@ -14,7 +14,7 @@ pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Versions for generated ABI identities that survive crate boundaries.
 pub mod abi {
     /// Symbol mangling ABI version.
-    pub const MANGLE: u64 = 3;
+    pub const MANGLE: u64 = 1;
     /// LLVM code-generation ABI version.
     pub const LLVM_CODEGEN: u64 = 1;
 }
@@ -26,7 +26,7 @@ pub mod toolchain {
     /// Standard-library source compatibility version.
     pub const STANDARD_LIBRARY: u32 = 1;
     /// Build plan protocol shared with compiled build runners.
-    pub const BUILD_PROTOCOL: u32 = 11;
+    pub const BUILD_PROTOCOL: u32 = 1;
 }
 
 /// Binary payload identity consisting of a diagnostic name, magic, and schema.
@@ -86,47 +86,44 @@ pub mod formats {
 
     /// Shared namespace for persistent frontend products.
     pub const FRONTEND_CACHE: PersistedNamespace =
-        PersistedNamespace::new("frontend-cache", 5, "v5");
+        PersistedNamespace::new("frontend-cache", 1, "v1");
     /// Source dependency manifest for validating a frontend cache entry.
     pub const FRONTEND_DEPENDENCY_MANIFEST: PersistedFormat =
-        PersistedFormat::new("frontend-dependency-manifest", b"NIAFDM02", 2);
+        PersistedFormat::new("frontend-dependency-manifest", b"NIAFDM01", 1);
     /// Persisted facade and reexport facts for one module.
     pub const FRONTEND_FACADE_FACTS: PersistedFormat =
-        PersistedFormat::new("frontend-facade-facts", b"NIAFFF02", 2);
+        PersistedFormat::new("frontend-facade-facts", b"NIAFFF01", 1);
     /// Persisted module dependency edges.
     pub const FRONTEND_MODULE_DEPENDENCIES: PersistedFormat =
-        PersistedFormat::new("frontend-module-dependencies", b"NIAFMD03", 3);
+        PersistedFormat::new("frontend-module-dependencies", b"NIAFMD01", 1);
     /// Persisted provider candidate summary.
     pub const FRONTEND_PROVIDER_SUMMARY: PersistedFormat =
-        PersistedFormat::new("frontend-provider-summary", b"NIAFPS03", 3);
+        PersistedFormat::new("frontend-provider-summary", b"NIAFPS01", 1);
     /// Persisted fixed-point provider demand plan.
     pub const FRONTEND_PROVIDER_DEMAND_PLAN: PersistedFormat =
-        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD03", 3);
+        PersistedFormat::new("frontend-provider-demand-plan", b"NIAFPD01", 1);
     /// Persisted module public-surface facts.
     pub const FRONTEND_PUBLIC_SURFACE_FACTS: PersistedFormat =
         PersistedFormat::new("frontend-public-surface-facts", b"NIAFPF01", 1);
 
     /// Persisted type-name resolution for signatures.
     pub const SIGNATURE_TYPE_RESOLUTION: PersistedFormat =
-        PersistedFormat::new("signature-type-resolution", b"NIASR003", 3);
+        PersistedFormat::new("signature-type-resolution", b"NIASR001", 1);
     /// Persisted lowered signature types.
     pub const SIGNATURE_TYPE_LOWERING: PersistedFormat =
-        PersistedFormat::new("signature-type-lowering", b"NIASL003", 3);
-    // Schema 10 records associated-type bindings on supertrait declarations.
-    // Older payloads cannot be decoded positionally because the supertrait
-    // span bytes would otherwise be mistaken for the new binding vector.
+        PersistedFormat::new("signature-type-lowering", b"NIASL001", 1);
     /// Persisted item signature collection.
     pub const SIGNATURE_ITEM_SIGNATURES: PersistedFormat =
-        PersistedFormat::new("signature-item-signatures", b"NIASI010", 10);
+        PersistedFormat::new("signature-item-signatures", b"NIASI001", 1);
     /// Persisted extension-validation diagnostic set.
     pub const EXTENSION_VALIDATION_DIAGNOSTICS: PersistedFormat =
-        PersistedFormat::new("extension-validation-diagnostics", b"NIAEV002", 2);
+        PersistedFormat::new("extension-validation-diagnostics", b"NIAEV001", 1);
     /// Persisted executable value-reference reachability edges.
     pub const EXECUTABLE_VALUE_REF_EDGES: PersistedFormat =
         PersistedFormat::new("executable-value-ref-edges", b"NIAER001", 1);
     /// Certificate proving that cached frontend checks covered their inputs.
     pub const CHECK_CERTIFICATE: PersistedFormat =
-        PersistedFormat::new("check-certificate", b"NIACC002", 2);
+        PersistedFormat::new("check-certificate", b"NIACC001", 1);
     /// Path-independent stable diagnostic bundle for one module.
     pub const STABLE_DIAGNOSTIC_BUNDLE: PersistedFormat =
         PersistedFormat::new("stable-diagnostic-bundle", b"NIADB001", 1);
@@ -142,44 +139,44 @@ pub mod formats {
         PersistedFormat::new("generated-file-entry", b"NIAGEN01", 1);
     /// Build-action cache namespace for external commands.
     pub const EXTERNAL_COMMAND_CACHE: PersistedNamespace =
-        PersistedNamespace::new("external-command-cache", 3, "v3");
+        PersistedNamespace::new("external-command-cache", 1, "v1");
     /// Cached external-command action result.
     pub const EXTERNAL_COMMAND_ENTRY: PersistedFormat =
-        PersistedFormat::new("external-command-entry", b"NIACMD03", 3);
+        PersistedFormat::new("external-command-entry", b"NIACMD01", 1);
     /// Build-action cache namespace for compiler checks.
     pub const COMPILER_CHECK_CACHE: PersistedNamespace =
-        PersistedNamespace::new("compiler-check-cache", 3, "v3");
+        PersistedNamespace::new("compiler-check-cache", 1, "v1");
     /// Cached compiler-check action result.
     pub const COMPILER_CHECK_ENTRY: PersistedFormat =
-        PersistedFormat::new("compiler-check-entry", b"NIACKC03", 3);
+        PersistedFormat::new("compiler-check-entry", b"NIACKC01", 1);
     /// Build-action cache namespace for compiler emission.
     pub const COMPILER_EMIT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("compiler-emit-cache", 4, "v4");
+        PersistedNamespace::new("compiler-emit-cache", 1, "v1");
     /// Cached compiler-emission action result.
     pub const COMPILER_EMIT_ENTRY: PersistedFormat =
-        PersistedFormat::new("compiler-emit-entry", b"NIAKCE04", 4);
+        PersistedFormat::new("compiler-emit-entry", b"NIAKCE01", 1);
 
     /// Namespace for recoverable output publication transactions.
     pub const OUTPUT_TRANSACTION: PersistedNamespace =
-        PersistedNamespace::new("output-transaction", 2, "v2");
+        PersistedNamespace::new("output-transaction", 1, "v1");
     /// Journal recording output transaction state and recovery intent.
     pub const OUTPUT_TRANSACTION_JOURNAL: PersistedFormat =
-        PersistedFormat::new("output-transaction-journal", b"NIATXN02", 2);
+        PersistedFormat::new("output-transaction-journal", b"NIATXN01", 1);
     /// Metadata for one prepared output awaiting publication.
     pub const OUTPUT_TRANSACTION_PREPARED: PersistedFormat =
         PersistedFormat::new("output-transaction-prepared", b"NIAPRP01", 1);
 
     /// Driver namespace for incremental object work products.
     pub const OBJECT_WORK_PRODUCT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("object-work-product-cache", 2, "v2");
+        PersistedNamespace::new("object-work-product-cache", 1, "v1");
     /// Persisted object work product and validation metadata.
     pub const OBJECT_WORK_PRODUCT: PersistedFormat =
-        PersistedFormat::new("object-work-product", b"NIAOBJ02", 2);
+        PersistedFormat::new("object-work-product", b"NIAOBJ01", 1);
     /// Driver namespace for executable link results.
     pub const LINK_RESULT_CACHE: PersistedNamespace =
-        PersistedNamespace::new("link-result-cache", 3, "v3");
+        PersistedNamespace::new("link-result-cache", 1, "v1");
     /// Persisted executable link result and component fingerprints.
-    pub const LINK_RESULT: PersistedFormat = PersistedFormat::new("link-result", b"NIALNK03", 3);
+    pub const LINK_RESULT: PersistedFormat = PersistedFormat::new("link-result", b"NIALNK01", 1);
     /// Driver namespace for static archive results.
     pub const ARCHIVE_RESULT_CACHE: PersistedNamespace =
         PersistedNamespace::new("archive-result-cache", 1, "v1");

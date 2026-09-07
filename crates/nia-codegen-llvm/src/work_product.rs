@@ -5,7 +5,7 @@ use nia_backend_ir::{CodegenUnitFingerprint, CodegenUnitKey};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 const FINGERPRINT_SET_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.llvm.codegen-unit-components.v2");
+    FingerprintDomain::new("nia.llvm.codegen-unit-components.v1");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Independently attributable inputs to one object work-product fingerprint.
