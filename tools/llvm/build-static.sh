@@ -14,9 +14,6 @@ llvm_install_root="${LLVM_INSTALL_ROOT:-${repo_root}/target/llvm-static/install}
 llvm_targets="${LLVM_TARGETS_TO_BUILD:-X86}"
 detected_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
 default_jobs="${detected_jobs}"
-if (( default_jobs > 8 )); then
-    default_jobs=8
-fi
 llvm_jobs="${LLVM_BUILD_JOBS:-${default_jobs}}"
 
 if [[ ! -f "${llvm_source_root}/llvm/CMakeLists.txt" ]]; then
