@@ -1,21 +1,20 @@
 # Nia
 
-**A tiny language that can actually work.**
+Nia is a small systems programming language with an LLVM-backed compiler and a
+compact standard library. The language is statically typed, expression-oriented,
+and explicit about data representation, resource ownership, modules, and
+runtime entry points.
 
-Nia is a small systems programming language and `nia` is its compiler. It is
-pre-1.0 and under active design, with an implementation that favors clear
-semantics, predictable compilation phases, and a compact language surface.
+The repository contains the compiler, standard library, build system, language
+documentation, examples, and their test suites. Nia is pre-1.0, so the language
+and toolchain continue to evolve together.
 
-The project is intentionally narrow: this repository contains the compiler,
-language documentation, a small standard library, and teaching examples.
-The toolchain-owned build system is developed in this repository. A future
-package manager and registry remain separate projects.
-
-## A Small Example
+## Example
 
 ```nia
+using std::io;
 using std::process;
-using std::slice;
+using process::{Init, ExitCode};
 
 struct Point {
     x: i32,
@@ -23,264 +22,172 @@ struct Point {
 }
 
 extend Point {
-    fn len2(&self) i32 {
+    fn lengthSquared(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
 
-fn sum(xs: &[i32]) i32 {
+fn sum(values: &[i32]) i32 {
     let mut total = 0;
-    for &value in xs {
+    for &value in values {
         total += value;
     }
     total
 }
 
-pub fn main(init: process::Init) process::ExitCode!() {
+pub fn main(init: Init) ExitCode!() {
     _ = init;
 
-    let mut point = Point { x: 3, y: 4 };
-    let mut also_point = Point { x: 5, y: 12 };
-    let mut values = [point.len2(), also_point.len2(), 7];
-    let mut slice_view = &([1, 2, 3])[..];
+    let point = Point { x: 3, y: 4 };
+    let values = [point.lengthSquared(), 7, 13];
 
-    if point.len2() + sum(&values) + sum(slice_view) != 232 {
+    if sum(&values) != 45 {
         return process::exit(1)!;
     }
 
+    io::debugPrint(&"Nia is running\n", &[]).?;
     !()
 }
 ```
 
-Nominal aggregate literals name their type, as in `Point { ... }`. Array
-literals instead infer their element type from an expected type or from their
-elements; a suffix such as `[1i64, 2, 3]` supplies an explicit constraint when
-the literal stands on its own.
-Array pointers coerce to slices at argument boundaries, so `sum(&values)` is
-the usual style when a function expects `&[T]`; `&values[..]` is the explicit
-range-slice form.
+This small program demonstrates nominal structs, extension methods, slices,
+arrays, loops, fallible calls, and the standard freestanding entry contract.
+The [examples](examples/README.md) directory develops these features through
+complete programs.
 
-## Design Goals
+## Language At A Glance
 
-- Keep the language small enough to understand as a whole.
-- Provide the low-level control expected from a systems language.
-- Make host and bare-metal use cases explicit instead of hiding startup and
-  linking behavior behind one model.
-- Keep the compiler modular so syntax, semantic checks, lowering, and codegen
-  remain easy to inspect and evolve.
+Nia provides:
 
-## Quick Start
+- integers, booleans, arrays, pointers, slices, structs, unions, enums, and
+  function pointers;
+- generic functions, structs, methods, and traits;
+- `extend` blocks for methods and trait implementations;
+- expression-oriented blocks, `if`, `match`, loops, and `defer`;
+- optional and error-union values with pattern matching and propagation;
+- explicit modules, visibility, and package roots;
+- compile-time values, C ABI declarations, and LLVM code generation.
 
-Nia is a Rust workspace. It currently builds against LLVM through
-`llvm-sys = 221.0.1`, so a compatible LLVM 22.1 installation with
-`llvm-config` on `PATH` is required.
+Allocation and resource lifetime are ordinary library operations. The toolchain
+owns startup, linking, package builds, and runtime selection.
 
-Development follows the newest Rust stable release and the default LLVM release
-in the newest stable Fedora environment; these are moving maintainer baselines,
-not minimum-version promises. Update Rust stable before running the repository's
-strict validation commands. Hosted Ubuntu workflows install the matching LLVM
-release explicitly.
+## Build The Compiler
 
-Build the compiler with:
+The compiler is a Rust workspace and currently uses LLVM 22.1 through
+`llvm-sys`. Install Rust stable, LLVM 22.1, and make `llvm-config` available on
+`PATH`, then run:
 
 ```sh
 cargo build --workspace
 ```
 
-If LLVM was installed or switched after a failed build, clear the cached
-`llvm-sys` probe result before trying again:
-
-```sh
-cargo clean -p llvm-sys
-cargo build --workspace
-```
-
-For non-standard LLVM layouts, point `llvm-sys` at the install prefix:
+For an LLVM installation outside the standard layout, set its prefix while
+building:
 
 ```sh
 LLVM_SYS_221_PREFIX=/path/to/llvm-22.1 cargo build --workspace
 ```
 
-Run the compiler from the workspace with:
+Run the compiler directly from the checkout with the versioned standard-library
+resources:
 
 ```sh
-cargo run -p nia-cli -- --resource-root lib --help
+cargo run -p nia-cli -- --resource-root lib check examples/hello.nia \
+  --runtime freestanding
 ```
 
-For everyday use, build the release binary and create a symlink in
-`~/.local/bin`:
+For repeated use, build the release binary and keep the checkout's `lib`
+directory beside it:
 
 ```sh
 cargo build --release -p nia-cli
-mkdir -p "$HOME/.local/bin"
-ln -sf "$PWD/target/release/nia" "$HOME/.local/bin/nia"
+target/release/nia --resource-root "$PWD/lib" --version
 ```
 
-Make sure `~/.local/bin` is on `PATH`, then verify the command:
+## Command Workflows
 
-```sh
-nia --resource-root "$PWD/lib" --version
-nia --resource-root "$PWD/lib" check examples/hello.nia --runtime freestanding
-```
-
-This explicit source-tree workflow is the recommended pre-1.0 installation
-path. The compiler never infers a checkout path; `--resource-root lib` selects
-the versioned resource tree deliberately. Keep the repository in place after
-creating the symlink. To update:
-
-```sh
-git pull
-cargo build --release -p nia-cli
-```
-
-`cargo install` installs only the compiler binary, so it is not a complete Nia
-installation. An installed toolchain resolves resources as `../lib/nia`
-relative to `bin/nia`; that tree must contain `toolchain.meta`, `std/pkg.nia`, and
-the std/runtime sources. The repository does not provide packaging automation
-for that installed layout.
-
-The compiler binary is named `nia`. Its core pipeline commands are:
+The executable is named `nia`. Use `nia help` or `nia help <command>` for the
+complete option set.
 
 ```text
-nia build [step] [--root dir]
-nia check <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --tokens <file.nia>
-nia emit --ast <file.nia>
-nia emit --checked <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --backend <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --llvm <file.nia> [--runtime bare|freestanding] [--opt-report]
-nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
-nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
+nia build [step] [--root <dir>]
+nia test [--root <dir>] [--filter <text>] [--list] [--fail-fast]
+nia check <file-or-package> [--runtime bare|freestanding]
+nia emit --<target> <file-or-package>
 ```
 
-`nia check` and `nia emit` also accept a package directory. They select
-`main.nia` when present and otherwise use `pkg.nia` for a library-only package.
+`build` discovers a package's `build.nia`, writes build outputs under
+`.nia-build/`, and reuses entries from `.nia-cache/`. A package can be checked
+or emitted from a source file or directory; `main.nia` is the executable entry
+when present, while `pkg.nia` describes a library package. Use `--root` when
+package discovery should start from a different directory.
 
-`nia build` discovers and runs the package's `build.nia`, creates `.nia-build/`
-for outputs and `.nia-cache/` for reusable entries, and executes the selected or
-default step. Use `--root` to start package discovery from another directory;
-discovery stops at a `pkg.nia` boundary, so a child package cannot silently
-inherit a parent package's build script. For example:
+`test` builds and runs the package's registered test suites. Use `--list` to
+inspect the suites first, `--filter` to select matching suites, and
+`--fail-fast` to stop after the first failure.
+
+`check` performs validation only. The `--runtime` option selects the
+source/runtime boundary used during checking. `emit` can
+print tokens, AST, checked data, backend IR, or LLVM IR, and can write native
+objects or freestanding executables:
 
 ```sh
-nia --resource-root "$PWD/lib" build --root .
+nia --resource-root "$PWD/lib" check examples/hello.nia \
+  --runtime freestanding
+nia --resource-root "$PWD/lib" emit --llvm examples/hello.nia
+nia --resource-root "$PWD/lib" emit --exe examples/hello.nia -o build/hello
 ```
 
-The build-script API is documented beside [`lib/std/build.nia`](lib/std/build.nia).
-Rust-side plan validation, scheduling, caching, publication, and maintained
-build workloads are documented in
-[`crates/nia-build/README.md`](crates/nia-build/README.md).
-
-Module aliases can be supplied with `-M name=path` or
-`--module name=path`. Optimization options and `--timings[=summary|detail]`
-are global options and may appear before or after the command.
-
-## Examples
-
-Check every top-level example from the repository root with:
-
-```sh
-for file in examples/*.nia; do cargo run -p nia-cli -- --resource-root lib check "$file" --runtime freestanding; done
-cargo run -p nia-cli -- --resource-root lib check examples/modules/main.nia --runtime freestanding
-```
-
-See [examples/README.md](examples/README.md) for the reading order. The example
-source files are the main tutorial material. They cover complete Nia
-executables, arrays and slices, structs and enums, control flow,
-standard-library I/O, collections, generics, traits, error handling, and
-multi-file imports. They use the current
-executable entry contract:
-`pub fn main(process::Init) process::ExitCode!()`. They print visible results
-with the fallible `std::io::debugPrint(...).?` boundary, and
-`io.nia` shows explicit stdout output through `std::io` and `std::fmt`.
+Global options include optimization levels (`-O0` through `-Oz`), build
+profiles (`--debug`, `--release`, and `--profile`), module aliases, timings, and
+the resource root. The CLI help is the authoritative syntax reference.
 
 ## Documentation
 
-- [docs/language-spec.md](docs/language-spec.md): the Nia language
-  specification.
-- [docs/nia-abi.md](docs/nia-abi.md): ABI and layout rules.
-- [docs/architecture.md](docs/architecture.md): compiler architecture and phase
-  boundaries.
-- [crates/nia-build/README.md](crates/nia-build/README.md): build invocation,
-  plan, coordinator, cache, output-publication, and test ownership.
-- [lib/README.md](lib/README.md): standard-library facade, ownership, error,
-  callback, and conformance boundaries.
-- [docs/compiler-maintenance.md](docs/compiler-maintenance.md): compiler change
-  discipline, acceptance rules, and roadmap-retirement policy.
-- [docs/const-evaluation-roadmap.md](docs/const-evaluation-roadmap.md): planned
-  const-evaluation extensions and their compiler ownership boundaries.
-- [docs/platform-support.md](docs/platform-support.md): current platform
-  support status.
-- [docs/contributing.md](docs/contributing.md): contribution expectations.
-- [maintain/performance.md](maintain/performance.md): reproducible compiler
-  workloads and machine-readable performance baselines.
-- [docs/ai-usage.md](docs/ai-usage.md): AI-assisted work policy.
+Language and library users should start here:
 
-Documentation file names are not versioned. Release history and versioned
-language states are tracked through Git tags.
+- [Language specification](docs/language-spec.md): syntax and semantics.
+- [Examples](examples/README.md): a guided sequence of complete programs.
+- [Standard library](lib/README.md): library modules and runtime-facing APIs.
+- [Build scripts](lib/std/build.nia): the package build-script API.
+- [ABI reference](docs/nia-abi.md): representation, layout, and calling rules.
+
+Compiler and repository contributors should use:
+
+- [Compiler architecture](docs/architecture.md): phases, products, and crate
+  boundaries.
+- [Build system](crates/nia-build/README.md): package build plans, execution,
+  caching, and publication.
+- [Contributing](docs/contributing.md): change routing and review workflow.
+- [Compiler maintenance](docs/compiler-maintenance.md): cross-cutting
+  correctness and ownership principles.
+- [Platform support](docs/platform-support.md): maintained hosts, targets, and
+  toolchain policy.
+- [Performance maintenance](maintain/performance.md): reproducible workloads
+  and baseline comparisons.
 
 ## Repository Layout
 
-- [crates/nia-cli](crates/nia-cli): the `nia` command-line compiler frontend.
-- `crates/nia-*`: compiler libraries used by `nia`.
-- [docs/](docs/): language, ABI, architecture, platform, and maintenance docs.
-- [examples/](examples/): small executable programs for the current language
-  and standard-library surface.
-- [benchmarks/](benchmarks/): fixed compiler performance workloads.
-- [maintain/](maintain/): repository maintenance subsystem for audits, crate
-  reports, fixtures, and compiler/build baselines.
-- [.github/workflows/build-std.yml](.github/workflows/build-std.yml): managed
-  build/std correctness matrix for clean/warm/edit/corruption/failure builds,
-  relocation, installed artifact execution, and workspace validation.
-- [.github/workflows/performance.yml](.github/workflows/performance.yml): managed
-  LLVM performance guard and main-branch baseline artifact retention.
+- `crates/nia-cli/`: the `nia` command-line frontend.
+- `crates/nia-*/`: compiler, query, backend, and support libraries.
+- `lib/`: the standard library and runtime resources.
+- `docs/`: language, ABI, architecture, platform, and project documentation.
+- `examples/`: complete Nia programs arranged as reading material.
+- `maintain/`: repository audits, fixtures, and performance infrastructure.
+- `.github/workflows/`: managed compiler, standard-library, and performance
+  validation.
 
-## Platform Status
+## Support And Status
 
-Nia is maintainer-tested rather than released with formal platform support
-tiers. The maintainer's Fedora Linux x86_64 environment and managed Ubuntu 24.04
-x86_64 workflows are evidence for those configurations, not a general host or
-target compatibility promise.
+Nia is pre-1.0 and maintainer-tested. The maintained development environments
+are the current Fedora Linux x86_64 setup and the managed Ubuntu 24.04 x86_64
+workflows. Freestanding executable coverage currently targets Linux x86_64,
+with experimental i686 coverage.
 
-See [docs/platform-support.md](docs/platform-support.md).
-
-Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
-means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy and backend optimization report to stdout. `nia check
-<file.nia> --runtime freestanding` checks with the same startup runtime that
-`emit --exe` injects.
-`emit --obj` defaults to the bare runtime and can opt into startup injection
-with `--runtime freestanding`. Emit commands write the same report to stderr
-when `--opt-report` is supplied.
-
-## Testing
-
-Before opening or merging compiler changes, run the local release gate:
-
-```sh
-cargo fmt --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test
-```
-
-Compiler and CLI integration tests share an automatic resource budget and
-remove their scoped scratch trees when each test ends. The test suite uses
-light optimization because these tests execute the compiler as the program
-under test; line-table debug information keeps artifacts inspectable without
-the full-debug target growth. Environment variables used by the project are cataloged in
-[docs/contributing.md](docs/contributing.md).
-
-Do not add lint suppressions just to pass Clippy. Fix the code instead, or
-document and review a narrow exception.
-
-For a release point, also confirm the CLI version:
-
-```sh
-cargo run -p nia-cli -- --version
-```
+The detailed support boundary, LLVM requirements, and target notes live in
+[Platform Support](docs/platform-support.md).
 
 ## License
 
-The `nia` compiler implementation in this repository is licensed under
-`GPL-3.0-or-later`. See [LICENSE.md](LICENSE.md) for the exact repository
-license scope.
+The compiler implementation is licensed under `GPL-3.0-or-later`. Repository
+documentation has the separate scope described in [LICENSE.md](LICENSE.md).
