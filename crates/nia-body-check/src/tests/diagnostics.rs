@@ -139,6 +139,40 @@ fn main(base: i32) i32 {
 }
 
 #[test]
+fn assigns_closure_identities_in_source_order() {
+    let checked = pipeline(
+        r#"
+fn main() () {
+    let first = \value: i32 -> value;
+    let second = \value: i32 -> value + 1;
+    _ = first(1) + second(2);
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let ordinals = body
+        .stmts
+        .iter()
+        .filter_map(|stmt| match &stmt.kind {
+            nia_body_ir::TypedStmtKind::Binding(binding) => binding.value.as_ref(),
+            _ => None,
+        })
+        .filter_map(|value| match &value.kind {
+            nia_body_ir::TypedExprKind::Closure { closure_id, .. } => Some(closure_id.ordinal),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ordinals, [0, 1]);
+}
+
+#[test]
 fn rejects_self_referential_inference_without_recursing() {
     let checked = pipeline(
         r#"

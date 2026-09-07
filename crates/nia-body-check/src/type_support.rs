@@ -1588,7 +1588,7 @@ impl<'a> BodyChecker<'a> {
             timing_module_id: self.timing_module_id,
             current_return: self.current_return,
             current_def_id: self.current_def_id,
-            next_closure_ordinal: self.next_closure_ordinal,
+            closure_ordinals: self.closure_ordinals.clone(),
             current_param_locals: self.current_param_locals.clone(),
             const_context_depth: self.const_context_depth,
             const_call_locals: Vec::new(),
