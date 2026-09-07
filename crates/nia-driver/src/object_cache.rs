@@ -14,7 +14,7 @@ use nia_compat::formats::{OBJECT_WORK_PRODUCT, OBJECT_WORK_PRODUCT_CACHE};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 const OBJECT_WORK_PRODUCT_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.object-work-product-key.v2");
+    FingerprintDomain::new("nia.object-work-product-key.v1");
 const OBJECT_WORK_PRODUCT_PAYLOAD_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.object-work-product-payload.v1");
 const OBJECT_CACHE_STREAM_BYTES: usize = 64 * 1024;

@@ -437,8 +437,8 @@ fn summarizes_repeated_stage_and_counter_samples() {
 fn corrupts_only_action_entries() {
     let directory = TestDirectory::new("action-corruption");
     directory.write(".nia-cache/actions/generated/v1/a/one.entry", "valid");
-    directory.write(".nia-cache/actions/emits/v3/b/two.entry", "valid");
-    directory.write(".nia-cache/actions/emits/v3/b/lock.tmp", "valid");
+    directory.write(".nia-cache/actions/emits/v1/b/two.entry", "valid");
+    directory.write(".nia-cache/actions/emits/v1/b/lock.tmp", "valid");
     assert_eq!(corrupt_action_cache(directory.path()).unwrap(), 2);
     assert_eq!(
         fs::read(
@@ -453,7 +453,7 @@ fn corrupts_only_action_entries() {
         fs::read_to_string(
             directory
                 .path()
-                .join(".nia-cache/actions/emits/v3/b/lock.tmp")
+                .join(".nia-cache/actions/emits/v1/b/lock.tmp")
         )
         .unwrap(),
         "valid"

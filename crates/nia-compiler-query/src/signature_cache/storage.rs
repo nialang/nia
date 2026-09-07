@@ -398,7 +398,7 @@ impl PersistentSignatureCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join("v3")
+            .join(FRONTEND_CACHE.path_component)
             .join("signature-type-resolutions")
             .join(format!("{first:016x}{second:016x}.str"))
     }
@@ -408,7 +408,7 @@ impl PersistentSignatureCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join("v3")
+            .join(FRONTEND_CACHE.path_component)
             .join("signature-type-lowerings")
             .join(format!("{first:016x}{second:016x}.stl"))
     }
@@ -421,7 +421,7 @@ impl PersistentSignatureCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join("v3")
+            .join(FRONTEND_CACHE.path_component)
             .join("signature-item-signatures")
             .join(format!("{first:016x}{second:016x}.sis"))
     }
@@ -434,7 +434,7 @@ impl PersistentSignatureCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join("v3")
+            .join(FRONTEND_CACHE.path_component)
             .join("extension-validation-diagnostics")
             .join(format!("{first:016x}{second:016x}.evd"))
     }
@@ -447,7 +447,7 @@ impl PersistentSignatureCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join("v3")
+            .join(FRONTEND_CACHE.path_component)
             .join("executable-value-ref-edges")
             .join(format!("{first:016x}{second:016x}.erv"))
     }
@@ -457,7 +457,7 @@ impl PersistentSignatureCache {
         self.root
             .join("artifacts")
             .join("frontend")
-            .join("v3")
+            .join(FRONTEND_CACHE.path_component)
             .join("check-certificates")
             .join(format!("{first:016x}{second:016x}.ccc"))
     }

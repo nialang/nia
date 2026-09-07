@@ -190,7 +190,7 @@ pub(super) struct AggregateAcceptance {
 }
 
 #[derive(Debug, Serialize)]
-/// Schema-v5 representative build baseline report.
+/// Schema-v1 representative build baseline report.
 pub(super) struct BuildBaseline<'a> {
     /// Baseline schema version.
     pub(super) schema_version: u32,

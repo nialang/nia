@@ -59,7 +59,7 @@ impl Options {
     }
 }
 
-/// Runs the representative build matrix and writes its schema-v5 report.
+/// Runs the representative build matrix and writes its schema-v1 report.
 pub fn run(options: &Options) -> MaintainResult<()> {
     let nia = options.nia.canonicalize().map_err(|error| {
         format!(
@@ -111,7 +111,7 @@ pub fn run(options: &Options) -> MaintainResult<()> {
         .map(|run| workload_acceptance(run))
         .collect::<MaintainResult<Vec<_>>>()?;
     let baseline = BuildBaseline {
-        schema_version: 5,
+        schema_version: 1,
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
         fixture: "benchmarks/build/representative",

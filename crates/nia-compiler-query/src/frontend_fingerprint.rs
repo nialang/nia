@@ -1,4 +1,5 @@
 use nia_ast::FunctionItem;
+use nia_compat::formats::FRONTEND_CACHE;
 use nia_ids::DefId;
 use nia_imports::{ModuleMap, StableModuleKey};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
@@ -10,7 +11,6 @@ use nia_target_config::TargetConfig;
 
 use crate::RuntimeModel;
 
-const FRONTEND_CACHE_SCHEMA_VERSION: u64 = 3;
 const SOURCE_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.source.v1");
 const SIGNATURE_TYPE_RESOLUTION_CACHE_KEY_DOMAIN: FingerprintDomain =
@@ -30,7 +30,7 @@ const SYNTAX_CACHE_KEY_DOMAIN: FingerprintDomain =
 const ITEM_SIGNATURE_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.item-signature.v1");
 const PROVIDER_SUMMARY_CACHE_KEY_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-key.provider-summary.v2");
+    FingerprintDomain::new("nia.frontend.cache-key.provider-summary.v1");
 const PUBLIC_SURFACE_FACTS_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.public-surface-facts.v1");
 const FACADE_FACTS_CACHE_KEY_DOMAIN: FingerprintDomain =
@@ -40,7 +40,7 @@ const MODULE_DEPENDENCIES_CACHE_KEY_DOMAIN: FingerprintDomain =
 const PROVIDER_DEMAND_PLAN_CACHE_KEY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.cache-key.provider-demand-plan.v1");
 const CACHE_NAMESPACE_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.frontend.cache-namespace.v2");
+    FingerprintDomain::new("nia.frontend.cache-namespace.v1");
 const SOURCE_CONTENT_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.frontend.source-content.v1");
 const PROGRAM_SOURCES_DOMAIN: FingerprintDomain =
@@ -488,7 +488,7 @@ impl FrontendCacheNamespace {
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
         let mut builder = QueryFingerprintBuilder::new(CACHE_NAMESPACE_DOMAIN);
-        builder.write_u64(FRONTEND_CACHE_SCHEMA_VERSION);
+        builder.write_u64(u64::from(FRONTEND_CACHE.schema));
         for part in toolchain.parts() {
             builder.write_u64(part);
         }

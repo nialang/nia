@@ -14,7 +14,7 @@ use nia_linker::{
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 
 const LINK_RESULT_PAYLOAD_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.link-result-payload.v2");
+    FingerprintDomain::new("nia.link-result-payload.v1");
 const LINK_CACHE_STREAM_BYTES: usize = 64 * 1024;
 static LINK_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 

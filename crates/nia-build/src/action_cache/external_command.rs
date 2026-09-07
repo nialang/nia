@@ -69,7 +69,7 @@ const EXTERNAL_COMMAND_PAYLOAD_DOMAIN: FingerprintDomain =
 const EXTERNAL_COMMAND_TOOL_CONTENTS_DOMAIN: FingerprintDomain =
     FingerprintDomain::new("nia.build.external-command-tool-contents.v1");
 const EXTERNAL_COMMAND_INPUT_CONTENTS_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.external-command-input-contents.v2");
+    FingerprintDomain::new("nia.build.external-command-input-contents.v1");
 const EXTERNAL_COMMAND_IDENTITY_STREAM_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

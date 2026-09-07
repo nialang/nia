@@ -28,7 +28,7 @@ pub(crate) const OUTPUT_TRANSACTION_DIRECTORY: &str = ".nia-transactions";
 const MAX_JOURNAL_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUTS: usize = 4096;
 const OUTPUT_TRANSACTION_JOURNAL_DOMAIN: FingerprintDomain =
-    FingerprintDomain::new("nia.build.output-transaction-journal.v2");
+    FingerprintDomain::new("nia.build.output-transaction-journal.v1");
 static JOURNAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,4 +2,4 @@ mode=persistent-check
 resource=compiler
 source=main.nia
 expect=fail
-cache-product=artifacts/frontend/v3/extension-validation-diagnostics
+cache-product=artifacts/frontend/v1/extension-validation-diagnostics
