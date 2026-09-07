@@ -42,6 +42,7 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
     ] {
         assert!(workflow.contains(command), "missing command {command}");
     }
+    assert!(workflow.contains("llvm-22-dev libpolly-22-dev lld-22"));
     assert!(!workflow.contains("report[\"acceptance\"][\"passed\"]"));
     assert!(workflow.contains("actions/upload-artifact@v7"));
 }
