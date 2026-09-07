@@ -6,8 +6,9 @@ and explicit about data representation, resource ownership, modules, and
 runtime entry points.
 
 The repository contains the compiler, standard library, build system, language
-documentation, examples, and their test suites. Nia is pre-1.0, so the language
-and toolchain continue to evolve together.
+documentation, examples, and their test suites. The `0.1.x` line is Nia's first
+maintained release series; the language and toolchain continue to evolve
+together, with compatibility changes called out in release notes.
 
 ## Example
 
@@ -104,6 +105,21 @@ cargo build --release -p nia-cli
 target/release/nia --resource-root "$PWD/lib" --version
 ```
 
+## Install A Release
+
+Linux x86_64 release archives are published on the
+[GitHub Releases](https://github.com/nialang/nia/releases) page. Unpack an
+archive as a complete prefix and keep its `bin`, `lib`, and `libexec`
+directories together:
+
+```sh
+tar -xzf nia-<version>-linux-x86_64.tar.gz
+./nia-<version>-linux-x86_64/bin/nia --version
+```
+
+The archive includes the compiler, standard-library resources, and bundled
+`ld.lld`; no system LLVM installation is needed to run the packaged compiler.
+
 ## Command Workflows
 
 The executable is named `nia`. Use `nia help` or `nia help <command>` for the
@@ -179,10 +195,10 @@ Compiler and repository contributors should use:
 
 ## Support And Status
 
-Nia is pre-1.0 and maintainer-tested. The maintained development environments
-are the current Fedora Linux x86_64 setup and the managed Ubuntu 24.04 x86_64
-workflows. Freestanding executable coverage currently targets Linux x86_64,
-with experimental i686 coverage.
+Nia 0.1.x is maintainer-tested. The supported release package targets Linux
+x86_64 on Ubuntu 24.04-class systems; the maintained development environments
+also include the current Fedora Linux x86_64 setup. Freestanding executable
+coverage currently targets Linux x86_64, with experimental i686 coverage.
 
 The detailed support boundary, LLVM requirements, and target notes live in
 [Platform Support](docs/platform-support.md).
