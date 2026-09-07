@@ -66,8 +66,22 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
 }
 
 #[test]
+fn release_workflow_publishes_only_versioned_linux_archives() {
+    let workflow = workflow("release.yml");
+    assert!(workflow.contains("      - \"v*\""));
+    assert!(workflow.contains("permissions:\n  contents: write"));
+    assert!(workflow.contains("tools/llvm/build-static.sh"));
+    assert!(workflow.contains("tools/release/package.sh"));
+    assert!(workflow.contains("SHA256SUMS"));
+    assert!(workflow.contains("gh release create"));
+    assert!(workflow.contains("--verify-tag"));
+    assert!(workflow.contains("--generate-notes"));
+    assert!(!workflow.contains("workflow_dispatch"));
+}
+
+#[test]
 fn workflows_have_no_parallel_python_or_node_toolchain() {
-    for name in ["build-std.yml", "performance.yml"] {
+    for name in ["build-std.yml", "performance.yml", "release.yml"] {
         let workflow = workflow(name);
         for forbidden in [
             "setup-python",

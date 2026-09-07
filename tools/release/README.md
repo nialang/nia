@@ -15,3 +15,18 @@ Set `LLVM_SYS_221_PREFIX` when the static prefix is outside the repository.
 The release compiler still has normal host dependencies such as libc and the
 C++ runtime. Target programs may additionally require a target sysroot, CRT,
 and linker runtime; those are separate from the compiler's LLVM linkage.
+
+## Linux package
+
+`package.sh` assembles the relocatable `linux-x86_64` archive used by the
+GitHub release workflow. It invokes `build.sh`, copies the compiler into
+`bin/nia`, the standard-library resources into `lib/nia`, and the bundled LLD
+into `libexec/nia/ld.lld`, then writes a reproducible tarball and `SHA256SUMS`:
+
+```sh
+tools/release/package.sh
+```
+
+Set `NIA_RELEASE_OUTPUT` to choose another output directory. The package is
+intended to be unpacked as a complete prefix; keep the relative `bin`, `lib`,
+and `libexec` layout intact so compiler relocation remains supported.

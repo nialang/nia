@@ -13,7 +13,8 @@ static `llvm-sys` link does not inherit distro-specific `-lz`, `-lzstd`, or
 The resulting prefix is selected by `LLVM_SYS_221_PREFIX`. A release build
 must use a static-only `llvm-sys` configuration and fail when the prefix does
 not provide static archives. Development builds may continue using the distro
-LLVM installation until the release profile is wired to this prefix.
+LLVM installation; release builds consume this prefix through
+`tools/release/build.sh`.
 
 Useful overrides:
 
