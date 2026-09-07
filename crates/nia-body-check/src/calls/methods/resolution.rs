@@ -16,6 +16,15 @@ struct DynamicTraitMethodSearch<'a> {
     expanded: &'a mut Vec<DynamicTraitInstanceKey>,
 }
 
+struct ContextualMethodCall<'a> {
+    expr: &'a Expr,
+    receiver: &'a Expr,
+    name: &'a SymbolId,
+    type_args: Option<&'a [BracketArg]>,
+    args: &'a [Expr],
+    expected: InternedTyId,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 struct DynamicTraitInstanceKey {
     trait_id: TraitId,
@@ -24,6 +33,394 @@ struct DynamicTraitInstanceKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    fn contextual_receiver_probe(&self) -> BodyChecker<'a> {
+        let mut probe = self.clone_for_type_compare();
+        probe.provider_demands =
+            std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
+        probe.provider_demands_by_function =
+            std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::new()));
+        probe.local_types = self.local_types.clone();
+        probe.global_types = self.global_types.clone();
+        probe.const_types = self.const_types.clone();
+        probe
+    }
+
+    pub(in crate::calls::methods) fn contextual_method_receiver_type(
+        &mut self,
+        expr: &Expr,
+        receiver: &Expr,
+        name: &SymbolId,
+        type_args: Option<&[BracketArg]>,
+        args: &[Expr],
+        expected: InternedTyId,
+    ) -> ContextualReceiverInference {
+        let call = ContextualMethodCall {
+            expr,
+            receiver,
+            name,
+            type_args,
+            args,
+            expected,
+        };
+        let mut standalone = self.contextual_receiver_probe();
+        let standalone_ty = standalone.check_expr(call.receiver);
+        if standalone.diagnostics.is_empty() && standalone_ty != standalone.error() {
+            return ContextualReceiverInference::Unavailable;
+        }
+
+        self.ensure_callable_extension_methods_named(name);
+        let methods = self
+            .callable_extension_methods_by_name
+            .get(name)
+            .map(|methods| methods.methods.clone())
+            .unwrap_or_default();
+        let mut receiver_types = Vec::new();
+        for method in methods {
+            let mut probe = self.contextual_receiver_probe();
+            let Some(receiver_ty) = probe.contextual_extension_receiver_candidate(&call, &method)
+            else {
+                continue;
+            };
+            if !receiver_types
+                .iter()
+                .any(|existing| probe.types_match(*existing, receiver_ty))
+            {
+                receiver_types.push(receiver_ty);
+            }
+        }
+        for trait_id in self.trait_ids_with_method_named(call.name) {
+            let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
+                continue;
+            };
+            let trait_methods = trait_signature
+                .methods
+                .iter()
+                .filter(|method| method.name == *call.name)
+                .cloned()
+                .collect::<Vec<_>>();
+            let impls = self
+                .program_trait_impls
+                .iter()
+                .filter(|impl_signature| {
+                    impl_signature.trait_id == nia_ids::TraitId::Source(trait_id)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for trait_method in &trait_methods {
+                for impl_signature in &impls {
+                    let mut probe = self.contextual_receiver_probe();
+                    let Some(receiver_ty) = probe.contextual_trait_receiver_candidate(
+                        &call,
+                        trait_id,
+                        trait_method,
+                        impl_signature,
+                    ) else {
+                        continue;
+                    };
+                    if !receiver_types
+                        .iter()
+                        .any(|existing| probe.types_match(*existing, receiver_ty))
+                    {
+                        receiver_types.push(receiver_ty);
+                    }
+                }
+            }
+        }
+        match receiver_types.as_slice() {
+            [] => ContextualReceiverInference::Unavailable,
+            [receiver_ty] => ContextualReceiverInference::Unique(*receiver_ty),
+            _ => ContextualReceiverInference::Ambiguous,
+        }
+    }
+
+    fn contextual_trait_receiver_candidate(
+        &mut self,
+        call: &ContextualMethodCall<'_>,
+        trait_id: GlobalDefId,
+        trait_method: &nia_item_signatures::TraitMethodSignature,
+        impl_signature: &nia_item_signatures::ProgramTraitImplSignature,
+    ) -> Option<InternedTyId> {
+        trait_method.signature.params.first()?.receiver?;
+        let (lowered_type_args, lowered_const_args) =
+            self.lowered_method_type_args(call.type_args, &trait_method.signature.generic_params)?;
+        let (trait_substitutions, trait_const_substitutions) = self
+            .generic_substitutions_and_consts_for_def(
+                trait_id,
+                &impl_signature.trait_args,
+                &impl_signature.trait_const_args,
+            );
+        let target_pattern = self.normalize_aliases_in_type(impl_signature.target_ty);
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
+        if call.type_args.is_some() {
+            for (param, ty) in trait_method
+                .signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Type
+                    )
+                })
+                .zip(lowered_type_args.iter().copied())
+            {
+                substitutions.insert(param.name, ty);
+            }
+            for (param, arg) in trait_method
+                .signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    )
+                })
+                .zip(lowered_const_args.iter().cloned())
+            {
+                const_substitutions.insert(param.name, arg);
+            }
+        }
+
+        let instantiate_trait_pattern = |this: &mut Self, ty| {
+            this.substitute_generics_and_consts_with_self(
+                ty,
+                &trait_substitutions,
+                &trait_const_substitutions,
+                target_pattern,
+            )
+        };
+        let return_pattern = instantiate_trait_pattern(self, trait_method.signature.return_type);
+        self.infer_generics_from_type(
+            return_pattern,
+            call.expected,
+            &mut substitutions,
+            call.expr.span,
+        );
+        self.infer_const_generics_from_type(
+            return_pattern,
+            call.expected,
+            &mut const_substitutions,
+            call.expr.span,
+        );
+        let params = trait_method
+            .signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| instantiate_trait_pattern(self, param.ty))
+            .collect::<Vec<_>>();
+        self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+        for (param, arg) in params.iter().zip(call.args) {
+            if let Some(actual) = self.expr_ty(arg) {
+                self.infer_const_generics_from_type(
+                    *param,
+                    actual,
+                    &mut const_substitutions,
+                    arg.span,
+                );
+            }
+        }
+        self.infer_method_generics_from_where_predicates(
+            &trait_method.signature,
+            &impl_signature.where_predicates,
+            &mut substitutions,
+        );
+        let receiver_ty = self.substitute_generics_and_consts(
+            target_pattern,
+            &substitutions,
+            &const_substitutions,
+        );
+        let receiver_ty = self.normalize_aliases_in_type(receiver_ty);
+        if self.type_contains_generic_param(receiver_ty)
+            || self.type_contains_const_generic_param(receiver_ty)
+        {
+            return None;
+        }
+        let actual_receiver = self.check_expr_with_expected(call.receiver, Some(receiver_ty));
+        if actual_receiver == self.error()
+            || !self.types_match(receiver_ty, actual_receiver)
+            || !self.diagnostics.is_empty()
+        {
+            return None;
+        }
+        let candidate = self
+            .trait_method_candidates_for_receiver(receiver_ty, call.name)
+            .into_iter()
+            .find(|candidate| {
+                candidate.trait_id == trait_id
+                    && candidate.trait_method_id.def_id == trait_method.def_id
+            })?;
+        let method_call = MethodCall {
+            span: call.expr.span,
+            node_key: &call.expr.node_key,
+            receiver: call.receiver,
+            receiver_ty,
+            actual_receiver_ty: actual_receiver,
+            name: call.name,
+            type_args: call.type_args,
+            args: call.args,
+            expected: Some(call.expected),
+        };
+        let result = self.check_method_call_with_receiver_ty(
+            method_call,
+            Vec::new(),
+            vec![candidate],
+            Vec::new(),
+            true,
+        )?;
+        if result == self.error()
+            || !self.types_match(call.expected, result)
+            || !self.diagnostics.is_empty()
+        {
+            return None;
+        }
+        Some(receiver_ty)
+    }
+
+    fn contextual_extension_receiver_candidate(
+        &mut self,
+        call: &ContextualMethodCall<'_>,
+        method: &crate::CallableExtensionMethod,
+    ) -> Option<InternedTyId> {
+        let signature = self
+            .resolved_function_signature(method.method.def_id)?
+            .signature;
+        signature.params.first()?.receiver?;
+        let (lowered_type_args, lowered_const_args) =
+            self.lowered_method_type_args(call.type_args, &signature.generic_params)?;
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
+        if call.type_args.is_some() {
+            for (param, ty) in signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Type
+                    )
+                })
+                .zip(lowered_type_args.iter().copied())
+            {
+                substitutions.insert(param.name, ty);
+            }
+            for (param, arg) in signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    )
+                })
+                .zip(lowered_const_args.iter().cloned())
+            {
+                const_substitutions.insert(param.name, arg);
+            }
+        }
+
+        let target_pattern = self.normalize_aliases_in_type(method.target_ty);
+        let return_pattern = self.substitute_generics_and_consts_with_self(
+            signature.return_type,
+            &substitutions,
+            &const_substitutions,
+            target_pattern,
+        );
+        self.infer_generics_from_type(
+            return_pattern,
+            call.expected,
+            &mut substitutions,
+            call.expr.span,
+        );
+        self.infer_const_generics_from_type(
+            return_pattern,
+            call.expected,
+            &mut const_substitutions,
+            call.expr.span,
+        );
+
+        let params = signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| {
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    target_pattern,
+                )
+            })
+            .collect::<Vec<_>>();
+        self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+        for (param, arg) in params.iter().zip(call.args) {
+            if let Some(actual) = self.expr_ty(arg) {
+                self.infer_const_generics_from_type(
+                    *param,
+                    actual,
+                    &mut const_substitutions,
+                    arg.span,
+                );
+            }
+        }
+        self.infer_method_generics_from_where_predicates(
+            &signature,
+            &method.method.where_predicates,
+            &mut substitutions,
+        );
+
+        let receiver_ty = self.substitute_generics_and_consts(
+            target_pattern,
+            &substitutions,
+            &const_substitutions,
+        );
+        let receiver_ty = self.normalize_aliases_in_type(receiver_ty);
+        if self.type_contains_generic_param(receiver_ty)
+            || self.type_contains_const_generic_param(receiver_ty)
+        {
+            return None;
+        }
+        let actual_receiver = self.check_expr_with_expected(call.receiver, Some(receiver_ty));
+        if actual_receiver == self.error()
+            || !self.types_match(receiver_ty, actual_receiver)
+            || !self.diagnostics.is_empty()
+        {
+            return None;
+        }
+
+        let candidate = self
+            .method_candidates_for_receiver(receiver_ty, call.name)
+            .into_iter()
+            .find(|candidate| candidate.method.def_id == method.method.def_id)?;
+        let method_call = MethodCall {
+            span: call.expr.span,
+            node_key: &call.expr.node_key,
+            receiver: call.receiver,
+            receiver_ty,
+            actual_receiver_ty: actual_receiver,
+            name: call.name,
+            type_args: call.type_args,
+            args: call.args,
+            expected: Some(call.expected),
+        };
+        let result = self.check_method_call_with_receiver_ty(
+            method_call,
+            vec![candidate],
+            Vec::new(),
+            Vec::new(),
+            false,
+        )?;
+        if result == self.error()
+            || !self.types_match(call.expected, result)
+            || !self.diagnostics.is_empty()
+        {
+            return None;
+        }
+        Some(receiver_ty)
+    }
+
     fn dynamic_trait_instance_keys_equivalent(
         &mut self,
         left: &DynamicTraitInstanceKey,
@@ -662,9 +1059,23 @@ impl<'a> BodyChecker<'a> {
         if let Some(trait_ids) = self.traits_by_method_name.get(name) {
             return trait_ids.clone();
         }
-        let trait_ids = self
+        let mut trait_ids = self
             .program_signature_scope
             .trait_ids_with_method_named(name);
+        trait_ids.extend(
+            self.signatures
+                .traits
+                .iter()
+                .filter_map(|(def_id, signature)| {
+                    signature
+                        .methods
+                        .iter()
+                        .any(|method| method.name == *name)
+                        .then_some(self.global_def_id(*def_id))
+                }),
+        );
+        trait_ids.sort_unstable();
+        trait_ids.dedup();
         self.traits_by_method_name.insert(*name, trait_ids.clone());
         trait_ids
     }

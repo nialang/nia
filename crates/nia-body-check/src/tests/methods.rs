@@ -612,6 +612,15 @@ fn main(pair: Pair[i32, i32]) i32 {
         "{:?}",
         checked.diagnostics
     );
+    assert!(
+        checked.facts.iter_node_resolved_calls().next().is_none(),
+        "failed probes must not publish resolved calls"
+    );
+    assert!(
+        checked.provider_demands.is_empty(),
+        "failed probes must not publish provider demands: {:?}",
+        checked.provider_demands
+    );
 }
 
 #[test]
@@ -1654,5 +1663,489 @@ fn main() i32 {
         saw_function_pointer,
         "{:?}",
         checked.facts.iter_node_resolved_calls().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn propagates_expected_type_through_contextual_receiver_chain() {
+    let checked = pipeline(
+        r#"
+struct Foo {
+    value: i32,
+}
+
+extend Foo {
+    fn init() Foo {
+        Foo { value: 1 }
+    }
+
+    fn withFoo(self) Foo {
+        self
+    }
+}
+
+fn main() i32 {
+    let foo: Foo = .init().withFoo();
+    foo.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_cross_type_receiver_from_method_result() {
+    let checked = pipeline(
+        r#"
+struct Builder {
+    value: i32,
+}
+
+struct Product {
+    value: i32,
+}
+
+extend Builder {
+    fn init() Builder {
+        Builder { value: 2 }
+    }
+
+    fn finish(self) Product {
+        Product { value: self.value }
+    }
+}
+
+fn main() i32 {
+    let product: Product = .init().finish();
+    product.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn propagates_expected_type_through_generic_middle_call() {
+    let checked = pipeline(
+        r#"
+struct Source {}
+struct Collected[T] {}
+struct Product[T] {}
+
+extend Source {
+    fn init() Source {}
+
+    fn collect[T](self) Collected[T] {
+        _ = self;
+        {}
+    }
+}
+
+extend[T] Collected[T] {
+    fn finish(self) Product[T] {
+        _ = self;
+        {}
+    }
+}
+
+fn main() () {
+    let product: Product[i32] = .init().collect().finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn reports_ambiguous_contextual_receiver_solutions() {
+    let checked = pipeline(
+        r#"
+struct Left {}
+struct Right {}
+struct Product {}
+
+extend Left {
+    fn init() Left {}
+    fn finish(self) Product {}
+}
+
+extend Right {
+    fn init() Right {}
+    fn finish(self) Product {}
+}
+
+fn main() () {
+    let product: Product = .init().finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("ambiguous method `finish` while inferring receiver type")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("while inferring receiver type"))
+            .count(),
+        1,
+        "contextual ambiguity should produce one primary diagnostic: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn infers_generic_contextual_receiver_target() {
+    let checked = pipeline(
+        r#"
+struct Builder[T] {
+    value: T,
+}
+
+struct Product[T] {
+    value: T,
+}
+
+extend[T] Builder[T] {
+    fn init(value: T) Builder[T] {
+        Builder[T] { value }
+    }
+
+    fn finish(self) Product[T] {
+        Product[T] { value: self.value }
+    }
+}
+
+fn main() i32 {
+    let product: Product[i32] = .init(4).finish();
+    product.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_const_generic_contextual_receiver_target() {
+    let checked = pipeline(
+        r#"
+struct Builder[N: usize] {}
+struct Product[N: usize] {}
+
+extend[N: usize] Builder[N] {
+    fn init() Builder[N] {}
+    fn finish(self) Product[N] {}
+}
+
+fn main() () {
+    let product: Product[3] = .init().finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn propagates_context_through_explicit_method_generics() {
+    let checked = pipeline(
+        r#"
+struct Source {}
+struct Middle[T] { value: T }
+struct Product[T] { value: T }
+
+extend Source {
+    fn init() Source {}
+
+    fn collect[T](self, value: T) Middle[T] {
+        _ = self;
+        Middle[T] { value }
+    }
+}
+
+extend[T] Middle[T] {
+    fn finish(self) Product[T] {
+        Product[T] { value: self.value }
+    }
+}
+
+fn main() i32 {
+    let product: Product[i32] = .init().collect[i32](5).finish();
+    product.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn propagates_context_through_long_cross_type_chain() {
+    let checked = pipeline(
+        r#"
+struct Start {}
+struct First {}
+struct Second {}
+struct Product {}
+
+extend Start {
+    fn init() Start {}
+    fn first(self) First {}
+}
+
+extend First {
+    fn second(self) Second {}
+}
+
+extend Second {
+    fn finish(self) Product {}
+}
+
+fn main() () {
+    let product: Product = .init().first().second().finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn contextual_receiver_search_rejects_argument_mismatches() {
+    let checked = pipeline(
+        r#"
+struct Left {}
+struct Right {}
+struct Product {}
+
+extend Left {
+    fn init() Left {}
+    fn finish(self, value: i32) Product { _ = value; {} }
+}
+
+extend Right {
+    fn init() Right {}
+    fn finish(self, value: bool) Product { _ = value; {} }
+}
+
+fn main() () {
+    let product: Product = .init().finish(true);
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn contextual_receiver_inference_requires_expected_type() {
+    let checked = pipeline(
+        r#"
+struct Builder {}
+struct Product {}
+
+extend Builder {
+    fn init() Builder {}
+    fn finish(self) Product {}
+}
+
+fn main() () {
+    let product = .init().finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(
+        !checked.diagnostics.is_empty(),
+        "context-free chain must be rejected"
+    );
+}
+
+#[test]
+fn infers_contextual_receiver_for_trait_method() {
+    let checked = pipeline(
+        r#"
+trait Finish {
+    fn finish(self) Product {
+        _ = self;
+        {}
+    }
+}
+
+struct Builder {}
+struct Product {}
+
+extend Builder {
+    fn init() Builder {}
+}
+
+extend Builder : Finish {}
+
+fn main() () {
+    let product: Product = .init().finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn known_local_receiver_does_not_trigger_contextual_ambiguity() {
+    let checked = pipeline(
+        r#"
+struct Left {}
+struct Right {}
+struct Product {}
+
+extend Left {
+    fn init() Left {}
+    fn finish(self) Product {}
+}
+
+extend Right {
+    fn finish(self) Product {}
+}
+
+fn main() () {
+    let builder: Left = .init();
+    let product: Product = builder.finish();
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_generic_trait_impl_contextual_receiver() {
+    let checked = pipeline(
+        r#"
+trait Finish[T] {
+    fn finish(self) Product[T];
+}
+
+struct Builder[T] { value: T }
+struct Product[T] { value: T }
+
+extend[T] Builder[T] {
+    fn init(value: T) Builder[T] {
+        Builder[T] { value }
+    }
+}
+
+extend[T] Builder[T] : Finish[T] {
+    fn finish(self) Product[T] {
+        Product[T] { value: self.value }
+    }
+}
+
+fn main() i32 {
+    let product: Product[i32] = .init(6).finish();
+    product.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn propagates_context_through_explicit_trait_method_generics() {
+    let checked = pipeline(
+        r#"
+trait Finish {
+    fn finish[T](self, value: T) Product[T] {
+        _ = self;
+        Product[T] { value }
+    }
+}
+
+struct Builder {}
+struct Product[T] { value: T }
+
+extend Builder {
+    fn init() Builder {}
+}
+
+extend Builder : Finish {}
+
+fn main() i32 {
+    let product: Product[i32] = .init().finish[i32](7);
+    product.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn contextual_receiver_keeps_normal_overload_specificity() {
+    let checked = pipeline(
+        r#"
+struct Builder {}
+struct Product {}
+
+extend Builder {
+    fn init() Builder {}
+
+    fn finish[T](self, value: T) Product {
+        _ = value;
+        {}
+    }
+}
+
+extend Builder {
+    fn finish(self, value: bool) Product {
+        _ = value;
+        {}
+    }
+}
+
+fn main() () {
+    let product: Product = .init().finish(true);
+    _ = product;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn contextual_receiver_does_not_infer_through_result_coercion() {
+    let checked = pipeline(
+        r#"
+struct Builder {}
+struct Product {}
+
+static mut product: Product = {};
+
+extend Builder {
+    fn init() Builder {}
+
+    fn finish(self) &mut Product {
+        _ = self;
+        &mut product
+    }
+}
+
+fn main() () {
+    let value: &Product = .init().finish();
+    _ = value;
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("omitted member requires a call or enum expected type")),
+        "result coercions must not drive reverse receiver inference: {:?}",
+        checked.diagnostics
     );
 }
