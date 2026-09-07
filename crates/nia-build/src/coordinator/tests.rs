@@ -75,6 +75,7 @@ fn test_invocation() -> BuildInvocation {
         max_parallel_actions: None,
         optimization: OptimizationMode::O0,
         profile: nia_target_config::BuildProfile::Debug,
+        compilation_mode: nia_target_config::CompilationMode::Normal,
     }
 }
 
@@ -1539,7 +1540,7 @@ fn compiler_check_cache_retires_corruption_and_recompiles() {
     write_compiler_check_source(&invocation, "fn main() i32 { 0 }");
     let plan = compiler_check_plan(&invocation, OptimizationMode::O2);
     execute_build_plan(&plan, &invocation).unwrap();
-    let namespace = invocation.cache_dir.join("actions/compiler-checks/v2");
+    let namespace = invocation.cache_dir.join("actions/compiler-checks/v3");
     let key_dir = fs::read_dir(namespace)
         .unwrap()
         .next()
@@ -1578,7 +1579,7 @@ fn compiler_check_cache_never_publishes_missing_sources() {
     assert!(
         !invocation
             .cache_dir
-            .join("actions/compiler-checks/v2")
+            .join("actions/compiler-checks/v3")
             .exists()
     );
 }
@@ -1880,7 +1881,7 @@ fn compiler_emit_cache_retires_corrupt_records_and_driver_references() {
     execute_build_plan(&plan, &invocation).unwrap();
 
     let action_entry = only_nested_cache_entry(
-        &invocation.cache_dir.join("actions/compiler-emits/v3"),
+        &invocation.cache_dir.join("actions/compiler-emits/v4"),
         "entry",
     );
     fs::write(&action_entry, b"corrupt").expect("corrupt compiler emit action entry");
@@ -1983,7 +1984,7 @@ fn compiler_emit_cache_does_not_publish_warnings() {
     assert!(
         !invocation
             .cache_dir
-            .join("actions/compiler-emits/v3")
+            .join("actions/compiler-emits/v4")
             .exists()
     );
 }

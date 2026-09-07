@@ -136,12 +136,17 @@ impl Parser {
             let profile = match path[0] {
                 nia_symbol::known::DEBUG => Some(ProfileKind::Debug),
                 nia_symbol::known::RELEASE => Some(ProfileKind::Release),
-                nia_symbol::known::TEST => Some(ProfileKind::Test),
                 _ => None,
             };
             if let Some(profile) = profile {
                 return Some(Attribute {
                     kind: AttributeKind::Profile(profile),
+                    span: Span::new(start, end),
+                });
+            }
+            if path[0] == nia_symbol::known::TEST {
+                return Some(Attribute {
+                    kind: AttributeKind::Test,
                     span: Span::new(start, end),
                 });
             }

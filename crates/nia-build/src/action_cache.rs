@@ -133,6 +133,10 @@ pub enum ActionCacheInvalidation {
     Module,
     /// Target identity changed.
     Target,
+    /// Build profile changed.
+    Profile,
+    /// Test-compilation mode changed.
+    CompilationMode,
     /// Optimization mode changed.
     Optimization,
     /// Runtime mode changed.

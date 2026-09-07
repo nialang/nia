@@ -480,8 +480,8 @@ const OPTIMIZATION_ROW: HelpRow = HelpRow {
     right: "set the optimization level (-O means -O2)",
 };
 const PROFILE_ROW: HelpRow = HelpRow {
-    left: "--profile <debug|release|test>",
-    right: "select the build profile",
+    left: "--debug, --release, --profile <debug|release>",
+    right: "select the build profile (default: debug)",
 };
 const MODULE_ROW: HelpRow = HelpRow {
     left: "-M, --module <name=path>",

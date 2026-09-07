@@ -208,6 +208,7 @@ fn test_loader_context(
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         profile: nia_target_config::BuildProfile::Debug,
+        compilation_mode: nia_target_config::CompilationMode::Normal,
         entry_runtime: EntryRuntime::None,
         toolchain_identity: test_toolchain_layout().identity().fingerprint(),
         package_roots_with_used_paths: HashSet::new(),

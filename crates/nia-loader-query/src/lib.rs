@@ -27,7 +27,7 @@ use nia_imports::{ModuleMap, StableModuleKey};
 use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
-use nia_target_config::{BuildProfile, TargetConfig};
+use nia_target_config::{BuildProfile, CompilationMode, TargetConfig};
 use nia_toolchain::ToolchainLayout;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
@@ -290,6 +290,7 @@ impl LoaderDatabase {
                 symbols,
                 target: request.target,
                 profile: request.profile,
+                compilation_mode: request.compilation_mode,
                 entry_runtime: request.entry_runtime,
                 toolchain_identity,
                 package_roots_with_used_paths,
@@ -749,6 +750,10 @@ impl LoaderFactProvider for LoaderDatabase {
         self.db.context().profile
     }
 
+    fn compilation_mode(&self) -> CompilationMode {
+        self.db.context().compilation_mode
+    }
+
     fn runtime(&self) -> nia_compiler_query::RuntimeModel {
         queries::runtime_model(self.db.context().entry_runtime)
     }
@@ -773,6 +778,8 @@ pub struct LoadRequest {
     pub target: TargetConfig,
     /// Build profile used for profile-conditional frontend selection.
     pub profile: BuildProfile,
+    /// Whether test-only source participates in frontend selection.
+    pub compilation_mode: CompilationMode,
     /// Entry runtime model.
     pub entry_runtime: EntryRuntime,
     /// Whether package-root `using` paths participate in the source manifest.
@@ -800,6 +807,7 @@ impl LoadRequest {
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
             profile: BuildProfile::default(),
+            compilation_mode: CompilationMode::default(),
             entry_runtime: EntryRuntime::None,
             package_root_used_paths: false,
             frontend_cache_dir: None,
@@ -835,6 +843,12 @@ impl LoadRequest {
     /// Selects the build profile used by conditional source selection.
     pub fn with_profile(mut self, profile: BuildProfile) -> Self {
         self.profile = profile;
+        self
+    }
+
+    /// Selects whether test-only source participates in compilation.
+    pub fn with_compilation_mode(mut self, mode: CompilationMode) -> Self {
+        self.compilation_mode = mode;
         self
     }
 
@@ -916,6 +930,7 @@ fn load_program_trace(
             symbols: SymbolTable::new(),
             target: TargetConfig::host(),
             profile: BuildProfile::default(),
+            compilation_mode: CompilationMode::default(),
             entry_runtime: EntryRuntime::None,
             toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
             package_roots_with_used_paths: HashSet::new(),
@@ -959,6 +974,7 @@ pub(crate) struct LoaderContext {
     pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
     pub(crate) profile: BuildProfile,
+    pub(crate) compilation_mode: CompilationMode,
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
@@ -972,10 +988,11 @@ pub(crate) struct LoaderContext {
 
 impl LoaderContext {
     pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
-        FrontendCacheNamespace::for_toolchain_with_profile(
+        FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
             &self.target,
             queries::runtime_model(self.entry_runtime),
             self.profile,
+            self.compilation_mode,
             self.toolchain_identity,
         )
     }

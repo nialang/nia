@@ -103,6 +103,12 @@ pub trait ConditionResolver {
     fn resolve_profile(&mut self, _profile: nia_ast::ProfileKind) -> Result<bool, ItemTreeError> {
         Ok(true)
     }
+
+    /// Resolves a test-compilation marker. Resolvers that only model target
+    /// conditions treat test markers as active.
+    fn resolve_test(&mut self) -> Result<bool, ItemTreeError> {
+        Ok(true)
+    }
 }
 
 impl ModuleItemTree {
@@ -392,6 +398,7 @@ fn attribute_kind_declaration_eq(lhs: &AttributeKind, rhs: &AttributeKind) -> bo
     match (lhs, rhs) {
         (AttributeKind::If(lhs), AttributeKind::If(rhs)) => condition_declaration_eq(lhs, rhs),
         (AttributeKind::Profile(lhs), AttributeKind::Profile(rhs)) => lhs == rhs,
+        (AttributeKind::Test, AttributeKind::Test) => true,
         (AttributeKind::Meta(lhs), AttributeKind::Meta(rhs)) => {
             lhs.path == rhs.path
                 && lhs.args.len() == rhs.args.len()
@@ -889,6 +896,31 @@ fn item_is_active(
     item: &ItemTreeNode,
     resolver: &mut impl ConditionResolver,
 ) -> Result<bool, ItemTreeError> {
+    let mut profile = None;
+    let mut has_test = false;
+    for attribute in &item.attributes {
+        match attribute.kind {
+            AttributeKind::Profile(current) => {
+                if profile.is_some() {
+                    return Err(ItemTreeError {
+                        span: attribute.span,
+                        message: "an item cannot use more than one build profile".to_string(),
+                    });
+                }
+                profile = Some(current);
+            }
+            AttributeKind::Test => {
+                if has_test {
+                    return Err(ItemTreeError {
+                        span: attribute.span,
+                        message: "an item cannot use `@[test]` more than once".to_string(),
+                    });
+                }
+                has_test = true;
+            }
+            AttributeKind::If(_) | AttributeKind::Meta(_) => {}
+        }
+    }
     for attribute in &item.attributes {
         match &attribute.kind {
             AttributeKind::If(cond) => {
@@ -898,6 +930,11 @@ fn item_is_active(
             }
             AttributeKind::Profile(profile) => {
                 if !resolver.resolve_profile(*profile)? {
+                    return Ok(false);
+                }
+            }
+            AttributeKind::Test => {
+                if !resolver.resolve_test()? {
                     return Ok(false);
                 }
             }

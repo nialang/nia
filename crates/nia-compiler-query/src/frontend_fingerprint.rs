@@ -470,6 +470,23 @@ impl FrontendCacheNamespace {
         profile: nia_target_config::BuildProfile,
         toolchain: nia_toolchain::ToolchainIdentityFingerprint,
     ) -> Self {
+        Self::for_toolchain_with_profile_and_mode(
+            target,
+            runtime,
+            profile,
+            nia_target_config::CompilationMode::Normal,
+            toolchain,
+        )
+    }
+
+    /// Derives a namespace including the selected profile and compilation mode.
+    pub fn for_toolchain_with_profile_and_mode(
+        target: &TargetConfig,
+        runtime: RuntimeModel,
+        profile: nia_target_config::BuildProfile,
+        mode: nia_target_config::CompilationMode,
+        toolchain: nia_toolchain::ToolchainIdentityFingerprint,
+    ) -> Self {
         let mut builder = QueryFingerprintBuilder::new(CACHE_NAMESPACE_DOMAIN);
         builder.write_u64(FRONTEND_CACHE_SCHEMA_VERSION);
         for part in toolchain.parts() {
@@ -493,7 +510,10 @@ impl FrontendCacheNamespace {
         builder.write_u8(match profile {
             nia_target_config::BuildProfile::Debug => 0,
             nia_target_config::BuildProfile::Release => 1,
-            nia_target_config::BuildProfile::Test => 2,
+        });
+        builder.write_u8(match mode {
+            nia_target_config::CompilationMode::Normal => 0,
+            nia_target_config::CompilationMode::Test => 1,
         });
         Self(builder.finish())
     }
@@ -787,7 +807,7 @@ extend Value {
     }
 
     #[test]
-    fn frontend_cache_namespace_covers_toolchain_target_and_runtime() {
+    fn frontend_cache_namespace_covers_toolchain_target_runtime_profile_and_mode() {
         let target = TargetConfig {
             arch: "x86_64".to_string(),
             vendor: "unknown".to_string(),
@@ -833,6 +853,16 @@ extend Value {
                 &target,
                 RuntimeModel::Bare,
                 nia_target_config::BuildProfile::Release,
+                nia_toolchain::ToolchainIdentityFingerprint::current(),
+            )
+        );
+        assert_ne!(
+            baseline,
+            FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+                &target,
+                RuntimeModel::Bare,
+                nia_target_config::BuildProfile::Debug,
+                nia_target_config::CompilationMode::Test,
                 nia_toolchain::ToolchainIdentityFingerprint::current(),
             )
         );

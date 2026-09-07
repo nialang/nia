@@ -323,6 +323,10 @@ fn help_and_version_use_nia_command_name() {
         "{help_stdout}"
     );
     assert!(help_stdout.contains("build [step]"), "{help_stdout}");
+    assert!(
+        help_stdout.contains("--debug, --release, --profile <debug|release>"),
+        "{help_stdout}"
+    );
     assert!(!help_stdout.contains("step|dir"), "{help_stdout}");
     assert!(!help_stdout.contains("lex <file.nia>"), "{help_stdout}");
     assert!(!help_stdout.contains("parse <file.nia>"), "{help_stdout}");
@@ -361,6 +365,10 @@ fn help_and_version_use_nia_command_name() {
         check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
         "{check_stdout}"
     );
+    assert!(
+        check_stdout.contains("--debug, --release, --profile <debug|release>"),
+        "{check_stdout}"
+    );
     assert!(check_stdout.contains("--timings"), "{check_stdout}");
 
     let build_help = support::nia_command()
@@ -376,10 +384,29 @@ fn help_and_version_use_nia_command_name() {
     assert!(build_stdout.contains("nia build [step]"), "{build_stdout}");
     assert!(build_stdout.contains("--root <dir>"), "{build_stdout}");
     assert!(build_stdout.contains("--jobs <count>"), "{build_stdout}");
+    assert!(
+        build_stdout.contains("--debug, --release, --profile <debug|release>"),
+        "{build_stdout}"
+    );
     assert!(build_stdout.contains("build.nia"), "{build_stdout}");
     assert!(!build_stdout.contains("std::build"), "{build_stdout}");
     assert!(!build_stdout.contains("build runner"), "{build_stdout}");
     assert!(!build_stdout.contains(".nia-cache/"), "{build_stdout}");
+
+    let test_help = support::nia_command()
+        .arg("help")
+        .arg("test")
+        .output_timeout_for_runtime("run nia help test");
+    assert!(
+        test_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&test_help.stderr)
+    );
+    let test_stdout = String::from_utf8_lossy(&test_help.stdout);
+    assert!(
+        test_stdout.contains("--debug, --release, --profile <debug|release>"),
+        "{test_stdout}"
+    );
 
     let emit_help = support::nia_command()
         .arg("help")

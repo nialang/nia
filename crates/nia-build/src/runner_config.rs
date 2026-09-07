@@ -264,6 +264,7 @@ mod tests {
             max_parallel_actions: None,
             optimization: OptimizationMode::Oz,
             profile: nia_target_config::BuildProfile::Debug,
+            compilation_mode: nia_target_config::CompilationMode::Normal,
         }
     }
 

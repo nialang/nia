@@ -129,6 +129,7 @@ impl LoadedProgramFixture {
             symbols: test_symbols(),
             target: TargetConfig::host(),
             profile: nia_target_config::BuildProfile::Debug,
+            compilation_mode: nia_target_config::CompilationMode::Normal,
             runtime: RuntimeModel::Bare,
             toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
             modules: self.modules.clone(),

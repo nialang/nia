@@ -22,7 +22,7 @@ pub use nia_loader_query::{SourceInput, SourceInputContent, SourceInputManifest}
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 pub use nia_parser::ParseError;
 pub use nia_source::SourcePath;
-pub use nia_target_config::BuildProfile;
+pub use nia_target_config::{BuildProfile, CompilationMode};
 pub use nia_toolchain::{
     ToolchainIdentity, ToolchainLayout, ToolchainLayoutError, ToolchainLayoutRequest,
 };
