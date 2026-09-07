@@ -2686,6 +2686,37 @@ let mut v = Vec2 { x: 3, y: 4 };
 let mut n = v.len2();
 ```
 
+An expected result type propagates backward through a receiver call chain. This
+allows an omitted associated call at the start of the chain, and also allows a
+generic intermediate result to be determined by a later method:
+
+```nia
+let product: Product = .init().finish();
+let values: Vec[i32] = source.iter().collect().normalize();
+```
+
+Contextual receiver inference is attempted only when the receiver cannot be
+typed on its own. Lookup considers visible extension methods and visible source
+trait implementations with the requested method name. Each candidate must
+satisfy the exact expected return type, explicit or inferred method arguments,
+value arguments, receiver type, generic completeness, and all applicable
+`where` and trait obligations. The inferred receiver is then checked again by
+ordinary method resolution, so normal overload specificity and dispatch rules
+remain authoritative.
+
+The chain is accepted only when those complete constraints identify one
+receiver type. Distinct viable receiver types are ambiguous and require an
+explicit type annotation within the chain. Multiple viable overloads for the
+same receiver type remain subject to ordinary overload selection.
+
+Reverse inference uses type equality, not result coercions. It also does not
+invert associated type projections: a projection may be normalized after its
+trait instance is known, but its result alone is not assumed to uniquely
+identify `Self` or the trait arguments. A chain with neither an independently
+typed receiver nor an expected result type remains an error. This propagation
+is expression-local; it does not infer an earlier unannotated local from an
+unrelated later statement.
+
 Methods are ordinary functions associated with a concrete nominal type. Receiver
 forms:
 

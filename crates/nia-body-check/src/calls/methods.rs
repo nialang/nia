@@ -41,6 +41,12 @@ struct MethodReceiverResolution {
     trait_candidates_searched: bool,
 }
 
+enum ContextualReceiverInference {
+    Unavailable,
+    Unique(InternedTyId),
+    Ambiguous,
+}
+
 #[derive(Clone)]
 pub(super) struct TraitMethodCandidate {
     pub(super) trait_id: GlobalDefId,
@@ -93,8 +99,32 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let span = expr.span;
+        let receiver_expected = match expected {
+            Some(expected) => {
+                self.contextual_method_receiver_type(expr, receiver, name, None, args, expected)
+            }
+            None => ContextualReceiverInference::Unavailable,
+        };
+        if matches!(receiver_expected, ContextualReceiverInference::Ambiguous) {
+            let name = self.symbol_name(*name);
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("ambiguous method `{name}` while inferring receiver type"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
-            this.check_expr(receiver)
+            match receiver_expected {
+                ContextualReceiverInference::Unique(expected) => {
+                    this.check_expr_with_expected(receiver, Some(expected))
+                }
+                ContextualReceiverInference::Unavailable => this.check_expr(receiver),
+                ContextualReceiverInference::Ambiguous => unreachable!(),
+            }
         });
         let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
         self.check_method_call_with_receiver_ty(
@@ -126,8 +156,37 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let span = expr.span;
+        let receiver_expected = match expected {
+            Some(expected) => self.contextual_method_receiver_type(
+                expr,
+                receiver,
+                name,
+                Some(type_args),
+                args,
+                expected,
+            ),
+            None => ContextualReceiverInference::Unavailable,
+        };
+        if matches!(receiver_expected, ContextualReceiverInference::Ambiguous) {
+            let name = self.symbol_name(*name);
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("ambiguous method `{name}` while inferring receiver type"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         let receiver_ty = self.profile_stage("body_check.profile.method.receiver_expr", |this| {
-            this.check_expr(receiver)
+            match receiver_expected {
+                ContextualReceiverInference::Unique(expected) => {
+                    this.check_expr_with_expected(receiver, Some(expected))
+                }
+                ContextualReceiverInference::Unavailable => this.check_expr(receiver),
+                ContextualReceiverInference::Ambiguous => unreachable!(),
+            }
         });
         let resolution = self.method_receiver_resolution(receiver, receiver_ty, name);
         self.check_method_call_with_receiver_ty(

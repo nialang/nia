@@ -576,6 +576,21 @@ All body-check entry points read existing handles from the compilation `TypeStor
 publish inferred or substituted structural types through a module-scoped
 `TypeStoreAppend`. They never borrow a mutable interner.
 
+Receiver call chains use contextual method goals when the receiver cannot be typed
+independently and the call has an expected result. Candidate discovery is restricted to
+visible extension methods and source-trait implementations indexed by method name. Each
+candidate is instantiated from the expected result and call arguments in an isolated
+checker snapshot, then validated through the ordinary method and trait solvers. Failed
+snapshots cannot publish diagnostics, semantic facts, generic instances, or provider
+demands. A unique receiver type is confirmed by rerunning normal checking in the owning
+checker; multiple receiver types produce an ambiguity diagnostic. Reverse matching is
+equality-based and deliberately does not invert coercions or associated projections.
+
+This probe/confirm layer handles bidirectional constraints inside one expression chain.
+The function-local union-find pass remains responsible for structural equality and
+closure constraints across statements; it does not duplicate nominal method lookup or
+generic candidate search.
+
 Later phases consume these products explicitly instead of reading ad hoc body-check
 side tables or rediscovering expression semantics from AST shape.
 
