@@ -10,9 +10,18 @@ direction of Nia.
 
 ## Project Status
 
-Nia is pre-1.0 and under active design. Compatibility with earlier experimental
-syntax is not a goal. Removed behavior should not receive migration paths,
-compatibility tests, or diagnostics that exist only to explain old spellings.
+Nia's first maintained release line is active. Compatibility with earlier
+experimental syntax is not a goal. Removed behavior should not receive
+migration paths, compatibility tests, or diagnostics that exist only to explain
+old spellings.
+
+Formal releases are minor baselines named `0.x.0`. After a release, `main`
+advances to the next minor development identifier and keeps that version across
+ordinary feature and maintenance commits. Patch releases are reserved for
+important fixes to an already released minor line and are maintained from a
+dedicated release branch when needed. A formal release is prepared by changing
+the development identifier to its final `0.x.0` value and pushing the matching
+`vX.Y.0` tag; the release workflow rejects other tag shapes.
 
 ## Before Contributing
 

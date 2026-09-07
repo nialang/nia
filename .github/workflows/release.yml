@@ -34,6 +34,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes cmake ninja-build gcc g++ make curl git
 
+      - name: Validate formal release tag
+        run: |
+          version="$(cargo pkgid -p nia-cli | sed -n 's/.*#//p')"
+          tag="v${version}"
+          if [[ "${GITHUB_REF_NAME}" != "${tag}" || ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.0$ ]]; then
+            echo "formal releases require a vX.Y.0 tag matching package version; got ${GITHUB_REF_NAME} for ${version}" >&2
+            exit 1
+          fi
+
       - name: Build pinned static LLVM
         run: tools/llvm/build-static.sh
 
@@ -54,10 +63,6 @@ jobs:
         run: |
           version="$(cargo pkgid -p nia-cli | sed -n 's/.*#//p')"
           tag="v${version}"
-          if [[ "${GITHUB_REF_TYPE}" == tag && "${GITHUB_REF_NAME}" != "${tag}" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match package version ${version}" >&2
-            exit 1
-          fi
           gh release create "${tag}" \
             "target/release-package/nia-${version}-linux-x86_64.tar.gz" \
             "target/release-package/SHA256SUMS" \

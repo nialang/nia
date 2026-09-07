@@ -71,6 +71,8 @@ fn release_workflow_publishes_only_versioned_linux_archives() {
     assert!(workflow.contains("      - \"v*\""));
     assert!(workflow.contains("permissions:\n  contents: write"));
     assert!(workflow.contains("tools/llvm/build-static.sh"));
+    assert!(workflow.contains("Validate formal release tag"));
+    assert!(workflow.contains("^v[0-9]+\\.[0-9]+\\.0$"));
     assert!(workflow.contains("tools/release/package.sh"));
     assert!(workflow.contains("SHA256SUMS"));
     assert!(workflow.contains("gh release create"));
