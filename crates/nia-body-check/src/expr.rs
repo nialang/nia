@@ -489,12 +489,12 @@ impl<'a> BodyChecker<'a> {
                 _ => None,
             })
             .unwrap_or_else(|| {
-                let closure_id = nia_ids::ClosureId {
-                    owner,
-                    ordinal: self.next_closure_ordinal,
-                };
-                self.next_closure_ordinal = self.next_closure_ordinal.saturating_add(1);
-                closure_id
+                let ordinal = self
+                    .closure_ordinals
+                    .get(&expr.node_key)
+                    .copied()
+                    .expect("Nia ICE: closure expression has no source ordinal");
+                nia_ids::ClosureId { owner, ordinal }
             });
 
         let mut capture_types = Vec::with_capacity(captures.len());

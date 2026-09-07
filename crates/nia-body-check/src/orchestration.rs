@@ -354,7 +354,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         timing_module_id: module_id,
         current_return: unit_ty,
         current_def_id: None,
-        next_closure_ordinal: 0,
+        closure_ordinals: HashMap::new(),
         current_param_locals: Vec::new(),
         const_context_depth: 0,
         const_call_locals: Vec::new(),

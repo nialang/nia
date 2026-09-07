@@ -1,6 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+struct ClosureOrdinalCollector {
+    ordinals: HashMap<VersionedNodeKey, u32>,
+}
+
+impl<'ast> Visitor<'ast> for ClosureOrdinalCollector {
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if matches!(expr.kind, ExprKind::Closure { .. }) {
+            let ordinal = u32::try_from(self.ordinals.len())
+                .expect("Nia ICE: function contains more than u32::MAX closure expressions");
+            self.ordinals.insert(expr.node_key.clone(), ordinal);
+        }
+        nia_ast_walk::walk_expr(self, expr);
+    }
+}
+
+fn closure_ordinals(body: &Block) -> HashMap<VersionedNodeKey, u32> {
+    // Constraint probes may inspect expressions in candidate-dependent order.
+    // Assign source identities up front so that order cannot leak into IR or
+    // persistent object fingerprints.
+    let mut collector = ClosureOrdinalCollector {
+        ordinals: HashMap::new(),
+    };
+    collector.visit_block(body);
+    collector.ordinals
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn profile_stage<T>(
         &mut self,
@@ -204,6 +230,7 @@ impl<'a> BodyChecker<'a> {
         };
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
+        let previous_closure_ordinals = std::mem::take(&mut self.closure_ordinals);
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         let previous_local_types = std::mem::take(&mut self.local_types);
         let previous_node_expr_types = std::mem::take(&mut self.node_expr_types);
@@ -231,7 +258,7 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default();
         self.current_return = signature.return_type;
         self.current_def_id = Some(global_def_id);
-        self.next_closure_ordinal = 0;
+        self.closure_ordinals = closure_ordinals(body);
         self.current_param_locals = function
             .params
             .iter()
@@ -259,6 +286,7 @@ impl<'a> BodyChecker<'a> {
             .insert(global_def_id, Arc::new(lowered));
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
+        self.closure_ordinals = previous_closure_ordinals;
         self.current_param_locals = previous_param_locals;
         self.local_types = previous_local_types;
         self.node_expr_types = previous_node_expr_types;
@@ -723,6 +751,7 @@ impl<'a> BodyChecker<'a> {
         );
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
+        let previous_closure_ordinals = std::mem::take(&mut self.closure_ordinals);
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         let previous_local_types = std::mem::take(&mut self.local_types);
         self.current_return = signature.return_type;
@@ -753,6 +782,7 @@ impl<'a> BodyChecker<'a> {
             },
         );
         if let Some(body) = &function.body {
+            self.closure_ordinals = closure_ordinals(body);
             self.infer_function_closures(body);
             let expected_tail =
                 (!self.is_unit(signature.return_type)).then_some(signature.return_type);
@@ -788,6 +818,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
+        self.closure_ordinals = previous_closure_ordinals;
         self.current_param_locals = previous_param_locals;
         self.local_types = previous_local_types;
     }
