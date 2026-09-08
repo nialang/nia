@@ -426,6 +426,14 @@ impl CompiledPackageInterfaceIndex {
     ) -> Option<Vec<&nia_package_metadata::InterfaceRecord>> {
         Some(self.packages.get(package)?.module_records(module).collect())
     }
+
+    /// Looks up one package-qualified module manifest record.
+    pub fn module(
+        &self,
+        identity: &nia_package_metadata::ModuleId,
+    ) -> Option<&nia_package_metadata::ModuleInterface> {
+        self.packages.get(&identity.package)?.module(identity)
+    }
 }
 
 impl<F> StableDefinitionPackageResolver for F
