@@ -1281,8 +1281,14 @@ impl CompilerDatabase {
     ) -> QueryResult<(InterfaceSection, StableTypeGraph)> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
+        let entry_package_root = graph.current_package_root(graph.entry());
         let mut pending = Vec::new();
         for module in graph.modules() {
+            if entry_package_root.is_some()
+                && graph.current_package_root(module.id) != entry_package_root
+            {
+                continue;
+            }
             let Some(stable_key) = graph.stable_key(module.id) else {
                 continue;
             };
@@ -1401,10 +1407,25 @@ impl CompilerDatabase {
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        let mut paths = interface
-            .records
-            .iter()
-            .map(|record| record.definition.module.path.clone())
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let entry_package_root = graph.current_package_root(graph.entry());
+        let mut paths = graph
+            .modules()
+            .filter(|module| {
+                entry_package_root.is_none()
+                    || graph.current_package_root(module.id) == entry_package_root
+            })
+            .filter_map(|module| {
+                graph
+                    .stable_key(module.id)
+                    .map(|key| key.source_identity().normalized_path().to_owned())
+            })
+            .chain(
+                interface
+                    .records
+                    .iter()
+                    .map(|record| record.definition.module.path.clone()),
+            )
             .collect::<Vec<_>>();
         paths.sort();
         paths.dedup();
