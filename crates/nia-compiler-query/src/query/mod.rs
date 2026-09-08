@@ -1626,6 +1626,33 @@ impl CompilerDatabase {
         self.publish_package_artifact_with_resolver_and_products(package, resolver, None, native)
     }
 
+    /// Convenience native publication for a package with no external nominal
+    /// definition references.
+    pub fn publish_package_artifact_with_native(
+        &self,
+        package: PackageId,
+        native: nia_package_metadata::NativeSection,
+    ) -> QueryResult<crate::PackageArtifactPublication> {
+        let package_for_resolver = package.clone();
+        let resolver = |def_id: GlobalDefId| {
+            let graph = self.db.get(ModuleGraphQuery)?;
+            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "entry module has no package root".to_string(),
+                ));
+            };
+            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "nominal type belongs to an external package".to_string(),
+                ));
+            }
+            Ok(package_for_resolver.clone())
+        };
+        self.publish_package_artifact_with_resolver_and_native(package, &resolver, Some(native))
+    }
+
     /// Publishes a package artifact with explicitly supplied checked templates
     /// and target-native objects. Products are validated by their canonical
     /// metadata codecs before the container is emitted.

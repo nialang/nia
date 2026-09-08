@@ -27,7 +27,7 @@ use nia_loader_query::{
     EntryRuntime, LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest,
 };
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_package_metadata::{PackageId, PackageManifest};
+use nia_package_metadata::{NativeObject, NativeSection, NativeTarget, PackageId, PackageManifest};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::{BuildProfile, TargetConfig};
 use nia_toolchain::ToolchainLayout;
@@ -91,6 +91,17 @@ const STATIC_ARCHIVE_CACHE_REFERENCE_LEN: usize = 12 * size_of::<u64>();
 const STATIC_ARCHIVE_CACHE_ENVIRONMENT_LEN: usize = size_of::<[u64; 8]>();
 const DRIVER_FILE_STREAM_BYTES: usize = 64 * 1024;
 static DRIVER_OUTPUT_STAGE_ID: AtomicU64 = AtomicU64::new(0);
+
+fn optimization_wire_tag(level: NiaOptimizationLevel) -> u8 {
+    match level {
+        NiaOptimizationLevel::O0 => 0,
+        NiaOptimizationLevel::O1 => 1,
+        NiaOptimizationLevel::O2 => 2,
+        NiaOptimizationLevel::O3 => 3,
+        NiaOptimizationLevel::Os => 4,
+        NiaOptimizationLevel::Oz => 5,
+    }
+}
 
 /// Environment fingerprint encoded alongside executable cache references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -660,6 +671,84 @@ impl Driver {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
                         query_error_diagnostic(error),
                     ));
+                }
+            };
+            if let Err(error) = write_atomic_bytes(&output, &publication.bytes) {
+                return DriverOutput::from_error(DriverError::Io {
+                    path: output,
+                    operation: "publish package artifact",
+                    error,
+                });
+            }
+            DriverOutput::success(PublishedPackageArtifact {
+                path: output,
+                manifest: publication.manifest,
+            })
+        })
+    }
+
+    /// Publishes an artifact with native objects produced by this driver.
+    /// Native payloads are target/profile/optimization keyed and are encoded
+    /// through the compiler's canonical package-product API.
+    pub fn publish_package_artifact_with_native_objects(
+        &self,
+        request: CheckRequest,
+        package: PackageId,
+        output: PathBuf,
+        objects: &ObjectArtifact,
+    ) -> DriverOutput<PublishedPackageArtifact> {
+        DriverOutput::catch_ice(|| {
+            let database = match self.compiler_database(&request) {
+                Ok(database) => database,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            let checked = match database.check_program() {
+                Ok(checked) => checked,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
+            };
+            if has_error_diagnostics(&checked.diagnostics) {
+                return DriverOutput::from_error(DriverError::CheckDiagnostics(checked));
+            }
+            let native = NativeSection {
+                target: NativeTarget {
+                    arch: self.config.artifact_target.arch.clone(),
+                    vendor: self.config.artifact_target.vendor.clone(),
+                    os: self.config.artifact_target.os.clone(),
+                    env: self.config.artifact_target.env.clone(),
+                    abi: self.config.artifact_target.abi.clone(),
+                    endian: self.config.artifact_target.endian.clone(),
+                    pointer_width: self.config.artifact_target.pointer_width,
+                },
+                profile: match request.profile {
+                    BuildProfile::Debug => 0,
+                    BuildProfile::Release => 1,
+                },
+                optimization: optimization_wire_tag(objects.optimization.level),
+                objects: objects
+                    .link_inputs
+                    .as_slice()
+                    .iter()
+                    .map(|input| NativeObject {
+                        key: format!("{:?}", input.key),
+                        bytes: input.object.bytes.clone(),
+                    })
+                    .collect(),
+            };
+            let publication = database
+                .publish_package_artifact_with_native(package, native)
+                .map_err(query_error_diagnostic);
+            let publication = match publication {
+                Ok(publication) => publication,
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(error));
                 }
             };
             if let Err(error) = write_atomic_bytes(&output, &publication.bytes) {
