@@ -643,7 +643,10 @@ impl CompilerDatabase {
             if let Some(templates) = interface.templates() {
                 for record in &templates.records {
                     if record.definition.module.package != *package
-                        || interface.definition(&record.definition).is_none()
+                        || !interface
+                            .records()
+                            .iter()
+                            .any(|item| item.definition == record.definition)
                         || records
                             .insert(record.definition.clone(), record.clone())
                             .is_some()
@@ -1607,6 +1610,32 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<crate::PackageArtifactPublication> {
+        self.publish_package_artifact_with_resolver_and_native(package, resolver, None)
+    }
+
+    /// Publishes a package artifact and optionally embeds a validated
+    /// target/profile-specific native product. Native bytes are supplied by
+    /// the driver after code generation; interface publication remains
+    /// target-independent and keeps its own invalidation boundary.
+    pub fn publish_package_artifact_with_resolver_and_native(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+        native: Option<nia_package_metadata::NativeSection>,
+    ) -> QueryResult<crate::PackageArtifactPublication> {
+        self.publish_package_artifact_with_resolver_and_products(package, resolver, None, native)
+    }
+
+    /// Publishes a package artifact with explicitly supplied checked templates
+    /// and target-native objects. Products are validated by their canonical
+    /// metadata codecs before the container is emitted.
+    pub fn publish_package_artifact_with_resolver_and_products(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+        templates: Option<nia_package_metadata::TemplateSection>,
+        native: Option<nia_package_metadata::NativeSection>,
+    ) -> QueryResult<crate::PackageArtifactPublication> {
         let (interface, type_graph) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let public_surface =
@@ -1677,21 +1706,46 @@ impl CompilerDatabase {
         let manifest = PackageManifest {
             modules,
             dependencies,
-            ..PackageManifest::current(package)
+            ..PackageManifest::current(package.clone())
         };
         let type_graph_bytes = nia_package_metadata::encode_type_graph(&type_graph)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let public_surface_bytes = nia_package_metadata::encode_public_surface(&public_surface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        let bytes = nia_package_metadata::encode_artifact(
-            &manifest,
-            &[
-                (SectionKind::Interface, interface_bytes.as_slice()),
-                (SectionKind::TypeGraph, type_graph_bytes.as_slice()),
-                (SectionKind::PublicSurface, public_surface_bytes.as_slice()),
-            ],
-        )
-        .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let native_bytes = native
+            .as_ref()
+            .map(nia_package_metadata::encode_native)
+            .transpose()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let template_bytes = templates
+            .as_ref()
+            .map(|section| {
+                if section.records.iter().any(|record| {
+                    record.definition.module.package != package
+                        || !interface
+                            .records
+                            .iter()
+                            .any(|item| item.definition == record.definition)
+                }) {
+                    return Err(nia_package_metadata::MetadataError::InvalidManifest);
+                }
+                nia_package_metadata::encode_templates(section)
+            })
+            .transpose()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let mut sections = vec![
+            (SectionKind::Interface, interface_bytes.as_slice()),
+            (SectionKind::TypeGraph, type_graph_bytes.as_slice()),
+            (SectionKind::PublicSurface, public_surface_bytes.as_slice()),
+        ];
+        if let Some(bytes) = native_bytes.as_ref() {
+            sections.push((SectionKind::Native, bytes.as_slice()));
+        }
+        if let Some(bytes) = template_bytes.as_ref() {
+            sections.push((SectionKind::Templates, bytes.as_slice()));
+        }
+        let bytes = nia_package_metadata::encode_artifact(&manifest, &sections)
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         nia_package_metadata::PackageArtifact::open(bytes.clone())
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         Ok(crate::PackageArtifactPublication { manifest, bytes })

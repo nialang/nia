@@ -186,6 +186,78 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
 }
 
 #[test]
+fn package_artifact_publication_can_embed_validated_native_product() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "native-demo".into(),
+        version: "1.0.0".into(),
+    };
+    let native = nia_package_metadata::NativeSection {
+        target: nia_package_metadata::NativeTarget {
+            arch: "x86_64".into(),
+            vendor: "unknown".into(),
+            os: "linux".into(),
+            env: "gnu".into(),
+            abi: "gnu".into(),
+            endian: "little".into(),
+            pointer_width: 64,
+        },
+        profile: 0,
+        optimization: 0,
+        objects: vec![nia_package_metadata::NativeObject {
+            key: "unit-0".into(),
+            bytes: vec![1, 2, 3],
+        }],
+    };
+    let publication = database
+        .publish_package_artifact_with_resolver_and_native(
+            package.clone(),
+            &|_| Ok(package.clone()),
+            Some(native.clone()),
+        )
+        .unwrap();
+    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
+    assert_eq!(artifact.native().unwrap(), Some(native));
+}
+
+#[test]
+fn package_artifact_publication_rejects_template_for_unknown_definition() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "template-demo".into(),
+        version: "1.0.0".into(),
+    };
+    let templates = nia_package_metadata::TemplateSection {
+        records: vec![nia_package_metadata::TemplateRecord {
+            definition: nia_package_metadata::DefinitionId {
+                module: nia_package_metadata::ModuleId {
+                    package: package.clone(),
+                    path: "src/main.nia".into(),
+                },
+                name: "missing".into(),
+                kind: 2,
+            },
+            body: vec![1],
+            summary: vec![1],
+        }],
+    };
+    assert!(
+        database
+            .publish_package_artifact_with_resolver_and_products(
+                package.clone(),
+                &|_| Ok(package.clone()),
+                Some(templates),
+                None,
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn package_publication_excludes_definitions_owned_by_dependency_packages() {
     let mut fixture = LoadedProgramFixture::new("src/main.nia", "pub fn root() () {}");
     let dependency_module = fixture.add_child(
