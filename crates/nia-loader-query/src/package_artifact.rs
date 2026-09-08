@@ -183,6 +183,9 @@ pub(crate) fn load(
     if let Err(error) = artifact.validate_sections() {
         return fallback_or_error(request, PackageArtifactFallback::InvalidMetadata(error));
     }
+    if let Err(error) = artifact.interface() {
+        return fallback_or_error(request, PackageArtifactFallback::InvalidMetadata(error));
+    }
     let manifest = artifact.manifest();
     let mismatch = manifest
         .compiler_version
