@@ -1,0 +1,13 @@
+[package]
+name = "nia-package-metadata"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-compat = { workspace = true }
+blake3 = "1.8.2"
+
+[lib]
+path = "src/lib.rs"
