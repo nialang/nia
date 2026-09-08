@@ -14,7 +14,8 @@ const MAX_ITEMS: usize = 1_000_000;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
-const INTERFACE_SCHEMA: u32 = 1;
+// Version 2 adds the declaration kind to stable definition identities.
+const INTERFACE_SCHEMA: u32 = 2;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -366,6 +367,11 @@ pub fn encode_artifact(
         return Err(MetadataError::TooLarge);
     }
     Ok(output)
+}
+
+/// Returns the stable content hash used by package manifests for one section.
+pub fn section_hash(bytes: &[u8]) -> [u8; 32] {
+    *blake3::hash(bytes).as_bytes()
 }
 /// Decodes a complete manifest-only artifact.
 pub fn decode(bytes: &[u8]) -> Result<PackageManifest, MetadataError> {

@@ -135,6 +135,22 @@ fn package_interface_publication_is_canonical_and_stable() {
 }
 
 #[test]
+fn package_artifact_publication_round_trips_manifest_and_interface() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let publication = database.publish_package_artifact(package.clone()).unwrap();
+    assert_eq!(publication.manifest.package, package);
+    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
+    assert_eq!(artifact.manifest(), &publication.manifest);
+    assert!(artifact.interface().unwrap().is_some());
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,

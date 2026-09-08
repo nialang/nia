@@ -62,6 +62,15 @@ pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
+/// Immutable bytes and manifest published for one compiled package snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageArtifactPublication {
+    /// Target-independent package manifest.
+    pub manifest: nia_package_metadata::PackageManifest,
+    /// Complete, validated package container ready for atomic publication.
+    pub bytes: Vec<u8>,
+}
+
 /// Converts a query-engine failure into a compiler-owned diagnostic.
 pub fn query_error_diagnostic(error: nia_query::QueryError) -> Diagnostic {
     query::query_error_diagnostic(error)
