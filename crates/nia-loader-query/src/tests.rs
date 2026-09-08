@@ -155,6 +155,8 @@ mod module_dependency_verification;
 mod module_discovery;
 #[path = "tests/module_map_loading.rs"]
 mod module_map_loading;
+#[path = "tests/package_artifact.rs"]
+mod package_artifact;
 #[path = "tests/package_provider_loading.rs"]
 mod package_provider_loading;
 #[path = "tests/persistent_module_dependencies.rs"]
