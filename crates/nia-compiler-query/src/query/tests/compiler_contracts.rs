@@ -221,70 +221,91 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
         name: "dep".into(),
         version: "1.0.0".into(),
     };
-    let make_interface = |name: &str, template_body: &[u8], dependency_hash: [u8; 32]| {
-        let section = nia_package_metadata::InterfaceSection {
-            records: vec![nia_package_metadata::InterfaceRecord {
-                definition: nia_package_metadata::DefinitionId {
-                    module: nia_package_metadata::ModuleId {
-                        package: package.clone(),
-                        path: "src/lib.nia".into(),
+    let make_interface =
+        |name: &str, template_body: &[u8], dependency_hash: [u8; 32], native_byte: u8| {
+            let section = nia_package_metadata::InterfaceSection {
+                records: vec![nia_package_metadata::InterfaceRecord {
+                    definition: nia_package_metadata::DefinitionId {
+                        module: nia_package_metadata::ModuleId {
+                            package: package.clone(),
+                            path: "src/lib.nia".into(),
+                        },
+                        name: name.into(),
+                        kind: 2,
                     },
-                    name: name.into(),
-                    kind: 2,
+                    declaration: b"NIADECL01".to_vec(),
+                    type_roots: Vec::new(),
+                }],
+            };
+            let bytes = nia_package_metadata::encode_interface(&section).unwrap();
+            let templates = nia_package_metadata::TemplateSection {
+                records: vec![nia_package_metadata::TemplateRecord {
+                    definition: section.records[0].definition.clone(),
+                    body: template_body.to_vec(),
+                    summary: b"summary".to_vec(),
+                }],
+            };
+            let template_bytes = nia_package_metadata::encode_templates(&templates).unwrap();
+            let native_target = nia_target_config::TargetConfig::host();
+            let native = nia_package_metadata::NativeSection {
+                target: nia_package_metadata::NativeTarget {
+                    arch: native_target.arch,
+                    vendor: native_target.vendor,
+                    os: native_target.os,
+                    env: native_target.env,
+                    abi: native_target.abi,
+                    endian: native_target.endian,
+                    pointer_width: native_target.pointer_width,
                 },
-                declaration: b"NIADECL01".to_vec(),
-                type_roots: Vec::new(),
-            }],
-        };
-        let bytes = nia_package_metadata::encode_interface(&section).unwrap();
-        let templates = nia_package_metadata::TemplateSection {
-            records: vec![nia_package_metadata::TemplateRecord {
-                definition: section.records[0].definition.clone(),
-                body: template_body.to_vec(),
-                summary: b"summary".to_vec(),
-            }],
-        };
-        let template_bytes = nia_package_metadata::encode_templates(&templates).unwrap();
-        let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
-        manifest
-            .dependencies
-            .push(nia_package_metadata::PackageDependency {
-                package: nia_package_metadata::PackageId {
-                    namespace: "example".into(),
-                    name: "base".into(),
-                    version: "1.0.0".into(),
-                },
-                interface_hash: dependency_hash,
-            });
-        manifest
-            .modules
-            .push(nia_package_metadata::ModuleInterface {
-                path: "src/lib.nia".into(),
-                interface_hash: nia_package_metadata::interface_module_hash(
-                    &section,
-                    "src/lib.nia",
+                profile: 0,
+                optimization: 0,
+                objects: vec![nia_package_metadata::NativeObject {
+                    key: "unit".into(),
+                    bytes: vec![native_byte],
+                }],
+            };
+            let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
+            let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
+            manifest
+                .dependencies
+                .push(nia_package_metadata::PackageDependency {
+                    package: nia_package_metadata::PackageId {
+                        namespace: "example".into(),
+                        name: "base".into(),
+                        version: "1.0.0".into(),
+                    },
+                    interface_hash: dependency_hash,
+                });
+            manifest
+                .modules
+                .push(nia_package_metadata::ModuleInterface {
+                    path: "src/lib.nia".into(),
+                    interface_hash: nia_package_metadata::interface_module_hash(
+                        &section,
+                        "src/lib.nia",
+                    )
+                    .unwrap(),
+                });
+            let artifact = nia_package_metadata::PackageArtifact::open(
+                nia_package_metadata::encode_artifact(
+                    &manifest,
+                    &[
+                        (nia_package_metadata::SectionKind::Interface, &bytes),
+                        (
+                            nia_package_metadata::SectionKind::Templates,
+                            &template_bytes,
+                        ),
+                        (nia_package_metadata::SectionKind::Native, &native_bytes),
+                    ],
                 )
                 .unwrap(),
-            });
-        let artifact = nia_package_metadata::PackageArtifact::open(
-            nia_package_metadata::encode_artifact(
-                &manifest,
-                &[
-                    (nia_package_metadata::SectionKind::Interface, &bytes),
-                    (
-                        nia_package_metadata::SectionKind::Templates,
-                        &template_bytes,
-                    ),
-                ],
             )
-            .unwrap(),
-        )
-        .unwrap();
-        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap()
-    };
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [0; 32])]);
+            .unwrap();
+            nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap()
+        };
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [0; 32], 0)]);
     let _ = database.compiled_package_interface_index().unwrap();
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [1; 32])]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"a", [1; 32], 0)]);
     let dependency_invalidation = database
         .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
         .unwrap();
@@ -294,12 +315,22 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             .iter()
             .any(|frame| frame.name == "compiled_package_interface_index")
     );
-    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [1; 32])]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [1; 32], 0)]);
     let template_invalidation = database
-        .update(CompileRequest::new(fixture.program()).with_loader_facts(loader))
+        .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
         .unwrap();
     assert!(
         template_invalidation
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "compiled_package_interface_index")
+    );
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"b", [1; 32], 1)]);
+    let native_invalidation = database
+        .update(CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()))
+        .unwrap();
+    assert!(
+        native_invalidation
             .invalidated
             .iter()
             .any(|frame| frame.name == "compiled_package_interface_index")
