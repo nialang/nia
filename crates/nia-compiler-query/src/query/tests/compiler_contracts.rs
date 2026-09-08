@@ -1065,6 +1065,27 @@ fn loaded_definition_resolver_validates_stable_identity() {
 }
 
 #[test]
+fn loaded_definition_resolver_handles_nested_identity() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub enum User { Value }");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let interface = database.package_interface_section(package.clone()).unwrap();
+    let variant = interface
+        .records
+        .iter()
+        .find(|record| record.definition.name == "Value")
+        .expect("variant interface record");
+    let resolved = database
+        .resolve_loaded_definition(&variant.definition, &package)
+        .unwrap();
+    assert_eq!(resolved.module_id, fixture.entry_id());
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,
