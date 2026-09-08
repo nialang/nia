@@ -1658,9 +1658,13 @@ fn compiled_interface_index_fingerprint(
                 builder.write_u64(u64::from(*root));
             }
         }
-        let graph = interface.type_graph()?;
-        let graph_bytes = nia_package_metadata::encode_type_graph(graph).ok()?;
-        builder.write_bytes(&graph_bytes);
+        if let Some(graph) = interface.type_graph() {
+            builder.write_u8(1);
+            let graph_bytes = nia_package_metadata::encode_type_graph(graph).ok()?;
+            builder.write_bytes(&graph_bytes);
+        } else {
+            builder.write_u8(0);
+        }
     }
     Some(builder.finish())
 }
