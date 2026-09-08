@@ -19,7 +19,7 @@ const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 // Version 2 adds the declaration kind to stable definition identities.
-const INTERFACE_SCHEMA: u32 = 3;
+const INTERFACE_SCHEMA: u32 = 4;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
@@ -81,6 +81,8 @@ pub struct ModuleInterface {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceRecord {
     pub definition: DefinitionId,
+    /// Stable identity of the containing aggregate/trait for nested members.
+    pub parent: Option<DefinitionId>,
     /// Canonical declaration facts owned by the compiler interface protocol.
     pub declaration: Vec<u8>,
     /// Strictly sorted indices into the package type-graph section.
@@ -406,6 +408,12 @@ impl InterfaceSection {
         }
         for record in &self.records {
             validate_definition(&record.definition)?;
+            if let Some(parent) = &record.parent {
+                validate_definition(parent)?;
+                if parent.module != record.definition.module {
+                    return Err(MetadataError::InvalidManifest);
+                }
+            }
             validate_bytes(&record.declaration)?;
             if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
                 return Err(MetadataError::InvalidManifest);
@@ -993,6 +1001,13 @@ pub fn encode_interface(section: &InterfaceSection) -> Result<Vec<u8>, MetadataE
         put_string(&mut output, &record.definition.module.path)?;
         put_string(&mut output, &record.definition.name)?;
         output.push(record.definition.kind);
+        match &record.parent {
+            Some(parent) => {
+                output.push(1);
+                put_definition(&mut output, parent)?;
+            }
+            None => output.push(0),
+        }
         put_bytes(&mut output, &record.declaration)?;
         put_list_len(&mut output, record.type_roots.len())?;
         for root in &record.type_roots {
@@ -1023,15 +1038,22 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
     let count = bounded_count(get_u32(&mut cursor)?)?;
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
-        records.push(InterfaceRecord {
-            definition: DefinitionId {
-                module: ModuleId {
-                    package: get_id(&mut cursor)?,
-                    path: get_string(&mut cursor)?,
-                },
-                name: get_string(&mut cursor)?,
-                kind: read_u8(&mut cursor)?,
+        let definition = DefinitionId {
+            module: ModuleId {
+                package: get_id(&mut cursor)?,
+                path: get_string(&mut cursor)?,
             },
+            name: get_string(&mut cursor)?,
+            kind: read_u8(&mut cursor)?,
+        };
+        let parent = match read_u8(&mut cursor)? {
+            0 => None,
+            1 => Some(read_definition(&mut cursor)?),
+            _ => return Err(MetadataError::InvalidManifest),
+        };
+        records.push(InterfaceRecord {
+            definition,
+            parent,
             declaration: get_bytes(&mut cursor)?,
             type_roots: read_refs(&mut cursor)?,
         });
@@ -1963,6 +1985,7 @@ mod tests {
                     name: "write".into(),
                     kind: 2,
                 },
+                parent: None,
                 declaration: b"fn(Text) Unit".to_vec(),
                 type_roots: Vec::new(),
             }],
@@ -1997,6 +2020,7 @@ mod tests {
                 name: "a".into(),
                 kind: 2,
             },
+            parent: None,
             declaration: vec![1],
             type_roots: Vec::new(),
         };
@@ -2009,6 +2033,7 @@ mod tests {
                 name: "a".into(),
                 kind: 2,
             },
+            parent: None,
             declaration: vec![2],
             type_roots: Vec::new(),
         };
