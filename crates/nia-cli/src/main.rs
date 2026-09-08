@@ -9,7 +9,8 @@
 #[cfg(feature = "perf-alloc")]
 use std::alloc::System;
 use std::{
-    env, fs, io,
+    env, fmt, fs, io,
+    io::Write,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -34,13 +35,12 @@ fn main() -> ExitCode {
     nia_timing::register_allocation_instrumentation();
     nia_ice::install_panic_hook();
     match parse_cli(env::args().skip(1).collect()) {
-        Ok(CliAction::Help(topic)) => {
-            print!("{}", help_text(topic, HelpStyle::for_stdout()));
-            ExitCode::SUCCESS
-        }
+        Ok(CliAction::Help(topic)) => write_stdout(format_args!(
+            "{}",
+            help_text(topic, HelpStyle::for_stdout())
+        )),
         Ok(CliAction::Version) => {
-            println!("nia {}", nia_compat::COMPILER_VERSION);
-            ExitCode::SUCCESS
+            write_stdout(format_args!("nia {}\n", nia_compat::COMPILER_VERSION))
         }
         Ok(CliAction::Run(cli)) => {
             let timing_options = cli.timing_options();
@@ -52,10 +52,23 @@ fn main() -> ExitCode {
         }
         Err(error) => {
             if error.is_help {
-                print!("{}", help_text(error.help, HelpStyle::for_stdout()));
-                return ExitCode::SUCCESS;
+                return write_stdout(format_args!(
+                    "{}",
+                    help_text(error.help, HelpStyle::for_stdout())
+                ));
             }
             report_cli_error(&error.message, error.help);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn write_stdout(args: fmt::Arguments<'_>) -> ExitCode {
+    match io::stdout().lock().write_fmt(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: failed printing to stdout: {error}");
             ExitCode::FAILURE
         }
     }
@@ -1279,13 +1292,18 @@ fn resolve_package_root_path(path: &str) -> Result<PathBuf, String> {
 }
 
 fn run_lex(source: &str) -> ExitCode {
-    print!("{}", nia_driver::tokens_inspection(source).text);
-    ExitCode::SUCCESS
+    write_stdout(format_args!(
+        "{}",
+        nia_driver::tokens_inspection(source).text
+    ))
 }
 
 fn run_parse(path: &str, source: &str) -> ExitCode {
     let inspection = nia_driver::ast_inspection(source);
-    print!("{}", inspection.text);
+    let status = write_stdout(format_args!("{}", inspection.text));
+    if status != ExitCode::SUCCESS {
+        return status;
+    }
     if !inspection.parse_errors.is_empty() {
         eprint!(
             "{}",
@@ -1359,7 +1377,7 @@ fn run_check(
             Ok(program) => program,
             Err(code) => return code,
         };
-        print_optimization_report(&codegen);
+        return print_optimization_report(&codegen);
     }
     ExitCode::SUCCESS
 }
@@ -1622,8 +1640,7 @@ fn run_emit_checked(path: &str, source: &str, runtime: Runtime, context: EmitCon
         Ok(program) => program,
         Err(code) => return code,
     };
-    println!("{program:#?}");
-    ExitCode::SUCCESS
+    write_stdout(format_args!("{program:#?}\n"))
 }
 
 fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
@@ -1649,8 +1666,7 @@ fn run_emit_backend(path: &str, source: &str, runtime: Runtime, context: EmitCon
     if context.opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    println!("{:#?}", program.backend_lowering.program);
-    ExitCode::SUCCESS
+    write_stdout(format_args!("{:#?}\n", program.backend_lowering.program))
 }
 
 fn run_emit_llvm(path: &str, source: &str, runtime: Runtime, context: EmitContext) -> ExitCode {
@@ -1675,7 +1691,10 @@ fn run_emit_llvm(path: &str, source: &str, runtime: Runtime, context: EmitContex
                 eprint!("{}", nia_driver::llvm_ir_optimization_report(&artifact));
             }
             for module in artifact.modules {
-                print!("{}", module.ir);
+                let status = write_stdout(format_args!("{}", module.ir));
+                if status != ExitCode::SUCCESS {
+                    return status;
+                }
             }
             ExitCode::SUCCESS
         }
@@ -2073,8 +2092,8 @@ fn default_output_path(source: &str, extension: &str) -> PathBuf {
     path
 }
 
-fn print_optimization_report(program: &nia_driver::CodegenProgram) {
-    print!("{}", nia_driver::optimization_report(program));
+fn print_optimization_report(program: &nia_driver::CodegenProgram) -> ExitCode {
+    write_stdout(format_args!("{}", nia_driver::optimization_report(program)))
 }
 
 fn print_optimization_report_to_stderr(program: &nia_driver::CodegenProgram) {
