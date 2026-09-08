@@ -689,6 +689,7 @@ impl CompilerDatabase {
     /// Publishes the target-specific native section for one selected package.
     pub fn install_compiled_package_native(&self) -> QueryResult<Vec<PackageId>> {
         let index = self.compiled_package_interface_index()?;
+        let _observation = self.db.get(CompiledPackageNativeObservationQuery)?;
         let mut installed = Vec::new();
         for (package, interface) in index.packages() {
             let Some(section) = interface.native() else {
@@ -705,7 +706,7 @@ impl CompilerDatabase {
                         package: package.clone(),
                         section: section.clone(),
                     },
-                    &CompiledPackageInterfaceIndexQuery,
+                    &CompiledPackageNativeObservationQuery,
                 );
             }
             installed.push(package.clone());
@@ -1811,6 +1812,9 @@ impl CompilerDatabase {
         let new_graph = request.loader_facts.module_graph()?;
         let new_compiled_interface_fingerprint =
             compiled_interface_fingerprint(request.loader_facts.compiled_package_interfaces()?)?;
+        let new_compiled_native_fingerprint = compiled_native_observation_fingerprint(
+            request.loader_facts.compiled_package_interfaces()?,
+        )?;
         let compiled_interfaces_changed = {
             let observed = self
                 .db
@@ -1819,6 +1823,15 @@ impl CompilerDatabase {
                 .lock()
                 .expect("compiler compiled-interface observation lock poisoned");
             *observed != Some(new_compiled_interface_fingerprint)
+        };
+        let compiled_native_changed = {
+            let observed = self
+                .db
+                .context()
+                .observed_compiled_native
+                .lock()
+                .expect("compiler native observation lock poisoned");
+            *observed != Some(new_compiled_native_fingerprint)
         };
         let graph_changed = {
             let observed = self
@@ -1889,6 +1902,16 @@ impl CompilerDatabase {
                 .lock()
                 .expect("compiler compiled-interface observation lock poisoned") =
                 Some(new_compiled_interface_fingerprint);
+        }
+        if compiled_native_changed {
+            invalidation.extend(self.db.invalidate(CompiledPackageNativeObservationQuery));
+            *self
+                .db
+                .context()
+                .observed_compiled_native
+                .lock()
+                .expect("compiler native observation lock poisoned") =
+                Some(new_compiled_native_fingerprint);
         }
         let inputs_invalidation = self.invalidate_inputs(optimization_changed)?;
         invalidation
@@ -2485,6 +2508,12 @@ fn compiler_database_with_providers_in_session(
             .expect("initial compiled package interfaces"),
     )
     .expect("initial compiled package interface fingerprint");
+    let observed_compiled_native = compiled_native_observation_fingerprint(
+        loader_facts
+            .compiled_package_interfaces()
+            .expect("initial compiled package interfaces"),
+    )
+    .expect("initial compiled native observation fingerprint");
     if let Some(loader_session) = loader_facts.query_session() {
         assert!(
             session.ptr_eq(&loader_session),
@@ -2500,6 +2529,7 @@ fn compiler_database_with_providers_in_session(
             inputs: inputs.clone(),
             observed_graph: std::sync::Mutex::new(observed_graph),
             observed_compiled_interfaces: std::sync::Mutex::new(Some(observed_compiled_interfaces)),
+            observed_compiled_native: std::sync::Mutex::new(Some(observed_compiled_native)),
             loader_facts,
             providers,
             executable_fact_session,
@@ -2897,13 +2927,6 @@ fn compiled_interface_index_fingerprint(
         } else {
             builder.write_u8(0);
         }
-        if let Some(native) = interface.native() {
-            builder.write_u8(1);
-            let native_bytes = nia_package_metadata::encode_native(native).ok()?;
-            builder.write_bytes(&native_bytes);
-        } else {
-            builder.write_u8(0);
-        }
     }
     Some(builder.finish())
 }
@@ -2929,6 +2952,34 @@ fn compiled_interface_fingerprint(
         },
         message: "failed to encode compiled interface fingerprint".to_string(),
     })
+}
+
+fn compiled_native_observation_fingerprint(
+    interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
+) -> QueryResult<QueryFingerprint> {
+    let mut builder = QueryFingerprintBuilder::new(FingerprintDomain::new(
+        "nia.compiler.compiled-native-observation.v1",
+    ));
+    for interface in interfaces {
+        let package = &interface.manifest().package;
+        builder.write_str(&package.namespace);
+        builder.write_str(&package.name);
+        builder.write_str(&package.version);
+        if let Some(native) = interface.native() {
+            let bytes = nia_package_metadata::encode_native(native).map_err(|error| {
+                QueryError::InvalidInput {
+                    query: QueryFrame {
+                        name: "compiled_package_native_observation",
+                        key: "compiled_package_native_observation".into(),
+                        description: "compiled_package_native_observation".into(),
+                    },
+                    message: error.to_string(),
+                }
+            })?;
+            builder.write_bytes(&bytes);
+        }
+    }
+    Ok(builder.finish())
 }
 
 impl CompilerContext {

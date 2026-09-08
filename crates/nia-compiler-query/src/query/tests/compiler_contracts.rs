@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 138);
+    assert_eq!(descriptors.len(), 139);
     assert!(
         !descriptors
             .iter()
@@ -72,6 +72,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "extension_provider_module_eligibility"
             | "extension_provider_summary"
             | "compiled_package_interface_index"
+            | "compiled_package_native_observation"
             | "loaded_modules"
             | "module_graph_child"
             | "module_graph_entry"
@@ -216,6 +217,10 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
     let database = super::super::CompilerDatabase::new(
         CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()),
     );
+    database
+        .db
+        .get(CompiledPackageNativeObservationQuery)
+        .unwrap();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
         name: "dep".into(),
@@ -331,6 +336,12 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
         .unwrap();
     assert!(
         native_invalidation
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "compiled_package_native_observation")
+    );
+    assert!(
+        !native_invalidation
             .invalidated
             .iter()
             .any(|frame| frame.name == "compiled_package_interface_index")
