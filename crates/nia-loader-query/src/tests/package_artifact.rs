@@ -195,3 +195,39 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     );
     assert_eq!(indexed.module_records("src/lib.nia").count(), 1);
 }
+
+#[test]
+fn compiler_reads_loader_selected_interface_without_dependency_source() {
+    let path = temp_artifact("compiler-interface");
+    let package = manifest().package;
+    let interface = InterfaceSection {
+        records: vec![InterfaceRecord {
+            definition: DefinitionId {
+                package: package.clone(),
+                module: "src/lib.nia".into(),
+                name: "answer".into(),
+                kind: 2,
+            },
+            signature: b"fn() Int".to_vec(),
+        }],
+    };
+    let interface_bytes = encode_interface(&interface).unwrap();
+    let mut metadata = PackageManifest::current(package);
+    metadata
+        .modules
+        .push(nia_package_metadata::ModuleInterface {
+            path: "src/lib.nia".into(),
+            interface_hash: interface_module_hash(&interface, "src/lib.nia").unwrap(),
+        });
+    fs::write(
+        &path,
+        encode_artifact(&metadata, &[(SectionKind::Interface, &interface_bytes)]).unwrap(),
+    )
+    .unwrap();
+    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_package_artifact(&path));
+    let compiler =
+        nia_compiler_query::CompilerDatabase::new(nia_compiler_query::CompileRequest::new(loader));
+    let interfaces = compiler.compiled_package_interfaces().unwrap();
+    assert_eq!(interfaces.len(), 1);
+    assert_eq!(interfaces[0].records()[0].definition.name, "answer");
+}
