@@ -368,7 +368,18 @@ fn shared_public_surface_defs_by_module(
     let module_ids = db
         .context()
         .resolve_stable_module_sequence(&parse_ok_modules)?;
-    module_ids
+    let mut source_module_ids = Vec::new();
+    for module_id in module_ids {
+        if db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identity(module_id)?
+            .is_none()
+        {
+            source_module_ids.push(module_id);
+        }
+    }
+    source_module_ids
         .into_iter()
         .map(|module_id| {
             Ok(db
@@ -401,8 +412,14 @@ pub(super) fn provide_public_surfaces(
         let graph = db.get(ModuleGraphQuery)?;
         let symbols = db.context().symbols();
         let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
+        let mut surfaces = exports.surfaces;
+        for module in graph.modules() {
+            if let Some(surface) = provide_artifact_public_surface(db, module.id)? {
+                surfaces.insert(surface);
+            }
+        }
         Ok(PublicSurfacesQueryValue {
-            surfaces: exports.surfaces,
+            surfaces,
             diagnostics: store_module_diagnostics(
                 &db.context().diagnostic_store,
                 exports.diagnostics,
