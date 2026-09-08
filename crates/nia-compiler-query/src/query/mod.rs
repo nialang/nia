@@ -641,6 +641,49 @@ impl CompilerDatabase {
         Ok(())
     }
 
+    /// Publishes the validated declaration inventory for one selected package
+    /// into the typed query graph.
+    pub fn publish_compiled_package_declarations(
+        &self,
+        package: PackageId,
+        declarations: InterfaceSection,
+    ) -> QueryResult<()> {
+        let index = self.compiled_package_interface_index()?;
+        let Some(interface) = index.package(&package) else {
+            return Err(self.db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                format!(
+                    "cannot publish compiled declarations for an unselected package: {package:?}"
+                ),
+            ));
+        };
+        declarations.validate().map_err(|error| {
+            self.db
+                .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
+        })?;
+        if declarations.records.as_slice() != interface.records() {
+            return Err(self.db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                "published declarations do not match the selected package interface".to_string(),
+            ));
+        }
+        self.db.publish_owned(
+            CompiledPackageDeclarationsQuery(package),
+            declarations,
+            &CompiledPackageInterfaceIndexQuery,
+        );
+        Ok(())
+    }
+
+    /// Consumes the declaration inventory published for one package.
+    pub fn compiled_package_declarations(
+        &self,
+        package: &PackageId,
+    ) -> QueryResult<InterfaceSection> {
+        self.db
+            .get_owned(CompiledPackageDeclarationsQuery(package.clone()))
+    }
+
     /// Installs all loader-selected compiled interface roots into their
     /// package query slots. Definitions are grouped by the stable package
     /// identity carried by the artifact; no package is inferred from the
@@ -658,10 +701,23 @@ impl CompilerDatabase {
                 .or_default()
                 .insert(definition, type_roots);
         }
-        let packages = grouped.keys().cloned().collect::<Vec<_>>();
+        let mut packages = grouped.keys().cloned().collect::<Vec<_>>();
         for (package, roots) in grouped {
             self.publish_compiled_package_type_roots(package, roots)?;
         }
+        let index = self.compiled_package_interface_index()?;
+        for (package, interface) in index.packages() {
+            if !packages.contains(package) {
+                packages.push(package.clone());
+            }
+            self.publish_compiled_package_declarations(
+                package.clone(),
+                InterfaceSection {
+                    records: interface.records().to_vec(),
+                },
+            )?;
+        }
+        packages.sort();
         Ok(packages)
     }
 

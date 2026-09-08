@@ -87,6 +87,28 @@ pub(super) struct CompiledPackageInterfaceIndexQuery;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageTypeRootsQuery(pub(super) PackageId);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageDeclarationsQuery(pub(super) PackageId);
+
+impl QueryKey<CompilerContext> for CompiledPackageDeclarationsQuery {
+    type Value = InterfaceSection;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "compiled_package_declarations"
+    }
+
+    fn description(&self) -> String {
+        format!("compiled_package_declarations({:?})", self.0)
+    }
+
+    fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        unreachable!("compiled package declarations are published by artifact installation")
+    }
+}
+
 impl QueryKey<CompilerContext> for CompiledPackageTypeRootsQuery {
     type Value = BTreeMap<DefinitionId, Vec<InternedTyId>>;
 

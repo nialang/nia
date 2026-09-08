@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 134);
+    assert_eq!(descriptors.len(), 135);
     assert!(
         !descriptors
             .iter()
@@ -40,6 +40,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "backend_module_item_plan"
                 | "backend_module_finalization"
                 | "compiled_package_type_roots"
+                | "compiled_package_declarations"
         ) {
             nia_query::QueryStoragePolicy::SingleConsumerOwned
         } else {
@@ -47,7 +48,9 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         };
         let expected_provider = if matches!(
             descriptor.name,
-            "backend_module_item_plan" | "compiled_package_type_roots"
+            "backend_module_item_plan"
+                | "compiled_package_type_roots"
+                | "compiled_package_declarations"
         ) {
             nia_query::QueryProviderPolicy::ExternallyPublished
         } else {
