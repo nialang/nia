@@ -455,6 +455,21 @@ fn stable_definition_index_remaps_current_session_identities() {
 }
 
 #[test]
+fn rehydrate_compiled_interface_type_roots_is_empty_without_selected_artifacts() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let database = fixture.database();
+    fn no_resolver(
+        _: &nia_package_metadata::DefinitionId,
+    ) -> nia_query::QueryResult<nia_ids::GlobalDefId> {
+        panic!("resolver must not be called when no artifacts are selected")
+    }
+    let roots = database
+        .rehydrate_compiled_interface_type_roots(&no_resolver)
+        .unwrap();
+    assert!(roots.is_empty());
+}
+
+#[test]
 fn compiled_interface_index_resolves_stable_definitions_without_session_handles() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),

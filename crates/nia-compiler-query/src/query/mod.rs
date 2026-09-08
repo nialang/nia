@@ -571,6 +571,44 @@ impl CompilerDatabase {
             .collect())
     }
 
+    /// Rehydrates every selected compiled interface into the current type
+    /// store and returns per-definition signature roots. This is the common
+    /// semantic input boundary for artifact-backed providers.
+    pub fn rehydrate_compiled_interface_type_roots(
+        &self,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut result = BTreeMap::new();
+        for (_, interface) in index.packages() {
+            let Some(graph) = interface.type_graph() else {
+                continue;
+            };
+            let types = self.rehydrate_stable_type_graph(graph, resolver)?;
+            for record in interface.records() {
+                let roots = record
+                    .type_roots
+                    .iter()
+                    .map(|root| {
+                        types.get(*root as usize).copied().ok_or_else(|| {
+                            self.db.invalid_input(
+                                &CompiledPackageInterfaceIndexQuery,
+                                "compiled interface type root is outside its graph".to_string(),
+                            )
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                if result.insert(record.definition.clone(), roots).is_some() {
+                    return Err(self.db.invalid_input(
+                        &CompiledPackageInterfaceIndexQuery,
+                        "duplicate compiled definition during type-root rehydration".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Resolves a stable definition identity against the currently loaded
     /// source graph, validating module, name, and declaration kind together.
     ///
