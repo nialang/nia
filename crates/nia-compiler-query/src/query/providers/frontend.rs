@@ -145,31 +145,66 @@ pub(in crate::query) fn provide_artifact_public_surface(
                 .then_some(node.id)
         })
     };
-    let resolve_def =
-        |target: &nia_package_metadata::DefinitionId| -> QueryResult<nia_ids::GlobalDefId> {
-            let target_module = resolve_module(&target.module).ok_or_else(|| {
+    let resolve_def = |target: &nia_package_metadata::DefinitionId,
+                       parent: Option<&nia_package_metadata::DefinitionId>|
+     -> QueryResult<nia_ids::GlobalDefId> {
+        let target_module = resolve_module(&target.module).ok_or_else(|| {
+            db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                format!(
+                    "artifact export target module is not loaded: {:?}",
+                    target.module
+                ),
+            )
+        })?;
+        let name = symbols
+            .intern(&target.name)
+            .map_err(|e| db.invalid_input(&CompiledPackageInterfaceIndexQuery, e.to_string()))?;
+        let kind = def_kind_from_tag(target.kind).ok_or_else(|| {
+            db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                "artifact export has unknown definition kind".to_string(),
+            )
+        })?;
+        if let Some(parent) = parent {
+            let parent_module = resolve_module(&parent.module).ok_or_else(|| {
                 db.invalid_input(
                     &CompiledPackageInterfaceIndexQuery,
-                    format!(
-                        "artifact export target module is not loaded: {:?}",
-                        target.module
-                    ),
+                    "artifact enum parent module is not loaded".to_string(),
                 )
             })?;
-            let name = symbols.intern(&target.name).map_err(|e| {
+            let parent_name = symbols.intern(&parent.name).map_err(|e| {
                 db.invalid_input(&CompiledPackageInterfaceIndexQuery, e.to_string())
             })?;
-            let kind = def_kind_from_tag(target.kind).ok_or_else(|| {
+            let parent_kind = def_kind_from_tag(parent.kind).ok_or_else(|| {
                 db.invalid_input(
                     &CompiledPackageInterfaceIndexQuery,
-                    "artifact export has unknown definition kind".to_string(),
+                    "artifact enum parent has unknown kind".to_string(),
                 )
             })?;
-            Ok(GlobalDefId {
-                module_id: target_module,
-                def_id: nia_defs::stable_top_level_def_id(kind, name),
-            })
-        };
+            let parent_global = GlobalDefId {
+                module_id: parent_module,
+                def_id: nia_defs::stable_top_level_def_id(parent_kind, parent_name),
+            };
+            let defs = db.get(FullModuleDefsQuery(target_module))?;
+            if let Some((def_id, _)) = defs.semantic.defs.iter().find(|(_, def)| {
+                def.name == name && def.kind == kind && def.parent == Some(parent_global.def_id)
+            }) {
+                return Ok(GlobalDefId {
+                    module_id: target_module,
+                    def_id,
+                });
+            }
+            return Err(db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                "artifact nested export definition is not present".to_string(),
+            ));
+        }
+        Ok(GlobalDefId {
+            module_id: target_module,
+            def_id: nia_defs::stable_top_level_def_id(kind, name),
+        })
+    };
     let mut surface = ModulePublicSurface::new(module_id);
     for (name, child) in &module.modules {
         if let Some(child_id) = resolve_module(child) {
@@ -185,8 +220,12 @@ pub(in crate::query) fn provide_artifact_public_surface(
         let name = symbols
             .intern(&export.name)
             .map_err(|e| db.invalid_input(&CompiledPackageInterfaceIndexQuery, e.to_string()))?;
-        let target = resolve_def(&export.target)?;
-        let parent_enum = export.parent_enum.as_ref().map(resolve_def).transpose()?;
+        let target = resolve_def(&export.target, export.parent_enum.as_ref())?;
+        let parent_enum = export
+            .parent_enum
+            .as_ref()
+            .map(|parent| resolve_def(parent, None))
+            .transpose()?;
         let item = nia_defs::PublicItem {
             target_module: target.module_id,
             target_def_id: target.def_id,
