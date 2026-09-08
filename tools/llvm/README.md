@@ -26,6 +26,6 @@ When `LLVM_BUILD_JOBS` is omitted, the script uses the full host CPU count.
 WSL users should lower it when the VM has limited memory; an explicit value can
 be set after increasing the WSL memory and swap allocation.
 
-The release package contains the Nia compiler and its `lib/nia` resources, not
+The release package contains the Nia compiler and its `lib` resources, not
 this LLVM source tree. LLVM build inputs and the resolved source revision are
 release-build inputs and should be recorded in the release evidence.

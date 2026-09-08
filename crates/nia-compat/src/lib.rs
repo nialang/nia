@@ -22,7 +22,10 @@ pub mod abi {
 /// Versions coupling the compiler to installed resources and build runners.
 pub mod toolchain {
     /// Installed toolchain resource directory layout version.
-    pub const RESOURCE_LAYOUT: u32 = 1;
+    ///
+    /// Version 2 is the portable-prefix layout: resources live directly under
+    /// `lib/` and private linker tools under `libexec/`.
+    pub const RESOURCE_LAYOUT: u32 = 2;
     /// Standard-library source compatibility version.
     pub const STANDARD_LIBRARY: u32 = 1;
     /// Build plan protocol shared with compiled build runners.

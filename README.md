@@ -128,6 +128,17 @@ tar -xzf nia-<version>-linux-x86_64.tar.gz
 ./nia-<version>-linux-x86_64/bin/nia --version
 ```
 
+The archive uses a portable-prefix layout with no second project directory
+inside the prefix:
+
+```text
+nia-<version>-linux-x86_64/
+├── bin/nia
+├── lib/toolchain.meta
+├── lib/std/
+└── libexec/ld.lld
+```
+
 The archive includes the compiler, standard-library resources, and bundled
 `ld.lld`; no system LLVM installation is needed to run the packaged compiler.
 

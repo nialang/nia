@@ -491,11 +491,11 @@ mod tests {
     #[test]
     fn source_path_can_separate_physical_location_from_logical_identity() {
         let path = SourcePath::with_identity(
-            "/opt/nia/lib/nia/std/collections.nia",
+            "/opt/nia/lib/std/collections.nia",
             "toolchain:/std/collections.nia",
         );
 
-        assert_eq!(path.as_str(), "/opt/nia/lib/nia/std/collections.nia");
+        assert_eq!(path.as_str(), "/opt/nia/lib/std/collections.nia");
         assert_eq!(
             path.identity().normalized_path(),
             "toolchain:/std/collections.nia"
@@ -504,7 +504,7 @@ mod tests {
         assert_eq!(
             path,
             SourcePath::with_identity(
-                "/relocated/lib/nia/std/collections.nia",
+                "/relocated/lib/std/collections.nia",
                 "toolchain:/std/collections.nia",
             )
         );

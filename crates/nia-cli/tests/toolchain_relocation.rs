@@ -15,7 +15,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
     let cache = root.join("cache");
     let output = root.join("output");
     fs::create_dir_all(first.join("bin")).expect("create installed bin directory");
-    fs::create_dir_all(first.join("lib/nia")).expect("create installed resource directory");
+    fs::create_dir_all(first.join("lib")).expect("create installed resource directory");
     fs::create_dir_all(&output).expect("create output directory");
     fs::copy(env!("CARGO_BIN_EXE_nia"), first.join("bin/nia")).expect("copy installed compiler");
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -23,7 +23,7 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
         .parent()
         .and_then(Path::parent)
         .expect("nia-cli lives under crates/");
-    copy_tree(&workspace_root.join("lib"), &first.join("lib/nia"));
+    copy_tree(&workspace_root.join("lib"), &first.join("lib"));
     let source = workspace_root.join("examples/hello.nia");
 
     assert_success(

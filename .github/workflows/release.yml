@@ -55,7 +55,7 @@ jobs:
       - name: Verify archive layout
         run: |
           archive="target/release-package/nia-$(cargo pkgid -p nia-cli | sed -n 's/.*#//p')-linux-x86_64.tar.gz"
-          tar -tzf "${archive}" | grep -E '/(bin/nia|lib/nia/toolchain.meta|libexec/nia/ld.lld)$'
+          tar -tzf "${archive}" | grep -E '/(bin/nia|lib/toolchain.meta|libexec/ld.lld)$'
 
       - name: Publish GitHub release
         env:
