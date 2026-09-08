@@ -232,4 +232,18 @@ fn compiler_reads_loader_selected_interface_without_dependency_source() {
     let interfaces = compiler.compiled_package_interfaces().unwrap();
     assert_eq!(interfaces.len(), 1);
     assert_eq!(interfaces[0].records()[0].definition.name, "answer");
+    let index = compiler.compiled_package_interface_index().unwrap();
+    assert_eq!(
+        index
+            .package(&interfaces[0].manifest().package)
+            .unwrap()
+            .records()
+            .len(),
+        1
+    );
+    assert!(
+        index
+            .definition(&interfaces[0].records()[0].definition)
+            .is_some()
+    );
 }

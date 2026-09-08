@@ -184,7 +184,7 @@ impl InterfaceSection {
 ///
 /// Entries retain package-owned stable identities. Consumers must remap them
 /// before constructing any session-local module, definition, or type handle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledPackageInterface {
     manifest: PackageManifest,
     interface: InterfaceSection,
@@ -201,7 +201,11 @@ impl CompiledPackageInterface {
         let type_graph = artifact.type_graph()?;
         if let Some(graph) = &type_graph {
             interface.validate_type_roots(graph)?;
-        } else if interface.records.iter().any(|record| !record.type_roots.is_empty()) {
+        } else if interface
+            .records
+            .iter()
+            .any(|record| !record.type_roots.is_empty())
+        {
             return Err(MetadataError::InvalidManifest);
         }
         let record_indexes = interface
