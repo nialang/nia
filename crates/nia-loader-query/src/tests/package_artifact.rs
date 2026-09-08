@@ -160,8 +160,10 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     let interface = InterfaceSection {
         records: vec![InterfaceRecord {
             definition: DefinitionId {
-                package: package.clone(),
-                module: "src/lib.nia".into(),
+                module: nia_package_metadata::ModuleId {
+                    package: package.clone(),
+                    path: "src/lib.nia".into(),
+                },
                 name: "answer".into(),
                 kind: 2,
             },
@@ -204,8 +206,10 @@ fn compiler_reads_loader_selected_interface_without_dependency_source() {
     let interface = InterfaceSection {
         records: vec![InterfaceRecord {
             definition: DefinitionId {
-                package: package.clone(),
-                module: "src/lib.nia".into(),
+                module: nia_package_metadata::ModuleId {
+                    package: package.clone(),
+                    path: "src/lib.nia".into(),
+                },
                 name: "answer".into(),
                 kind: 2,
             },
