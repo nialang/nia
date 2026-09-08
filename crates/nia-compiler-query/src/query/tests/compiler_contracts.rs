@@ -304,7 +304,7 @@ fn stable_type_graph_rehydrates_into_current_type_store() {
         .rehydrate_stable_type_graph(
             &graph,
             &|definition: &nia_package_metadata::DefinitionId| {
-                assert_eq!(definition.package, package);
+                assert_eq!(definition.module.package, package);
                 Ok(nia_ids::GlobalDefId {
                     module_id: fixture.entry_id(),
                     def_id: nia_ids::DefId(0),
@@ -351,7 +351,7 @@ fn stable_type_graph_publication_remaps_nominal_definition_identity() {
     let nia_package_metadata::StableTypeNode::Named(definition) = &graph.nodes[0] else {
         panic!("nominal type must publish as a stable definition identity");
     };
-    assert_eq!(definition.module, "src/main.nia");
+    assert_eq!(definition.module.path, "src/main.nia");
     assert_eq!(definition.name, "User");
 }
 
@@ -418,7 +418,7 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
     let nia_package_metadata::StableTypeNode::Named(definition) = &graph.nodes[0] else {
         panic!("nominal type must publish as a stable definition identity");
     };
-    assert_eq!(definition.package, dependency);
+    assert_eq!(definition.module.package, dependency);
 }
 
 #[test]
@@ -459,14 +459,68 @@ fn stable_definition_index_remaps_current_session_identities() {
         .stable_definition_index(&|_| Ok(package.clone()))
         .unwrap();
     let identity = nia_package_metadata::DefinitionId {
-        package,
-        module: "src/main.nia".into(),
+        module: nia_package_metadata::ModuleId {
+            package,
+            path: "src/main.nia".into(),
+        },
         name: "greet".into(),
         kind: 2,
     };
     let resolved = index.definition_for_identity(&identity).unwrap();
     assert_eq!(resolved.module_id, fixture.entry_id());
     assert_eq!(index.len(), 1);
+    let module = identity.module.clone();
+    assert_eq!(module.package, identity.module.package);
+    assert_eq!(module.path, "src/main.nia");
+    assert_eq!(index.module(&module), Some(fixture.entry_id()));
+    assert_eq!(index.module_len(), 1);
+}
+
+#[test]
+fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
+    let first = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "first".into(),
+        version: "1.0.0".into(),
+    };
+    let second = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "second".into(),
+        version: "1.0.0".into(),
+    };
+    let mut index = StableModuleIndex::new();
+    let mut allocator = nia_ids::ModuleIdAllocator::new();
+    let first_module = allocator.allocate();
+    let second_module = allocator.allocate();
+    index.insert(
+        nia_package_metadata::ModuleId {
+            package: first.clone(),
+            path: "src/lib.nia".into(),
+        },
+        first_module,
+    );
+    index.insert(
+        nia_package_metadata::ModuleId {
+            package: second.clone(),
+            path: "src/lib.nia".into(),
+        },
+        second_module,
+    );
+    assert_eq!(index.len(), 2);
+    assert_eq!(
+        index.module(&nia_package_metadata::ModuleId {
+            package: first,
+            path: "src/lib.nia".into(),
+        }),
+        Some(first_module)
+    );
+    assert_eq!(
+        index.module(&nia_package_metadata::ModuleId {
+            package: second,
+            path: "src/lib.nia".into(),
+        }),
+        Some(second_module)
+    );
 }
 
 #[test]
@@ -494,8 +548,10 @@ fn compiled_package_type_roots_reject_unselected_packages() {
         version: "1.0.0".into(),
     };
     let identity = nia_package_metadata::DefinitionId {
-        package: package.clone(),
-        module: "src/lib.nia".into(),
+        module: nia_package_metadata::ModuleId {
+            package: package.clone(),
+            path: "src/lib.nia".into(),
+        },
         name: "answer".into(),
         kind: 2,
     };
@@ -537,8 +593,10 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
     let interface = nia_package_metadata::InterfaceSection {
         records: vec![nia_package_metadata::InterfaceRecord {
             definition: nia_package_metadata::DefinitionId {
-                package: package.clone(),
-                module: "src/lib.nia".into(),
+                module: nia_package_metadata::ModuleId {
+                    package: package.clone(),
+                    path: "src/lib.nia".into(),
+                },
                 name: "answer".into(),
                 kind: 2,
             },

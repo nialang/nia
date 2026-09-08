@@ -28,8 +28,9 @@ use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
-    DefinitionId, InterfaceRecord, InterfaceSection, ModuleInterface, PackageId, PackageManifest,
-    SectionKind, StableConstArg, StableDeclaration, StableTypeGraph, StableTypeNode,
+    DefinitionId, InterfaceRecord, InterfaceSection, ModuleId as StableModuleId, ModuleInterface,
+    PackageId, PackageManifest, SectionKind, StableConstArg, StableDeclaration, StableTypeGraph,
+    StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -169,6 +170,39 @@ pub trait StableDefinitionPackageResolver {
     fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId>;
 }
 
+/// Session-local remap table for stable package module identities.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StableModuleIndex {
+    modules: BTreeMap<StableModuleId, ModuleId>,
+}
+
+impl StableModuleIndex {
+    /// Creates an empty module remap table.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Inserts one identity, returning the previous handle when present.
+    pub fn insert(&mut self, identity: StableModuleId, module: ModuleId) -> Option<ModuleId> {
+        self.modules.insert(identity, module)
+    }
+
+    /// Resolves a stable module identity to a current session handle.
+    pub fn module(&self, identity: &StableModuleId) -> Option<ModuleId> {
+        self.modules.get(identity).copied()
+    }
+
+    /// Returns the number of remapped modules.
+    pub fn len(&self) -> usize {
+        self.modules.len()
+    }
+
+    /// Reports whether no modules are installed.
+    pub fn is_empty(&self) -> bool {
+        self.modules.is_empty()
+    }
+}
+
 /// Resolves a published definition identity into the current compiler
 /// session. Implementations are responsible for remapping package/module
 /// identities; no physical path lookup is implied by this trait.
@@ -184,6 +218,7 @@ pub trait StableDefinitionResolver {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StableDefinitionIndex {
     definitions: BTreeMap<DefinitionId, GlobalDefId>,
+    modules: StableModuleIndex,
 }
 
 impl StableDefinitionIndex {
@@ -197,6 +232,16 @@ impl StableDefinitionIndex {
 
     pub fn is_empty(&self) -> bool {
         self.definitions.is_empty()
+    }
+
+    /// Resolves a published module identity to its current session handle.
+    pub fn module(&self, identity: &StableModuleId) -> Option<ModuleId> {
+        self.modules.module(identity)
+    }
+
+    /// Returns the number of remapped public modules.
+    pub fn module_len(&self) -> usize {
+        self.modules.len()
     }
 }
 
@@ -437,6 +482,8 @@ impl CompilerDatabase {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
         let mut definitions = BTreeMap::new();
+        let mut modules = StableModuleIndex::new();
+        let mut module_owners = HashMap::<ModuleId, PackageId>::new();
         for module in graph.modules() {
             let Some(stable_key) = graph.stable_key(module.id) else {
                 continue;
@@ -455,11 +502,13 @@ impl CompilerDatabase {
                     continue;
                 };
                 let identity = DefinitionId {
-                    package: resolver.package_for_definition(GlobalDefId {
-                        module_id: module.id,
-                        def_id,
-                    })?,
-                    module: module_path.clone(),
+                    module: StableModuleId {
+                        package: resolver.package_for_definition(GlobalDefId {
+                            module_id: module.id,
+                            def_id,
+                        })?,
+                        path: module_path.clone(),
+                    },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
                 };
@@ -467,6 +516,31 @@ impl CompilerDatabase {
                     module_id: module.id,
                     def_id,
                 };
+                let module_identity = identity.module.clone();
+                if let Some(previous_package) =
+                    module_owners.insert(module.id, identity.module.package.clone())
+                {
+                    if previous_package != identity.module.package {
+                        return Err(self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!(
+                                "stable module identity resolves to multiple packages: module {:?}, packages {:?} and {:?}",
+                                module.id, previous_package, identity.module.package
+                            ),
+                        ));
+                    }
+                }
+                if let Some(previous) = modules.insert(module_identity.clone(), module.id) {
+                    if previous != module.id {
+                        return Err(self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            format!(
+                                "stable module identity resolves to multiple session modules: {:?}",
+                                module_identity
+                            ),
+                        ));
+                    }
+                }
                 if definitions.insert(identity, global).is_some() {
                     return Err(self.db.invalid_input(
                         &ModuleGraphQuery,
@@ -475,7 +549,10 @@ impl CompilerDatabase {
                 }
             }
         }
-        Ok(StableDefinitionIndex { definitions })
+        Ok(StableDefinitionIndex {
+            definitions,
+            modules,
+        })
     }
 
     /// Rehydrates a stable package type graph into this database's canonical
@@ -655,7 +732,10 @@ impl CompilerDatabase {
                 ),
             ));
         }
-        if roots.keys().any(|definition| definition.package != package) {
+        if roots
+            .keys()
+            .any(|definition| definition.module.package != package)
+        {
             return Err(self.db.invalid_input(
                 &CompiledPackageInterfaceIndexQuery,
                 "compiled type-root payload contains a definition from another package".to_string(),
@@ -734,7 +814,7 @@ impl CompilerDatabase {
         }
         for (definition, type_roots) in roots {
             grouped
-                .entry(definition.package.clone())
+                .entry(definition.module.package.clone())
                 .or_default()
                 .insert(definition, type_roots);
         }
@@ -773,19 +853,19 @@ impl CompilerDatabase {
         definition: &DefinitionId,
         package: &PackageId,
     ) -> QueryResult<GlobalDefId> {
-        if &definition.package != package {
+        if &definition.module.package != package {
             return Err(self.db.invalid_input(
                 &ModuleGraphQuery,
                 "stable definition belongs to a different package".to_string(),
             ));
         }
         let graph = self.db.get(ModuleGraphQuery)?;
-        let Some(module_id) = graph.module_id_for_path(&definition.module) else {
+        let Some(module_id) = graph.module_id_for_path(&definition.module.path) else {
             return Err(self.db.invalid_input(
                 &ModuleGraphQuery,
                 format!(
                     "stable definition module is not loaded: {}",
-                    definition.module
+                    definition.module.path
                 ),
             ));
         };
@@ -809,7 +889,7 @@ impl CompilerDatabase {
                 &ModuleGraphQuery,
                 format!(
                     "stable definition is missing or ambiguous: {}::{}",
-                    definition.module, definition.name
+                    definition.module.path, definition.name
                 ),
             ));
         };
@@ -974,8 +1054,10 @@ impl CompilerDatabase {
                     continue;
                 };
                 let definition = DefinitionId {
-                    package: package.clone(),
-                    module: module_path.clone(),
+                    module: StableModuleId {
+                        package: package.clone(),
+                        path: module_path.clone(),
+                    },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
                 };
@@ -1087,7 +1169,7 @@ impl CompilerDatabase {
                     records: interface
                         .records
                         .iter()
-                        .filter(|record| record.definition.module == path)
+                        .filter(|record| record.definition.module.path == path)
                         .cloned()
                         .collect(),
                 };
@@ -1757,8 +1839,10 @@ impl StableTypeGraphEncoder<'_> {
         })?;
         let package = self.resolver.package_for_definition(def_id)?;
         Ok(DefinitionId {
-            package,
-            module: module.source_identity().normalized_path().to_owned(),
+            module: StableModuleId {
+                package,
+                path: module.source_identity().normalized_path().to_owned(),
+            },
             name: name.to_string(),
             kind: def_kind_tag(def.kind),
         })
@@ -1828,10 +1912,10 @@ fn append_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
 }
 
 fn append_definition_key(bytes: &mut Vec<u8>, definition: &DefinitionId) {
-    append_bytes(bytes, definition.package.namespace.as_bytes());
-    append_bytes(bytes, definition.package.name.as_bytes());
-    append_bytes(bytes, definition.package.version.as_bytes());
-    append_bytes(bytes, definition.module.as_bytes());
+    append_bytes(bytes, definition.module.package.namespace.as_bytes());
+    append_bytes(bytes, definition.module.package.name.as_bytes());
+    append_bytes(bytes, definition.module.package.version.as_bytes());
+    append_bytes(bytes, definition.module.path.as_bytes());
     append_bytes(bytes, definition.name.as_bytes());
     bytes.push(definition.kind);
 }
@@ -2391,7 +2475,7 @@ fn compiled_interface_index_fingerprint(
         builder.write_str(&package.version);
         builder.write_u64(interface.records().len() as u64);
         for record in interface.records() {
-            builder.write_str(&record.definition.module);
+            builder.write_str(&record.definition.module.path);
             builder.write_str(&record.definition.name);
             builder.write_u8(record.definition.kind);
             builder.write_bytes(&record.declaration);

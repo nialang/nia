@@ -63,6 +63,7 @@ pub use nia_timing::TimingMode;
 pub use query::{
     CompileRequest, CompiledPackageDeclarations, CompiledPackageInterfaceIndex, CompilerDatabase,
     StableDefinitionIndex, StableDefinitionPackageResolver, StableDefinitionResolver,
+    StableModuleIndex,
 };
 
 /// Immutable bytes and manifest published for one compiled package snapshot.
