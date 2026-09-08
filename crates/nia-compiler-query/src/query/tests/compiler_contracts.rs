@@ -243,6 +243,7 @@ fn package_artifact_publication_rejects_template_for_unknown_definition() {
                 kind: 2,
                 owner: None,
             },
+            parameter_count: 0,
             body: vec![1],
             summary: nia_package_metadata::encode_template_summary(
                 &nia_package_metadata::TemplateSummary::default(),
@@ -336,6 +337,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             let templates = nia_package_metadata::TemplateSection {
                 records: vec![nia_package_metadata::TemplateRecord {
                     definition: section.records[0].definition.clone(),
+                    parameter_count: 0,
                     body: template_body.to_vec(),
                     summary: nia_package_metadata::encode_template_summary(
                         &nia_package_metadata::TemplateSummary::default(),
