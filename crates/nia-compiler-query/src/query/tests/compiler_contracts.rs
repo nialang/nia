@@ -432,6 +432,29 @@ fn package_interface_publication_accepts_external_definition_resolver() {
 }
 
 #[test]
+fn stable_definition_index_remaps_current_session_identities() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let index = database
+        .stable_definition_index(&|_| Ok(package.clone()))
+        .unwrap();
+    let identity = nia_package_metadata::DefinitionId {
+        package,
+        module: "src/main.nia".into(),
+        name: "greet".into(),
+        kind: 2,
+    };
+    let resolved = index.definition_for_identity(&identity).unwrap();
+    assert_eq!(resolved.module_id, fixture.entry_id());
+    assert_eq!(index.len(), 1);
+}
+
+#[test]
 fn compiled_interface_index_resolves_stable_definitions_without_session_handles() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
