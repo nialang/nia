@@ -194,6 +194,7 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
     let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
     assert_eq!(artifact.manifest(), &publication.manifest);
     assert!(artifact.interface().unwrap().is_some());
+    assert!(artifact.signatures().unwrap().is_some());
     let surface = artifact
         .public_surface()
         .unwrap()
