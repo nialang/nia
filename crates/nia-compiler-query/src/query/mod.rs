@@ -1554,6 +1554,37 @@ impl CompilerDatabase {
             .map(|(interface, _)| interface)
     }
 
+    /// Derives the stable signature inventory from the same source query
+    /// products used to build the package interface. This keeps publication
+    /// deterministic while preserving the session boundary: only canonical
+    /// identities, flags, and stable type-graph indexes cross into metadata.
+    pub fn package_signature_section_with_resolver(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<nia_package_metadata::SignatureSection> {
+        let (interface, _) = self.package_interface_and_type_graph(package, resolver)?;
+        let definition_index = self.stable_definition_index(resolver)?;
+        let mut records = Vec::with_capacity(interface.records.len());
+        for item in interface.records {
+            let global = definition_index.definition_for_identity(&item.definition)?;
+            let kind = item.definition.kind;
+            let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
+            let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
+            records.push(nia_package_metadata::SignatureRecord {
+                definition: item.definition,
+                kind,
+                flags,
+                type_roots: item.type_roots,
+            });
+        }
+        let section = nia_package_metadata::SignatureSection { records };
+        section
+            .validate()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        Ok(section)
+    }
+
     fn package_interface_and_type_graph(
         &self,
         package: PackageId,
@@ -1893,7 +1924,14 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        self.publish_package_artifact_with_resolver_and_native(package, resolver, None)
+        let signatures = self.package_signature_section_with_resolver(package.clone(), resolver)?;
+        self.publish_package_artifact_with_resolver_and_products_and_signatures(
+            package,
+            resolver,
+            None,
+            None,
+            Some(signatures),
+        )
     }
 
     /// Publishes a package artifact and optionally embeds a validated
@@ -1906,7 +1944,14 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionPackageResolver,
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        self.publish_package_artifact_with_resolver_and_products(package, resolver, None, native)
+        let signatures = self.package_signature_section_with_resolver(package.clone(), resolver)?;
+        self.publish_package_artifact_with_resolver_and_products_and_signatures(
+            package,
+            resolver,
+            None,
+            native,
+            Some(signatures),
+        )
     }
 
     /// Convenience native publication for a package with no external nominal
@@ -1946,8 +1991,13 @@ impl CompilerDatabase {
         templates: Option<nia_package_metadata::TemplateSection>,
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
+        let signatures = self.package_signature_section_with_resolver(package.clone(), resolver)?;
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
-            package, resolver, templates, native, None,
+            package,
+            resolver,
+            templates,
+            native,
+            Some(signatures),
         )
     }
 
@@ -2988,6 +3038,56 @@ fn def_kind_tag(kind: nia_defs::DefKind) -> u8 {
         DefKind::EnumVariant => 14,
         DefKind::EnumVariantField => 15,
         DefKind::TypeAlias => 16,
+    }
+}
+
+fn signature_flags_for_definition(
+    def_id: DefId,
+    kind: u8,
+    signatures: &nia_item_signatures::ItemSignatures,
+) -> u32 {
+    use nia_item_signatures::FunctionAttribute;
+    match kind {
+        2 => signatures.functions.get(&def_id).map_or(0, |signature| {
+            let mut flags = 0;
+            if signature.has_body {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_HAS_BODY;
+            }
+            if signature.is_extern {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
+            }
+            if signature.is_const {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_CONST;
+            }
+            if signature.is_variadic {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_VARIADIC;
+            }
+            if signature
+                .attributes
+                .iter()
+                .any(|attribute| matches!(attribute, FunctionAttribute::Naked))
+            {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
+            }
+            flags
+        }),
+        5 => signatures.structs.get(&def_id).map_or(0, |signature| {
+            let mut flags = 0;
+            if signature.is_extern {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
+            }
+            if signature.is_tuple {
+                flags |= nia_package_metadata::SIGNATURE_FLAG_TUPLE;
+            }
+            flags
+        }),
+        7 => signatures.unions.get(&def_id).map_or(0, |signature| {
+            u32::from(signature.is_extern) * nia_package_metadata::SIGNATURE_FLAG_EXTERN
+        }),
+        13 => signatures.enums.get(&def_id).map_or(0, |signature| {
+            u32::from(signature.is_open) * nia_package_metadata::SIGNATURE_FLAG_OPEN
+        }),
+        _ => 0,
     }
 }
 
