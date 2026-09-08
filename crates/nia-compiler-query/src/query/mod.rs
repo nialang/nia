@@ -2796,6 +2796,11 @@ fn compiled_interface_index_fingerprint(
             builder.write_str(&dependency.package.version);
             builder.write_bytes(&dependency.interface_hash);
         }
+        builder.write_u64(interface.manifest().modules.len() as u64);
+        for module in &interface.manifest().modules {
+            builder.write_str(&module.path);
+            builder.write_bytes(&module.interface_hash);
+        }
         builder.write_u64(interface.records().len() as u64);
         for record in interface.records() {
             builder.write_str(&record.definition.module.path);
