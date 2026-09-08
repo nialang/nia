@@ -184,6 +184,9 @@ fn build_baseline_command(arguments: &[String]) -> MaintainResult<()> {
             "--fixture" => {
                 options.fixture = PathBuf::from(take_value(arguments, &mut index, option)?)
             }
+            "--runner-fixture" => {
+                options.runner_fixture = PathBuf::from(take_value(arguments, &mut index, option)?)
+            }
             "--output" => {
                 options.output = PathBuf::from(take_value(arguments, &mut index, option)?)
             }

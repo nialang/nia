@@ -34,6 +34,8 @@ pub struct Options {
     pub resource_root: PathBuf,
     /// Representative build fixture copied for each workload.
     pub fixture: PathBuf,
+    /// Runner-only build fixture copied for each workload.
+    pub runner_fixture: PathBuf,
     /// Destination JSON report path.
     pub output: PathBuf,
     /// Per-state child-process timeout.
@@ -51,6 +53,7 @@ impl Options {
             nia: root.join("target/release/nia"),
             resource_root: root.join("lib"),
             fixture: root.join("benchmarks/build/representative"),
+            runner_fixture: root.join("benchmarks/build/runner-only"),
             output: root.join("target/nia-build-baseline/baseline.json"),
             timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
             repetitions: DEFAULT_REPETITIONS,
@@ -79,6 +82,12 @@ pub fn run(options: &Options) -> MaintainResult<()> {
             options.fixture.display()
         )
     })?;
+    let runner_fixture = options.runner_fixture.canonicalize().map_err(|error| {
+        format!(
+            "runner-only build fixture does not exist: {}: {error}",
+            options.runner_fixture.display()
+        )
+    })?;
     if !resource_root.join("toolchain.meta").is_file() {
         return Err(format!(
             "Nia resource root is invalid: {}",
@@ -91,6 +100,12 @@ pub fn run(options: &Options) -> MaintainResult<()> {
             fixture.display()
         ));
     }
+    if !runner_fixture.join("build.nia").is_file() {
+        return Err(format!(
+            "runner-only build fixture does not exist: {}",
+            runner_fixture.display()
+        ));
+    }
     if options.timeout_seconds == 0 {
         return Err("--timeout-seconds must be positive".to_owned());
     }
@@ -101,8 +116,13 @@ pub fn run(options: &Options) -> MaintainResult<()> {
     let mut runs = Vec::new();
     let mut temporaries = Vec::new();
     for _ in 0..options.repetitions {
-        let (results, temporary) =
-            run_workload(&nia, &resource_root, &fixture, options.timeout_seconds)?;
+        let (results, temporary) = run_workload(
+            &nia,
+            &resource_root,
+            &fixture,
+            &runner_fixture,
+            options.timeout_seconds,
+        )?;
         runs.push(results);
         temporaries.push(temporary);
     }
@@ -111,10 +131,11 @@ pub fn run(options: &Options) -> MaintainResult<()> {
         .map(|run| workload_acceptance(run))
         .collect::<MaintainResult<Vec<_>>>()?;
     let baseline = BuildBaseline {
-        schema_version: 1,
+        schema_version: 2,
         kind: "nia-build-baseline",
         machine: machine_metadata(None),
         fixture: "benchmarks/build/representative",
+        runner_fixture: "benchmarks/build/runner-only",
         runs: runs
             .iter()
             .enumerate()

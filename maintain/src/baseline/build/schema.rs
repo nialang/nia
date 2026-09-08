@@ -190,7 +190,7 @@ pub(super) struct AggregateAcceptance {
 }
 
 #[derive(Debug, Serialize)]
-/// Schema-v1 representative build baseline report.
+/// Schema-v2 representative and runner-only build baseline report.
 pub(super) struct BuildBaseline<'a> {
     /// Baseline schema version.
     pub(super) schema_version: u32,
@@ -200,6 +200,8 @@ pub(super) struct BuildBaseline<'a> {
     pub(super) machine: MachineMetadata,
     /// Repository-relative fixture identity.
     pub(super) fixture: &'static str,
+    /// Repository-relative runner-only fixture identity.
+    pub(super) runner_fixture: &'static str,
     /// Independent raw workload repetitions.
     pub(super) runs: Vec<BuildRunSample<'a>>,
     /// Acceptance aggregate across repetitions.
