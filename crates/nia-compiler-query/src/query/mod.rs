@@ -843,7 +843,7 @@ impl CompilerDatabase {
                 // private members and nested definitions are not valid
                 // cross-package remap targets and must not force the package
                 // resolver to classify them.
-                if def.parent.is_some() || def.visibility != nia_defs::Visibility::Public {
+                if def.visibility != nia_defs::Visibility::Public {
                     continue;
                 }
                 let Some(name) = symbols.resolve(def.name) else {
@@ -1454,6 +1454,36 @@ impl CompilerDatabase {
                 let Some(name) = symbols.resolve(def.name) else {
                     continue;
                 };
+                let mut owner_chain = Vec::new();
+                let mut parent = def.parent;
+                while let Some(parent_id) = parent {
+                    let parent_def = defs.semantic.defs.get(parent_id).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent is missing from module facts".to_string(),
+                        )
+                    })?;
+                    let parent_name = symbols.resolve(parent_def.name).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent has no resolvable symbol".to_string(),
+                        )
+                    })?;
+                    owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                    parent = parent_def.parent;
+                }
+                let mut owner_identity = None;
+                for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+                    owner_identity = Some(Box::new(DefinitionId {
+                        module: StableModuleId {
+                            package: owner.clone(),
+                            path: module_path.clone(),
+                        },
+                        name: owner_name,
+                        kind: owner_kind,
+                        owner: owner_identity,
+                    }));
+                }
                 let definition = DefinitionId {
                     module: StableModuleId {
                         package: owner.clone(),
@@ -1461,7 +1491,7 @@ impl CompilerDatabase {
                     },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
-                    owner: None,
+                    owner: owner_identity,
                 };
                 let roots = self
                     .db
