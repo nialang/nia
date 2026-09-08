@@ -26,6 +26,8 @@ const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 1;
+const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
+const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
 const NATIVE_SCHEMA: u32 = 2;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
@@ -105,6 +107,32 @@ pub struct TemplateRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateSection {
     pub records: Vec<TemplateRecord>,
+}
+
+/// Canonical, compositional semantic summary attached to a checked template.
+/// Parameter indexes are zero-based and each vector is strictly ascending.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TemplateSummary {
+    pub returned_parameters: Vec<u32>,
+    pub escaping_parameters: Vec<u32>,
+    pub returned_captured_address_parameters: Vec<u32>,
+    pub escaping_captured_address_parameters: Vec<u32>,
+}
+
+impl TemplateSummary {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        for values in [
+            &self.returned_parameters,
+            &self.escaping_parameters,
+            &self.returned_captured_address_parameters,
+            &self.escaping_captured_address_parameters,
+        ] {
+            if values.len() > MAX_ITEMS || values.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(MetadataError::InvalidManifest);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Explicit target identity attached to target-specific native products.
@@ -245,6 +273,7 @@ impl TemplateSection {
             if record.body.is_empty() || record.summary.is_empty() {
                 return Err(MetadataError::InvalidManifest);
             }
+            decode_template_summary(&record.summary)?;
         }
         if self
             .records
@@ -1098,6 +1127,61 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
     Ok(section)
 }
 
+/// Encodes a canonical template semantic summary.
+pub fn encode_template_summary(summary: &TemplateSummary) -> Result<Vec<u8>, MetadataError> {
+    summary.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(TEMPLATE_SUMMARY_MAGIC);
+    put_u32(&mut output, TEMPLATE_SUMMARY_SCHEMA);
+    for values in [
+        &summary.returned_parameters,
+        &summary.escaping_parameters,
+        &summary.returned_captured_address_parameters,
+        &summary.escaping_captured_address_parameters,
+    ] {
+        put_list_len(&mut output, values.len())?;
+        for value in values {
+            put_u32(&mut output, *value);
+        }
+    }
+    Ok(output)
+}
+
+/// Decodes and validates a canonical template semantic summary.
+pub fn decode_template_summary(bytes: &[u8]) -> Result<TemplateSummary, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; 8];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *TEMPLATE_SUMMARY_MAGIC {
+        return Err(MetadataError::BadMagic);
+    }
+    if get_u32(&mut cursor)? != TEMPLATE_SUMMARY_SCHEMA {
+        return Err(MetadataError::Schema(TEMPLATE_SUMMARY_SCHEMA));
+    }
+    let read_values = |cursor: &mut Cursor<&[u8]>| -> Result<Vec<u32>, MetadataError> {
+        let count = bounded_count(get_u32(cursor)?)?;
+        let mut values = Vec::with_capacity(count);
+        for _ in 0..count {
+            values.push(get_u32(cursor)?);
+        }
+        Ok(values)
+    };
+    let summary = TemplateSummary {
+        returned_parameters: read_values(&mut cursor)?,
+        escaping_parameters: read_values(&mut cursor)?,
+        returned_captured_address_parameters: read_values(&mut cursor)?,
+        escaping_captured_address_parameters: read_values(&mut cursor)?,
+    };
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    summary.validate()?;
+    Ok(summary)
+}
+
 /// Encodes complete resolved public surfaces without source/session identities.
 pub fn encode_public_surface(section: &PublicSurfaceSection) -> Result<Vec<u8>, MetadataError> {
     section.validate()?;
@@ -1933,7 +2017,7 @@ mod tests {
                     owner: None,
                 },
                 body: vec![1, 2, 3],
-                summary: vec![4, 5],
+                summary: encode_template_summary(&TemplateSummary::default()).unwrap(),
             }],
         };
         let bytes = encode_templates(&section).unwrap();
@@ -1948,6 +2032,26 @@ mod tests {
         incomplete.records[0].body.clear();
         assert_eq!(
             encode_templates(&incomplete),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn template_summary_round_trips_and_rejects_unsorted_parameters() {
+        let summary = TemplateSummary {
+            returned_parameters: vec![0, 2],
+            escaping_parameters: vec![1],
+            returned_captured_address_parameters: vec![],
+            escaping_captured_address_parameters: vec![3, 5],
+        };
+        let bytes = encode_template_summary(&summary).unwrap();
+        assert_eq!(decode_template_summary(&bytes).unwrap(), summary);
+        let invalid = TemplateSummary {
+            returned_parameters: vec![2, 1],
+            ..summary
+        };
+        assert_eq!(
+            encode_template_summary(&invalid),
             Err(MetadataError::InvalidManifest)
         );
     }
@@ -2125,7 +2229,10 @@ mod tests {
             kind: 6,
             owner,
         };
-        assert_eq!(validate_definition(&definition), Err(MetadataError::TooManyItems));
+        assert_eq!(
+            validate_definition(&definition),
+            Err(MetadataError::TooManyItems)
+        );
     }
 
     #[test]

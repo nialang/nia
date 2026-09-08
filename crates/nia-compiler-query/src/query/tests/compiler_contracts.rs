@@ -244,7 +244,10 @@ fn package_artifact_publication_rejects_template_for_unknown_definition() {
                 owner: None,
             },
             body: vec![1],
-            summary: vec![1],
+            summary: nia_package_metadata::encode_template_summary(
+                &nia_package_metadata::TemplateSummary::default(),
+            )
+            .unwrap(),
         }],
     };
     assert!(
@@ -334,7 +337,10 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                 records: vec![nia_package_metadata::TemplateRecord {
                     definition: section.records[0].definition.clone(),
                     body: template_body.to_vec(),
-                    summary: b"summary".to_vec(),
+                    summary: nia_package_metadata::encode_template_summary(
+                        &nia_package_metadata::TemplateSummary::default(),
+                    )
+                    .unwrap(),
                 }],
             };
             let template_bytes = nia_package_metadata::encode_templates(&templates).unwrap();
