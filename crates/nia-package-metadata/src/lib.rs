@@ -20,7 +20,7 @@ const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 // Version 2 adds the declaration kind to stable definition identities.
 const INTERFACE_SCHEMA: u32 = 3;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
-const TYPE_GRAPH_SCHEMA: u32 = 1;
+const TYPE_GRAPH_SCHEMA: u32 = 2;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -91,6 +91,10 @@ pub enum StableTypeNode {
     Reference { target: u32, mutable: bool },
     /// Raw pointer to an earlier node.
     Pointer { target: u32, readonly: bool },
+    /// Generic parameter identified by the stable symbol identity of its
+    /// declaration name. Symbol identities are content-addressed and do not
+    /// contain session-local handles.
+    GenericParam(u64),
 }
 
 /// Canonical, bounded type graph for cross-package signature use.
@@ -129,6 +133,7 @@ impl StableTypeGraph {
                 }
                 StableTypeNode::Reference { target, .. } => references.push(target),
                 StableTypeNode::Pointer { target, .. } => references.push(target),
+                StableTypeNode::GenericParam(_) => {}
             }
             if references.iter().any(|reference| **reference >= index) {
                 return Err(MetadataError::InvalidManifest);
@@ -684,6 +689,10 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 put_u32(&mut output, *target);
                 output.push(u8::from(*readonly));
             }
+            StableTypeNode::GenericParam(index) => {
+                output.push(10);
+                output.extend_from_slice(&index.to_le_bytes());
+            }
         }
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -745,6 +754,7 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
                     _ => return Err(MetadataError::InvalidManifest),
                 },
             },
+            10 => StableTypeNode::GenericParam(get_u64(&mut cursor)?),
             _ => return Err(MetadataError::InvalidManifest),
         });
     }
