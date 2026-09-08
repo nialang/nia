@@ -142,7 +142,10 @@ impl SignatureSection {
         }
         for record in &self.records {
             validate_definition(&record.definition)?;
-            if !(1..=16).contains(&record.kind) || record.flags & !SIGNATURE_FLAGS_MASK != 0 {
+            if !(1..=16).contains(&record.kind)
+                || record.flags & !SIGNATURE_FLAGS_MASK != 0
+                || record.kind != record.definition.kind
+            {
                 return Err(MetadataError::InvalidManifest);
             }
             if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
@@ -705,9 +708,12 @@ impl CompiledPackageInterface {
                 .records
                 .iter()
                 .any(|record| !record.type_roots.is_empty())
-                || signatures
-                    .as_ref()
-                    .is_some_and(|section| section.records.iter().any(|record| !record.type_roots.is_empty()))
+                || signatures.as_ref().is_some_and(|section| {
+                    section
+                        .records
+                        .iter()
+                        .any(|record| !record.type_roots.is_empty())
+                })
             {
                 return Err(MetadataError::InvalidManifest);
             }
@@ -2254,6 +2260,12 @@ mod tests {
             encode_signatures(&invalid),
             Err(MetadataError::InvalidManifest)
         );
+        invalid = section.clone();
+        invalid.records[0].kind = 3;
+        assert_eq!(
+            encode_signatures(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 
     #[test]
@@ -2281,7 +2293,10 @@ mod tests {
         );
         let mut bytes = encode_signatures(&SignatureSection::default()).unwrap();
         bytes.push(0);
-        assert_eq!(decode_signatures(&bytes), Err(MetadataError::InvalidManifest));
+        assert_eq!(
+            decode_signatures(&bytes),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 
     #[test]
