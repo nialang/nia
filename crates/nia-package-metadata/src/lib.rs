@@ -15,6 +15,7 @@ pub const SCHEMA_VERSION: u32 = formats::PACKAGE_METADATA.schema;
 pub const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
+const MAX_DEFINITION_DEPTH: usize = 256;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
@@ -1532,6 +1533,16 @@ fn get_target(cursor: &mut Cursor<&[u8]>) -> Result<NativeTarget, MetadataError>
     Ok(target)
 }
 fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
+    validate_definition_with_depth(definition, 0)
+}
+
+fn validate_definition_with_depth(
+    definition: &DefinitionId,
+    depth: usize,
+) -> Result<(), MetadataError> {
+    if depth >= MAX_DEFINITION_DEPTH {
+        return Err(MetadataError::TooManyItems);
+    }
     validate_id(&definition.module.package)?;
     validate_string(&definition.module.path)?;
     validate_string(&definition.name)?;
@@ -1539,7 +1550,7 @@ fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
         if owner.module != definition.module || owner.as_ref() == definition {
             return Err(MetadataError::InvalidManifest);
         }
-        validate_definition(owner)?;
+        validate_definition_with_depth(owner, depth + 1)?;
     }
     (definition.kind != 0)
         .then_some(())
@@ -1580,6 +1591,16 @@ fn put_definition(output: &mut Vec<u8>, definition: &DefinitionId) -> Result<(),
     Ok(())
 }
 fn read_definition(cursor: &mut Cursor<&[u8]>) -> Result<DefinitionId, MetadataError> {
+    read_definition_with_depth(cursor, 0)
+}
+
+fn read_definition_with_depth(
+    cursor: &mut Cursor<&[u8]>,
+    depth: usize,
+) -> Result<DefinitionId, MetadataError> {
+    if depth >= MAX_DEFINITION_DEPTH {
+        return Err(MetadataError::TooManyItems);
+    }
     let definition = DefinitionId {
         module: ModuleId {
             package: get_id(cursor)?,
@@ -1589,7 +1610,7 @@ fn read_definition(cursor: &mut Cursor<&[u8]>) -> Result<DefinitionId, MetadataE
         kind: read_u8(cursor)?,
         owner: match read_u8(cursor)? {
             0 => None,
-            1 => Some(Box::new(read_definition(cursor)?)),
+            1 => Some(Box::new(read_definition_with_depth(cursor, depth + 1)?)),
             _ => return Err(MetadataError::InvalidManifest),
         },
     };
@@ -2080,6 +2101,31 @@ mod tests {
             }],
         };
         assert_eq!(section.validate(), Err(MetadataError::InvalidManifest));
+    }
+
+    #[test]
+    fn definition_owner_chain_has_a_bounded_depth() {
+        let package = sample().package;
+        let module = ModuleId {
+            package,
+            path: "m".into(),
+        };
+        let mut owner = None;
+        for index in (0..=MAX_DEFINITION_DEPTH).rev() {
+            owner = Some(Box::new(DefinitionId {
+                module: module.clone(),
+                name: format!("T{index}"),
+                kind: 5,
+                owner,
+            }));
+        }
+        let definition = DefinitionId {
+            module,
+            name: "field".into(),
+            kind: 6,
+            owner,
+        };
+        assert_eq!(validate_definition(&definition), Err(MetadataError::TooManyItems));
     }
 
     #[test]
