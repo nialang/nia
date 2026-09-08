@@ -711,6 +711,55 @@ impl CompilerDatabase {
         self.db.get_owned(CompiledPackageTemplatesQuery(package))
     }
 
+    /// Returns decoded closure summaries for every installed template. Stable
+    /// definition identities remain intact until an explicit remap step.
+    pub fn compiled_template_summaries(
+        &self,
+    ) -> QueryResult<BTreeMap<DefinitionId, nia_closure_check::ImportedClosureEscapeSummary>> {
+        let mut summaries = BTreeMap::new();
+        let index = self.compiled_package_interface_index()?;
+        for (package, _) in index.packages() {
+            let templates = self.compiled_package_templates(package.clone())?;
+            for (definition, _) in templates.iter() {
+                let summary = templates.summary(definition)?.ok_or_else(|| {
+                    self.db.invalid_input(
+                        &CompiledPackageInterfaceIndexQuery,
+                        "installed template is missing its semantic summary".to_string(),
+                    )
+                })?;
+                let imported =
+                    nia_closure_check::ImportedClosureEscapeSummary::from_parameter_sets(
+                        summary.returned_parameters,
+                        summary.escaping_parameters,
+                        summary.returned_captured_address_parameters,
+                        summary.escaping_captured_address_parameters,
+                    )
+                    .map_err(|message| {
+                        self.db
+                            .invalid_input(&CompiledPackageInterfaceIndexQuery, message)
+                    })?;
+                summaries.insert(definition.clone(), imported);
+            }
+        }
+        Ok(summaries)
+    }
+
+    /// Remaps all installed template summaries into current-session function
+    /// identities for interprocedural analyses such as closure escape checking.
+    pub fn compiled_template_summaries_for_session(
+        &self,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<HashMap<GlobalDefId, nia_closure_check::ImportedClosureEscapeSummary>> {
+        self.compiled_template_summaries()?
+            .into_iter()
+            .map(|(identity, summary)| {
+                resolver
+                    .definition_for_identity(&identity)
+                    .map(|definition| (definition, summary))
+            })
+            .collect()
+    }
+
     /// Publishes the target-specific native section for one selected package.
     pub fn install_compiled_package_native(&self) -> QueryResult<Vec<PackageId>> {
         let index = self.compiled_package_interface_index()?;
