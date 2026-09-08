@@ -394,6 +394,26 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         "build.action_failures",
         1,
     )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "build.runner_cache_misses",
+        1,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "build.runner_cache_hits",
+        0,
+    )?;
+    positive(
+        &mut checks,
+        "runner_only_clean",
+        runner_only_clean,
+        "query.executions",
+    )?;
     for (state, result) in [
         ("runner_only_clean", runner_only_clean),
         ("runner_only_warm", runner_only_warm),
@@ -405,8 +425,28 @@ pub fn workload_acceptance(results: &[BuildResult]) -> MaintainResult<Acceptance
         // actions and cache lookups from the isolated workload.
         exact(&mut checks, state, result, "build.actions_executed", 1)?;
         exact(&mut checks, state, result, "build.action_cache_lookups", 0)?;
-        positive(&mut checks, state, result, "query.executions")?;
     }
+    exact(
+        &mut checks,
+        "runner_only_warm",
+        runner_only_warm,
+        "build.runner_cache_hits",
+        1,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_warm",
+        runner_only_warm,
+        "build.runner_cache_misses",
+        0,
+    )?;
+    exact(
+        &mut checks,
+        "runner_only_warm",
+        runner_only_warm,
+        "query.executions",
+        0,
+    )?;
     Ok(AcceptanceReport {
         passed: checks.iter().all(|check| check.passed),
         checks,

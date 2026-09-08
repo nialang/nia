@@ -118,6 +118,14 @@ or action-cache work. The representative fixture continues to cover clean,
 warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
 artifacts, and failed-action behavior.
 
+Generated runner executables use a content-addressed `.nia-cache/runner/v1`
+entry. The key includes the generated source, build-script bytes, complete
+standard-library source tree, toolchain identity, host target, profile, test
+mode, optimization mode, and build protocol. A hit restores only the private
+invocation executable; the runner is still started and its plan is still
+validated/executed. Cache entries publish through temporary files and a digest
+sidecar; malformed or mismatched entries are retired as misses.
+
 Diagnostics and the JSON record both use stderr, but the JSON record is one
 complete line beginning with `{"schema_version":1`; the baseline runner selects
 that record structurally rather than parsing diagnostic or timing prose.
