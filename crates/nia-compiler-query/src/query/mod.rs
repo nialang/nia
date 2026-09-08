@@ -788,6 +788,7 @@ impl CompilerDatabase {
                     },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
+                    owner: None,
                 };
                 let global = GlobalDefId {
                     module_id: module.id,
@@ -1389,6 +1390,7 @@ impl CompilerDatabase {
                     },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
+                    owner: None,
                 };
                 let roots = self
                     .db
@@ -1396,35 +1398,9 @@ impl CompilerDatabase {
                     .semantic
                     .type_roots_for_definition(def_id)
                     .unwrap_or_default();
-                let parent = def
-                    .parent
-                    .map(|parent| {
-                        let parent_def = defs.semantic.defs.get(parent).ok_or_else(|| {
-                            self.db.invalid_input(
-                                &ModuleGraphQuery,
-                                "definition parent is missing from module facts".to_string(),
-                            )
-                        })?;
-                        let parent_name = symbols.resolve(parent_def.name).ok_or_else(|| {
-                            self.db.invalid_input(
-                                &ModuleGraphQuery,
-                                "definition parent has no resolvable symbol".to_string(),
-                            )
-                        })?;
-                        Ok(DefinitionId {
-                            module: StableModuleId {
-                                package: owner.clone(),
-                                path: module_path.clone(),
-                            },
-                            name: parent_name.to_string(),
-                            kind: def_kind_tag(parent_def.kind),
-                        })
-                    })
-                    .transpose()?;
                 pending.push((
                     InterfaceRecord {
                         definition,
-                        parent,
                         declaration: declaration_signature(def),
                         type_roots: Vec::new(),
                     },
@@ -1518,10 +1494,38 @@ impl CompilerDatabase {
                     "public export target has no symbol text".to_string(),
                 )
             })?;
+            let mut owner_chain = Vec::new();
+            let mut parent = def.parent;
+            while let Some(parent_id) = parent {
+                let parent_def = module_defs.semantic.defs.get(parent_id).ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "public export parent definition is missing".to_string(),
+                    )
+                })?;
+                let parent_name = symbols.resolve(parent_def.name).ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "public export parent has no symbol text".to_string(),
+                    )
+                })?;
+                owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                parent = parent_def.parent;
+            }
+            let mut owner_identity = None;
+            for (name, kind) in owner_chain.into_iter().rev() {
+                owner_identity = Some(Box::new(DefinitionId {
+                    module: module.clone(),
+                    name,
+                    kind,
+                    owner: owner_identity,
+                }));
+            }
             Ok(DefinitionId {
                 module,
                 name: name.to_string(),
                 kind: def_kind_tag(def.kind),
+                owner: owner_identity,
             })
         };
         let mut modules = Vec::new();
@@ -2538,6 +2542,7 @@ impl StableTypeGraphEncoder<'_> {
             },
             name: name.to_string(),
             kind: def_kind_tag(def.kind),
+            owner: None,
         })
     }
 

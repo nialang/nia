@@ -18,8 +18,8 @@ const MAX_ITEMS: usize = 1_000_000;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
-// Version 4 adds canonical parent identities to interface records.
-const INTERFACE_SCHEMA: u32 = 4;
+// Version 5 adds canonical owner identities to definitions.
+const INTERFACE_SCHEMA: u32 = 5;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
@@ -51,6 +51,8 @@ pub struct DefinitionId {
     pub module: ModuleId,
     pub name: String,
     pub kind: u8,
+    /// Canonical containing definition for nested members.
+    pub owner: Option<Box<DefinitionId>>,
 }
 
 /// Stable const-generic argument used by applied nominal type nodes.
@@ -81,8 +83,6 @@ pub struct ModuleInterface {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceRecord {
     pub definition: DefinitionId,
-    /// Stable identity of the containing aggregate/trait for nested members.
-    pub parent: Option<DefinitionId>,
     /// Canonical declaration facts owned by the compiler interface protocol.
     pub declaration: Vec<u8>,
     /// Strictly sorted indices into the package type-graph section.
@@ -413,14 +413,10 @@ impl InterfaceSection {
             .collect::<std::collections::BTreeSet<_>>();
         for record in &self.records {
             validate_definition(&record.definition)?;
-            if let Some(parent) = &record.parent {
-                validate_definition(parent)?;
-                if parent.module != record.definition.module {
-                    return Err(MetadataError::InvalidManifest);
-                }
-                if parent == &record.definition || !definitions.contains(parent) {
-                    return Err(MetadataError::InvalidManifest);
-                }
+            if let Some(owner) = &record.definition.owner
+                && !definitions.contains(owner.as_ref())
+            {
+                return Err(MetadataError::InvalidManifest);
             }
             validate_bytes(&record.declaration)?;
             if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
@@ -1005,17 +1001,7 @@ pub fn encode_interface(section: &InterfaceSection) -> Result<Vec<u8>, MetadataE
     put_u32(&mut output, INTERFACE_SCHEMA);
     put_list_len(&mut output, section.records.len())?;
     for record in &section.records {
-        put_id(&mut output, &record.definition.module.package)?;
-        put_string(&mut output, &record.definition.module.path)?;
-        put_string(&mut output, &record.definition.name)?;
-        output.push(record.definition.kind);
-        match &record.parent {
-            Some(parent) => {
-                output.push(1);
-                put_definition(&mut output, parent)?;
-            }
-            None => output.push(0),
-        }
+        put_definition(&mut output, &record.definition)?;
         put_bytes(&mut output, &record.declaration)?;
         put_list_len(&mut output, record.type_roots.len())?;
         for root in &record.type_roots {
@@ -1046,22 +1032,9 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
     let count = bounded_count(get_u32(&mut cursor)?)?;
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
-        let definition = DefinitionId {
-            module: ModuleId {
-                package: get_id(&mut cursor)?,
-                path: get_string(&mut cursor)?,
-            },
-            name: get_string(&mut cursor)?,
-            kind: read_u8(&mut cursor)?,
-        };
-        let parent = match read_u8(&mut cursor)? {
-            0 => None,
-            1 => Some(read_definition(&mut cursor)?),
-            _ => return Err(MetadataError::InvalidManifest),
-        };
+        let definition = read_definition(&mut cursor)?;
         records.push(InterfaceRecord {
             definition,
-            parent,
             declaration: get_bytes(&mut cursor)?,
             type_roots: read_refs(&mut cursor)?,
         });
@@ -1562,6 +1535,12 @@ fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
     validate_id(&definition.module.package)?;
     validate_string(&definition.module.path)?;
     validate_string(&definition.name)?;
+    if let Some(owner) = &definition.owner {
+        if owner.module != definition.module || owner.as_ref() == definition {
+            return Err(MetadataError::InvalidManifest);
+        }
+        validate_definition(owner)?;
+    }
     (definition.kind != 0)
         .then_some(())
         .ok_or(MetadataError::InvalidManifest)
@@ -1591,6 +1570,13 @@ fn put_definition(output: &mut Vec<u8>, definition: &DefinitionId) -> Result<(),
     put_string(output, &definition.module.path)?;
     put_string(output, &definition.name)?;
     output.push(definition.kind);
+    match &definition.owner {
+        Some(owner) => {
+            output.push(1);
+            put_definition(output, owner)?;
+        }
+        None => output.push(0),
+    }
     Ok(())
 }
 fn read_definition(cursor: &mut Cursor<&[u8]>) -> Result<DefinitionId, MetadataError> {
@@ -1601,6 +1587,11 @@ fn read_definition(cursor: &mut Cursor<&[u8]>) -> Result<DefinitionId, MetadataE
         },
         name: get_string(cursor)?,
         kind: read_u8(cursor)?,
+        owner: match read_u8(cursor)? {
+            0 => None,
+            1 => Some(Box::new(read_definition(cursor)?)),
+            _ => return Err(MetadataError::InvalidManifest),
+        },
     };
     validate_definition(&definition)?;
     Ok(definition)
@@ -1890,6 +1881,7 @@ mod tests {
                     },
                     name: "Array".into(),
                     kind: 5,
+                    owner: None,
                 },
                 arguments: Vec::new(),
                 const_arguments: vec![StableConstArg::Integer {
@@ -1917,6 +1909,7 @@ mod tests {
                     },
                     name: "write".into(),
                     kind: 2,
+                    owner: None,
                 },
                 body: vec![1, 2, 3],
                 summary: vec![4, 5],
@@ -1992,8 +1985,8 @@ mod tests {
                     },
                     name: "write".into(),
                     kind: 2,
+                    owner: None,
                 },
-                parent: None,
                 declaration: b"fn(Text) Unit".to_vec(),
                 type_roots: Vec::new(),
             }],
@@ -2027,8 +2020,8 @@ mod tests {
                 },
                 name: "a".into(),
                 kind: 2,
+                owner: None,
             },
-            parent: None,
             declaration: vec![1],
             type_roots: Vec::new(),
         };
@@ -2040,8 +2033,8 @@ mod tests {
                 },
                 name: "a".into(),
                 kind: 2,
+                owner: None,
             },
-            parent: None,
             declaration: vec![2],
             type_roots: Vec::new(),
         };
@@ -2069,19 +2062,19 @@ mod tests {
             },
             name: "field".into(),
             kind: 6,
-        };
-        let parent = DefinitionId {
-            module: ModuleId {
-                package,
-                path: "m".into(),
-            },
-            name: "Missing".into(),
-            kind: 5,
+            owner: Some(Box::new(DefinitionId {
+                module: ModuleId {
+                    package: package.clone(),
+                    path: "m".into(),
+                },
+                name: "Missing".into(),
+                kind: 5,
+                owner: None,
+            })),
         };
         let section = InterfaceSection {
             records: vec![InterfaceRecord {
                 definition: child,
-                parent: Some(parent),
                 declaration: vec![1],
                 type_roots: Vec::new(),
             }],
@@ -2099,6 +2092,7 @@ mod tests {
             },
             name: "Text".into(),
             kind: 5,
+            owner: None,
         };
         let graph = StableTypeGraph {
             nodes: vec![
@@ -2191,6 +2185,7 @@ mod tests {
             module: module.clone(),
             name: "run".into(),
             kind: 2,
+            owner: None,
         };
         let section = PublicSurfaceSection {
             package: package.clone(),
@@ -2223,6 +2218,7 @@ mod tests {
                 module: module,
                 name: "other".into(),
                 kind: 2,
+                owner: None,
             },
             parent_enum: None,
             source: 0,
