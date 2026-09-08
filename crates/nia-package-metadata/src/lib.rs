@@ -510,6 +510,9 @@ impl PackageManifest {
         }
         for dependency in &self.dependencies {
             validate_id(&dependency.package)?;
+            if dependency.package == self.package {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         if self
             .dependencies
@@ -1301,6 +1304,16 @@ mod tests {
             Some(&b"interface"[..])
         );
         assert_eq!(artifact.section(SectionKind::Native).unwrap(), None);
+    }
+
+    #[test]
+    fn manifest_rejects_self_dependency() {
+        let mut manifest = sample();
+        manifest.dependencies.push(PackageDependency {
+            package: manifest.package.clone(),
+            interface_hash: [1; 32],
+        });
+        assert_eq!(encode(&manifest), Err(MetadataError::InvalidManifest));
     }
 
     #[test]
