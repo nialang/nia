@@ -18,7 +18,7 @@ const MAX_ITEMS: usize = 1_000_000;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
-// Version 2 adds the declaration kind to stable definition identities.
+// Version 4 adds canonical parent identities to interface records.
 const INTERFACE_SCHEMA: u32 = 4;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
@@ -406,11 +406,19 @@ impl InterfaceSection {
         if self.records.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
         }
+        let definitions = self
+            .records
+            .iter()
+            .map(|record| &record.definition)
+            .collect::<std::collections::BTreeSet<_>>();
         for record in &self.records {
             validate_definition(&record.definition)?;
             if let Some(parent) = &record.parent {
                 validate_definition(parent)?;
                 if parent.module != record.definition.module {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                if parent == &record.definition || !definitions.contains(parent) {
                     return Err(MetadataError::InvalidManifest);
                 }
             }
@@ -2049,6 +2057,36 @@ mod tests {
             decode_interface(&bytes),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn interface_section_rejects_unknown_parent_identity() {
+        let package = sample().package;
+        let child = DefinitionId {
+            module: ModuleId {
+                package: package.clone(),
+                path: "m".into(),
+            },
+            name: "field".into(),
+            kind: 6,
+        };
+        let parent = DefinitionId {
+            module: ModuleId {
+                package,
+                path: "m".into(),
+            },
+            name: "Missing".into(),
+            kind: 5,
+        };
+        let section = InterfaceSection {
+            records: vec![InterfaceRecord {
+                definition: child,
+                parent: Some(parent),
+                declaration: vec![1],
+                type_roots: Vec::new(),
+            }],
+        };
+        assert_eq!(section.validate(), Err(MetadataError::InvalidManifest));
     }
 
     #[test]
