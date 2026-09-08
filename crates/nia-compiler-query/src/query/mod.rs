@@ -27,7 +27,10 @@ use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
-use nia_package_metadata::{DefinitionId, InterfaceRecord, InterfaceSection, PackageId};
+use nia_package_metadata::{
+    DefinitionId, InterfaceRecord, InterfaceSection, ModuleInterface, PackageId, PackageManifest,
+    SectionKind,
+};
 use nia_parser::ParseError;
 use nia_program_signatures::{
     ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
@@ -275,6 +278,58 @@ impl CompilerDatabase {
             .validate()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         Ok(section)
+    }
+
+    /// Produces one complete, target-independent package artifact.
+    pub fn publish_package_artifact(
+        &self,
+        package: PackageId,
+    ) -> QueryResult<crate::PackageArtifactPublication> {
+        let interface = self.package_interface_section(package.clone())?;
+        let interface_bytes = nia_package_metadata::encode_interface(&interface)
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let mut paths = graph
+            .modules()
+            .filter_map(|module| {
+                graph
+                    .stable_key(module.id)
+                    .map(|key| key.source_identity().normalized_path().to_owned())
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths.dedup();
+        let modules = paths
+            .into_iter()
+            .map(|path| {
+                let module_section = InterfaceSection {
+                    records: interface
+                        .records
+                        .iter()
+                        .filter(|record| record.definition.module == path)
+                        .cloned()
+                        .collect(),
+                };
+                let bytes = nia_package_metadata::encode_interface(&module_section)
+                    .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+                Ok(ModuleInterface {
+                    path,
+                    interface_hash: nia_package_metadata::section_hash(&bytes),
+                })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        let manifest = PackageManifest {
+            modules,
+            ..PackageManifest::current(package)
+        };
+        let bytes = nia_package_metadata::encode_artifact(
+            &manifest,
+            &[(SectionKind::Interface, interface_bytes.as_slice())],
+        )
+        .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        nia_package_metadata::PackageArtifact::open(bytes.clone())
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        Ok(crate::PackageArtifactPublication { manifest, bytes })
     }
 
     /// Checks every loaded module after settling provider-demand fixed points.
