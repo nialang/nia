@@ -185,7 +185,7 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
         name: "dep".into(),
         version: "1.0.0".into(),
     };
-    let make_interface = |name: &str| {
+    let make_interface = |name: &str, template_body: &[u8]| {
         let section = nia_package_metadata::InterfaceSection {
             records: vec![nia_package_metadata::InterfaceRecord {
                 definition: nia_package_metadata::DefinitionId {
@@ -201,6 +201,14 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
             }],
         };
         let bytes = nia_package_metadata::encode_interface(&section).unwrap();
+        let templates = nia_package_metadata::TemplateSection {
+            records: vec![nia_package_metadata::TemplateRecord {
+                definition: section.records[0].definition.clone(),
+                body: template_body.to_vec(),
+                summary: b"summary".to_vec(),
+            }],
+        };
+        let template_bytes = nia_package_metadata::encode_templates(&templates).unwrap();
         let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
         manifest
             .modules
@@ -215,15 +223,22 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
         let artifact = nia_package_metadata::PackageArtifact::open(
             nia_package_metadata::encode_artifact(
                 &manifest,
-                &[(nia_package_metadata::SectionKind::Interface, &bytes)],
+                &[
+                    (nia_package_metadata::SectionKind::Interface, &bytes),
+                    (
+                        nia_package_metadata::SectionKind::Templates,
+                        &template_bytes,
+                    ),
+                ],
             )
             .unwrap(),
         )
         .unwrap();
         nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap()
     };
-    loader.replace_compiled_interfaces(vec![make_interface("first")]);
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"a")]);
     let _ = database.compiled_package_interface_index().unwrap();
+    loader.replace_compiled_interfaces(vec![make_interface("first", b"b")]);
     let invalidation = database
         .update(CompileRequest::new(fixture.program()).with_loader_facts(loader))
         .unwrap();

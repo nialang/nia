@@ -2760,6 +2760,19 @@ fn compiled_interface_index_fingerprint(
         } else {
             builder.write_u8(0);
         }
+        if let Some(templates) = interface.templates() {
+            builder.write_u8(1);
+            builder.write_u64(templates.records.len() as u64);
+            for record in &templates.records {
+                builder.write_str(&record.definition.module.path);
+                builder.write_str(&record.definition.name);
+                builder.write_u8(record.definition.kind);
+                builder.write_bytes(&record.body);
+                builder.write_bytes(&record.summary);
+            }
+        } else {
+            builder.write_u8(0);
+        }
     }
     Some(builder.finish())
 }
