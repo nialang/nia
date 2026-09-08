@@ -12,7 +12,8 @@ use std::{
 };
 
 use nia_compiler_query::{
-    CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics, query_error_diagnostic,
+    CompileRequest, CompilerDatabase, StableDefinitionPackageResolver, TimingMode,
+    has_error_diagnostics, query_error_diagnostic,
 };
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
@@ -611,6 +612,18 @@ impl Driver {
         package: PackageId,
         output: PathBuf,
     ) -> DriverOutput<PublishedPackageArtifact> {
+        self.publish_package_artifact_with_resolver(request, package, output, None)
+    }
+
+    /// Checks and atomically publishes a package artifact using an explicit
+    /// resolver for nominal definitions from dependency packages.
+    pub fn publish_package_artifact_with_resolver(
+        &self,
+        request: CheckRequest,
+        package: PackageId,
+        output: PathBuf,
+        resolver: Option<&dyn StableDefinitionPackageResolver>,
+    ) -> DriverOutput<PublishedPackageArtifact> {
         DriverOutput::catch_ice(|| {
             let database = match self.compiler_database(&request) {
                 Ok(database) => database,
@@ -631,7 +644,13 @@ impl Driver {
             if has_error_diagnostics(&checked.diagnostics) {
                 return DriverOutput::from_error(DriverError::CheckDiagnostics(checked));
             }
-            let publication = match database.publish_package_artifact(package) {
+            let publication_result = match resolver {
+                Some(resolver) => {
+                    database.publish_package_artifact_with_resolver(package, resolver)
+                }
+                None => database.publish_package_artifact(package),
+            };
+            let publication = match publication_result {
                 Ok(publication) => publication,
                 Err(error) => {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
