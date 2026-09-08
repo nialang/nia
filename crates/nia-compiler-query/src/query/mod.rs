@@ -260,13 +260,45 @@ impl CompilerDatabase {
         package: PackageId,
         roots: &[nia_ids::InternedTyId],
     ) -> QueryResult<StableTypeGraph> {
+        self.stable_type_graph_for_roots_with_resolver(roots, &|def_id| {
+            let graph = self.db.get(ModuleGraphQuery)?;
+            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "entry module has no package root; provide an external definition resolver"
+                        .to_string(),
+                ));
+            };
+            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "nominal type belongs to an external package; provide an external definition resolver"
+                        .to_string(),
+                ));
+            }
+            Ok(package.clone())
+        })
+    }
+
+    /// Converts session-owned type roots into a package-stable type graph using
+    /// an explicit definition-to-package resolver.
+    ///
+    /// The resolver is required for every nominal definition, including
+    /// definitions from the current package. This keeps external identities
+    /// explicit and prevents dependency types from being silently attributed
+    /// to the package being published.
+    pub fn stable_type_graph_for_roots_with_resolver(
+        &self,
+        roots: &[nia_ids::InternedTyId],
+        resolver: &dyn Fn(GlobalDefId) -> QueryResult<PackageId>,
+    ) -> QueryResult<StableTypeGraph> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
         let mut encoder = StableTypeGraphEncoder {
             db: &self.db,
             graph: &graph,
             symbols: &symbols,
-            package,
+            resolver,
             indexes: HashMap::new(),
             visiting: HashSet::new(),
             nodes: Vec::new(),
@@ -756,7 +788,7 @@ struct StableTypeGraphEncoder<'db> {
     db: &'db QueryDb<CompilerContext>,
     graph: &'db ModuleGraphSnapshot,
     symbols: &'db nia_symbol_table::SymbolTable,
-    package: PackageId,
+    resolver: &'db dyn Fn(GlobalDefId) -> QueryResult<PackageId>,
     indexes: HashMap<nia_ids::InternedTyId, u32>,
     visiting: HashSet<nia_ids::InternedTyId>,
     nodes: Vec<StableTypeNode>,
@@ -861,8 +893,9 @@ impl StableTypeGraphEncoder<'_> {
                 "nominal type name is absent from the session symbol table".to_string(),
             )
         })?;
+        let package = (self.resolver)(def_id)?;
         Ok(DefinitionId {
-            package: self.package.clone(),
+            package,
             module: module.source_identity().normalized_path().to_owned(),
             name: name.to_string(),
             kind: def_kind_tag(def.kind),
