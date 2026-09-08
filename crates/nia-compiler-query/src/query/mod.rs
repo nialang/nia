@@ -586,6 +586,13 @@ impl CompilerDatabase {
                         format!("compiled module interface hash or package identity mismatch: {identity:?}"),
                     ));
                 }
+                if !self
+                    .db
+                    .can_publish_owned(CompiledPackageModuleInterfaceQuery(identity.clone()))
+                {
+                    identities.push(identity);
+                    continue;
+                }
                 self.db.publish_owned(
                     CompiledPackageModuleInterfaceQuery(identity.clone()),
                     CompiledPackageModuleInterface {
@@ -632,6 +639,13 @@ impl CompilerDatabase {
                         ));
                     }
                 }
+            }
+            if !self
+                .db
+                .can_publish_owned(CompiledPackageTemplatesQuery(package.clone()))
+            {
+                installed.push(package.clone());
+                continue;
             }
             self.db.publish_owned(
                 CompiledPackageTemplatesQuery(package.clone()),

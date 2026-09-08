@@ -369,6 +369,30 @@ impl<C> QueryDb<C> {
         }
     }
 
+    /// Returns whether an externally published owned slot can accept a new
+    /// payload. A live published payload must remain untouched until its
+    /// consumer takes ownership; empty and consumed slots are publishable.
+    pub fn can_publish_owned<K>(&self, key: K) -> bool
+    where
+        K: QueryKey<C>,
+    {
+        assert_eq!(
+            K::STORAGE,
+            QueryStoragePolicy::SingleConsumerOwned,
+            "query `{}` does not declare single-consumer owned storage",
+            K::name()
+        );
+        assert_eq!(
+            K::PROVIDER,
+            QueryProviderPolicy::ExternallyPublished,
+            "query `{}` does not declare an external producer",
+            K::name()
+        );
+        let slot = self.slot_for(&key);
+        let state = slot.state.lock().expect("query cache lock poisoned");
+        matches!(&*state, QueryState::Empty | QueryState::Consumed)
+    }
+
     /// Publishes an already-owned payload to one externally-published query slot.
     ///
     /// The published slot depends on `predecessor`, so invalidating the producer
