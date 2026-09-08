@@ -27,6 +27,7 @@ use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
+use nia_package_metadata::{DefinitionId, InterfaceRecord, InterfaceSection, PackageId};
 use nia_parser::ParseError;
 use nia_program_signatures::{
     ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
@@ -233,6 +234,47 @@ impl CompilerDatabase {
     /// Returns the shared session that owns this database and its loader facts.
     pub fn query_session(&self) -> nia_query::QuerySession {
         self.db.session()
+    }
+
+    /// Publishes the target-independent public declaration inventory for one package.
+    ///
+    /// This is deliberately an explicit publication API: normal compilation
+    /// continues to consume the tracked source queries. The returned section is
+    /// canonical and can be embedded in a [`nia_package_metadata::PackageArtifact`].
+    pub fn package_interface_section(&self, package: PackageId) -> QueryResult<InterfaceSection> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let symbols = self.db.context().loader_facts().symbols();
+        let mut records = Vec::new();
+        for module in graph.modules() {
+            let Some(stable_key) = graph.stable_key(module.id) else {
+                continue;
+            };
+            let module_path = stable_key.source_identity().normalized_path().to_owned();
+            let defs = self.db.get(FullModuleDefsQuery(module.id))?;
+            for (def_id, def) in defs.semantic.defs.iter() {
+                if def.parent.is_some() || def.visibility != nia_defs::Visibility::Public {
+                    continue;
+                }
+                let Some(name) = symbols.resolve(def.name) else {
+                    continue;
+                };
+                records.push(InterfaceRecord {
+                    definition: DefinitionId {
+                        package: package.clone(),
+                        module: module_path.clone(),
+                        name: name.to_string(),
+                        kind: def_kind_tag(def.kind),
+                    },
+                    signature: declaration_signature(def_id, def),
+                });
+            }
+        }
+        records.sort_by(|left, right| left.definition.cmp(&right.definition));
+        let section = InterfaceSection { records };
+        section
+            .validate()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        Ok(section)
     }
 
     /// Checks every loaded module after settling provider-demand fixed points.
@@ -606,6 +648,50 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
         }
         Ok(invalidation)
+    }
+}
+
+fn declaration_signature(def_id: nia_ids::DefId, def: &nia_defs::Def) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(32 + def.generics.len() * 8);
+    bytes.extend_from_slice(b"NIADECL01");
+    bytes.push(def_kind_tag(def.kind));
+    bytes.push(match def.visibility {
+        nia_defs::Visibility::Private => 0,
+        nia_defs::Visibility::PublicSuper => 1,
+        nia_defs::Visibility::PublicPkg => 2,
+        nia_defs::Visibility::Public => 3,
+    });
+    bytes.extend_from_slice(&def_id.0.to_le_bytes());
+    bytes.extend_from_slice(
+        &u32::try_from(def.generics.len())
+            .expect("definition generic count exceeds u32")
+            .to_le_bytes(),
+    );
+    for generic in &def.generics {
+        bytes.extend_from_slice(&generic.raw().to_le_bytes());
+    }
+    bytes
+}
+
+fn def_kind_tag(kind: nia_defs::DefKind) -> u8 {
+    use nia_defs::DefKind;
+    match kind {
+        DefKind::Module => 1,
+        DefKind::Function => 2,
+        DefKind::Global => 3,
+        DefKind::Const => 4,
+        DefKind::Struct => 5,
+        DefKind::StructField => 6,
+        DefKind::Union => 7,
+        DefKind::UnionField => 8,
+        DefKind::Trait => 9,
+        DefKind::TraitAssociatedType => 10,
+        DefKind::TraitMethod => 11,
+        DefKind::Method => 12,
+        DefKind::Enum => 13,
+        DefKind::EnumVariant => 14,
+        DefKind::EnumVariantField => 15,
+        DefKind::TypeAlias => 16,
     }
 }
 

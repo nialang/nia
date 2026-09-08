@@ -106,6 +106,35 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
 }
 
 #[test]
+fn package_interface_publication_is_canonical_and_stable() {
+    let fixture = LoadedProgramFixture::new(
+        "src/main.nia",
+        "pub fn greet() Unit {}\nfn private() Unit {}\npub struct User {}",
+    );
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let first = database.package_interface_section(package.clone()).unwrap();
+    let second = database.package_interface_section(package).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first.records.len(), 2);
+    assert!(
+        first
+            .records
+            .windows(2)
+            .all(|pair| { pair[0].definition < pair[1].definition })
+    );
+    assert!(
+        first.records.iter().all(|record| {
+            record.definition.name == "greet" || record.definition.name == "User"
+        })
+    );
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,
