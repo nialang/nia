@@ -849,17 +849,48 @@ impl CompilerDatabase {
                 let Some(name) = symbols.resolve(def.name) else {
                     continue;
                 };
+                let package = resolver.package_for_definition(GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                })?;
+                let mut owner_chain = Vec::new();
+                let mut parent = def.parent;
+                while let Some(parent_id) = parent {
+                    let parent_def = facts.semantic.defs.get(parent_id).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent is missing from module facts".to_string(),
+                        )
+                    })?;
+                    let parent_name = symbols.resolve(parent_def.name).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "definition parent has no resolvable symbol".to_string(),
+                        )
+                    })?;
+                    owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                    parent = parent_def.parent;
+                }
+                let mut owner_identity = None;
+                for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+                    owner_identity = Some(Box::new(DefinitionId {
+                        module: StableModuleId {
+                            package: package.clone(),
+                            path: module_path.clone(),
+                        },
+                        name: owner_name,
+                        kind: owner_kind,
+                        owner: owner_identity,
+                    }));
+                }
                 let identity = DefinitionId {
                     module: StableModuleId {
-                        package: resolver.package_for_definition(GlobalDefId {
-                            module_id: module.id,
-                            def_id,
-                        })?,
+                        package,
                         path: module_path.clone(),
                     },
                     name: name.to_string(),
                     kind: def_kind_tag(def.kind),
-                    owner: None,
+                    owner: owner_identity,
                 };
                 let global = GlobalDefId {
                     module_id: module.id,
@@ -2636,6 +2667,36 @@ impl StableTypeGraphEncoder<'_> {
             )
         })?;
         let package = self.resolver.package_for_definition(def_id)?;
+        let mut owner_chain = Vec::new();
+        let mut parent = def.parent;
+        while let Some(parent_id) = parent {
+            let parent_def = defs.semantic.defs.get(parent_id).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "definition parent is missing from module facts".to_string(),
+                )
+            })?;
+            let parent_name = self.symbols.resolve(parent_def.name).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "definition parent has no resolvable symbol".to_string(),
+                )
+            })?;
+            owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+            parent = parent_def.parent;
+        }
+        let mut owner_identity = None;
+        for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+            owner_identity = Some(Box::new(DefinitionId {
+                module: StableModuleId {
+                    package: package.clone(),
+                    path: module.source_identity().normalized_path().to_owned(),
+                },
+                name: owner_name,
+                kind: owner_kind,
+                owner: owner_identity,
+            }));
+        }
         Ok(DefinitionId {
             module: StableModuleId {
                 package,
@@ -2643,7 +2704,7 @@ impl StableTypeGraphEncoder<'_> {
             },
             name: name.to_string(),
             kind: def_kind_tag(def.kind),
-            owner: None,
+            owner: owner_identity,
         })
     }
 
@@ -2717,6 +2778,13 @@ fn append_definition_key(bytes: &mut Vec<u8>, definition: &DefinitionId) {
     append_bytes(bytes, definition.module.path.as_bytes());
     append_bytes(bytes, definition.name.as_bytes());
     bytes.push(definition.kind);
+    match &definition.owner {
+        Some(owner) => {
+            bytes.push(1);
+            append_definition_key(bytes, owner);
+        }
+        None => bytes.push(0),
+    }
 }
 
 fn append_const_arg_key(bytes: &mut Vec<u8>, argument: &nia_ty::ConstGenericArg) {
