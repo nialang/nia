@@ -20,13 +20,23 @@ and linker runtime; those are separate from the compiler's LLVM linkage.
 
 `package.sh` assembles the relocatable `linux-x86_64` archive used by the
 GitHub release workflow. It invokes `build.sh`, copies the compiler into
-`bin/nia`, the standard-library resources into `lib/nia`, and the bundled LLD
-into `libexec/nia/ld.lld`, then writes a reproducible tarball and `SHA256SUMS`:
+`bin/nia`, the standard-library resources into `lib/`, and the bundled LLD
+into `libexec/ld.lld`, then writes a reproducible tarball and `SHA256SUMS`:
 
 ```sh
 tools/release/package.sh
 ```
 
 Set `NIA_RELEASE_OUTPUT` to choose another output directory. The package is
-intended to be unpacked as a complete prefix; keep the relative `bin`, `lib`,
-and `libexec` layout intact so compiler relocation remains supported.
+intended to be unpacked as a complete, portable prefix:
+
+```text
+nia-<version>-linux-x86_64/
+├── bin/nia
+├── lib/toolchain.meta
+├── lib/std/
+└── libexec/ld.lld
+```
+
+Keep the relative `bin`, `lib`, and `libexec` layout intact so compiler
+relocation remains supported.

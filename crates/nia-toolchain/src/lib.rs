@@ -3,6 +3,8 @@
 //!
 //! A layout binds one compiler executable to a canonical resource root, a
 //! versioned manifest, the standard library, and runtime startup modules.
+//! Installed toolchains use a portable prefix: `bin/nia`, `lib/`, and
+//! `libexec/ld.lld` are siblings under the installation root.
 //! Compatibility identity deliberately excludes filesystem paths so an intact
 //! installation can be relocated without invalidating compiler caches.
 
@@ -131,7 +133,7 @@ impl ToolchainLayout {
                 .ok_or_else(|| ToolchainLayoutError::MissingExecutableParent {
                     path: request.compiler_executable.clone(),
                 })?
-                .join("../lib/nia"),
+                .join("../lib"),
             ResourceRootSelection::Explicit(root) => root,
         };
         let resource_root =
@@ -165,8 +167,7 @@ impl ToolchainLayout {
         )?;
         let bundled_lld = resource_root
             .parent()
-            .and_then(std::path::Path::parent)
-            .map(|prefix| prefix.join("libexec/nia/ld.lld"));
+            .map(|prefix| prefix.join("libexec/ld.lld"));
         let bundled_lld = match bundled_lld {
             Some(path) if path.exists() => {
                 Some(validate_optional_file(&path, ResourceRole::BundledLinker)?)
@@ -262,7 +263,7 @@ pub struct ToolchainLayoutRequest {
 }
 
 impl ToolchainLayoutRequest {
-    /// Selects resources at `../lib/nia` relative to the executable directory.
+    /// Selects resources at `../lib` relative to the executable directory.
     pub fn installed(compiler_executable: impl Into<PathBuf>) -> Self {
         Self {
             compiler_executable: compiler_executable.into(),
@@ -698,7 +699,7 @@ mod tests {
         let executable = root.join("bin/nia");
         fs::create_dir_all(executable.parent().expect("bin parent")).expect("create bin");
         fs::write(&executable, b"compiler").expect("write compiler");
-        let resources = root.join("lib/nia");
+        let resources = root.join("lib");
         fs::create_dir_all(resources.join("std")).expect("create std directory");
         fs::write(
             resources.join(RESOURCE_MANIFEST_NAME),
@@ -716,7 +717,7 @@ mod tests {
         let executable = write_layout(&first);
         let explicit = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
             &executable,
-            first.join("lib/nia"),
+            first.join("lib"),
         ))
         .expect("explicit layout");
         let installed = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
@@ -737,7 +738,7 @@ mod tests {
     fn exposes_bundled_lld_from_release_layout() {
         let root = temp_dir("bundled_lld");
         let executable = write_layout(&root);
-        let lld = root.join("libexec/nia/ld.lld");
+        let lld = root.join("libexec/ld.lld");
         fs::create_dir_all(lld.parent().expect("lld parent")).expect("create lld directory");
         fs::write(&lld, b"lld").expect("write bundled lld");
 
@@ -751,15 +752,15 @@ mod tests {
         let root = temp_dir("rejects_resources");
         let executable = write_layout(&root);
         fs::write(
-            root.join("lib/nia/toolchain.meta"),
-            "resource-layout-schema=1\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=3\n",
+            root.join("lib/toolchain.meta"),
+            "resource-layout-schema=2\ncompiler-version=incompatible\nstd-schema=1\nbuild-protocol-schema=3\n",
         )
         .expect("replace manifest");
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect_err("incompatible compiler version");
         assert!(error.to_string().contains("`compiler-version`"), "{error}");
 
-        fs::remove_file(root.join("lib/nia/toolchain.meta")).expect("remove manifest");
+        fs::remove_file(root.join("lib/toolchain.meta")).expect("remove manifest");
         let error = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(&executable))
             .expect_err("missing manifest");
         assert!(error.to_string().contains("resource manifest"), "{error}");
@@ -786,7 +787,7 @@ mod tests {
     fn oversized_resource_manifest_is_rejected_without_parsing_its_prefix() {
         let root = temp_dir("oversized_manifest");
         let executable = write_layout(&root);
-        let manifest = root.join("lib/nia/toolchain.meta");
+        let manifest = root.join("lib/toolchain.meta");
         let file = fs::OpenOptions::new()
             .write(true)
             .open(&manifest)
