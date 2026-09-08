@@ -1292,12 +1292,20 @@ impl CompilerDatabase {
                 if def.parent.is_some() || def.visibility != nia_defs::Visibility::Public {
                     continue;
                 }
+                let global = GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                };
+                let owner = resolver.package_for_definition(global)?;
+                if owner != package {
+                    continue;
+                }
                 let Some(name) = symbols.resolve(def.name) else {
                     continue;
                 };
                 let definition = DefinitionId {
                     module: StableModuleId {
-                        package: package.clone(),
+                        package: owner,
                         path: module_path.clone(),
                     },
                     name: name.to_string(),
@@ -1393,14 +1401,10 @@ impl CompilerDatabase {
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        let graph = self.db.get(ModuleGraphQuery)?;
-        let mut paths = graph
-            .modules()
-            .filter_map(|module| {
-                graph
-                    .stable_key(module.id)
-                    .map(|key| key.source_identity().normalized_path().to_owned())
-            })
+        let mut paths = interface
+            .records
+            .iter()
+            .map(|record| record.definition.module.path.clone())
             .collect::<Vec<_>>();
         paths.sort();
         paths.dedup();
@@ -1423,8 +1427,29 @@ impl CompilerDatabase {
                 })
             })
             .collect::<QueryResult<Vec<_>>>()?;
+        let mut dependencies = self
+            .db
+            .context()
+            .loader_facts()
+            .compiled_package_interfaces()?
+            .into_iter()
+            .filter(|interface| interface.manifest().package != package)
+            .map(|interface| {
+                let bytes = nia_package_metadata::encode_interface(&InterfaceSection {
+                    records: interface.records().to_vec(),
+                })
+                .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+                Ok(nia_package_metadata::PackageDependency {
+                    package: interface.manifest().package.clone(),
+                    interface_hash: nia_package_metadata::section_hash(&bytes),
+                })
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        dependencies.sort_by(|left, right| left.package.cmp(&right.package));
+        dependencies.dedup_by(|left, right| left.package == right.package);
         let manifest = PackageManifest {
             modules,
+            dependencies,
             ..PackageManifest::current(package)
         };
         let type_graph_bytes = nia_package_metadata::encode_type_graph(&type_graph)

@@ -171,6 +171,40 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
 }
 
 #[test]
+fn package_publication_excludes_definitions_owned_by_dependency_packages() {
+    let mut fixture = LoadedProgramFixture::new("src/main.nia", "pub fn root() () {}");
+    let dependency_module = fixture.add_child(
+        fixture.entry_id(),
+        "dependency",
+        "deps/lib.nia",
+        "pub fn foreign() () {}",
+    );
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "root".into(),
+        version: "1.0.0".into(),
+    };
+    let dependency = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dependency".into(),
+        version: "1.0.0".into(),
+    };
+    let interface = database
+        .package_interface_section_with_resolver(package.clone(), &|global: GlobalDefId| {
+            Ok(if global.module_id == dependency_module {
+                dependency.clone()
+            } else {
+                package.clone()
+            })
+        })
+        .unwrap();
+    assert_eq!(interface.records.len(), 1);
+    assert_eq!(interface.records[0].definition.name, "root");
+    assert_eq!(interface.records[0].definition.module.package, package);
+}
+
+#[test]
 fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change() {
     let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
     let loader = TestLoaderFacts::new(
