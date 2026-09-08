@@ -30,6 +30,7 @@ pub struct DefinitionId {
     pub package: PackageId,
     pub module: String,
     pub name: String,
+    pub kind: u8,
 }
 
 /// One package dependency and the interface section it consumed.
@@ -73,6 +74,9 @@ impl InterfaceSection {
             validate_id(&record.definition.package)?;
             validate_string(&record.definition.module)?;
             validate_string(&record.definition.name)?;
+            if record.definition.kind == 0 {
+                return Err(MetadataError::InvalidManifest);
+            }
             validate_bytes(&record.signature)?;
         }
         if self
@@ -379,6 +383,7 @@ pub fn encode_interface(section: &InterfaceSection) -> Result<Vec<u8>, MetadataE
         put_id(&mut output, &record.definition.package)?;
         put_string(&mut output, &record.definition.module)?;
         put_string(&mut output, &record.definition.name)?;
+        output.push(record.definition.kind);
         put_bytes(&mut output, &record.signature)?;
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -410,6 +415,7 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
                 package: get_id(&mut cursor)?,
                 module: get_string(&mut cursor)?,
                 name: get_string(&mut cursor)?,
+                kind: read_u8(&mut cursor)?,
             },
             signature: get_bytes(&mut cursor)?,
         });
@@ -658,6 +664,7 @@ mod tests {
                     package,
                     module: "std/io".into(),
                     name: "write".into(),
+                    kind: 2,
                 },
                 signature: b"fn(Text) Unit".to_vec(),
             }],
@@ -687,6 +694,7 @@ mod tests {
                 package: package.clone(),
                 module: "m".into(),
                 name: "a".into(),
+                kind: 2,
             },
             signature: vec![1],
         };
@@ -695,6 +703,7 @@ mod tests {
                 package,
                 module: "m".into(),
                 name: "a".into(),
+                kind: 2,
             },
             signature: vec![2],
         };
