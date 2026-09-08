@@ -830,6 +830,12 @@ impl Driver {
             database
         };
         drop(compiler_guard);
+        // Materialize artifact-backed products at the compiler boundary. The
+        // installation is predecessor-bound and idempotent, so repeated
+        // incremental requests either retain a live payload or republish a
+        // consumed slot for the current artifact generation.
+        database.install_compiled_package_module_interfaces()?;
+        database.install_compiled_package_templates()?;
         Ok((database, loader))
     }
 
