@@ -617,12 +617,28 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
         roots: BTreeMap<DefinitionId, Vec<InternedTyId>>,
-    ) {
+    ) -> QueryResult<()> {
+        let index = self.compiled_package_interface_index()?;
+        if index.package(&package).is_none() {
+            return Err(self.db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                format!(
+                    "cannot publish compiled type roots for an unselected package: {package:?}"
+                ),
+            ));
+        }
+        if roots.keys().any(|definition| definition.package != package) {
+            return Err(self.db.invalid_input(
+                &CompiledPackageInterfaceIndexQuery,
+                "compiled type-root payload contains a definition from another package".to_string(),
+            ));
+        }
         self.db.publish_owned(
             CompiledPackageTypeRootsQuery(package),
             roots,
             &CompiledPackageInterfaceIndexQuery,
         );
+        Ok(())
     }
 
     /// Installs all loader-selected compiled interface roots into their
@@ -644,7 +660,7 @@ impl CompilerDatabase {
         }
         let packages = grouped.keys().cloned().collect::<Vec<_>>();
         for (package, roots) in grouped {
-            self.publish_compiled_package_type_roots(package, roots);
+            self.publish_compiled_package_type_roots(package, roots)?;
         }
         Ok(packages)
     }
@@ -1560,7 +1576,12 @@ impl StableTypeGraphEncoder<'_> {
         let mut key = Vec::new();
         match kind {
             nia_ty::TyKind::Primitive(primitive) => {
-                key.extend_from_slice(&[1, primitive as u8]);
+                let stable = primitive_type_node(primitive)?;
+                match stable {
+                    StableTypeNode::Primitive(tag) => key.extend_from_slice(&[1, tag]),
+                    StableTypeNode::Never => key.push(10),
+                    _ => return Err(self.unsupported("primitive has no stable package tag")),
+                }
             }
             nia_ty::TyKind::Tuple(elements) if elements.is_empty() => key.push(2),
             nia_ty::TyKind::Tuple(elements) => {
