@@ -109,7 +109,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
 fn package_interface_publication_is_canonical_and_stable() {
     let fixture = LoadedProgramFixture::new(
         "src/main.nia",
-        "pub fn greet() Unit {}\nfn private() Unit {}\npub struct User {}",
+        "pub fn greet() () {}\nfn private() () {}\npub struct User {}",
     );
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
@@ -136,7 +136,7 @@ fn package_interface_publication_is_canonical_and_stable() {
 
 #[test]
 fn package_artifact_publication_round_trips_manifest_and_interface() {
-    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),

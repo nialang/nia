@@ -165,7 +165,8 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
                 name: "answer".into(),
                 kind: 2,
             },
-            signature: b"fn() Int".to_vec(),
+            declaration: b"fn() Int".to_vec(),
+            type_roots: Vec::new(),
         }],
     };
     let interface_bytes = encode_interface(&interface).unwrap();
@@ -190,7 +191,7 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     };
     let definition = &indexed.records()[0].definition;
     assert_eq!(
-        indexed.definition(definition).unwrap().signature,
+        indexed.definition(definition).unwrap().declaration,
         b"fn() Int"
     );
     assert_eq!(indexed.module_records("src/lib.nia").count(), 1);
@@ -208,7 +209,8 @@ fn compiler_reads_loader_selected_interface_without_dependency_source() {
                 name: "answer".into(),
                 kind: 2,
             },
-            signature: b"fn() Int".to_vec(),
+            declaration: b"fn() Int".to_vec(),
+            type_roots: Vec::new(),
         }],
     };
     let interface_bytes = encode_interface(&interface).unwrap();

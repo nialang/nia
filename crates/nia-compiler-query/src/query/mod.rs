@@ -310,6 +310,15 @@ impl CompilerDatabase {
         roots: &[nia_ids::InternedTyId],
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<StableTypeGraph> {
+        self.stable_type_graph_for_roots_with_resolver_and_indexes(roots, resolver)
+            .map(|(graph, _)| graph)
+    }
+
+    fn stable_type_graph_for_roots_with_resolver_and_indexes(
+        &self,
+        roots: &[nia_ids::InternedTyId],
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<(StableTypeGraph, HashMap<nia_ids::InternedTyId, u32>)> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
         let mut encoder = StableTypeGraphEncoder {
@@ -332,7 +341,7 @@ impl CompilerDatabase {
         graph
             .validate()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        Ok(graph)
+        Ok((graph, encoder.indexes))
     }
 
     /// Publishes the target-independent public declaration inventory for one package.
@@ -341,9 +350,17 @@ impl CompilerDatabase {
     /// continues to consume the tracked source queries. The returned section is
     /// canonical and can be embedded in a [`nia_package_metadata::PackageArtifact`].
     pub fn package_interface_section(&self, package: PackageId) -> QueryResult<InterfaceSection> {
+        self.package_interface_and_type_graph(package)
+            .map(|(interface, _)| interface)
+    }
+
+    fn package_interface_and_type_graph(
+        &self,
+        package: PackageId,
+    ) -> QueryResult<(InterfaceSection, StableTypeGraph)> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
-        let mut records = Vec::new();
+        let mut pending = Vec::new();
         for module in graph.modules() {
             let Some(stable_key) = graph.stable_key(module.id) else {
                 continue;
@@ -357,23 +374,80 @@ impl CompilerDatabase {
                 let Some(name) = symbols.resolve(def.name) else {
                     continue;
                 };
-                records.push(InterfaceRecord {
-                    definition: DefinitionId {
+                let definition = DefinitionId {
                         package: package.clone(),
                         module: module_path.clone(),
                         name: name.to_string(),
                         kind: def_kind_tag(def.kind),
+                    };
+                let roots = self
+                    .db
+                    .get(ItemSignaturesQuery(module.id))?
+                    .semantic
+                    .type_roots_for_definition(def_id)
+                    .unwrap_or_default();
+                pending.push((
+                    InterfaceRecord {
+                        definition,
+                        declaration: declaration_signature(def_id, def),
+                        type_roots: Vec::new(),
                     },
-                    signature: declaration_signature(def_id, def),
-                });
+                    roots,
+                ));
             }
         }
+        let mut all_roots = pending
+            .iter()
+            .flat_map(|(_, roots)| roots.iter().copied())
+            .collect::<Vec<_>>();
+        all_roots.sort_unstable();
+        all_roots.dedup();
+        let resolver = |def_id: GlobalDefId| {
+            let package = package.clone();
+            let graph = self.db.get(ModuleGraphQuery)?;
+            let Some(entry_root) = graph.current_package_root(graph.entry()) else {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "entry module has no package root".to_string(),
+                ));
+            };
+            if graph.current_package_root(def_id.module_id) != Some(entry_root) {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "nominal type belongs to an external package; package resolver is required"
+                        .to_string(),
+                ));
+            }
+            Ok(package)
+        };
+        let (type_graph, indexes) = self
+            .stable_type_graph_for_roots_with_resolver_and_indexes(&all_roots, &resolver)?;
+        let mut records = pending
+            .into_iter()
+            .map(|(mut record, roots)| {
+                record.type_roots = roots
+                    .into_iter()
+                    .map(|root| {
+                        indexes.get(&root).copied().ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "signature root missing from published type graph".to_string(),
+                            )
+                        })
+                    })
+                    .collect::<QueryResult<Vec<_>>>()?;
+                Ok(record)
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
         records.sort_by(|left, right| left.definition.cmp(&right.definition));
         let section = InterfaceSection { records };
         section
             .validate()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
-        Ok(section)
+        section
+            .validate_type_roots(&type_graph)
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        Ok((section, type_graph))
     }
 
     /// Produces one complete, target-independent package artifact.
@@ -381,7 +455,7 @@ impl CompilerDatabase {
         &self,
         package: PackageId,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let interface = self.package_interface_section(package.clone())?;
+        let (interface, type_graph) = self.package_interface_and_type_graph(package.clone())?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let graph = self.db.get(ModuleGraphQuery)?;
@@ -418,26 +492,6 @@ impl CompilerDatabase {
             modules,
             ..PackageManifest::current(package)
         };
-        let mut type_roots = Vec::new();
-        for module in graph.modules() {
-            let signatures = self.db.get(ItemSignaturesQuery(module.id))?;
-            type_roots.extend(
-                signatures
-                    .semantic
-                    .type_roots()
-                    .into_iter()
-                    .filter(|root| {
-                        !matches!(
-                            self.db.context().type_store.get(*root),
-                            Some(nia_ty::TyKind::Error)
-                        )
-                    }),
-            );
-        }
-        type_roots.sort_unstable();
-        type_roots.dedup();
-        let type_graph = self
-            .stable_type_graph_for_roots(manifest.package.clone(), &type_roots)?;
         let type_graph_bytes = nia_package_metadata::encode_type_graph(&type_graph)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let bytes = nia_package_metadata::encode_artifact(
