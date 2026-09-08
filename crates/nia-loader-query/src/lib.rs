@@ -869,6 +869,50 @@ impl LoaderFactProvider for LoaderDatabase {
             .into_iter()
             .collect())
     }
+
+    fn compiled_package_module_identity(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> QueryResult<Option<nia_package_metadata::ModuleId>> {
+        let graph = self.db.get(graph::ModuleGraphQuery)?;
+        let Some(module) = graph.semantic.get(module_id) else {
+            return Ok(None);
+        };
+        // Source-backed package modules remain authoritative until the
+        // artifact publishes the complete public-surface projection (including
+        // re-export directives). Artifact facts are therefore used only for
+        // source-free modules.
+        let source_id = self.sources.id_for_path(&module.path);
+        if self
+            .db
+            .get(queries::SourceTextQuery(source_id))?
+            .file
+            .is_some()
+        {
+            return Ok(None);
+        }
+        let entry_root = graph.semantic.current_package_root(graph.semantic.entry());
+        if entry_root != graph.semantic.current_package_root(module_id) {
+            return Ok(None);
+        }
+        let path = module.path.identity().normalized_path().to_owned();
+        let mut matches = self
+            .compiled_package_interfaces()?
+            .into_iter()
+            .flat_map(|interface| interface.module_identities().collect::<Vec<_>>())
+            .filter(|identity| identity.path == path)
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.dedup();
+        match matches.as_slice() {
+            [] => Ok(None),
+            [identity] => Ok(Some(identity.clone())),
+            _ => Err(self.db.invalid_input(
+                &queries::LoadedProgramQuery,
+                format!("compiled artifacts claim multiple owners for module `{path}`"),
+            )),
+        }
+    }
 }
 
 /// Complete loader configuration, including source, target, runtime, and cache policy.

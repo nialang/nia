@@ -68,6 +68,7 @@ pub(in crate::query) use self::executable_reachability::{
     provide_executable_checked_module_facts, provide_executable_provider_demands,
 };
 use self::extension_providers::*;
+pub(in crate::query) use self::frontend::provide_artifact_public_surface_facts;
 use self::frontend::*;
 use self::layout_roots::*;
 use self::module_checks::*;

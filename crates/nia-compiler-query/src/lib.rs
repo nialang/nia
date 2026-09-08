@@ -368,6 +368,16 @@ pub trait LoaderFactProvider: Send + Sync {
             .flat_map(|interface| interface.module_identities().collect::<Vec<_>>())
             .collect())
     }
+    /// Resolves a loaded session module to the selected artifact identity that
+    /// owns its public interface, when one is available.  The loader owns
+    /// this mapping because it is the authority for source/package roots and
+    /// selected artifact manifests.
+    fn compiled_package_module_identity(
+        &self,
+        _module_id: ModuleId,
+    ) -> nia_query::QueryResult<Option<nia_package_metadata::ModuleId>> {
+        Ok(None)
+    }
 }
 
 /// Complete loader snapshot usable as an untracked compiler input.

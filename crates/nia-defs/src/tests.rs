@@ -292,6 +292,21 @@ fn collect_ok(source: &str) -> DefCollection {
     collection
 }
 
+#[test]
+fn stable_top_level_definition_id_matches_source_collection() {
+    let defs = collect_ok("pub fn answer() i32 { 0 }\npub struct Point {}\n");
+    let answer = top_value_id(&defs, "answer");
+    let point = top_type_id(&defs, "Point");
+    assert_eq!(
+        answer,
+        stable_top_level_def_id(DefKind::Function, sym("answer"))
+    );
+    assert_eq!(
+        point,
+        stable_top_level_def_id(DefKind::Struct, sym("Point"))
+    );
+}
+
 fn top_type_id(defs: &DefCollection, name: &str) -> DefId {
     defs.module_scope
         .types
