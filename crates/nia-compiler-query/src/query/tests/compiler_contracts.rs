@@ -255,6 +255,56 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
 }
 
 #[test]
+fn compiled_interface_index_resolves_stable_definitions_without_session_handles() {
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dep".into(),
+        version: "1.0.0".into(),
+    };
+    let interface = nia_package_metadata::InterfaceSection {
+        records: vec![nia_package_metadata::InterfaceRecord {
+            definition: nia_package_metadata::DefinitionId {
+                package: package.clone(),
+                module: "src/lib.nia".into(),
+                name: "answer".into(),
+                kind: 2,
+            },
+            declaration: b"NIADECL01".to_vec(),
+            type_roots: Vec::new(),
+        }],
+    };
+    let interface_bytes = nia_package_metadata::encode_interface(&interface).unwrap();
+    let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
+    manifest
+        .modules
+        .push(nia_package_metadata::ModuleInterface {
+            path: "src/lib.nia".into(),
+            interface_hash: nia_package_metadata::interface_module_hash(&interface, "src/lib.nia")
+                .unwrap(),
+        });
+    let artifact = nia_package_metadata::PackageArtifact::open(
+        nia_package_metadata::encode_artifact(
+            &manifest,
+            &[(
+                nia_package_metadata::SectionKind::Interface,
+                &interface_bytes,
+            )],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let compiled =
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap();
+    let index = CompiledPackageInterfaceIndex::from_interfaces(vec![compiled]).unwrap();
+    assert_eq!(index.package(&package).unwrap().records().len(), 1);
+    assert_eq!(
+        index.module_records(&package, "src/lib.nia").unwrap().len(),
+        1
+    );
+    assert!(index.definition(&interface.records[0].definition).is_some());
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,

@@ -81,6 +81,33 @@ impl QueryKey<CompilerContext> for CodegenProgramQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleGraphQuery;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageInterfaceIndexQuery;
+
+impl QueryKey<CompilerContext> for CompiledPackageInterfaceIndexQuery {
+    type Value = CompiledPackageInterfaceIndex;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "compiled_package_interface_index"
+    }
+
+    fn description(&self) -> String {
+        "compiled_package_interface_index".to_string()
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let interfaces = db.context().loader_facts().compiled_package_interfaces()?;
+        CompiledPackageInterfaceIndex::from_interfaces(interfaces)
+            .map_err(|error| db.invalid_input(self, error))
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        compiled_interface_index_fingerprint(value)
+    }
+}
+
 impl QueryKey<CompilerContext> for ModuleGraphQuery {
     type Value = nia_imports::ModuleGraphSnapshot;
 
