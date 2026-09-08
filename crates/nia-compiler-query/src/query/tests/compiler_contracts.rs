@@ -375,6 +375,36 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
 }
 
 #[test]
+fn loaded_definition_resolver_validates_stable_identity() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let interface = database.package_interface_section(package.clone()).unwrap();
+    let definition = &interface.records[0].definition;
+    let resolved = database
+        .resolve_loaded_definition(definition, &package)
+        .unwrap();
+    assert_eq!(resolved.module_id, fixture.entry_id());
+    assert_eq!(
+        database
+            .resolve_loaded_definition(
+                definition,
+                &nia_package_metadata::PackageId {
+                    namespace: "other".into(),
+                    name: "demo".into(),
+                    version: "1.0.0".into(),
+                }
+            )
+            .is_err(),
+        true
+    );
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,
