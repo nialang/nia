@@ -19,6 +19,8 @@ const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 // Version 2 adds the declaration kind to stable definition identities.
 const INTERFACE_SCHEMA: u32 = 2;
+const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
+const TYPE_GRAPH_SCHEMA: u32 = 1;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -68,6 +70,74 @@ pub struct InterfaceSection {
     pub records: Vec<InterfaceRecord>,
 }
 
+/// Target-independent type node used by published package interfaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StableTypeNode {
+    /// Primitive type tag owned by the language ABI.
+    Primitive(u8),
+    /// Named declaration resolved through a package-stable identity.
+    Named(DefinitionId),
+    /// Unit type.
+    Unit,
+    /// Never type.
+    Never,
+    /// Tuple whose elements refer to earlier nodes.
+    Tuple(Vec<u32>),
+    /// Array with a bounded constant length.
+    Array { element: u32, length: u64 },
+    /// Function signature with parameter and result node references.
+    Function { parameters: Vec<u32>, result: u32 },
+    /// Borrow/reference to an earlier node.
+    Reference { target: u32, mutable: bool },
+}
+
+/// Canonical, bounded type graph for cross-package signature use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StableTypeGraph {
+    pub nodes: Vec<StableTypeNode>,
+    pub roots: Vec<u32>,
+}
+
+impl StableTypeGraph {
+    /// Validates bounds, node references, and canonical root ordering.
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        if self.nodes.len() > MAX_ITEMS || self.roots.len() > MAX_ITEMS {
+            return Err(MetadataError::TooManyItems);
+        }
+        let node_count = self.nodes.len() as u32;
+        if self.roots.windows(2).any(|pair| pair[0] >= pair[1])
+            || self.roots.iter().any(|root| *root >= node_count)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        for (index, node) in self.nodes.iter().enumerate() {
+            let index = index as u32;
+            let mut references = Vec::new();
+            match node {
+                StableTypeNode::Primitive(tag) if *tag == 0 => {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                StableTypeNode::Primitive(_) | StableTypeNode::Unit | StableTypeNode::Never => {}
+                StableTypeNode::Named(definition) => validate_definition(definition)?,
+                StableTypeNode::Tuple(elements) => references.extend(elements),
+                StableTypeNode::Array { element, .. } => references.push(element),
+                StableTypeNode::Function { parameters, result } => {
+                    references.extend(parameters);
+                    references.push(result);
+                }
+                StableTypeNode::Reference { target, .. } => references.push(target),
+            }
+            if references.iter().any(|reference| **reference >= index) {
+                return Err(MetadataError::InvalidManifest);
+            }
+            if references.len() > MAX_ITEMS {
+                return Err(MetadataError::TooManyItems);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl InterfaceSection {
     /// Validates bounded fields and canonical definition ordering.
     pub fn validate(&self) -> Result<(), MetadataError> {
@@ -75,12 +145,7 @@ impl InterfaceSection {
             return Err(MetadataError::TooManyItems);
         }
         for record in &self.records {
-            validate_id(&record.definition.package)?;
-            validate_string(&record.definition.module)?;
-            validate_string(&record.definition.name)?;
-            if record.definition.kind == 0 {
-                return Err(MetadataError::InvalidManifest);
-            }
+            validate_definition(&record.definition)?;
             validate_bytes(&record.signature)?;
         }
         if self
@@ -514,6 +579,118 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
     Ok(section)
 }
 
+/// Encodes a canonical stable type graph.
+pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataError> {
+    graph.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(TYPE_GRAPH_MAGIC);
+    put_u32(&mut output, TYPE_GRAPH_SCHEMA);
+    put_list_len(&mut output, graph.nodes.len())?;
+    put_list_len(&mut output, graph.roots.len())?;
+    for root in &graph.roots {
+        put_u32(&mut output, *root);
+    }
+    for node in &graph.nodes {
+        match node {
+            StableTypeNode::Primitive(tag) => {
+                output.push(1);
+                output.push(*tag);
+            }
+            StableTypeNode::Named(definition) => {
+                output.push(2);
+                put_definition(&mut output, definition)?;
+            }
+            StableTypeNode::Unit => output.push(3),
+            StableTypeNode::Never => output.push(4),
+            StableTypeNode::Tuple(elements) => {
+                output.push(5);
+                put_list_len(&mut output, elements.len())?;
+                for element in elements {
+                    put_u32(&mut output, *element);
+                }
+            }
+            StableTypeNode::Array { element, length } => {
+                output.push(6);
+                put_u32(&mut output, *element);
+                output.extend_from_slice(&length.to_le_bytes());
+            }
+            StableTypeNode::Function { parameters, result } => {
+                output.push(7);
+                put_list_len(&mut output, parameters.len())?;
+                for parameter in parameters {
+                    put_u32(&mut output, *parameter);
+                }
+                put_u32(&mut output, *result);
+            }
+            StableTypeNode::Reference { target, mutable } => {
+                output.push(8);
+                put_u32(&mut output, *target);
+                output.push(u8::from(*mutable));
+            }
+        }
+    }
+    if output.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    Ok(output)
+}
+
+/// Decodes and validates a canonical stable type graph.
+pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; 8];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *TYPE_GRAPH_MAGIC {
+        return Err(MetadataError::BadMagic);
+    }
+    let schema = get_u32(&mut cursor)?;
+    if schema != TYPE_GRAPH_SCHEMA {
+        return Err(MetadataError::Schema(schema));
+    }
+    let node_count = bounded_count(get_u32(&mut cursor)?)?;
+    let root_count = bounded_count(get_u32(&mut cursor)?)?;
+    let roots = (0..root_count)
+        .map(|_| get_u32(&mut cursor))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut nodes = Vec::with_capacity(node_count);
+    for _ in 0..node_count {
+        let tag = read_u8(&mut cursor)?;
+        nodes.push(match tag {
+            1 => StableTypeNode::Primitive(read_u8(&mut cursor)?),
+            2 => StableTypeNode::Named(read_definition(&mut cursor)?),
+            3 => StableTypeNode::Unit,
+            4 => StableTypeNode::Never,
+            5 => StableTypeNode::Tuple(read_refs(&mut cursor)?),
+            6 => StableTypeNode::Array {
+                element: get_u32(&mut cursor)?,
+                length: get_u64(&mut cursor)?,
+            },
+            7 => StableTypeNode::Function {
+                parameters: read_refs(&mut cursor)?,
+                result: get_u32(&mut cursor)?,
+            },
+            8 => StableTypeNode::Reference {
+                target: get_u32(&mut cursor)?,
+                mutable: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            _ => return Err(MetadataError::InvalidManifest),
+        });
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let graph = StableTypeGraph { nodes, roots };
+    graph.validate()?;
+    Ok(graph)
+}
+
 fn validate_interface_manifest(
     manifest: &PackageManifest,
     interface: &InterfaceSection,
@@ -561,6 +738,14 @@ fn validate_id(id: &PackageId) -> Result<(), MetadataError> {
     validate_string(&id.name)?;
     validate_string(&id.version)
 }
+fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
+    validate_id(&definition.package)?;
+    validate_string(&definition.module)?;
+    validate_string(&definition.name)?;
+    (definition.kind != 0)
+        .then_some(())
+        .ok_or(MetadataError::InvalidManifest)
+}
 fn validate_string(value: &str) -> Result<(), MetadataError> {
     if value.is_empty() || value.len() > MAX_STRING_BYTES || value.as_bytes().contains(&0) {
         Err(MetadataError::InvalidString)
@@ -572,6 +757,28 @@ fn put_id(output: &mut Vec<u8>, id: &PackageId) -> Result<(), MetadataError> {
     put_string(output, &id.namespace)?;
     put_string(output, &id.name)?;
     put_string(output, &id.version)
+}
+fn put_definition(output: &mut Vec<u8>, definition: &DefinitionId) -> Result<(), MetadataError> {
+    validate_definition(definition)?;
+    put_id(output, &definition.package)?;
+    put_string(output, &definition.module)?;
+    put_string(output, &definition.name)?;
+    output.push(definition.kind);
+    Ok(())
+}
+fn read_definition(cursor: &mut Cursor<&[u8]>) -> Result<DefinitionId, MetadataError> {
+    let definition = DefinitionId {
+        package: get_id(cursor)?,
+        module: get_string(cursor)?,
+        name: get_string(cursor)?,
+        kind: read_u8(cursor)?,
+    };
+    validate_definition(&definition)?;
+    Ok(definition)
+}
+fn read_refs(cursor: &mut Cursor<&[u8]>) -> Result<Vec<u32>, MetadataError> {
+    let count = bounded_count(get_u32(cursor)?)?;
+    (0..count).map(|_| get_u32(cursor)).collect()
 }
 fn get_id(cursor: &mut Cursor<&[u8]>) -> Result<PackageId, MetadataError> {
     Ok(PackageId {
@@ -826,6 +1033,63 @@ mod tests {
         bytes.push(0);
         assert_eq!(
             decode_interface(&bytes),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn stable_type_graph_round_trips_and_rejects_forward_references() {
+        let package = sample().package;
+        let named = DefinitionId {
+            package,
+            module: "std/io".into(),
+            name: "Text".into(),
+            kind: 5,
+        };
+        let graph = StableTypeGraph {
+            nodes: vec![
+                StableTypeNode::Primitive(1),
+                StableTypeNode::Named(named),
+                StableTypeNode::Reference {
+                    target: 1,
+                    mutable: false,
+                },
+                StableTypeNode::Function {
+                    parameters: vec![0, 2],
+                    result: 1,
+                },
+            ],
+            roots: vec![3],
+        };
+        let bytes = encode_type_graph(&graph).unwrap();
+        assert_eq!(decode_type_graph(&bytes).unwrap(), graph);
+
+        let invalid = StableTypeGraph {
+            nodes: vec![
+                StableTypeNode::Reference {
+                    target: 1,
+                    mutable: false,
+                },
+                StableTypeNode::Unit,
+            ],
+            roots: vec![0],
+        };
+        assert_eq!(
+            encode_type_graph(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn stable_type_graph_rejects_trailing_bytes() {
+        let graph = StableTypeGraph {
+            nodes: vec![StableTypeNode::Unit],
+            roots: vec![0],
+        };
+        let mut bytes = encode_type_graph(&graph).unwrap();
+        bytes.push(0);
+        assert_eq!(
+            decode_type_graph(&bytes),
             Err(MetadataError::InvalidManifest)
         );
     }
