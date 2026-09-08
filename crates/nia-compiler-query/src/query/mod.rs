@@ -29,7 +29,7 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleInterface, PackageId, PackageManifest,
-    SectionKind, StableTypeGraph, StableTypeNode,
+    SectionKind, StableConstArg, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -397,13 +397,46 @@ impl CompilerDatabase {
                 StableTypeNode::NamedApplied {
                     definition,
                     arguments,
+                    const_arguments,
                 } => append.intern(nia_ty::TyKind::Nominal {
                     def_id: resolver.definition_for_identity(definition)?,
                     args: arguments
                         .iter()
                         .map(|index| types[usize::try_from(*index).unwrap()])
                         .collect(),
-                    const_args: Vec::new(),
+                    const_args: const_arguments
+                        .iter()
+                        .map(|argument| match argument {
+                            StableConstArg::GenericParam(hash) => Ok(nia_ty::ConstGenericArg {
+                                ty: append.primitive(nia_ty::PrimitiveTy::Usize),
+                                value: nia_ty::ConstGenericValue::GenericParam(
+                                    SymbolId::from_stable_hash(*hash),
+                                ),
+                            }),
+                            StableConstArg::Integer { bits, signed } => {
+                                Ok(nia_ty::ConstGenericArg {
+                                    ty: append.primitive(if *signed {
+                                        nia_ty::PrimitiveTy::I128
+                                    } else {
+                                        nia_ty::PrimitiveTy::U128
+                                    }),
+                                    value: nia_ty::ConstGenericValue::Int(if *signed {
+                                        nia_ty::IntConst::signed_bits(*bits)
+                                    } else {
+                                        nia_ty::IntConst::unsigned(*bits)
+                                    }),
+                                })
+                            }
+                            StableConstArg::Bool(value) => Ok(nia_ty::ConstGenericArg {
+                                ty: append.primitive(nia_ty::PrimitiveTy::Bool),
+                                value: nia_ty::ConstGenericValue::Bool(*value),
+                            }),
+                            StableConstArg::Char(value) => Ok(nia_ty::ConstGenericArg {
+                                ty: append.primitive(nia_ty::PrimitiveTy::Char),
+                                value: nia_ty::ConstGenericValue::Char(*value),
+                            }),
+                        })
+                        .collect::<QueryResult<Vec<_>>>()?,
                 }),
                 StableTypeNode::Unit => append.intern(nia_ty::TyKind::Tuple(Vec::new())),
                 StableTypeNode::Never => {
@@ -1220,9 +1253,9 @@ impl StableTypeGraphEncoder<'_> {
                 def_id,
                 args,
                 const_args,
-            } if const_args.is_empty() => {
+            } => {
                 let definition = self.definition(def_id)?;
-                if args.is_empty() {
+                if args.is_empty() && const_args.is_empty() {
                     StableTypeNode::Named(definition)
                 } else {
                     StableTypeNode::NamedApplied {
@@ -1230,6 +1263,10 @@ impl StableTypeGraphEncoder<'_> {
                         arguments: args
                             .into_iter()
                             .map(|argument| self.encode(argument))
+                            .collect::<QueryResult<Vec<_>>>()?,
+                        const_arguments: const_args
+                            .iter()
+                            .map(|argument| self.encode_const_argument(argument))
                             .collect::<QueryResult<Vec<_>>>()?,
                     }
                 }
@@ -1276,6 +1313,27 @@ impl StableTypeGraphEncoder<'_> {
             name: name.to_string(),
             kind: def_kind_tag(def.kind),
         })
+    }
+
+    fn encode_const_argument(
+        &mut self,
+        argument: &nia_ty::ConstGenericArg,
+    ) -> QueryResult<StableConstArg> {
+        match &argument.value {
+            nia_ty::ConstGenericValue::GenericParam(name) => {
+                Ok(StableConstArg::GenericParam(name.raw()))
+            }
+            nia_ty::ConstGenericValue::Int(value) => Ok(StableConstArg::Integer {
+                bits: value.bits(),
+                signed: value.is_signed(),
+            }),
+            nia_ty::ConstGenericValue::Bool(value) => Ok(StableConstArg::Bool(*value)),
+            nia_ty::ConstGenericValue::Char(value) => Ok(StableConstArg::Char(*value)),
+            nia_ty::ConstGenericValue::ConstExpr(_) => {
+                Err(self
+                    .unsupported("const expression argument has no stable package representation"))
+            }
+        }
     }
 
     fn unsupported(&self, detail: &str) -> QueryError {
