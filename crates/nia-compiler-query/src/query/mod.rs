@@ -1566,18 +1566,36 @@ impl CompilerDatabase {
         let (interface, _) = self.package_interface_and_type_graph(package, resolver)?;
         let definition_index = self.stable_definition_index(resolver)?;
         let mut records = Vec::with_capacity(interface.records.len());
-        for item in interface.records {
+        let mut members = BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
+        for item in &interface.records {
             let global = definition_index.definition_for_identity(&item.definition)?;
             let kind = item.definition.kind;
             let facts = self.db.get(ItemSignaturesQuery(global.module_id))?;
             let flags = signature_flags_for_definition(global.def_id, kind, &facts.semantic);
-            records.push(nia_package_metadata::SignatureRecord {
-                definition: item.definition,
+            if let Some(owner) = item.definition.owner.as_deref() {
+                members
+                    .entry(owner.clone())
+                    .or_default()
+                    .push(nia_package_metadata::SignatureMember {
+                        definition: item.definition.clone(),
+                        name: item.definition.name.clone(),
+                        kind,
+                        flags,
+                        type_roots: item.type_roots.clone(),
+                    });
+            }
+            records.push((item.definition.clone(), kind, flags, item.type_roots.clone()));
+        }
+        let records = records
+            .into_iter()
+            .map(|(definition, kind, flags, type_roots)| nia_package_metadata::SignatureRecord {
+                members: members.remove(&definition).unwrap_or_default(),
+                definition,
                 kind,
                 flags,
-                type_roots: item.type_roots,
-            });
-        }
+                type_roots,
+            })
+            .collect();
         let section = nia_package_metadata::SignatureSection { records };
         section
             .validate()

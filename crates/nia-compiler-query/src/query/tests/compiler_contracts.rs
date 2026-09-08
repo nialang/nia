@@ -161,10 +161,7 @@ fn package_interface_publication_is_canonical_and_stable() {
 
 #[test]
 fn package_interface_publication_includes_public_member_identity() {
-    let fixture = LoadedProgramFixture::new(
-        "src/main.nia",
-        "pub enum User { Value }",
-    );
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub enum User { Value }");
     let database = fixture.database();
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
@@ -235,6 +232,7 @@ fn package_artifact_publication_embeds_validated_signatures() {
             kind: 2,
             flags: nia_package_metadata::SIGNATURE_FLAG_HAS_BODY,
             type_roots: Vec::new(),
+            members: Vec::new(),
         }],
     };
     let publication = database
@@ -275,6 +273,32 @@ fn package_signature_section_derives_function_flags_and_roots() {
         0
     );
     assert!(!greet.type_roots.is_empty());
+}
+
+#[test]
+fn package_signature_section_groups_nested_members_by_owner() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub enum User { Value }");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "signature-members".into(),
+        version: "1.0.0".into(),
+    };
+    let section = database
+        .package_signature_section_with_resolver(package, &|_| {
+            Ok(nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "signature-members".into(),
+                version: "1.0.0".into(),
+            })
+        })
+        .unwrap();
+    let user = section
+        .records
+        .iter()
+        .find(|record| record.definition.name == "User")
+        .expect("enum signature");
+    assert!(user.members.iter().any(|member| member.name == "Value"));
 }
 
 #[test]

@@ -25,7 +25,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
-const SIGNATURE_SCHEMA: u32 = 1;
+const SIGNATURE_SCHEMA: u32 = 2;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 2;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
@@ -108,6 +108,20 @@ pub struct SignatureRecord {
     pub flags: u32,
     /// Strictly sorted indexes into the package type-graph section.
     pub type_roots: Vec<u32>,
+    /// Public members owned by this declaration. Members repeat their stable
+    /// identities so consumers can build aggregate/trait indexes without
+    /// loading dependency source.
+    pub members: Vec<SignatureMember>,
+}
+
+/// Stable declaration member facts used by aggregate and trait consumers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureMember {
+    pub definition: DefinitionId,
+    pub name: String,
+    pub kind: u8,
+    pub flags: u32,
+    pub type_roots: Vec<u32>,
 }
 
 /// Target-independent signature facts published by one package.
@@ -161,6 +175,24 @@ impl SignatureSection {
             if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
                 return Err(MetadataError::InvalidManifest);
             }
+            if record
+                .members
+                .windows(2)
+                .any(|pair| pair[0].definition >= pair[1].definition)
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
+            for member in &record.members {
+                validate_definition(&member.definition)?;
+                validate_string(&member.name)?;
+                if member.kind != member.definition.kind
+                    || member.flags & !SIGNATURE_FLAGS_MASK != 0
+                    || member.type_roots.windows(2).any(|pair| pair[0] >= pair[1])
+                    || member.definition.owner.as_deref() != Some(&record.definition)
+                {
+                    return Err(MetadataError::InvalidManifest);
+                }
+            }
         }
         if self
             .records
@@ -180,6 +212,12 @@ impl SignatureSection {
             .iter()
             .flat_map(|record| record.type_roots.iter())
             .any(|root| *root >= node_count)
+            || self
+                .records
+                .iter()
+                .flat_map(|record| record.members.iter())
+                .flat_map(|member| member.type_roots.iter())
+                .any(|root| *root >= node_count)
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -1249,6 +1287,17 @@ pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, Metadata
         for root in &record.type_roots {
             put_u32(&mut output, *root);
         }
+        put_list_len(&mut output, record.members.len())?;
+        for member in &record.members {
+            put_definition(&mut output, &member.definition)?;
+            put_string(&mut output, &member.name)?;
+            output.push(member.kind);
+            put_u32(&mut output, member.flags);
+            put_list_len(&mut output, member.type_roots.len())?;
+            for root in &member.type_roots {
+                put_u32(&mut output, *root);
+            }
+        }
     }
     if output.len() > MAX_PACKAGE_BYTES {
         return Err(MetadataError::TooLarge);
@@ -1278,11 +1327,28 @@ pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError
         let kind = read_u8(&mut cursor)?;
         let flags = get_u32(&mut cursor)?;
         let type_roots = read_refs(&mut cursor)?;
+        let member_len = bounded_count(get_u32(&mut cursor)?)?;
+        let mut members = Vec::with_capacity(member_len);
+        for _ in 0..member_len {
+            let definition = read_definition(&mut cursor)?;
+            let name = get_string(&mut cursor)?;
+            let kind = read_u8(&mut cursor)?;
+            let flags = get_u32(&mut cursor)?;
+            let type_roots = read_refs(&mut cursor)?;
+            members.push(SignatureMember {
+                definition,
+                name,
+                kind,
+                flags,
+                type_roots,
+            });
+        }
         records.push(SignatureRecord {
             definition,
             kind,
             flags,
             type_roots,
+            members,
         });
     }
     if cursor.position() != bytes.len() as u64 {
@@ -2270,6 +2336,7 @@ mod tests {
             kind: 2,
             flags: SIGNATURE_FLAG_HAS_BODY | SIGNATURE_FLAG_CONST,
             type_roots: vec![0, 2],
+            members: Vec::new(),
         };
         let section = SignatureSection {
             records: vec![record],
@@ -2307,6 +2374,7 @@ mod tests {
                 kind: 2,
                 flags: 0,
                 type_roots: vec![2, 1],
+                members: Vec::new(),
             }],
         };
         assert_eq!(
@@ -2319,6 +2387,49 @@ mod tests {
             decode_signatures(&bytes),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn signature_section_round_trips_nested_members() {
+        let package = sample().package;
+        let parent = DefinitionId {
+            module: ModuleId {
+                package: package.clone(),
+                path: "m".into(),
+            },
+            name: "User".into(),
+            kind: 5,
+            owner: None,
+        };
+        let child = DefinitionId {
+            module: parent.module.clone(),
+            name: "field".into(),
+            kind: 6,
+            owner: Some(Box::new(parent.clone())),
+        };
+        let section = SignatureSection {
+            records: vec![
+                SignatureRecord {
+                    definition: parent.clone(),
+                    kind: 5,
+                    flags: 0,
+                    type_roots: Vec::new(),
+                    members: vec![SignatureMember {
+                        definition: child,
+                        name: "field".into(),
+                        kind: 6,
+                        flags: 0,
+                        type_roots: vec![0],
+                    }],
+                },
+            ],
+        };
+        let graph = StableTypeGraph {
+            nodes: vec![StableTypeNode::Primitive(3)],
+            roots: vec![0],
+        };
+        section.validate_type_roots(&graph).unwrap();
+        assert_eq!(decode_signatures(&encode_signatures(&section).unwrap()).unwrap(), section);
     }
 
     #[test]
@@ -2350,6 +2461,7 @@ mod tests {
                 kind: 2,
                 flags: 0,
                 type_roots: Vec::new(),
+                members: Vec::new(),
             }],
         };
         let bytes = encode_signatures(&section).unwrap();
