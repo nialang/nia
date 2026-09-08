@@ -2411,14 +2411,25 @@ fn native_object_key(key: &nia_codegen_llvm::CodegenUnitKey) -> String {
         nia_codegen_llvm::CodegenUnitKey::SourceModule {
             source_identity,
             ordinal,
-        } => format!("source:{}:{}", source_identity.normalized_path(), ordinal),
+        } => {
+            let path = source_identity.normalized_path();
+            format!("source:{}:{path}:{ordinal}", path.len())
+        }
         nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "compiler-builtins".to_string(),
         nia_codegen_llvm::CodegenUnitKey::CompiledPackage {
             namespace,
             package,
             version,
             object,
-        } => format!("package:{namespace}:{package}:{version}:{object}"),
+        } => {
+            let mut key = String::from("package:");
+            for field in [namespace, package, version, object] {
+                use std::fmt::Write as _;
+                write!(&mut key, "{}:{field}", field.len())
+                    .expect("writing a native object key to String cannot fail");
+            }
+            key
+        }
     }
 }
 
@@ -2657,6 +2668,14 @@ impl Drop for TempDir {
 #[cfg(test)]
 mod streamed_output_tests {
     use super::*;
+
+    #[test]
+    fn native_object_keys_are_unambiguous_across_package_fields() {
+        let first = nia_codegen_llvm::CodegenUnitKey::compiled_package("a:b", "c", "1", "unit");
+        let second = nia_codegen_llvm::CodegenUnitKey::compiled_package("a", "b:c", "1", "unit");
+        assert_ne!(native_object_key(&first), native_object_key(&second));
+        assert_eq!(native_object_key(&first), "package:3:a:b1:c1:14:unit");
+    }
 
     #[test]
     fn large_tool_output_is_streamed_and_atomically_installed() {
