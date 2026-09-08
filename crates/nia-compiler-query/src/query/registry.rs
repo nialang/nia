@@ -30,6 +30,7 @@ pub(super) fn compiler_query_registry() -> nia_query::QueryRegistry {
         CompiledPackageInterfaceIndexQuery,
         CompiledPackageTypeRootsQuery,
         CompiledPackageDeclarationsQuery,
+        CompiledPackageModuleInterfaceQuery,
         CompilerOptimizationQuery,
         CompilerRuntimeQuery,
         CompilerTargetQuery,

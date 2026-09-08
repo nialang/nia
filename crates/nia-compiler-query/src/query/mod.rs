@@ -305,6 +305,30 @@ pub struct CompiledPackageDeclarations {
     declarations: BTreeMap<DefinitionId, StableDeclaration>,
 }
 
+/// Validated public interface records belonging to one canonical package
+/// module. This is the first artifact-backed module fact consumed by the
+/// compiler query graph; it deliberately carries no source or session ids.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageModuleInterface {
+    identity: StableModuleId,
+    interface_hash: [u8; 32],
+    records: Vec<InterfaceRecord>,
+}
+
+impl CompiledPackageModuleInterface {
+    pub fn identity(&self) -> &StableModuleId {
+        &self.identity
+    }
+
+    pub fn interface_hash(&self) -> [u8; 32] {
+        self.interface_hash
+    }
+
+    pub fn records(&self) -> &[InterfaceRecord] {
+        &self.records
+    }
+}
+
 impl CompiledPackageDeclarations {
     pub fn package(&self) -> &PackageId {
         &self.package
@@ -490,6 +514,69 @@ impl CompilerDatabase {
             .context()
             .loader_facts()
             .compiled_package_module_identities()
+    }
+
+    /// Publishes one source-free module interface fact for every selected
+    /// compiled package module. Publication is tied to the validated package
+    /// interface index, so replacing or retiring an artifact invalidates all
+    /// module facts atomically.
+    pub fn install_compiled_package_module_interfaces(
+        &self,
+    ) -> QueryResult<Vec<nia_package_metadata::ModuleId>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut identities = Vec::new();
+        for (package, interface) in index.packages() {
+            for identity in interface.module_identities() {
+                let module = interface.module(&identity).ok_or_else(|| {
+                    self.db.invalid_input(
+                        &CompiledPackageInterfaceIndexQuery,
+                        format!(
+                            "compiled module identity is absent from package manifest: {identity:?}"
+                        ),
+                    )
+                })?;
+                let records = interface
+                    .module_records(&identity.path)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let expected_hash = nia_package_metadata::interface_module_hash(
+                    &InterfaceSection {
+                        records: records.clone(),
+                    },
+                    &identity.path,
+                )
+                .map_err(|error| {
+                    self.db
+                        .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
+                })?;
+                if expected_hash != module.interface_hash || identity.package != *package {
+                    return Err(self.db.invalid_input(
+                        &CompiledPackageInterfaceIndexQuery,
+                        format!("compiled module interface hash or package identity mismatch: {identity:?}"),
+                    ));
+                }
+                self.db.publish_owned(
+                    CompiledPackageModuleInterfaceQuery(identity.clone()),
+                    CompiledPackageModuleInterface {
+                        identity: identity.clone(),
+                        interface_hash: module.interface_hash,
+                        records,
+                    },
+                    &CompiledPackageInterfaceIndexQuery,
+                );
+                identities.push(identity);
+            }
+        }
+        Ok(identities)
+    }
+
+    /// Consumes one source-free compiled module interface fact.
+    pub fn compiled_package_module_interface(
+        &self,
+        identity: nia_package_metadata::ModuleId,
+    ) -> QueryResult<CompiledPackageModuleInterface> {
+        self.db
+            .get_owned(CompiledPackageModuleInterfaceQuery(identity))
     }
 
     /// Returns the query-tracked index of selected compiled interfaces.

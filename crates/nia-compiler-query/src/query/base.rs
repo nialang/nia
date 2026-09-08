@@ -90,6 +90,28 @@ pub(super) struct CompiledPackageTypeRootsQuery(pub(super) PackageId);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageDeclarationsQuery(pub(super) PackageId);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageModuleInterfaceQuery(pub(super) nia_package_metadata::ModuleId);
+
+impl QueryKey<CompilerContext> for CompiledPackageModuleInterfaceQuery {
+    type Value = CompiledPackageModuleInterface;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "compiled_package_module_interface"
+    }
+
+    fn description(&self) -> String {
+        format!("compiled_package_module_interface({:?})", self.0)
+    }
+
+    fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        unreachable!("compiled package module interfaces are published by artifact installation")
+    }
+}
+
 impl QueryKey<CompilerContext> for CompiledPackageDeclarationsQuery {
     type Value = CompiledPackageDeclarations;
 
