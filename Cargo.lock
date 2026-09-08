@@ -428,6 +428,7 @@ dependencies = [
  "nia-monomorphize",
  "nia-node-id",
  "nia-opt",
+ "nia-package-metadata",
  "nia-parser",
  "nia-program-signatures",
  "nia-provider-summary",
