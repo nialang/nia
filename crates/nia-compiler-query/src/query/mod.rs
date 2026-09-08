@@ -170,6 +170,20 @@ pub trait StableDefinitionPackageResolver {
     fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId>;
 }
 
+/// Resolves a session module to its relocation-independent package identity.
+pub trait StableModulePackageResolver {
+    fn package_for_module(&self, module_id: ModuleId) -> QueryResult<PackageId>;
+}
+
+impl<F> StableModulePackageResolver for F
+where
+    F: Fn(ModuleId) -> QueryResult<PackageId>,
+{
+    fn package_for_module(&self, module_id: ModuleId) -> QueryResult<PackageId> {
+        self(module_id)
+    }
+}
+
 /// Session-local remap table for stable package module identities.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StableModuleIndex {
@@ -553,6 +567,41 @@ impl CompilerDatabase {
             definitions,
             modules,
         })
+    }
+
+    /// Builds a stable package/module remap table for every loaded module.
+    ///
+    /// Package ownership is supplied explicitly by the loader boundary. The
+    /// compiler never infers it from source paths, package-root symbols, or
+    /// declaration names. Duplicate stable identities are rejected instead of
+    /// silently selecting one session handle.
+    pub fn stable_module_index(
+        &self,
+        resolver: &dyn StableModulePackageResolver,
+    ) -> QueryResult<StableModuleIndex> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let mut index = StableModuleIndex::new();
+        for module in graph.modules() {
+            let Some(stable_key) = graph.stable_key(module.id) else {
+                continue;
+            };
+            let identity = StableModuleId {
+                package: resolver.package_for_module(module.id)?,
+                path: stable_key.source_identity().normalized_path().to_owned(),
+            };
+            if let Some(previous) = index.insert(identity.clone(), module.id)
+                && previous != module.id
+            {
+                return Err(self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    format!(
+                        "stable module identity resolves to multiple session modules: {:?}",
+                        identity
+                    ),
+                ));
+            }
+        }
+        Ok(index)
     }
 
     /// Rehydrates a stable package type graph into this database's canonical

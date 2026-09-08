@@ -524,6 +524,32 @@ fn stable_module_index_keeps_package_identity_in_the_lookup_key() {
 }
 
 #[test]
+fn stable_module_index_uses_explicit_module_package_resolution() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let entry = fixture.entry_id();
+    let index = database
+        .stable_module_index(&|module| {
+            assert_eq!(module, entry);
+            Ok(package.clone())
+        })
+        .unwrap();
+    assert_eq!(index.len(), 1);
+    assert_eq!(
+        index.module(&nia_package_metadata::ModuleId {
+            package,
+            path: "src/main.nia".into(),
+        }),
+        Some(entry)
+    );
+}
+
+#[test]
 fn rehydrate_compiled_interface_type_roots_is_empty_without_selected_artifacts() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
     let database = fixture.database();
