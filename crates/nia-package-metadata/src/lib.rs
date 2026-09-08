@@ -2057,6 +2057,26 @@ mod tests {
     }
 
     #[test]
+    fn template_section_rejects_non_summary_payloads() {
+        let section = TemplateSection {
+            records: vec![TemplateRecord {
+                definition: DefinitionId {
+                    module: ModuleId {
+                        package: sample().package,
+                        path: "m".into(),
+                    },
+                    name: "generic".into(),
+                    kind: 2,
+                    owner: None,
+                },
+                body: vec![1],
+                summary: b"opaque summary".to_vec(),
+            }],
+        };
+        assert_eq!(section.validate(), Err(MetadataError::BadMagic));
+    }
+
+    #[test]
     fn compiled_interface_decodes_templates_lazily() {
         let section = TemplateSection { records: vec![] };
         let bytes = encode_templates(&section).unwrap();
