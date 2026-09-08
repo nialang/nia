@@ -84,6 +84,28 @@ pub(super) struct ModuleGraphQuery;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageInterfaceIndexQuery;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageTypeRootsQuery(pub(super) PackageId);
+
+impl QueryKey<CompilerContext> for CompiledPackageTypeRootsQuery {
+    type Value = BTreeMap<DefinitionId, Vec<InternedTyId>>;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "compiled_package_type_roots"
+    }
+
+    fn description(&self) -> String {
+        format!("compiled_package_type_roots({:?})", self.0)
+    }
+
+    fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        unreachable!("compiled package type roots are published by artifact installation")
+    }
+}
+
 impl QueryKey<CompilerContext> for CompiledPackageInterfaceIndexQuery {
     type Value = CompiledPackageInterfaceIndex;
 

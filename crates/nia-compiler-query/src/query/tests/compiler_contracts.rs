@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 133);
+    assert_eq!(descriptors.len(), 134);
     assert!(
         !descriptors
             .iter()
@@ -36,13 +36,19 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
     assert!(descriptors.iter().all(|descriptor| {
         let expected_storage = if matches!(
             descriptor.name,
-            "backend_item_plan" | "backend_module_item_plan" | "backend_module_finalization"
+            "backend_item_plan"
+                | "backend_module_item_plan"
+                | "backend_module_finalization"
+                | "compiled_package_type_roots"
         ) {
             nia_query::QueryStoragePolicy::SingleConsumerOwned
         } else {
             nia_query::QueryStoragePolicy::CacheOwnedArc
         };
-        let expected_provider = if descriptor.name == "backend_module_item_plan" {
+        let expected_provider = if matches!(
+            descriptor.name,
+            "backend_module_item_plan" | "compiled_package_type_roots"
+        ) {
             nia_query::QueryProviderPolicy::ExternallyPublished
         } else {
             nia_query::QueryProviderPolicy::KeyExecute
@@ -467,6 +473,29 @@ fn rehydrate_compiled_interface_type_roots_is_empty_without_selected_artifacts()
         .rehydrate_compiled_interface_type_roots(&no_resolver)
         .unwrap();
     assert!(roots.is_empty());
+}
+
+#[test]
+fn compiled_package_type_roots_use_typed_query_publication_boundary() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dep".into(),
+        version: "1.0.0".into(),
+    };
+    let identity = nia_package_metadata::DefinitionId {
+        package: package.clone(),
+        module: "src/lib.nia".into(),
+        name: "answer".into(),
+        kind: 2,
+    };
+    let mut roots = std::collections::BTreeMap::new();
+    roots.insert(identity.clone(), Vec::new());
+    let _ = database.compiled_package_interface_index().unwrap();
+    database.publish_compiled_package_type_roots(package.clone(), roots);
+    let published = database.compiled_package_type_roots(&package).unwrap();
+    assert!(published.contains_key(&identity));
 }
 
 #[test]
