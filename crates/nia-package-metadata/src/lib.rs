@@ -754,6 +754,13 @@ impl CompiledPackageInterface {
                         .records
                         .iter()
                         .any(|item| item.definition == record.definition)
+                    || record.members.iter().any(|member| {
+                        member.definition.module.package != artifact.manifest().package
+                            || !interface
+                                .records
+                                .iter()
+                                .any(|item| item.definition == member.definition)
+                    })
             }) {
                 return Err(MetadataError::InvalidManifest);
             }
