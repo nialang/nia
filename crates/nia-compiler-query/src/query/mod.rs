@@ -482,6 +482,16 @@ impl CompilerDatabase {
             .compiled_package_interfaces()
     }
 
+    /// Returns selected artifact module identities without source loading.
+    pub fn compiled_package_module_identities(
+        &self,
+    ) -> QueryResult<Vec<nia_package_metadata::ModuleId>> {
+        self.db
+            .context()
+            .loader_facts()
+            .compiled_package_module_identities()
+    }
+
     /// Returns the query-tracked index of selected compiled interfaces.
     pub fn compiled_package_interface_index(&self) -> QueryResult<CompiledPackageInterfaceIndex> {
         self.db

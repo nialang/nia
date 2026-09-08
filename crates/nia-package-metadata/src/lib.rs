@@ -310,6 +310,26 @@ impl CompiledPackageInterface {
         &self.manifest
     }
 
+    /// Returns canonical module identities declared by this package.
+    pub fn module_identities(&self) -> impl Iterator<Item = ModuleId> + '_ {
+        self.manifest.modules.iter().map(|module| ModuleId {
+            package: self.manifest.package.clone(),
+            path: module.path.clone(),
+        })
+    }
+
+    /// Resolves one canonical module identity to its manifest record.
+    pub fn module(&self, identity: &ModuleId) -> Option<&ModuleInterface> {
+        (identity.package == self.manifest.package)
+            .then(|| {
+                self.manifest
+                    .modules
+                    .iter()
+                    .find(|module| module.path == identity.path)
+            })
+            .flatten()
+    }
+
     /// Returns canonical records in definition-identity order.
     pub fn records(&self) -> &[InterfaceRecord] {
         &self.interface.records
@@ -1178,6 +1198,40 @@ mod tests {
         assert_eq!(artifact.type_graph().unwrap(), Some(graph.clone()));
         let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
         assert_eq!(indexed.type_graph(), Some(&graph));
+    }
+
+    #[test]
+    fn compiled_interface_exposes_package_qualified_module_identities() {
+        let mut manifest = PackageManifest::current(PackageId {
+            namespace: "example".into(),
+            name: "demo".into(),
+            version: "1.0.0".into(),
+        });
+        manifest.modules.push(ModuleInterface {
+            path: "src/lib.nia".into(),
+            interface_hash: interface_module_hash(
+                &InterfaceSection { records: vec![] },
+                "src/lib.nia",
+            )
+            .unwrap(),
+        });
+        let artifact = PackageArtifact::open(
+            encode_artifact(
+                &manifest,
+                &[(
+                    SectionKind::Interface,
+                    &encode_interface(&InterfaceSection { records: vec![] }).unwrap(),
+                )],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
+        let modules = indexed.module_identities().collect::<Vec<_>>();
+        assert_eq!(modules.len(), 1);
+        assert_eq!(modules[0].package, manifest.package);
+        assert_eq!(modules[0].path, "src/lib.nia");
+        assert!(indexed.module(&modules[0]).is_some());
     }
 
     #[test]
