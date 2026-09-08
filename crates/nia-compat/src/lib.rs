@@ -252,6 +252,12 @@ pub fn toolchain_manifest() -> String {
         toolchain::BUILD_PROTOCOL
     )
     .unwrap();
+    writeln!(
+        manifest,
+        "package-metadata-schema={}",
+        formats::PACKAGE_METADATA.schema
+    )
+    .unwrap();
     manifest
 }
 
