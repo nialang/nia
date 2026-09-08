@@ -339,6 +339,16 @@ pub trait LoaderFactProvider: Send + Sync {
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
         nia_toolchain::ToolchainIdentityFingerprint::current()
     }
+    /// Returns validated external package interfaces selected by the loader.
+    ///
+    /// These records intentionally retain stable package identities. They are
+    /// not session-local module facts and therefore cannot bypass the compiler
+    /// remapping/provider boundary.
+    fn compiled_package_interfaces(
+        &self,
+    ) -> nia_query::QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
+        Ok(Vec::new())
+    }
 }
 
 /// Complete loader snapshot usable as an untracked compiler input.

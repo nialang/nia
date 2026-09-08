@@ -239,6 +239,17 @@ impl CompilerDatabase {
         self.db.session()
     }
 
+    /// Returns the loader-selected package interfaces without materializing
+    /// dependency source text or creating session-local handles.
+    pub fn compiled_package_interfaces(
+        &self,
+    ) -> QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
+        self.db
+            .context()
+            .loader_facts()
+            .compiled_package_interfaces()
+    }
+
     /// Publishes the target-independent public declaration inventory for one package.
     ///
     /// This is deliberately an explicit publication API: normal compilation

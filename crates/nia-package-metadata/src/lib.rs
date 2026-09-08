@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Stable, lazily indexed metadata published by compiled Nia packages.
 
-use std::io::{self, Cursor, Read};
+use std::{
+    collections::BTreeMap,
+    io::{self, Cursor, Read},
+};
 
 use nia_compat::{COMPILER_VERSION, formats, toolchain};
 
@@ -88,6 +91,62 @@ impl InterfaceSection {
             return Err(MetadataError::InvalidManifest);
         }
         Ok(())
+    }
+}
+
+/// Indexed target-independent declarations supplied by one compiled package.
+///
+/// Entries retain package-owned stable identities. Consumers must remap them
+/// before constructing any session-local module, definition, or type handle.
+#[derive(Debug, Clone)]
+pub struct CompiledPackageInterface {
+    manifest: PackageManifest,
+    interface: InterfaceSection,
+    record_indexes: BTreeMap<DefinitionId, usize>,
+}
+
+impl CompiledPackageInterface {
+    /// Builds an indexed interface view after validating all manifest bindings.
+    pub fn from_artifact(artifact: &PackageArtifact) -> Result<Self, MetadataError> {
+        let interface = artifact.interface()?.unwrap_or(InterfaceSection {
+            records: Vec::new(),
+        });
+        let record_indexes = interface
+            .records
+            .iter()
+            .enumerate()
+            .map(|(index, record)| (record.definition.clone(), index))
+            .collect();
+        Ok(Self {
+            manifest: artifact.manifest().clone(),
+            interface,
+            record_indexes,
+        })
+    }
+
+    /// Returns the validated package manifest.
+    pub fn manifest(&self) -> &PackageManifest {
+        &self.manifest
+    }
+
+    /// Returns canonical records in definition-identity order.
+    pub fn records(&self) -> &[InterfaceRecord] {
+        &self.interface.records
+    }
+
+    /// Resolves one stable definition identity without source loading.
+    pub fn definition(&self, definition: &DefinitionId) -> Option<&InterfaceRecord> {
+        self.record_indexes
+            .get(definition)
+            .and_then(|index| self.interface.records.get(*index))
+    }
+
+    /// Returns the package's public records for one stable module path.
+    pub fn module_records(&self, module: &str) -> impl Iterator<Item = &InterfaceRecord> {
+        self.interface
+            .records
+            .iter()
+            .filter(move |record| record.definition.module == module)
     }
 }
 

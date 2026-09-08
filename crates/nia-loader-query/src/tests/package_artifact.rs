@@ -99,6 +99,17 @@ fn required_artifact_rejection_is_a_typed_error() {
 }
 
 #[test]
+fn required_artifact_errors_are_not_silently_downgraded_by_compiler_facts() {
+    let path = temp_artifact("required-facts");
+    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").require_package_artifact(&path));
+    let result = nia_compiler_query::LoaderFactProvider::compiled_package_interfaces(&loader);
+    assert!(matches!(
+        result,
+        Err(nia_query::QueryError::InvalidInput { .. })
+    ));
+}
+
+#[test]
 fn corrupt_lazy_section_is_rejected_before_selection() {
     let path = temp_artifact("section-corrupt");
     let bytes = encode_artifact(&manifest(), &[(SectionKind::Interface, b"interface")]).unwrap();
