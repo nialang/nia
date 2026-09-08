@@ -157,6 +157,24 @@ type ExtensionMethodByIdValue = ExtensionMethodByIdQueryValue;
 type ExtensionTraitSignatureIndexValue = ExtensionTraitSignatureIndex;
 type VisibleExtensionsValue = VisibleExtensionsForModule;
 type VisibleTraitImplsValue = VisibleTraitImplsForModule;
+
+/// Resolves a session-local definition to its relocation-independent package.
+///
+/// Implementations are owned by the compiler/loader boundary and may consult
+/// package manifests or an installed identity index. The resolver must not
+/// infer ownership from declaration spelling or physical source paths.
+pub trait StableDefinitionPackageResolver {
+    fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId>;
+}
+
+impl<F> StableDefinitionPackageResolver for F
+where
+    F: Fn(GlobalDefId) -> QueryResult<PackageId>,
+{
+    fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId> {
+        self(def_id)
+    }
+}
 type ExtensionSignatureModuleInputValue = ExtensionSignatureModuleInputQueryValue;
 type ExtensionTraitSolvingModuleFactsValue = ExtensionTraitSolvingModuleFactsQueryValue;
 type ExtensionTraitImplsForTraitValue = ExtensionTraitImplsForTraitQueryValue;
@@ -260,7 +278,7 @@ impl CompilerDatabase {
         package: PackageId,
         roots: &[nia_ids::InternedTyId],
     ) -> QueryResult<StableTypeGraph> {
-        self.stable_type_graph_for_roots_with_resolver(roots, &|def_id| {
+        self.stable_type_graph_for_roots_with_resolver(roots, &|def_id: GlobalDefId| {
             let graph = self.db.get(ModuleGraphQuery)?;
             let Some(entry_root) = graph.current_package_root(graph.entry()) else {
                 return Err(self.db.invalid_input(
@@ -290,7 +308,7 @@ impl CompilerDatabase {
     pub fn stable_type_graph_for_roots_with_resolver(
         &self,
         roots: &[nia_ids::InternedTyId],
-        resolver: &dyn Fn(GlobalDefId) -> QueryResult<PackageId>,
+        resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<StableTypeGraph> {
         let graph = self.db.get(ModuleGraphQuery)?;
         let symbols = self.db.context().loader_facts().symbols();
@@ -813,7 +831,7 @@ struct StableTypeGraphEncoder<'db> {
     db: &'db QueryDb<CompilerContext>,
     graph: &'db ModuleGraphSnapshot,
     symbols: &'db nia_symbol_table::SymbolTable,
-    resolver: &'db dyn Fn(GlobalDefId) -> QueryResult<PackageId>,
+    resolver: &'db dyn StableDefinitionPackageResolver,
     indexes: HashMap<nia_ids::InternedTyId, u32>,
     visiting: HashSet<nia_ids::InternedTyId>,
     nodes: Vec<StableTypeNode>,
@@ -918,7 +936,7 @@ impl StableTypeGraphEncoder<'_> {
                 "nominal type name is absent from the session symbol table".to_string(),
             )
         })?;
-        let package = (self.resolver)(def_id)?;
+        let package = self.resolver.package_for_definition(def_id)?;
         Ok(DefinitionId {
             package,
             module: module.source_identity().normalized_path().to_owned(),
