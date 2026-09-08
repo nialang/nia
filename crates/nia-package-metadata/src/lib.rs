@@ -89,6 +89,8 @@ pub enum StableTypeNode {
     Function { parameters: Vec<u32>, result: u32 },
     /// Borrow/reference to an earlier node.
     Reference { target: u32, mutable: bool },
+    /// Raw pointer to an earlier node.
+    Pointer { target: u32, readonly: bool },
 }
 
 /// Canonical, bounded type graph for cross-package signature use.
@@ -126,6 +128,7 @@ impl StableTypeGraph {
                     references.push(result);
                 }
                 StableTypeNode::Reference { target, .. } => references.push(target),
+                StableTypeNode::Pointer { target, .. } => references.push(target),
             }
             if references.iter().any(|reference| **reference >= index) {
                 return Err(MetadataError::InvalidManifest);
@@ -627,6 +630,11 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 put_u32(&mut output, *target);
                 output.push(u8::from(*mutable));
             }
+            StableTypeNode::Pointer { target, readonly } => {
+                output.push(9);
+                put_u32(&mut output, *target);
+                output.push(u8::from(*readonly));
+            }
         }
     }
     if output.len() > MAX_PACKAGE_BYTES {
@@ -675,6 +683,14 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
             8 => StableTypeNode::Reference {
                 target: get_u32(&mut cursor)?,
                 mutable: match read_u8(&mut cursor)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(MetadataError::InvalidManifest),
+                },
+            },
+            9 => StableTypeNode::Pointer {
+                target: get_u32(&mut cursor)?,
+                readonly: match read_u8(&mut cursor)? {
                     0 => false,
                     1 => true,
                     _ => return Err(MetadataError::InvalidManifest),

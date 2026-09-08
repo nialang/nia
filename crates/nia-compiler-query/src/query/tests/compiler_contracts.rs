@@ -151,6 +151,77 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
 }
 
 #[test]
+fn stable_type_graph_publication_remaps_session_handles() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let database = fixture.database();
+    let append = database
+        .db
+        .context()
+        .type_store
+        .append_for_module(fixture.entry_id());
+    let int_ty = append.primitive(nia_ty::PrimitiveTy::I32);
+    let pointer_ty = append.intern(nia_ty::TyKind::Pointer {
+        is_readonly: true,
+        elem: int_ty,
+    });
+    let graph = database
+        .stable_type_graph_for_roots(
+            nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            &[pointer_ty],
+        )
+        .unwrap();
+    assert_eq!(graph.roots, vec![1]);
+    assert_eq!(
+        graph.nodes[0],
+        nia_package_metadata::StableTypeNode::Primitive(3)
+    );
+    assert_eq!(
+        graph.nodes[1],
+        nia_package_metadata::StableTypeNode::Pointer {
+            target: 0,
+            readonly: true,
+        }
+    );
+}
+
+#[test]
+fn stable_type_graph_publication_remaps_nominal_definition_identity() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
+    let database = fixture.database();
+    let module = fixture.entry_id();
+    let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
+    let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
+    let append = database.db.context().type_store.append_for_module(module);
+    let nominal = append.intern(nia_ty::TyKind::Nominal {
+        def_id: nia_ids::GlobalDefId {
+            module_id: module,
+            def_id,
+        },
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
+    let graph = database
+        .stable_type_graph_for_roots(
+            nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            &[nominal],
+        )
+        .unwrap();
+    let nia_package_metadata::StableTypeNode::Named(definition) = &graph.nodes[0] else {
+        panic!("nominal type must publish as a stable definition identity");
+    };
+    assert_eq!(definition.module, "src/main.nia");
+    assert_eq!(definition.name, "User");
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,

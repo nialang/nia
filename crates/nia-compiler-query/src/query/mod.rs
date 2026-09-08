@@ -29,7 +29,7 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleInterface, PackageId, PackageManifest,
-    SectionKind,
+    SectionKind, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -248,6 +248,41 @@ impl CompilerDatabase {
             .context()
             .loader_facts()
             .compiled_package_interfaces()
+    }
+
+    /// Converts session-owned type roots into a package-stable type graph.
+    ///
+    /// Only forms with a complete cross-package representation are accepted.
+    /// Unsupported forms deliberately fail rather than serializing a
+    /// session-local handle or silently weakening the interface contract.
+    pub fn stable_type_graph_for_roots(
+        &self,
+        package: PackageId,
+        roots: &[nia_ids::InternedTyId],
+    ) -> QueryResult<StableTypeGraph> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let symbols = self.db.context().loader_facts().symbols();
+        let mut encoder = StableTypeGraphEncoder {
+            db: &self.db,
+            graph: &graph,
+            symbols: &symbols,
+            package,
+            indexes: HashMap::new(),
+            visiting: HashSet::new(),
+            nodes: Vec::new(),
+        };
+        let roots = roots
+            .iter()
+            .map(|root| encoder.encode(*root))
+            .collect::<QueryResult<Vec<_>>>()?;
+        let graph = StableTypeGraph {
+            nodes: encoder.nodes,
+            roots,
+        };
+        graph
+            .validate()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        Ok(graph)
     }
 
     /// Publishes the target-independent public declaration inventory for one package.
@@ -715,6 +750,154 @@ impl CompilerDatabase {
         }
         Ok(invalidation)
     }
+}
+
+struct StableTypeGraphEncoder<'db> {
+    db: &'db QueryDb<CompilerContext>,
+    graph: &'db ModuleGraphSnapshot,
+    symbols: &'db nia_symbol_table::SymbolTable,
+    package: PackageId,
+    indexes: HashMap<nia_ids::InternedTyId, u32>,
+    visiting: HashSet<nia_ids::InternedTyId>,
+    nodes: Vec<StableTypeNode>,
+}
+
+impl StableTypeGraphEncoder<'_> {
+    fn encode(&mut self, ty: nia_ids::InternedTyId) -> QueryResult<u32> {
+        if let Some(index) = self.indexes.get(&ty) {
+            return Ok(*index);
+        }
+        if !self.visiting.insert(ty) {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                "recursive session type graph has no stable package representation".to_string(),
+            ));
+        }
+        let kind = self
+            .db
+            .context()
+            .type_store
+            .get(ty)
+            .cloned()
+            .ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "type root belongs to a different compiler session".to_string(),
+                )
+            })?;
+        let node = match kind {
+            nia_ty::TyKind::Primitive(primitive) => primitive_type_node(primitive)?,
+            nia_ty::TyKind::Tuple(elements) if elements.is_empty() => StableTypeNode::Unit,
+            nia_ty::TyKind::Tuple(elements) => StableTypeNode::Tuple(
+                elements
+                    .into_iter()
+                    .map(|element| self.encode(element))
+                    .collect::<QueryResult<Vec<_>>>()?,
+            ),
+            nia_ty::TyKind::Pointer {
+                is_readonly, elem, ..
+            } => StableTypeNode::Pointer {
+                target: self.encode(elem)?,
+                readonly: is_readonly,
+            },
+            nia_ty::TyKind::Array { len, elem } => {
+                let nia_ty::ArrayLenTy::ConstValue(length) = len else {
+                    return Err(self.unsupported("array length is not a stable constant"));
+                };
+                StableTypeNode::Array {
+                    element: self.encode(elem)?,
+                    length,
+                }
+            }
+            nia_ty::TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: false,
+            } => StableTypeNode::Function {
+                parameters: params
+                    .into_iter()
+                    .map(|parameter| self.encode(parameter))
+                    .collect::<QueryResult<Vec<_>>>()?,
+                result: self.encode(return_type)?,
+            },
+            nia_ty::TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } if args.is_empty() && const_args.is_empty() => {
+                StableTypeNode::Named(self.definition(def_id)?)
+            }
+            _ => return Err(self.unsupported("type form has no stable package encoding")),
+        };
+        self.visiting.remove(&ty);
+        let index = u32::try_from(self.nodes.len()).map_err(|_| {
+            self.db.invalid_input(
+                &ModuleGraphQuery,
+                "stable type graph exceeds u32 nodes".to_string(),
+            )
+        })?;
+        self.nodes.push(node);
+        self.indexes.insert(ty, index);
+        Ok(index)
+    }
+
+    fn definition(&self, def_id: nia_ids::GlobalDefId) -> QueryResult<DefinitionId> {
+        let module = self.graph.stable_key(def_id.module_id).ok_or_else(|| {
+            self.db.invalid_input(
+                &ModuleGraphQuery,
+                "nominal type has no stable module identity".to_string(),
+            )
+        })?;
+        let defs = self.db.get(FullModuleDefsQuery(def_id.module_id))?;
+        let def = defs.semantic.defs.get(def_id.def_id).ok_or_else(|| {
+            self.db.invalid_input(
+                &ModuleGraphQuery,
+                "nominal type has no definition facts".to_string(),
+            )
+        })?;
+        let name = self.symbols.resolve(def.name).ok_or_else(|| {
+            self.db.invalid_input(
+                &ModuleGraphQuery,
+                "nominal type name is absent from the session symbol table".to_string(),
+            )
+        })?;
+        Ok(DefinitionId {
+            package: self.package.clone(),
+            module: module.source_identity().normalized_path().to_owned(),
+            name: name.to_string(),
+            kind: def_kind_tag(def.kind),
+        })
+    }
+
+    fn unsupported(&self, detail: &str) -> QueryError {
+        self.db.invalid_input(
+            &ModuleGraphQuery,
+            format!("{detail}; package type graph publication is not implemented for this form"),
+        )
+    }
+}
+
+fn primitive_type_node(primitive: nia_ty::PrimitiveTy) -> QueryResult<StableTypeNode> {
+    use nia_ty::PrimitiveTy;
+    Ok(match primitive {
+        PrimitiveTy::Never => StableTypeNode::Never,
+        PrimitiveTy::I8 => StableTypeNode::Primitive(1),
+        PrimitiveTy::I16 => StableTypeNode::Primitive(2),
+        PrimitiveTy::I32 => StableTypeNode::Primitive(3),
+        PrimitiveTy::I64 => StableTypeNode::Primitive(4),
+        PrimitiveTy::I128 => StableTypeNode::Primitive(5),
+        PrimitiveTy::Isize => StableTypeNode::Primitive(6),
+        PrimitiveTy::U8 => StableTypeNode::Primitive(7),
+        PrimitiveTy::U16 => StableTypeNode::Primitive(8),
+        PrimitiveTy::U32 => StableTypeNode::Primitive(9),
+        PrimitiveTy::U64 => StableTypeNode::Primitive(10),
+        PrimitiveTy::U128 => StableTypeNode::Primitive(11),
+        PrimitiveTy::Usize => StableTypeNode::Primitive(12),
+        PrimitiveTy::F32 => StableTypeNode::Primitive(13),
+        PrimitiveTy::F64 => StableTypeNode::Primitive(14),
+        PrimitiveTy::Bool => StableTypeNode::Primitive(15),
+        PrimitiveTy::Char => StableTypeNode::Primitive(16),
+    })
 }
 
 fn declaration_signature(def_id: nia_ids::DefId, def: &nia_defs::Def) -> Vec<u8> {
