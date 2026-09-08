@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::process::Command;
+use std::{
+    io::Read,
+    process::{Command, Stdio},
+};
 
 mod support;
 
@@ -184,6 +187,46 @@ fn main() () {}
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("warning[W0201]"), "{stderr}");
     assert!(stderr.contains("unused import `collections`"), "{stderr}");
+}
+
+#[test]
+fn emit_checked_exits_cleanly_when_stdout_pipe_closes() {
+    let root = temp_dir("emit_checked_exits_cleanly_when_stdout_pipe_closes");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write source");
+
+    let mut child = support::nia_command()
+        .arg("emit")
+        .arg("--checked")
+        .arg(&main)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn nia emit --checked");
+    let mut stdout = child.stdout.take().expect("capture nia stdout");
+    let mut first_byte = [0_u8; 1];
+    stdout
+        .read_exact(&mut first_byte)
+        .expect("checked output should produce bytes");
+    drop(stdout);
+
+    let output = child.wait_with_output().expect("wait for nia");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("This is a compiler bug"), "{stderr}");
+    assert!(!stderr.contains("Broken pipe"), "{stderr}");
 }
 
 #[test]
