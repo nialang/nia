@@ -251,6 +251,33 @@ fn package_artifact_publication_embeds_validated_signatures() {
 }
 
 #[test]
+fn package_signature_section_derives_function_flags_and_roots() {
+    let fixture = LoadedProgramFixture::new(
+        "src/main.nia",
+        "pub const answer: i32 = 42;\npub fn greet(value: i32) i32 { value }",
+    );
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "signature-derived".into(),
+        version: "1.0.0".into(),
+    };
+    let section = database
+        .package_signature_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
+        .unwrap();
+    let greet = section
+        .records
+        .iter()
+        .find(|record| record.definition.name == "greet")
+        .expect("function signature");
+    assert_ne!(
+        greet.flags & nia_package_metadata::SIGNATURE_FLAG_HAS_BODY,
+        0
+    );
+    assert!(!greet.type_roots.is_empty());
+}
+
+#[test]
 fn package_artifact_publication_can_embed_validated_native_product() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
     let database = fixture.database();
