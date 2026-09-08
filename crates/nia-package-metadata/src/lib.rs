@@ -2148,4 +2148,27 @@ mod tests {
             Err(MetadataError::InvalidManifest)
         );
     }
+
+    #[test]
+    fn compiled_interface_rejects_public_surface_package_mismatch() {
+        let manifest = sample();
+        let foreign = PackageId {
+            namespace: "other".into(),
+            name: "foreign".into(),
+            version: "1".into(),
+        };
+        let section = PublicSurfaceSection {
+            package: foreign,
+            modules: vec![],
+        };
+        let bytes = encode_public_surface(&section).unwrap();
+        let artifact = PackageArtifact::open(
+            encode_artifact(&manifest, &[(SectionKind::PublicSurface, &bytes)]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            CompiledPackageInterface::from_artifact(&artifact),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
 }
