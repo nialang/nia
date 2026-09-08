@@ -531,6 +531,11 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
     let database = fixture.database();
     let module = fixture.entry_id();
+    let dependency = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dependency".into(),
+        version: "2.0.0".into(),
+    };
     let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
     let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
     let append = database.db.context().type_store.append_for_module(module);
@@ -542,11 +547,6 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
         args: Vec::new(),
         const_args: Vec::new(),
     });
-    let dependency = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "dependency".into(),
-        version: "2.0.0".into(),
-    };
     let graph = database
         .stable_type_graph_for_roots_with_resolver(&[nominal], &|resolved: nia_ids::GlobalDefId| {
             assert_eq!(resolved.module_id, module);
@@ -568,13 +568,8 @@ fn package_interface_publication_accepts_external_definition_resolver() {
         name: "app".into(),
         version: "1.0.0".into(),
     };
-    let dependency = nia_package_metadata::PackageId {
-        namespace: "example".into(),
-        name: "dependency".into(),
-        version: "2.0.0".into(),
-    };
     let interface = database
-        .package_interface_section_with_resolver(package, &|_| Ok(dependency.clone()))
+        .package_interface_section_with_resolver(package.clone(), &|_| Ok(package.clone()))
         .unwrap();
     assert!(
         interface
