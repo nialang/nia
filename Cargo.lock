@@ -561,6 +561,7 @@ dependencies = [
  "nia-linker",
  "nia-loader-query",
  "nia-opt",
+ "nia-package-metadata",
  "nia-parser",
  "nia-query",
  "nia-source",
