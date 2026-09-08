@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 136);
+    assert_eq!(descriptors.len(), 137);
     assert!(
         !descriptors
             .iter()
@@ -42,6 +42,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "compiled_package_type_roots"
                 | "compiled_package_declarations"
                 | "compiled_package_module_interface"
+                | "compiled_package_templates"
         ) {
             nia_query::QueryStoragePolicy::SingleConsumerOwned
         } else {
@@ -53,6 +54,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "compiled_package_type_roots"
                 | "compiled_package_declarations"
                 | "compiled_package_module_interface"
+                | "compiled_package_templates"
         ) {
             nia_query::QueryProviderPolicy::ExternallyPublished
         } else {
@@ -661,6 +663,18 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
         1
     );
     assert!(index.definition(&interface.records[0].definition).is_some());
+}
+
+#[test]
+fn installing_compiled_templates_publishes_empty_package_slots() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let database = fixture.database();
+    assert!(
+        database
+            .install_compiled_package_templates()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

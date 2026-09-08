@@ -315,6 +315,29 @@ pub struct CompiledPackageModuleInterface {
     records: Vec<InterfaceRecord>,
 }
 
+/// Checked downstream templates selected from one compiled package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageTemplates {
+    package: PackageId,
+    records: BTreeMap<DefinitionId, nia_package_metadata::TemplateRecord>,
+}
+
+impl CompiledPackageTemplates {
+    pub fn package(&self) -> &PackageId {
+        &self.package
+    }
+
+    pub fn get(&self, definition: &DefinitionId) -> Option<&nia_package_metadata::TemplateRecord> {
+        self.records.get(definition)
+    }
+
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::TemplateRecord)> {
+        self.records.iter()
+    }
+}
+
 impl CompiledPackageModuleInterface {
     pub fn identity(&self) -> &StableModuleId {
         &self.identity
@@ -577,6 +600,50 @@ impl CompilerDatabase {
     ) -> QueryResult<CompiledPackageModuleInterface> {
         self.db
             .get_owned(CompiledPackageModuleInterfaceQuery(identity))
+    }
+
+    /// Publishes validated generic/const templates for selected packages.
+    pub fn install_compiled_package_templates(&self) -> QueryResult<Vec<PackageId>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut installed = Vec::new();
+        for (package, interface) in index.packages() {
+            let mut records = BTreeMap::new();
+            if let Some(templates) = interface.templates() {
+                for record in &templates.records {
+                    if record.definition.module.package != *package
+                        || records
+                            .insert(record.definition.clone(), record.clone())
+                            .is_some()
+                    {
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            format!(
+                                "compiled template identity is inconsistent: {:?}",
+                                record.definition
+                            ),
+                        ));
+                    }
+                }
+            }
+            self.db.publish_owned(
+                CompiledPackageTemplatesQuery(package.clone()),
+                CompiledPackageTemplates {
+                    package: package.clone(),
+                    records,
+                },
+                &CompiledPackageInterfaceIndexQuery,
+            );
+            installed.push(package.clone());
+        }
+        Ok(installed)
+    }
+
+    /// Consumes the checked template inventory for one package.
+    pub fn compiled_package_templates(
+        &self,
+        package: PackageId,
+    ) -> QueryResult<CompiledPackageTemplates> {
+        self.db.get_owned(CompiledPackageTemplatesQuery(package))
     }
 
     /// Returns the query-tracked index of selected compiled interfaces.
