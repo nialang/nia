@@ -253,6 +253,15 @@ impl PackageArtifact {
         }
         Ok(Some(bytes))
     }
+
+    /// Verifies every published section without retaining section payloads.
+    pub fn validate_sections(&self) -> Result<(), MetadataError> {
+        for entry in &self.sections {
+            self.section(entry.kind)?
+                .ok_or(MetadataError::InvalidManifest)?;
+        }
+        Ok(())
+    }
 }
 
 /// Encodes a manifest-only package artifact.

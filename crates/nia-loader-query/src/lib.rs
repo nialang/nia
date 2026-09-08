@@ -9,6 +9,7 @@
 mod facade_facts;
 mod frontend_cache;
 mod graph;
+mod package_artifact;
 mod provider_facts;
 mod provider_loading;
 mod queries;
@@ -24,6 +25,7 @@ use nia_compiler_query::{
     source_content_fingerprint,
 };
 use nia_imports::{ModuleMap, StableModuleKey};
+use nia_package_metadata::PackageId;
 use nia_query::{QueryDb, QueryResult, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
@@ -35,6 +37,11 @@ use std::{
     collections::HashSet,
     path::PathBuf,
     sync::{Arc, Mutex},
+};
+
+pub use package_artifact::{
+    PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad, PackageArtifactMismatch,
+    PackageArtifactRequest, package_artifact_path, select_package_artifact,
 };
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
@@ -109,6 +116,9 @@ pub fn load_program_request(request: LoadRequest) -> QueryResult<LoadedProgram> 
 pub struct LoaderDatabase {
     db: QueryDb<LoaderContext>,
     sources: SourceDatabase,
+    package_artifact: Option<PackageArtifactRequest>,
+    expected_package: Option<PackageId>,
+    artifact_compatibility: package_artifact::ArtifactCompatibility,
 }
 
 /// Presence and stable content identity of one loaded source input.
@@ -304,7 +314,15 @@ impl LoaderDatabase {
             loader_query_registry(),
             session,
         );
-        Self { db, sources }
+        let artifact_compatibility =
+            package_artifact::ArtifactCompatibility::current(request.toolchain.as_deref());
+        Self {
+            db,
+            sources,
+            package_artifact: request.package_artifact,
+            expected_package: request.expected_package,
+            artifact_compatibility,
+        }
     }
 
     /// Returns the query session governing this loader.
@@ -348,6 +366,24 @@ impl LoaderDatabase {
     /// Returns the mutable-source database owned by this loader.
     pub fn sources(&self) -> &SourceDatabase {
         &self.sources
+    }
+
+    /// Selects the explicitly requested compiled package, if any.
+    ///
+    /// Source loading remains the default. An optional artifact returns
+    /// [`PackageArtifactLoad::SourceFallback`] when absent, corrupt, or
+    /// incompatible; a required artifact returns a typed error instead.
+    pub fn package_artifact(&self) -> Result<Option<PackageArtifactLoad>, PackageArtifactError> {
+        self.package_artifact
+            .as_ref()
+            .map(|request| {
+                package_artifact::load(
+                    request,
+                    self.expected_package.as_ref(),
+                    &self.artifact_compatibility,
+                )
+            })
+            .transpose()
     }
 
     /// Replaces source text, retires the previous revision, and invalidates dependents atomically.
@@ -790,6 +826,10 @@ pub struct LoadRequest {
     pub verify_frontend_cache: bool,
     /// Optional resolved toolchain supplying std modules and identity.
     pub toolchain: Option<Arc<ToolchainLayout>>,
+    /// Optional compiled package artifact selection request.
+    pub package_artifact: Option<PackageArtifactRequest>,
+    /// Optional stable package identity expected from the selected artifact.
+    pub expected_package: Option<PackageId>,
 }
 
 impl LoadRequest {
@@ -813,6 +853,8 @@ impl LoadRequest {
             frontend_cache_dir: None,
             verify_frontend_cache: false,
             toolchain: None,
+            package_artifact: None,
+            expected_package: None,
         }
     }
 
@@ -879,6 +921,24 @@ impl LoadRequest {
     /// Supplies a resolved toolchain for std modules and compatibility identity.
     pub fn with_toolchain_layout(mut self, toolchain: Arc<ToolchainLayout>) -> Self {
         self.toolchain = Some(toolchain);
+        self
+    }
+
+    /// Tries a compiled package artifact and falls back to source on rejection.
+    pub fn with_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
+        self.package_artifact = Some(PackageArtifactRequest::Optional(path.into()));
+        self
+    }
+
+    /// Requires a compiled package artifact and surfaces rejection as an error.
+    pub fn require_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
+        self.package_artifact = Some(PackageArtifactRequest::Required(path.into()));
+        self
+    }
+
+    /// Checks the selected artifact against a stable package identity.
+    pub fn with_expected_package(mut self, package: PackageId) -> Self {
+        self.expected_package = Some(package);
         self
     }
 }
