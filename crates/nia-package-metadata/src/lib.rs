@@ -18,7 +18,7 @@ const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
 const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 // Version 2 adds the declaration kind to stable definition identities.
-const INTERFACE_SCHEMA: u32 = 2;
+const INTERFACE_SCHEMA: u32 = 3;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 1;
 
@@ -53,15 +53,15 @@ pub struct ModuleInterface {
     pub interface_hash: [u8; 32],
 }
 
-/// One target-independent public declaration and its canonical signature.
-///
-/// The signature bytes are an opaque compiler-owned type graph for this
-/// container layer. Their interpretation is versioned by the interface
-/// section schema and must not depend on physical source paths.
+/// One target-independent public declaration and references into its canonical
+/// signature type graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceRecord {
     pub definition: DefinitionId,
-    pub signature: Vec<u8>,
+    /// Canonical declaration facts owned by the compiler interface protocol.
+    pub declaration: Vec<u8>,
+    /// Strictly sorted indices into the package type-graph section.
+    pub type_roots: Vec<u32>,
 }
 
 /// Decoded target-independent interface section.
@@ -149,12 +149,30 @@ impl InterfaceSection {
         }
         for record in &self.records {
             validate_definition(&record.definition)?;
-            validate_bytes(&record.signature)?;
+            validate_bytes(&record.declaration)?;
+            if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         if self
             .records
             .windows(2)
             .any(|pair| pair[0].definition >= pair[1].definition)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
+
+    /// Validates record type-root references against a canonical graph.
+    pub fn validate_type_roots(&self, graph: &StableTypeGraph) -> Result<(), MetadataError> {
+        self.validate()?;
+        let node_count = graph.nodes.len() as u32;
+        if self
+            .records
+            .iter()
+            .flat_map(|record| record.type_roots.iter())
+            .any(|root| *root >= node_count)
         {
             return Err(MetadataError::InvalidManifest);
         }
@@ -181,6 +199,11 @@ impl CompiledPackageInterface {
             records: Vec::new(),
         });
         let type_graph = artifact.type_graph()?;
+        if let Some(graph) = &type_graph {
+            interface.validate_type_roots(graph)?;
+        } else if interface.records.iter().any(|record| !record.type_roots.is_empty()) {
+            return Err(MetadataError::InvalidManifest);
+        }
         let record_indexes = interface
             .records
             .iter()
@@ -555,7 +578,11 @@ pub fn encode_interface(section: &InterfaceSection) -> Result<Vec<u8>, MetadataE
         put_string(&mut output, &record.definition.module)?;
         put_string(&mut output, &record.definition.name)?;
         output.push(record.definition.kind);
-        put_bytes(&mut output, &record.signature)?;
+        put_bytes(&mut output, &record.declaration)?;
+        put_list_len(&mut output, record.type_roots.len())?;
+        for root in &record.type_roots {
+            put_u32(&mut output, *root);
+        }
     }
     if output.len() > MAX_PACKAGE_BYTES {
         return Err(MetadataError::TooLarge);
@@ -588,7 +615,8 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
                 name: get_string(&mut cursor)?,
                 kind: read_u8(&mut cursor)?,
             },
-            signature: get_bytes(&mut cursor)?,
+            declaration: get_bytes(&mut cursor)?,
+            type_roots: read_refs(&mut cursor)?,
         });
     }
     if cursor.position() != bytes.len() as u64 {
@@ -1029,7 +1057,8 @@ mod tests {
                     name: "write".into(),
                     kind: 2,
                 },
-                signature: b"fn(Text) Unit".to_vec(),
+                declaration: b"fn(Text) Unit".to_vec(),
+                type_roots: Vec::new(),
             }],
         };
         let bytes = encode_interface(&section).unwrap();
@@ -1060,7 +1089,8 @@ mod tests {
                 name: "a".into(),
                 kind: 2,
             },
-            signature: vec![1],
+            declaration: vec![1],
+            type_roots: Vec::new(),
         };
         let second = InterfaceRecord {
             definition: DefinitionId {
@@ -1069,7 +1099,8 @@ mod tests {
                 name: "a".into(),
                 kind: 2,
             },
-            signature: vec![2],
+            declaration: vec![2],
+            type_roots: Vec::new(),
         };
         assert_eq!(
             encode_interface(&InterfaceSection {
