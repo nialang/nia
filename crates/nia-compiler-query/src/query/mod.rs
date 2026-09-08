@@ -400,9 +400,34 @@ impl CompilerDatabase {
             modules,
             ..PackageManifest::current(package)
         };
+        let mut type_roots = Vec::new();
+        for module in graph.modules() {
+            let signatures = self.db.get(ItemSignaturesQuery(module.id))?;
+            type_roots.extend(
+                signatures
+                    .semantic
+                    .type_roots()
+                    .into_iter()
+                    .filter(|root| {
+                        !matches!(
+                            self.db.context().type_store.get(*root),
+                            Some(nia_ty::TyKind::Error)
+                        )
+                    }),
+            );
+        }
+        type_roots.sort_unstable();
+        type_roots.dedup();
+        let type_graph = self
+            .stable_type_graph_for_roots(manifest.package.clone(), &type_roots)?;
+        let type_graph_bytes = nia_package_metadata::encode_type_graph(&type_graph)
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let bytes = nia_package_metadata::encode_artifact(
             &manifest,
-            &[(SectionKind::Interface, interface_bytes.as_slice())],
+            &[
+                (SectionKind::Interface, interface_bytes.as_slice()),
+                (SectionKind::TypeGraph, type_graph_bytes.as_slice()),
+            ],
         )
         .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         nia_package_metadata::PackageArtifact::open(bytes.clone())
