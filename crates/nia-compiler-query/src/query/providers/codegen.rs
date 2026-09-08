@@ -728,6 +728,9 @@ pub(super) fn closure_safety_diagnostics(
             })
         })
         .collect::<Vec<_>>();
+    if !nia_closure_check::contains_closure_constructs(&functions) {
+        return Ok(Vec::new());
+    }
     let support_module_ids = resolve_stable_module_sequence_from_current_inputs(
         db,
         db.get(LoadedModulesQuery)?.as_ref(),

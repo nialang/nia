@@ -62,6 +62,18 @@ pub struct ClosureCheckFunction<'a> {
     pub body: &'a TypedBody,
 }
 
+/// Reports whether any supplied typed function body contains a closure
+/// construct (including nested expression/block forms). This lightweight
+/// discovery pass lets callers skip interprocedural support materialization
+/// for ordinary functions that cannot trigger closure escape diagnostics.
+pub fn contains_closure_constructs(functions: &[ClosureCheckFunction<'_>]) -> bool {
+    functions.iter().any(|function| {
+        let mut callables = HashMap::new();
+        collect_body_closures(function.body, &mut callables);
+        !callables.is_empty()
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum CallableKey {
     Function(GlobalDefId),
@@ -1915,6 +1927,28 @@ mod tests {
     use nia_ty::TyKind;
 
     use super::*;
+
+    #[test]
+    fn closure_presence_probe_skips_plain_function_bodies() {
+        let module = ModuleIdAllocator::new().allocate();
+        let body = TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: Vec::new(),
+            tail: None,
+            ty: nia_ty::TypeStore::new()
+                .append_for_module(module)
+                .intern(TyKind::Tuple(Vec::new())),
+        };
+        let function = ClosureCheckFunction {
+            def_id: GlobalDefId {
+                module_id: module,
+                def_id: DefId(0),
+            },
+            body: &body,
+        };
+        assert!(!contains_closure_constructs(&[function]));
+    }
 
     #[test]
     fn deep_input_projection_widens_to_a_stable_conservative_source() {
