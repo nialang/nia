@@ -926,6 +926,7 @@ impl Driver {
         // consumed slot for the current artifact generation.
         database.install_compiled_package_module_interfaces()?;
         database.install_compiled_package_templates()?;
+        database.install_compiled_package_signatures()?;
         database.install_compiled_package_native()?;
         Ok((database, loader))
     }
