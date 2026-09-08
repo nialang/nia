@@ -9,7 +9,7 @@ use crate::{LoadedModule, LoadedProgram};
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_const_check::{ConstCheck, ConstModuleLowering};
 use nia_defs::{
-    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup,
+    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSource, PublicSurfaceLookup,
     PublicSurfaceModuleFacts, PublicSurfaces, UsingScopeLookup,
 };
 use nia_diagnostic::{Diagnostic, codes};
@@ -29,8 +29,8 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleId as StableModuleId, ModuleInterface,
-    PackageId, PackageManifest, SectionKind, StableConstArg, StableDeclaration, StableTypeGraph,
-    StableTypeNode,
+    PackageId, PackageManifest, PublicSurfaceExport, PublicSurfaceModule, PublicSurfaceSection,
+    SectionKind, StableConstArg, StableDeclaration, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -1422,6 +1422,157 @@ impl CompilerDatabase {
         Ok((section, type_graph))
     }
 
+    /// Publishes the fully resolved export surface for one package. Export
+    /// targets are encoded as stable identities, so consumers never need to
+    /// load dependency source or replay `using` resolution.
+    pub fn package_public_surface_section_with_resolver(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<PublicSurfaceSection> {
+        let parse_ok = self.db.get(ParseOkModuleIdsQuery)?;
+        let module_ids = self
+            .db
+            .context()
+            .resolve_stable_module_sequence(&parse_ok)?;
+        let defs = module_ids
+            .into_iter()
+            .map(|module_id| {
+                Ok(self
+                    .db
+                    .get(PublicSurfaceModuleFactsQuery(module_id))?
+                    .materialize_for_public_surface(module_id))
+            })
+            .collect::<QueryResult<Vec<_>>>()?;
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let symbols = self.db.context().loader_facts().symbols();
+        let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
+        let stable_target = |module_id: ModuleId, def_id: DefId| -> QueryResult<DefinitionId> {
+            let key = graph.stable_key(module_id).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "public export target has no stable module identity".to_string(),
+                )
+            })?;
+            let owner = resolver.package_for_definition(GlobalDefId { module_id, def_id })?;
+            let module = StableModuleId {
+                package: owner,
+                path: key.source_identity().normalized_path().to_owned(),
+            };
+            let module_defs = self.db.get(FullModuleDefsQuery(module_id))?;
+            let def = module_defs.semantic.defs.get(def_id).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "public export target definition is missing".to_string(),
+                )
+            })?;
+            let name = symbols.resolve(def.name).ok_or_else(|| {
+                self.db.invalid_input(
+                    &ModuleGraphQuery,
+                    "public export target has no symbol text".to_string(),
+                )
+            })?;
+            Ok(DefinitionId {
+                module,
+                name: name.to_string(),
+                kind: def_kind_tag(def.kind),
+            })
+        };
+        let mut modules = Vec::new();
+        for (module_id, surface) in exports.surfaces.iter() {
+            let path = graph
+                .stable_key(*module_id)
+                .ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "public surface module has no stable identity".to_string(),
+                    )
+                })?
+                .source_identity()
+                .normalized_path()
+                .to_owned();
+            let mut child_modules = surface
+                .modules
+                .iter()
+                .map(|(name, child)| {
+                    let text = symbols.resolve(*name).ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "public module export has no symbol text".to_string(),
+                        )
+                    })?;
+                    let child_path = graph
+                        .stable_key(*child)
+                        .ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "public child module has no stable identity".to_string(),
+                            )
+                        })?
+                        .source_identity()
+                        .normalized_path()
+                        .to_owned();
+                    Ok((
+                        text.to_string(),
+                        StableModuleId {
+                            package: package.clone(),
+                            path: child_path,
+                        },
+                    ))
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
+            child_modules.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut surface_exports = Vec::new();
+            for (name, item, namespace) in surface
+                .values
+                .iter()
+                .map(|(name, item)| (name, item, 0u8))
+                .chain(surface.types.iter().map(|(name, item)| (name, item, 1u8)))
+            {
+                let spelling = symbols.resolve(*name).ok_or_else(|| {
+                    self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "public export has no symbol text".to_string(),
+                    )
+                })?;
+                let target = stable_target(item.target_module, item.target_def_id)?;
+                let parent_enum = item
+                    .parent_enum
+                    .map(|global| stable_target(global.module_id, global.def_id))
+                    .transpose()?;
+                let source = match item.source {
+                    PublicSource::Direct => 0,
+                    PublicSource::PubUsing { .. } => 1,
+                };
+                surface_exports.push(PublicSurfaceExport {
+                    name: spelling.to_string(),
+                    namespace,
+                    target,
+                    parent_enum,
+                    source,
+                });
+            }
+            surface_exports.sort_by(|a, b| {
+                (a.name.as_str(), a.namespace, &a.target).cmp(&(
+                    b.name.as_str(),
+                    b.namespace,
+                    &b.target,
+                ))
+            });
+            modules.push(PublicSurfaceModule {
+                path,
+                modules: child_modules,
+                exports: surface_exports,
+            });
+        }
+        modules.sort_by(|a, b| a.path.cmp(&b.path));
+        let section = PublicSurfaceSection { package, modules };
+        section
+            .validate()
+            .map_err(|e| self.db.invalid_input(&ModuleGraphQuery, e.to_string()))?;
+        Ok(section)
+    }
+
     /// Produces one complete, target-independent package artifact.
     pub fn publish_package_artifact(
         &self,
@@ -1458,6 +1609,8 @@ impl CompilerDatabase {
     ) -> QueryResult<crate::PackageArtifactPublication> {
         let (interface, type_graph) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
+        let public_surface =
+            self.package_public_surface_section_with_resolver(package.clone(), resolver)?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let graph = self.db.get(ModuleGraphQuery)?;
@@ -1528,11 +1681,14 @@ impl CompilerDatabase {
         };
         let type_graph_bytes = nia_package_metadata::encode_type_graph(&type_graph)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let public_surface_bytes = nia_package_metadata::encode_public_surface(&public_surface)
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let bytes = nia_package_metadata::encode_artifact(
             &manifest,
             &[
                 (SectionKind::Interface, interface_bytes.as_slice()),
                 (SectionKind::TypeGraph, type_graph_bytes.as_slice()),
+                (SectionKind::PublicSurface, public_surface_bytes.as_slice()),
             ],
         )
         .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
@@ -2924,6 +3080,13 @@ fn compiled_interface_index_fingerprint(
                 builder.write_bytes(&record.body);
                 builder.write_bytes(&record.summary);
             }
+        } else {
+            builder.write_u8(0);
+        }
+        if let Some(surface) = interface.public_surface() {
+            builder.write_u8(1);
+            let bytes = nia_package_metadata::encode_public_surface(surface).ok()?;
+            builder.write_bytes(&bytes);
         } else {
             builder.write_u8(0);
         }
