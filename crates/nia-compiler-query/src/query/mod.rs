@@ -3064,9 +3064,8 @@ fn signature_flags_for_definition(
     kind: u8,
     signatures: &nia_item_signatures::ItemSignatures,
 ) -> u32 {
-    use nia_item_signatures::FunctionAttribute;
     match kind {
-        2 => signatures.functions.get(&def_id).map_or(0, |signature| {
+        2 | 12 => signatures.functions.get(&def_id).map_or(0, |signature| {
             let mut flags = 0;
             if signature.has_body {
                 flags |= nia_package_metadata::SIGNATURE_FLAG_HAS_BODY;
@@ -3079,13 +3078,6 @@ fn signature_flags_for_definition(
             }
             if signature.is_variadic {
                 flags |= nia_package_metadata::SIGNATURE_FLAG_VARIADIC;
-            }
-            if signature
-                .attributes
-                .iter()
-                .any(|attribute| matches!(attribute, FunctionAttribute::Naked))
-            {
-                flags |= nia_package_metadata::SIGNATURE_FLAG_EXTERN;
             }
             flags
         }),
@@ -3104,6 +3096,12 @@ fn signature_flags_for_definition(
         }),
         13 => signatures.enums.get(&def_id).map_or(0, |signature| {
             u32::from(signature.is_open) * nia_package_metadata::SIGNATURE_FLAG_OPEN
+        }),
+        3 => signatures.globals.get(&def_id).map_or(0, |signature| {
+            u32::from(signature.is_extern) * nia_package_metadata::SIGNATURE_FLAG_EXTERN
+        }),
+        4 => signatures.consts.get(&def_id).map_or(0, |_| {
+            nia_package_metadata::SIGNATURE_FLAG_CONST
         }),
         _ => 0,
     }
