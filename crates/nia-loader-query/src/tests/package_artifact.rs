@@ -1,5 +1,8 @@
 use super::*;
-use nia_package_metadata::{PackageId, PackageManifest, SectionKind, encode, encode_artifact};
+use nia_package_metadata::{
+    DefinitionId, InterfaceRecord, InterfaceSection, PackageId, PackageManifest, SectionKind,
+    encode, encode_artifact, encode_interface, interface_module_hash,
+};
 use std::fs;
 
 fn temp_artifact(name: &str) -> std::path::PathBuf {
@@ -26,8 +29,13 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
     let loader = LoaderDatabase::new(request);
     let selection = loader.package_artifact().unwrap().unwrap();
     match selection {
-        PackageArtifactLoad::Loaded { artifact, .. } => {
-            assert_eq!(artifact.manifest().package, manifest().package)
+        PackageArtifactLoad::Loaded {
+            artifact,
+            interface,
+            ..
+        } => {
+            assert_eq!(artifact.manifest().package, manifest().package);
+            assert_eq!(interface.records().len(), 0);
         }
         PackageArtifactLoad::SourceFallback { .. } => panic!("valid artifact must load"),
     }
@@ -132,4 +140,47 @@ fn explicit_package_identity_mismatch_is_reported() {
             ..
         })
     ));
+}
+
+#[test]
+fn loaded_artifact_exposes_indexed_interface_without_source_access() {
+    let path = temp_artifact("indexed-interface");
+    let package = manifest().package;
+    let interface = InterfaceSection {
+        records: vec![InterfaceRecord {
+            definition: DefinitionId {
+                package: package.clone(),
+                module: "src/lib.nia".into(),
+                name: "answer".into(),
+                kind: 2,
+            },
+            signature: b"fn() Int".to_vec(),
+        }],
+    };
+    let interface_bytes = encode_interface(&interface).unwrap();
+    let mut metadata = PackageManifest::current(package.clone());
+    metadata
+        .modules
+        .push(nia_package_metadata::ModuleInterface {
+            path: "src/lib.nia".into(),
+            interface_hash: interface_module_hash(&interface, "src/lib.nia").unwrap(),
+        });
+    fs::write(
+        &path,
+        encode_artifact(&metadata, &[(SectionKind::Interface, &interface_bytes)]).unwrap(),
+    )
+    .unwrap();
+    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_package_artifact(&path));
+    let Some(PackageArtifactLoad::Loaded {
+        interface: indexed, ..
+    }) = loader.package_artifact().unwrap()
+    else {
+        panic!("indexed interface must load");
+    };
+    let definition = &indexed.records()[0].definition;
+    assert_eq!(
+        indexed.definition(definition).unwrap().signature,
+        b"fn() Int"
+    );
+    assert_eq!(indexed.module_records("src/lib.nia").count(), 1);
 }

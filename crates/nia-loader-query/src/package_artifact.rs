@@ -1,12 +1,72 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Discovery and compatibility selection for compiled package metadata.
 
-use nia_package_metadata::{MetadataError, PackageArtifact, PackageId, SCHEMA_VERSION};
+use nia_package_metadata::{
+    DefinitionId, InterfaceRecord, InterfaceSection, MetadataError, PackageArtifact, PackageId,
+    PackageManifest, SCHEMA_VERSION,
+};
 use nia_toolchain::ToolchainLayout;
 use std::{
+    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
 };
+
+/// Indexed target-independent declarations supplied by one compiled package.
+///
+/// All keys use package-owned stable identities. Session-local module and
+/// definition handles are intentionally absent and must be remapped by the
+/// compiler provider layer that consumes this view.
+#[derive(Debug, Clone)]
+pub struct CompiledPackageInterface {
+    manifest: PackageManifest,
+    interface: InterfaceSection,
+    record_indexes: BTreeMap<DefinitionId, usize>,
+}
+
+impl CompiledPackageInterface {
+    fn from_artifact(artifact: &PackageArtifact) -> Result<Self, MetadataError> {
+        let interface = artifact.interface()?.unwrap_or(InterfaceSection {
+            records: Vec::new(),
+        });
+        let record_indexes = interface
+            .records
+            .iter()
+            .enumerate()
+            .map(|(index, record)| (record.definition.clone(), index))
+            .collect();
+        Ok(Self {
+            manifest: artifact.manifest().clone(),
+            interface,
+            record_indexes,
+        })
+    }
+
+    /// Returns the validated package manifest.
+    pub fn manifest(&self) -> &PackageManifest {
+        &self.manifest
+    }
+
+    /// Returns canonical records in definition-identity order.
+    pub fn records(&self) -> &[InterfaceRecord] {
+        &self.interface.records
+    }
+
+    /// Resolves one stable definition identity without source loading.
+    pub fn definition(&self, definition: &DefinitionId) -> Option<&InterfaceRecord> {
+        self.record_indexes
+            .get(definition)
+            .and_then(|index| self.interface.records.get(*index))
+    }
+
+    /// Returns the package's public records for one stable module path.
+    pub fn module_records(&self, module: &str) -> impl Iterator<Item = &InterfaceRecord> {
+        self.interface
+            .records
+            .iter()
+            .filter(move |record| record.definition.module == module)
+    }
+}
 
 /// Conventional optional artifact location for a package root.
 pub fn package_artifact_path(package_root: &Path) -> PathBuf {
@@ -77,6 +137,7 @@ pub enum PackageArtifactLoad {
     Loaded {
         path: PathBuf,
         artifact: PackageArtifact,
+        interface: CompiledPackageInterface,
     },
     /// Source loading should continue, with a diagnostic-quality reason.
     SourceFallback {
@@ -186,6 +247,12 @@ pub(crate) fn load(
     if let Err(error) = artifact.interface() {
         return fallback_or_error(request, PackageArtifactFallback::InvalidMetadata(error));
     }
+    let interface = match CompiledPackageInterface::from_artifact(&artifact) {
+        Ok(interface) => interface,
+        Err(error) => {
+            return fallback_or_error(request, PackageArtifactFallback::InvalidMetadata(error));
+        }
+    };
     let manifest = artifact.manifest();
     let mismatch = manifest
         .compiler_version
@@ -221,7 +288,11 @@ pub(crate) fn load(
     if let Some(mismatch) = mismatch {
         return fallback_or_error(request, PackageArtifactFallback::Incompatible(mismatch));
     }
-    Ok(PackageArtifactLoad::Loaded { path, artifact })
+    Ok(PackageArtifactLoad::Loaded {
+        path,
+        artifact,
+        interface,
+    })
 }
 
 /// Selects a compiled package artifact with an optional package identity check.
