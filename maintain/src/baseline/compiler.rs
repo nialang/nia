@@ -79,6 +79,10 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
             vec!["check".to_owned(), path("benchmarks/minimal.nia")],
         ),
         (
+            "std_hello_check".to_owned(),
+            vec!["check".to_owned(), path("examples/hello.nia")],
+        ),
+        (
             "strings_slices".to_owned(),
             vec!["check".to_owned(), path("examples/data.nia")],
         ),
@@ -136,6 +140,16 @@ fn workloads(root: &Path, output: &Path) -> MaintainResult<Vec<(String, Vec<Stri
                 path("examples/collections.nia"),
                 "-o".to_owned(),
                 output.join("array_list").to_string_lossy().into_owned(),
+            ],
+        ),
+        (
+            "std_hello_exe".to_owned(),
+            vec![
+                "emit".to_owned(),
+                "--exe".to_owned(),
+                path("examples/hello.nia"),
+                "-o".to_owned(),
+                output.join("std-hello").to_string_lossy().into_owned(),
             ],
         ),
     ])
@@ -246,6 +260,26 @@ fn require_codegen_bucket_instrumentation(
     Ok(())
 }
 
+fn require_std_hello_instrumentation(
+    report: &Map<String, Value>,
+    require_codegen: bool,
+) -> MaintainResult<()> {
+    let checked_bodies = integer_counter(report, "compiler.checked_bodies");
+    let query_executions = integer_counter(report, "query.executions");
+    if !checked_bodies.is_some_and(|value| value >= 10)
+        || !query_executions.is_some_and(|value| value >= 1_000)
+    {
+        return Err(
+            "std hello workload did not exercise the expected standard-library frontend path"
+                .to_owned(),
+        );
+    }
+    if require_codegen {
+        require_codegen_bucket_instrumentation(report, 2)?;
+    }
+    Ok(())
+}
+
 fn command_label(root: &Path, value: &str) -> String {
     let path = Path::new(value);
     if !path.is_absolute() {
@@ -322,6 +356,10 @@ fn run_workload(
         require_codegen_bucket_instrumentation(&report, 2)?;
     } else if name == "codegen_buckets_large" {
         require_codegen_bucket_instrumentation(&report, 4)?;
+    } else if name == "std_hello_check" {
+        require_std_hello_instrumentation(&report, false)?;
+    } else if name == "std_hello_exe" {
+        require_std_hello_instrumentation(&report, true)?;
     }
     report.insert("name".to_owned(), Value::String(name.to_owned()));
     let compiler_label = compiler
@@ -534,6 +572,26 @@ mod tests {
             "llvm.ready_task_submissions": 3,
         }));
         assert!(require_codegen_bucket_instrumentation(&cached, 4).is_err());
+    }
+
+    #[test]
+    fn validates_std_hello_frontend_and_codegen_paths() {
+        let frontend = report(json!({
+            "compiler.checked_bodies": 71,
+            "query.executions": 12_779,
+        }));
+        assert!(require_std_hello_instrumentation(&frontend, false).is_ok());
+        assert!(require_std_hello_instrumentation(&frontend, true).is_err());
+
+        let executable = report(json!({
+            "compiler.checked_bodies": 82,
+            "query.executions": 17_330,
+            "llvm.units": 35,
+            "llvm.memory_permits": 35,
+            "llvm.worker_lanes": 3,
+            "llvm.ready_task_submissions": 35,
+        }));
+        assert!(require_std_hello_instrumentation(&executable, true).is_ok());
     }
 
     #[test]
