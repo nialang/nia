@@ -625,6 +625,30 @@ impl CompilerDatabase {
         );
     }
 
+    /// Installs all loader-selected compiled interface roots into their
+    /// package query slots. Definitions are grouped by the stable package
+    /// identity carried by the artifact; no package is inferred from the
+    /// current source graph.
+    pub fn install_compiled_interface_type_roots(
+        &self,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<Vec<PackageId>> {
+        let roots = self.rehydrate_compiled_interface_type_roots(resolver)?;
+        let mut grouped: BTreeMap<PackageId, BTreeMap<DefinitionId, Vec<InternedTyId>>> =
+            BTreeMap::new();
+        for (definition, type_roots) in roots {
+            grouped
+                .entry(definition.package.clone())
+                .or_default()
+                .insert(definition, type_roots);
+        }
+        let packages = grouped.keys().cloned().collect::<Vec<_>>();
+        for (package, roots) in grouped {
+            self.publish_compiled_package_type_roots(package, roots);
+        }
+        Ok(packages)
+    }
+
     /// Consumes one artifact-backed package root product from the query graph.
     pub fn compiled_package_type_roots(
         &self,

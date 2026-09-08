@@ -499,6 +499,23 @@ fn compiled_package_type_roots_use_typed_query_publication_boundary() {
 }
 
 #[test]
+fn installing_compiled_interface_roots_is_a_noop_without_artifacts() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let database = fixture.database();
+    fn no_resolver(
+        _: &nia_package_metadata::DefinitionId,
+    ) -> nia_query::QueryResult<nia_ids::GlobalDefId> {
+        panic!("resolver must not be called when no artifacts are selected")
+    }
+    assert!(
+        database
+            .install_compiled_interface_type_roots(&no_resolver)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn compiled_interface_index_resolves_stable_definitions_without_session_handles() {
     let package = nia_package_metadata::PackageId {
         namespace: "example".into(),
