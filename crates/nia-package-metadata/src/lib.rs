@@ -139,6 +139,9 @@ impl NativeSection {
         for object in &self.objects {
             validate_string(&object.key)?;
             validate_bytes(&object.bytes)?;
+            if object.bytes.is_empty() {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         if self
             .objects
