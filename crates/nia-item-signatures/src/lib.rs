@@ -61,6 +61,60 @@ pub struct ItemSignatures {
 }
 
 impl ItemSignatures {
+    /// Returns deduplicated type-store roots referenced by one definition's
+    /// signature, or `None` when the definition has no signature payload.
+    pub fn type_roots_for_definition(&self, def_id: DefId) -> Option<Vec<InternedTyId>> {
+        let mut roots = Vec::new();
+        if let Some(signature) = self.functions.get(&def_id) {
+            collect_function_type_roots(signature, &mut roots);
+        } else if let Some(signature) = self.structs.get(&def_id) {
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            roots.extend(signature.fields.iter().map(|field| field.ty));
+        } else if let Some(signature) = self.unions.get(&def_id) {
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            roots.extend(signature.fields.iter().map(|field| field.ty));
+        } else if let Some(signature) = self.traits.get(&def_id) {
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            for supertrait in &signature.supertraits {
+                roots.push(supertrait.ty);
+                roots.extend(
+                    supertrait
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| binding.ty),
+                );
+            }
+            roots.extend(signature.associated_values.iter().map(|value| value.ty));
+            for method in &signature.methods {
+                collect_function_type_roots(&method.signature, &mut roots);
+            }
+        } else if let Some(signature) = self.enums.get(&def_id) {
+            roots.push(signature.backing_type);
+            for variant in &signature.variants {
+                match &variant.payload {
+                    EnumVariantPayloadSignature::Unit => {}
+                    EnumVariantPayloadSignature::Tuple(fields) => {
+                        roots.extend(fields.iter().copied());
+                    }
+                    EnumVariantPayloadSignature::Named(fields) => {
+                        roots.extend(fields.iter().map(|field| field.ty));
+                    }
+                }
+            }
+        } else if let Some(signature) = self.type_aliases.get(&def_id) {
+            roots.push(signature.target);
+        } else if let Some(signature) = self.globals.get(&def_id) {
+            roots.extend(signature.explicit_type);
+        } else if let Some(signature) = self.consts.get(&def_id) {
+            roots.extend(signature.explicit_type);
+        } else {
+            return None;
+        }
+        roots.sort_unstable();
+        roots.dedup();
+        Some(roots)
+    }
+
     /// Returns deduplicated type-store roots referenced by this product.
     pub fn type_roots(&self) -> Vec<InternedTyId> {
         let mut roots = Vec::new();
