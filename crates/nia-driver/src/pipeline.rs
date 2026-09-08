@@ -2430,11 +2430,37 @@ fn append_compiled_package_native_inputs(
     database: &CompilerDatabase,
     inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
 ) -> Result<(), DriverError> {
+    let source_paths = inputs
+        .iter()
+        .filter_map(|input| match &input.key {
+            nia_codegen_llvm::CodegenUnitKey::SourceModule {
+                source_identity, ..
+            } => Some(source_identity.normalized_path().to_owned()),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let interfaces = database
+        .compiled_package_interfaces()
+        .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?;
     for product in database
         .compiled_package_native_products()
         .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
     {
         let package = product.package();
+        if interfaces
+            .iter()
+            .find(|interface| interface.manifest().package == *package)
+            .map(|interface| {
+                interface
+                    .manifest()
+                    .modules
+                    .iter()
+                    .any(|module| source_paths.contains(&module.path))
+            })
+            .unwrap_or(false)
+        {
+            continue;
+        }
         for object in &product.section().objects {
             let key = nia_codegen_llvm::CodegenUnitKey::compiled_package(
                 package.namespace.clone(),
