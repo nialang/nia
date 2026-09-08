@@ -151,6 +151,8 @@ fn passing_results() -> Vec<BuildResult> {
             values(&[
                 ("build.runner_compilations", 1),
                 ("build.runner_executions", 1),
+                ("build.runner_cache_misses", 1),
+                ("build.runner_cache_hits", 0),
                 ("build.actions_executed", 1),
                 ("query.executions", 100),
             ]),
@@ -160,8 +162,10 @@ fn passing_results() -> Vec<BuildResult> {
             values(&[
                 ("build.runner_compilations", 1),
                 ("build.runner_executions", 1),
+                ("build.runner_cache_misses", 0),
+                ("build.runner_cache_hits", 1),
                 ("build.actions_executed", 1),
-                ("query.executions", 50),
+                ("query.executions", 0),
             ]),
         ),
     ];

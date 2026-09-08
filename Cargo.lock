@@ -312,6 +312,7 @@ dependencies = [
 name = "nia-build"
 version = "0.2.0-dev"
 dependencies = [
+ "blake3",
  "libc",
  "nia-compat",
  "nia-compiler-query",

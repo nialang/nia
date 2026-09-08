@@ -39,6 +39,7 @@ mod output_recovery;
 mod plan;
 mod process_output;
 mod resources;
+mod runner_cache;
 mod runner_config;
 
 use process_output::{
@@ -1277,6 +1278,17 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         }
     })?;
     let runner = build_runner_source(invocation)?;
+    let cache_key = runner_cache::cache_key(invocation, &runner)?;
+    match runner_cache::restore(invocation, &cache_key) {
+        Ok(true) => {
+            nia_timing::emit_counter("build.runner_cache_hits", 1);
+            return Ok(invocation.runner_executable.clone());
+        }
+        Ok(false) => nia_timing::emit_counter("build.runner_cache_misses", 1),
+        Err(_) => {
+            nia_timing::emit_counter("build.runner_cache_misses", 1);
+        }
+    }
     if let Some(parent) = invocation.runner_executable.parent() {
         fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
             path: parent.to_path_buf(),
@@ -1298,6 +1310,7 @@ fn compile_build_runner(invocation: &BuildInvocation) -> Result<PathBuf, BuildEr
         source: runner.source,
         error: Box::new(error),
     })?;
+    let _ = runner_cache::publish(invocation, &cache_key);
     Ok(invocation.runner_executable.clone())
 }
 
