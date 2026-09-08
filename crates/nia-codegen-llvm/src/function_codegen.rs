@@ -122,8 +122,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(ptr) = self.zst_locals.get(&local_id).copied() {
             return Ok(ptr);
         }
-        let ptr = self
-            .builder
+        let Some(entry) = self.llvm_function.get_first_basic_block() else {
+            return Err(self.error(span, "function has no physical entry block"));
+        };
+        let entry_builder = self
+            .module
+            .context
+            .create_builder()
+            .map_err(ModuleCodegen::diagnostic_from_llvm_error)?;
+        if let Some(first_instruction) = entry.get_first_instruction() {
+            entry_builder.position_before(&first_instruction);
+        } else {
+            entry_builder.position_at_end(entry);
+        }
+        let ptr = entry_builder
             .build_alloca(self.module.context.i8_type(), "zst.local")
             .map_err(|_| self.error(span, "failed to build zero-sized local address"))?;
         self.zst_locals.insert(local_id, ptr);
