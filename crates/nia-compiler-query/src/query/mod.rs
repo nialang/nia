@@ -1039,6 +1039,7 @@ impl StableTypeGraphEncoder<'_> {
             } if args.is_empty() && const_args.is_empty() => {
                 StableTypeNode::Named(self.definition(def_id)?)
             }
+            nia_ty::TyKind::GenericParam(name) => StableTypeNode::GenericParam(name.raw()),
             _ => return Err(self.unsupported("type form has no stable package encoding")),
         };
         self.visiting.remove(&ty);

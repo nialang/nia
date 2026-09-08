@@ -189,6 +189,35 @@ fn stable_type_graph_publication_remaps_session_handles() {
 }
 
 #[test]
+fn stable_type_graph_publication_encodes_generic_parameter_identity() {
+    let fixture =
+        LoadedProgramFixture::new("src/main.nia", "pub fn identity[T](value: T) T { value }");
+    let database = fixture.database();
+    let append = database
+        .db
+        .context()
+        .type_store
+        .append_for_module(fixture.entry_id());
+    let generic = append.intern(nia_ty::TyKind::GenericParam(sym("T")));
+    let graph = database
+        .stable_type_graph_for_roots(
+            nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            &[generic],
+        )
+        .unwrap();
+    assert_eq!(
+        graph.nodes,
+        vec![nia_package_metadata::StableTypeNode::GenericParam(
+            sym("T").raw()
+        )]
+    );
+}
+
+#[test]
 fn stable_type_graph_publication_remaps_nominal_definition_identity() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
     let database = fixture.database();
