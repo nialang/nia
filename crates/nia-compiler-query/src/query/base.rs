@@ -99,6 +99,54 @@ pub(super) struct CompiledPackageTemplatesQuery(pub(super) PackageId);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageNativeQuery(pub(super) PackageId);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageNativeObservationQuery;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CompiledPackageNativeObservation {
+    pub(super) packages: BTreeMap<PackageId, [u8; 32]>,
+}
+
+impl QueryKey<CompilerContext> for CompiledPackageNativeObservationQuery {
+    type Value = CompiledPackageNativeObservation;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "compiled_package_native_observation"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let interfaces = db.context().loader_facts().compiled_package_interfaces()?;
+        let mut packages = BTreeMap::new();
+        for interface in interfaces {
+            let package = interface.manifest().package.clone();
+            let hash = interface
+                .native()
+                .map(nia_package_metadata::encode_native)
+                .transpose()
+                .map_err(|error| db.invalid_input(self, error.to_string()))?
+                .map(|bytes| nia_package_metadata::section_hash(&bytes))
+                .unwrap_or([0; 32]);
+            packages.insert(package, hash);
+        }
+        Ok(CompiledPackageNativeObservation { packages })
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        let mut builder = QueryFingerprintBuilder::new(FingerprintDomain::new(
+            "nia.compiler.compiled-native-observation.v1",
+        ));
+        for (package, hash) in &value.packages {
+            builder.write_str(&package.namespace);
+            builder.write_str(&package.name);
+            builder.write_str(&package.version);
+            builder.write_bytes(hash);
+        }
+        Some(builder.finish())
+    }
+}
+
 impl QueryKey<CompilerContext> for CompiledPackageTemplatesQuery {
     type Value = CompiledPackageTemplates;
 

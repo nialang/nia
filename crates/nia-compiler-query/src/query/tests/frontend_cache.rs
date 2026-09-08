@@ -12,6 +12,7 @@ pub(super) fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
             inputs,
             observed_graph: std::sync::Mutex::new(loader_facts.module_graph().unwrap()),
             observed_compiled_interfaces: std::sync::Mutex::new(None),
+            observed_compiled_native: std::sync::Mutex::new(None),
             loader_facts,
             providers: CompilerQueryProviders::default(),
             executable_fact_session: Arc::new(std::sync::Mutex::new(
@@ -142,6 +143,7 @@ pub(super) fn query_db_with_frontend_cache(
             inputs,
             observed_graph: std::sync::Mutex::new(loader_facts.module_graph().unwrap()),
             observed_compiled_interfaces: std::sync::Mutex::new(None),
+            observed_compiled_native: std::sync::Mutex::new(None),
             loader_facts,
             providers: CompilerQueryProviders::default(),
             executable_fact_session: Arc::new(std::sync::Mutex::new(
