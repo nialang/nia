@@ -241,6 +241,7 @@ fn package_artifact_publication_rejects_template_for_unknown_definition() {
                 },
                 name: "missing".into(),
                 kind: 2,
+                owner: None,
             },
             body: vec![1],
             summary: vec![1],
@@ -322,8 +323,8 @@ fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change
                         },
                         name: name.into(),
                         kind: 2,
+                        owner: None,
                     },
-                    parent: None,
                     declaration: b"NIADECL01".to_vec(),
                     type_roots: Vec::new(),
                 }],
@@ -729,6 +730,7 @@ fn stable_definition_index_remaps_current_session_identities() {
         },
         name: "greet".into(),
         kind: 2,
+        owner: None,
     };
     let resolved = index.definition_for_identity(&identity).unwrap();
     assert_eq!(resolved.module_id, fixture.entry_id());
@@ -844,6 +846,7 @@ fn compiled_package_type_roots_reject_unselected_packages() {
         },
         name: "answer".into(),
         kind: 2,
+        owner: None,
     };
     let mut roots = std::collections::BTreeMap::new();
     roots.insert(identity.clone(), Vec::new());
@@ -889,8 +892,8 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
                 },
                 name: "answer".into(),
                 kind: 2,
+                owner: None,
             },
-            parent: None,
             declaration: b"NIADECL01".to_vec(),
             type_roots: Vec::new(),
         }],
