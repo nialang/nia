@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 132);
+    assert_eq!(descriptors.len(), 133);
     assert!(
         !descriptors
             .iter()
@@ -56,6 +56,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             "extension_provider_module_ids"
             | "extension_provider_module_eligibility"
             | "extension_provider_summary"
+            | "compiled_package_interface_index"
             | "loaded_modules"
             | "module_graph_child"
             | "module_graph_entry"
@@ -185,6 +186,54 @@ fn stable_type_graph_publication_remaps_session_handles() {
             target: 0,
             readonly: true,
         }
+    );
+}
+
+#[test]
+fn stable_type_graph_order_is_independent_of_session_allocation_order() {
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let first = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let first_db = first.database();
+    let append = first_db
+        .db
+        .context()
+        .type_store
+        .append_for_module(first.entry_id());
+    let i32_a = append.primitive(nia_ty::PrimitiveTy::I32);
+    let ptr_a = append.intern(nia_ty::TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_a,
+    });
+    let tuple_a = append.intern(nia_ty::TyKind::Tuple(vec![i32_a]));
+    let graph_a = first_db
+        .stable_type_graph_for_roots(package.clone(), &[ptr_a, tuple_a])
+        .unwrap();
+
+    let second = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
+    let second_db = second.database();
+    let append = second_db
+        .db
+        .context()
+        .type_store
+        .append_for_module(second.entry_id());
+    let i32_b = append.primitive(nia_ty::PrimitiveTy::I32);
+    let tuple_b = append.intern(nia_ty::TyKind::Tuple(vec![i32_b]));
+    let ptr_b = append.intern(nia_ty::TyKind::Pointer {
+        is_readonly: true,
+        elem: i32_b,
+    });
+    let graph_b = second_db
+        .stable_type_graph_for_roots(package, &[ptr_b, tuple_b])
+        .unwrap();
+
+    assert_eq!(graph_a, graph_b);
+    assert_eq!(
+        nia_package_metadata::encode_type_graph(&graph_a).unwrap(),
+        nia_package_metadata::encode_type_graph(&graph_b).unwrap()
     );
 }
 
@@ -355,6 +404,31 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
         panic!("nominal type must publish as a stable definition identity");
     };
     assert_eq!(definition.package, dependency);
+}
+
+#[test]
+fn package_interface_publication_accepts_external_definition_resolver() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "app".into(),
+        version: "1.0.0".into(),
+    };
+    let dependency = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dependency".into(),
+        version: "2.0.0".into(),
+    };
+    let interface = database
+        .package_interface_section_with_resolver(package, &|_| Ok(dependency.clone()))
+        .unwrap();
+    assert!(
+        interface
+            .records
+            .iter()
+            .any(|record| record.definition.name == "greet")
+    );
 }
 
 #[test]
