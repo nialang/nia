@@ -176,6 +176,46 @@ pub trait StableDefinitionResolver {
     fn definition_for_identity(&self, definition: &DefinitionId) -> QueryResult<GlobalDefId>;
 }
 
+/// Session-local remap table for stable package definition identities.
+///
+/// The table is built from the current module/definition facts and an
+/// explicit package resolver. It is the only supported bridge from immutable
+/// artifact identities to transient `ModuleId`/`DefId` handles.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StableDefinitionIndex {
+    definitions: BTreeMap<DefinitionId, GlobalDefId>,
+}
+
+impl StableDefinitionIndex {
+    pub fn definition(&self, identity: &DefinitionId) -> Option<GlobalDefId> {
+        self.definitions.get(identity).copied()
+    }
+
+    pub fn len(&self) -> usize {
+        self.definitions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.definitions.is_empty()
+    }
+}
+
+impl StableDefinitionResolver for StableDefinitionIndex {
+    fn definition_for_identity(&self, definition: &DefinitionId) -> QueryResult<GlobalDefId> {
+        self.definition(definition)
+            .ok_or_else(|| QueryError::InvalidInput {
+                query: QueryFrame {
+                    name: "stable_definition_index",
+                    key: "StableDefinitionIndex".to_string(),
+                    description: "stable_definition_index".to_string(),
+                },
+                message: format!(
+                    "compiled definition is not present in the current session: {definition:?}"
+                ),
+            })
+    }
+}
+
 impl<F> StableDefinitionResolver for F
 where
     F: Fn(&DefinitionId) -> QueryResult<GlobalDefId>,
@@ -364,6 +404,50 @@ impl CompilerDatabase {
         self.db
             .get(CompiledPackageInterfaceIndexQuery)
             .map(Arc::unwrap_or_clone)
+    }
+
+    /// Builds the session remap table for all loaded definitions. Package
+    /// ownership is supplied by the caller; it must not be inferred from
+    /// source paths or declaration names.
+    pub fn stable_definition_index(
+        &self,
+        resolver: &dyn StableDefinitionPackageResolver,
+    ) -> QueryResult<StableDefinitionIndex> {
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let symbols = self.db.context().loader_facts().symbols();
+        let mut definitions = BTreeMap::new();
+        for module in graph.modules() {
+            let Some(stable_key) = graph.stable_key(module.id) else {
+                continue;
+            };
+            let module_path = stable_key.source_identity().normalized_path().to_owned();
+            let facts = self.db.get(FullModuleDefsQuery(module.id))?;
+            for (def_id, def) in facts.semantic.defs.iter() {
+                let Some(name) = symbols.resolve(def.name) else {
+                    continue;
+                };
+                let identity = DefinitionId {
+                    package: resolver.package_for_definition(GlobalDefId {
+                        module_id: module.id,
+                        def_id,
+                    })?,
+                    module: module_path.clone(),
+                    name: name.to_string(),
+                    kind: def_kind_tag(def.kind),
+                };
+                let global = GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                };
+                if definitions.insert(identity, global).is_some() {
+                    return Err(self.db.invalid_input(
+                        &ModuleGraphQuery,
+                        "duplicate stable definition identity in current session".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(StableDefinitionIndex { definitions })
     }
 
     /// Rehydrates a stable package type graph into this database's canonical
