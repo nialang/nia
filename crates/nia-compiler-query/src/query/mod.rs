@@ -979,11 +979,11 @@ impl CompilerDatabase {
                 "compiled type-root payload contains a definition from another package".to_string(),
             ));
         }
-        self.db.publish_owned(
-            CompiledPackageTypeRootsQuery(package),
-            roots,
-            &CompiledPackageInterfaceIndexQuery,
-        );
+        let key = CompiledPackageTypeRootsQuery(package);
+        if self.db.can_publish_owned(key.clone()) {
+            self.db
+                .publish_owned(key, roots, &CompiledPackageInterfaceIndexQuery);
+        }
         Ok(())
     }
 
@@ -1015,14 +1015,17 @@ impl CompilerDatabase {
             }
             declarations.insert(record.definition.clone(), declaration);
         }
-        self.db.publish_owned(
-            CompiledPackageDeclarationsQuery(package.clone()),
-            CompiledPackageDeclarations {
-                package,
-                declarations,
-            },
-            &CompiledPackageInterfaceIndexQuery,
-        );
+        let key = CompiledPackageDeclarationsQuery(package.clone());
+        if self.db.can_publish_owned(key.clone()) {
+            self.db.publish_owned(
+                key,
+                CompiledPackageDeclarations {
+                    package,
+                    declarations,
+                },
+                &CompiledPackageInterfaceIndexQuery,
+            );
+        }
         Ok(())
     }
 
