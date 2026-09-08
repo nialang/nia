@@ -170,6 +170,7 @@ impl InterfaceSection {
 pub struct CompiledPackageInterface {
     manifest: PackageManifest,
     interface: InterfaceSection,
+    type_graph: Option<StableTypeGraph>,
     record_indexes: BTreeMap<DefinitionId, usize>,
 }
 
@@ -179,6 +180,7 @@ impl CompiledPackageInterface {
         let interface = artifact.interface()?.unwrap_or(InterfaceSection {
             records: Vec::new(),
         });
+        let type_graph = artifact.type_graph()?;
         let record_indexes = interface
             .records
             .iter()
@@ -188,6 +190,7 @@ impl CompiledPackageInterface {
         Ok(Self {
             manifest: artifact.manifest().clone(),
             interface,
+            type_graph,
             record_indexes,
         })
     }
@@ -200,6 +203,11 @@ impl CompiledPackageInterface {
     /// Returns canonical records in definition-identity order.
     pub fn records(&self) -> &[InterfaceRecord] {
         &self.interface.records
+    }
+
+    /// Returns the canonical signature type graph, when published.
+    pub fn type_graph(&self) -> Option<&StableTypeGraph> {
+        self.type_graph.as_ref()
     }
 
     /// Resolves one stable definition identity without source loading.
@@ -225,6 +233,7 @@ pub enum SectionKind {
     Interface = 1,
     Templates = 2,
     Native = 3,
+    TypeGraph = 4,
 }
 impl SectionKind {
     fn decode(value: u8) -> Option<Self> {
@@ -232,6 +241,7 @@ impl SectionKind {
             1 => Some(Self::Interface),
             2 => Some(Self::Templates),
             3 => Some(Self::Native),
+            4 => Some(Self::TypeGraph),
             _ => None,
         }
     }
@@ -447,6 +457,13 @@ impl PackageArtifact {
             validate_interface_manifest(&self.manifest, interface)?;
         }
         Ok(interface)
+    }
+
+    /// Decodes the optional canonical stable type-graph section.
+    pub fn type_graph(&self) -> Result<Option<StableTypeGraph>, MetadataError> {
+        self.section(SectionKind::TypeGraph)?
+            .map(decode_type_graph)
+            .transpose()
     }
 }
 
@@ -954,6 +971,21 @@ mod tests {
             Some(&b"interface"[..])
         );
         assert_eq!(artifact.section(SectionKind::Native).unwrap(), None);
+    }
+
+    #[test]
+    fn type_graph_section_is_decoded_and_indexed() {
+        let manifest = sample();
+        let graph = StableTypeGraph {
+            nodes: vec![StableTypeNode::Primitive(3)],
+            roots: vec![0],
+        };
+        let graph_bytes = encode_type_graph(&graph).unwrap();
+        let bytes = encode_artifact(&manifest, &[(SectionKind::TypeGraph, &graph_bytes)]).unwrap();
+        let artifact = PackageArtifact::open(bytes).unwrap();
+        assert_eq!(artifact.type_graph().unwrap(), Some(graph.clone()));
+        let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
+        assert_eq!(indexed.type_graph(), Some(&graph));
     }
     #[test]
     fn rejects_corruption_and_noncanonical_manifest() {
