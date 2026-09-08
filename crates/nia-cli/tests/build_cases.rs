@@ -89,7 +89,14 @@ fn run_build_case(name: &str) {
         command.arg("--timings=detail").arg("--timings-format=json");
         let nested = workspace.join("src/nested");
         std::fs::create_dir_all(&nested).expect("create nested build case directory");
+        let command_directory = workspace
+            .parent()
+            .expect("temporary workspace has a parent");
+        command.current_dir(command_directory);
         nested
+            .strip_prefix(command_directory)
+            .expect("nested package path is below command directory")
+            .to_path_buf()
     } else {
         workspace.to_path_buf()
     };
