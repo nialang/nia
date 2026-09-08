@@ -30,9 +30,10 @@ cargo maintain baseline compiler --repeat 3 \
 `--runner-class` is a trust assertion about a managed runner image and resource
 class, not a way to rename a developer machine. Local runs should omit it.
 
-The suite currently fixes nine compiler paths: minimal check, strings and
-slices, ArrayList, trait-heavy code, const-eval-heavy code, multi-module backend
-lowering, small and large bounded multi-unit object codegen, and full executable
+The suite currently fixes eleven compiler paths: minimal check, standard-library
+Hello World check and executable emission, strings and slices, ArrayList,
+trait-heavy code, const-eval-heavy code, multi-module backend lowering, small
+and large bounded multi-unit object codegen, and a larger full executable
 emission. Benchmark sources live in `benchmarks/`, reuse maintained examples,
 or are generated deterministically by the runner; generated sources, objects,
 executables, and reports remain under temporary or `target/` directories. The
@@ -47,6 +48,11 @@ unit count; one lane may consume multiple units without coarsening their
 work-product identities. Object-codegen workloads are rejected unless every
 emitted unit was submitted through the live readiness path, so a synchronous or
 aggregate fallback cannot silently become the benchmark.
+The standard-library Hello World workloads additionally require non-trivial
+checked-body and query-execution counts, and its executable workload must use
+the live multi-unit LLVM path. This prevents the cold standard-library boundary
+from silently disappearing from the measurement through a fixture or cache
+configuration change.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
