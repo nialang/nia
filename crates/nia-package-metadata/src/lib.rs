@@ -312,9 +312,14 @@ impl PackageArtifact {
 
     /// Decodes the optional target-independent declaration section.
     pub fn interface(&self) -> Result<Option<InterfaceSection>, MetadataError> {
-        self.section(SectionKind::Interface)?
+        let interface = self
+            .section(SectionKind::Interface)?
             .map(decode_interface)
-            .transpose()
+            .transpose()?;
+        if let Some(interface) = &interface {
+            validate_interface_manifest(&self.manifest, interface)?;
+        }
+        Ok(interface)
     }
 }
 
@@ -372,6 +377,22 @@ pub fn encode_artifact(
 /// Returns the stable content hash used by package manifests for one section.
 pub fn section_hash(bytes: &[u8]) -> [u8; 32] {
     *blake3::hash(bytes).as_bytes()
+}
+
+/// Computes the manifest hash for one module's public interface records.
+pub fn interface_module_hash(
+    interface: &InterfaceSection,
+    module: &str,
+) -> Result<[u8; 32], MetadataError> {
+    let records = interface
+        .records
+        .iter()
+        .filter(|record| record.definition.module == module)
+        .cloned()
+        .collect();
+    Ok(section_hash(&encode_interface(&InterfaceSection {
+        records,
+    })?))
 }
 /// Decodes a complete manifest-only artifact.
 pub fn decode(bytes: &[u8]) -> Result<PackageManifest, MetadataError> {
@@ -432,6 +453,28 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
     let section = InterfaceSection { records };
     section.validate()?;
     Ok(section)
+}
+
+fn validate_interface_manifest(
+    manifest: &PackageManifest,
+    interface: &InterfaceSection,
+) -> Result<(), MetadataError> {
+    for record in &interface.records {
+        if record.definition.package != manifest.package
+            || manifest
+                .modules
+                .binary_search_by(|module| module.path.cmp(&record.definition.module))
+                .is_err()
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+    }
+    for module in &manifest.modules {
+        if interface_module_hash(interface, &module.path)? != module.interface_hash {
+            return Err(MetadataError::Integrity);
+        }
+    }
+    Ok(())
 }
 
 /// Errors returned by package metadata validation and decoding.
@@ -677,16 +720,17 @@ mod tests {
         };
         let bytes = encode_interface(&section).unwrap();
         assert_eq!(decode_interface(&bytes).unwrap(), section);
+        let mut manifest = PackageManifest::current(PackageId {
+            namespace: "nia".into(),
+            name: "std".into(),
+            version: "0.2".into(),
+        });
+        manifest.modules.push(ModuleInterface {
+            path: "std/io".into(),
+            interface_hash: interface_module_hash(&section, "std/io").unwrap(),
+        });
         let artifact = PackageArtifact::open(
-            encode_artifact(
-                &PackageManifest::current(PackageId {
-                    namespace: "nia".into(),
-                    name: "std".into(),
-                    version: "0.2".into(),
-                }),
-                &[(SectionKind::Interface, &bytes)],
-            )
-            .unwrap(),
+            encode_artifact(&manifest, &[(SectionKind::Interface, &bytes)]).unwrap(),
         )
         .unwrap();
         assert_eq!(artifact.interface().unwrap(), Some(section));

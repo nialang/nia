@@ -40,8 +40,9 @@ use std::{
 };
 
 pub use package_artifact::{
-    PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad, PackageArtifactMismatch,
-    PackageArtifactRequest, package_artifact_path, select_package_artifact,
+    CompiledPackageInterface, PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad,
+    PackageArtifactMismatch, PackageArtifactRequest, package_artifact_path,
+    select_package_artifact,
 };
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
