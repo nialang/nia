@@ -66,6 +66,9 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+/// Public compiler-facing name for the canonical metadata module identity.
+pub type StableModuleIdentity = StableModuleId;
+
 mod backend_lowering;
 mod base;
 mod checked;
