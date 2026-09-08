@@ -140,8 +140,18 @@ impl SignatureSection {
         if self.records.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
         }
+        let definitions = self
+            .records
+            .iter()
+            .map(|record| &record.definition)
+            .collect::<std::collections::BTreeSet<_>>();
         for record in &self.records {
             validate_definition(&record.definition)?;
+            if let Some(owner) = &record.definition.owner
+                && !definitions.contains(owner.as_ref())
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
             if !(1..=16).contains(&record.kind)
                 || record.flags & !SIGNATURE_FLAGS_MASK != 0
                 || record.kind != record.definition.kind
@@ -695,6 +705,18 @@ impl CompiledPackageInterface {
                 .iter()
                 .any(|record| record.definition.module.package != artifact.manifest().package)
             {
+                return Err(MetadataError::InvalidManifest);
+            }
+        }
+        if let Some(signatures) = &signatures {
+            signatures.validate()?;
+            if signatures.records.iter().any(|record| {
+                record.definition.module.package != artifact.manifest().package
+                    || !interface
+                        .records
+                        .iter()
+                        .any(|item| item.definition == record.definition)
+            }) {
                 return Err(MetadataError::InvalidManifest);
             }
         }
@@ -2309,6 +2331,36 @@ mod tests {
         .unwrap();
         let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
         assert_eq!(indexed.signatures(), Some(&section));
+    }
+
+    #[test]
+    fn compiled_interface_rejects_signature_without_interface_record() {
+        let package = sample().package;
+        let section = SignatureSection {
+            records: vec![SignatureRecord {
+                definition: DefinitionId {
+                    module: ModuleId {
+                        package,
+                        path: "m".into(),
+                    },
+                    name: "missing".into(),
+                    kind: 2,
+                    owner: None,
+                },
+                kind: 2,
+                flags: 0,
+                type_roots: Vec::new(),
+            }],
+        };
+        let bytes = encode_signatures(&section).unwrap();
+        let artifact = PackageArtifact::open(
+            encode_artifact(&sample(), &[(SectionKind::Signatures, &bytes)]).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            CompiledPackageInterface::from_artifact(&artifact),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 
     #[test]
