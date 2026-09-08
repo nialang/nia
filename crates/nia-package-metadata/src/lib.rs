@@ -21,6 +21,7 @@ const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
 const INTERFACE_SCHEMA: u32 = 3;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
+const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -71,6 +72,51 @@ pub struct InterfaceRecord {
     pub declaration: Vec<u8>,
     /// Strictly sorted indices into the package type-graph section.
     pub type_roots: Vec<u32>,
+}
+
+/// Decoded canonical declaration facts carried by an interface record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StableDeclaration {
+    /// Definition kind tag from the package identity domain.
+    pub kind: u8,
+    /// Visibility tag (`0` private through `3` public).
+    pub visibility: u8,
+    /// Stable symbol identities of declared generic parameters.
+    pub generics: Vec<u64>,
+}
+
+/// Decodes the compiler-owned declaration payload used in interface records.
+pub fn decode_declaration(bytes: &[u8]) -> Result<StableDeclaration, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; DECLARATION_MAGIC.len()];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *DECLARATION_MAGIC {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let kind = read_u8(&mut cursor)?;
+    if !(1..=16).contains(&kind) {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let visibility = read_u8(&mut cursor)?;
+    if visibility > 3 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut generics = Vec::with_capacity(count);
+    for _ in 0..count {
+        generics.push(get_u64(&mut cursor)?);
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    Ok(StableDeclaration {
+        kind,
+        visibility,
+        generics,
+    })
 }
 
 /// Decoded target-independent interface section.
@@ -1304,5 +1350,33 @@ mod tests {
             decode_type_graph(&bytes),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn stable_declaration_decoder_round_trips_compiler_payload() {
+        let mut bytes = Vec::from(&b"NIADECL01"[..]);
+        bytes.extend_from_slice(&[2, 3]);
+        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&11u64.to_le_bytes());
+        bytes.extend_from_slice(&22u64.to_le_bytes());
+        assert_eq!(
+            decode_declaration(&bytes).unwrap(),
+            StableDeclaration {
+                kind: 2,
+                visibility: 3,
+                generics: vec![11, 22],
+            }
+        );
+    }
+
+    #[test]
+    fn stable_declaration_decoder_rejects_invalid_payloads() {
+        let mut bytes = Vec::from(&b"NIADECL01"[..]);
+        bytes.extend_from_slice(&[0, 3]);
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        assert!(matches!(
+            decode_declaration(&bytes),
+            Err(MetadataError::InvalidManifest)
+        ));
     }
 }
