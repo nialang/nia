@@ -49,6 +49,24 @@ fn optional_artifact_loads_and_preserves_relocation_independent_identity() {
 }
 
 #[test]
+fn artifact_selection_cache_refreshes_after_file_replacement() {
+    let path = temp_artifact("cache-refresh");
+    fs::write(&path, encode(&manifest()).unwrap()).unwrap();
+    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_package_artifact(&path));
+    let first = loader.package_artifact().unwrap().unwrap();
+    assert!(matches!(first, PackageArtifactLoad::Loaded { .. }));
+
+    let mut replacement = manifest();
+    replacement.package.name = "replacement".into();
+    fs::write(&path, encode(&replacement).unwrap()).unwrap();
+    let second = loader.package_artifact().unwrap().unwrap();
+    let PackageArtifactLoad::Loaded { interface, .. } = second else {
+        panic!("replacement artifact must load");
+    };
+    assert_eq!(interface.manifest().package, replacement.package);
+}
+
+#[test]
 fn optional_artifact_falls_back_for_missing_corrupt_and_incompatible_inputs() {
     let missing = temp_artifact("missing");
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_package_artifact(&missing));

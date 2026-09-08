@@ -35,6 +35,7 @@ use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::HashSet,
+    io,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -120,6 +121,37 @@ pub struct LoaderDatabase {
     package_artifact: Option<PackageArtifactRequest>,
     expected_package: Option<PackageId>,
     artifact_compatibility: package_artifact::ArtifactCompatibility,
+    artifact_selection_cache: Arc<Mutex<Option<CachedPackageArtifact>>>,
+}
+
+#[derive(Clone)]
+struct CachedPackageArtifact {
+    stamp: Option<ArtifactFileStamp>,
+    selection: Result<Option<PackageArtifactLoad>, PackageArtifactError>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtifactFileStamp {
+    length: u64,
+    modified_nanos: u128,
+}
+
+fn artifact_file_stamp(path: &std::path::Path) -> io::Result<Option<ArtifactFileStamp>> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => {
+            let modified_nanos = metadata
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(io::Error::other)?
+                .as_nanos();
+            Ok(Some(ArtifactFileStamp {
+                length: metadata.len(),
+                modified_nanos,
+            }))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Presence and stable content identity of one loaded source input.
@@ -323,6 +355,7 @@ impl LoaderDatabase {
             package_artifact: request.package_artifact,
             expected_package: request.expected_package,
             artifact_compatibility,
+            artifact_selection_cache: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -375,16 +408,39 @@ impl LoaderDatabase {
     /// [`PackageArtifactLoad::SourceFallback`] when absent, corrupt, or
     /// incompatible; a required artifact returns a typed error instead.
     pub fn package_artifact(&self) -> Result<Option<PackageArtifactLoad>, PackageArtifactError> {
-        self.package_artifact
-            .as_ref()
-            .map(|request| {
-                package_artifact::load(
-                    request,
-                    self.expected_package.as_ref(),
-                    &self.artifact_compatibility,
-                )
-            })
-            .transpose()
+        let Some(request) = self.package_artifact.as_ref() else {
+            return Ok(None);
+        };
+        let stamp = artifact_file_stamp(request.path()).ok();
+        if let Some(stamp) = stamp {
+            if let Some(cached) = self
+                .artifact_selection_cache
+                .lock()
+                .expect("loader artifact selection cache lock poisoned")
+                .as_ref()
+                .filter(|cached| cached.stamp == stamp)
+            {
+                return cached.selection.clone();
+            }
+        }
+        let selection = package_artifact::load(
+            request,
+            self.expected_package.as_ref(),
+            &self.artifact_compatibility,
+        )
+        .map(Some)
+        .or_else(|error| Err(error))?;
+        if let Ok(stamp) = artifact_file_stamp(request.path()) {
+            *self
+                .artifact_selection_cache
+                .lock()
+                .expect("loader artifact selection cache lock poisoned") =
+                Some(CachedPackageArtifact {
+                    stamp,
+                    selection: Ok(selection.clone()),
+                });
+        }
+        Ok(selection)
     }
 
     /// Replaces source text, retires the previous revision, and invalidates dependents atomically.
