@@ -444,6 +444,13 @@ impl CompilerDatabase {
             let module_path = stable_key.source_identity().normalized_path().to_owned();
             let facts = self.db.get(FullModuleDefsQuery(module.id))?;
             for (def_id, def) in facts.semantic.defs.iter() {
+                // Artifact identities describe the public package surface;
+                // private members and nested definitions are not valid
+                // cross-package remap targets and must not force the package
+                // resolver to classify them.
+                if def.parent.is_some() || def.visibility != nia_defs::Visibility::Public {
+                    continue;
+                }
                 let Some(name) = symbols.resolve(def.name) else {
                     continue;
                 };
