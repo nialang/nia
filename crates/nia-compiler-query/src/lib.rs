@@ -62,9 +62,9 @@ pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport
 pub use nia_timing::TimingMode;
 pub use query::{
     CompileRequest, CompiledPackageDeclarations, CompiledPackageInterfaceIndex,
-    CompiledPackageModuleInterface, CompiledPackageTemplates, CompilerDatabase,
-    StableDefinitionIndex, StableDefinitionPackageResolver, StableDefinitionResolver,
-    StableModuleIdentity, StableModuleIndex, StableModulePackageResolver,
+    CompiledPackageModuleInterface, CompiledPackageSignatures, CompiledPackageTemplates,
+    CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
+    StableDefinitionResolver, StableModuleIdentity, StableModuleIndex, StableModulePackageResolver,
 };
 
 /// Immutable bytes and manifest published for one compiled package snapshot.

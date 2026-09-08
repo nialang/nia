@@ -322,6 +322,31 @@ pub struct CompiledPackageTemplates {
     records: BTreeMap<DefinitionId, nia_package_metadata::TemplateRecord>,
 }
 
+/// Target-independent signature facts selected from one compiled package.
+/// Records retain canonical identities and stable type-graph roots; consumers
+/// must remap those roots before constructing session-local handles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageSignatures {
+    package: PackageId,
+    records: BTreeMap<DefinitionId, nia_package_metadata::SignatureRecord>,
+}
+
+impl CompiledPackageSignatures {
+    pub fn package(&self) -> &PackageId {
+        &self.package
+    }
+
+    pub fn get(&self, definition: &DefinitionId) -> Option<&nia_package_metadata::SignatureRecord> {
+        self.records.get(definition)
+    }
+
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (&DefinitionId, &nia_package_metadata::SignatureRecord)> {
+        self.records.iter()
+    }
+}
+
 /// Target-specific native products selected from one compiled package.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledPackageNative {
@@ -446,6 +471,14 @@ impl CompiledPackageInterfaceIndex {
         package: &PackageId,
     ) -> Option<&nia_package_metadata::CompiledPackageInterface> {
         self.packages.get(package)
+    }
+
+    /// Looks up one package's artifact-backed signature section.
+    pub fn signatures(
+        &self,
+        package: &PackageId,
+    ) -> Option<&nia_package_metadata::SignatureSection> {
+        self.packages.get(package)?.signatures()
     }
 
     /// Resolves one stable definition without loading dependency source.
@@ -709,6 +742,59 @@ impl CompilerDatabase {
         package: PackageId,
     ) -> QueryResult<CompiledPackageTemplates> {
         self.db.get_owned(CompiledPackageTemplatesQuery(package))
+    }
+
+    /// Publishes validated target-independent signatures for selected packages.
+    /// The product is predecessor-bound to the compiled interface index and is
+    /// intentionally separate from source-backed `ItemSignaturesQuery`.
+    pub fn install_compiled_package_signatures(&self) -> QueryResult<Vec<PackageId>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut installed = Vec::new();
+        for (package, interface) in index.packages() {
+            let mut records = BTreeMap::new();
+            if let Some(signatures) = interface.signatures() {
+                for record in &signatures.records {
+                    if record.definition.module.package != *package
+                        || !interface
+                            .records()
+                            .iter()
+                            .any(|item| item.definition == record.definition)
+                        || records
+                            .insert(record.definition.clone(), record.clone())
+                            .is_some()
+                    {
+                        return Err(self.db.invalid_input(
+                            &CompiledPackageInterfaceIndexQuery,
+                            format!(
+                                "compiled signature identity is inconsistent: {:?}",
+                                record.definition
+                            ),
+                        ));
+                    }
+                }
+            }
+            let key = CompiledPackageSignaturesQuery(package.clone());
+            if self.db.can_publish_owned(key.clone()) {
+                self.db.publish_owned(
+                    key,
+                    CompiledPackageSignatures {
+                        package: package.clone(),
+                        records,
+                    },
+                    &CompiledPackageInterfaceIndexQuery,
+                );
+            }
+            installed.push(package.clone());
+        }
+        Ok(installed)
+    }
+
+    /// Consumes one package's artifact-backed signature facts.
+    pub fn compiled_package_signatures(
+        &self,
+        package: PackageId,
+    ) -> QueryResult<CompiledPackageSignatures> {
+        self.db.get_owned(CompiledPackageSignaturesQuery(package))
     }
 
     /// Returns decoded closure summaries for every installed template. Stable
@@ -1842,6 +1928,22 @@ impl CompilerDatabase {
         templates: Option<nia_package_metadata::TemplateSection>,
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
+        self.publish_package_artifact_with_resolver_and_products_and_signatures(
+            package, resolver, templates, native, None,
+        )
+    }
+
+    /// Publishes a package artifact with explicit signature, template, and
+    /// native products. Signature records are validated against the package's
+    /// public interface before encoding.
+    pub fn publish_package_artifact_with_resolver_and_products_and_signatures(
+        &self,
+        package: PackageId,
+        resolver: &dyn StableDefinitionPackageResolver,
+        templates: Option<nia_package_metadata::TemplateSection>,
+        native: Option<nia_package_metadata::NativeSection>,
+        signatures: Option<nia_package_metadata::SignatureSection>,
+    ) -> QueryResult<crate::PackageArtifactPublication> {
         let (interface, type_graph) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
         let public_surface =
@@ -1939,6 +2041,24 @@ impl CompilerDatabase {
             })
             .transpose()
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let signature_bytes = signatures
+            .as_ref()
+            .map(|section| {
+                if section.records.iter().any(|record| {
+                    record.definition.module.package != package
+                        || record.kind != record.definition.kind
+                        || !interface
+                            .records
+                            .iter()
+                            .any(|item| item.definition == record.definition)
+                }) {
+                    return Err(nia_package_metadata::MetadataError::InvalidManifest);
+                }
+                section.validate_type_roots(&type_graph)?;
+                nia_package_metadata::encode_signatures(section)
+            })
+            .transpose()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
         let mut sections = vec![
             (SectionKind::Interface, interface_bytes.as_slice()),
             (SectionKind::TypeGraph, type_graph_bytes.as_slice()),
@@ -1949,6 +2069,9 @@ impl CompilerDatabase {
         }
         if let Some(bytes) = template_bytes.as_ref() {
             sections.push((SectionKind::Templates, bytes.as_slice()));
+        }
+        if let Some(bytes) = signature_bytes.as_ref() {
+            sections.push((SectionKind::Signatures, bytes.as_slice()));
         }
         let bytes = nia_package_metadata::encode_artifact(&manifest, &sections)
             .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
@@ -3400,6 +3523,13 @@ fn compiled_interface_index_fingerprint(
         if let Some(surface) = interface.public_surface() {
             builder.write_u8(1);
             let bytes = nia_package_metadata::encode_public_surface(surface).ok()?;
+            builder.write_bytes(&bytes);
+        } else {
+            builder.write_u8(0);
+        }
+        if let Some(signatures) = interface.signatures() {
+            builder.write_u8(1);
+            let bytes = nia_package_metadata::encode_signatures(signatures).ok()?;
             builder.write_bytes(&bytes);
         } else {
             builder.write_u8(0);

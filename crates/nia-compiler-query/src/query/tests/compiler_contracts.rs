@@ -6,7 +6,7 @@ use super::*;
 fn compiler_query_registry_covers_all_declared_query_contracts() {
     let descriptors = compiler_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 139);
+    assert_eq!(descriptors.len(), 140);
     assert!(
         !descriptors
             .iter()
@@ -43,6 +43,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "compiled_package_declarations"
                 | "compiled_package_module_interface"
                 | "compiled_package_templates"
+                | "compiled_package_signatures"
                 | "compiled_package_native"
         ) {
             nia_query::QueryStoragePolicy::SingleConsumerOwned
@@ -56,6 +57,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
                 | "compiled_package_declarations"
                 | "compiled_package_module_interface"
                 | "compiled_package_templates"
+                | "compiled_package_signatures"
                 | "compiled_package_native"
         ) {
             nia_query::QueryProviderPolicy::ExternallyPublished
@@ -183,6 +185,45 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
             .flat_map(|module| module.exports.iter())
             .any(|export| export.name == "greet")
     );
+}
+
+#[test]
+fn package_artifact_publication_embeds_validated_signatures() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() () {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "signature-demo".into(),
+        version: "1.0.0".into(),
+    };
+    let definition = nia_package_metadata::DefinitionId {
+        module: nia_package_metadata::ModuleId {
+            package: package.clone(),
+            path: "src/main.nia".into(),
+        },
+        name: "greet".into(),
+        kind: 2,
+        owner: None,
+    };
+    let signatures = nia_package_metadata::SignatureSection {
+        records: vec![nia_package_metadata::SignatureRecord {
+            definition,
+            kind: 2,
+            flags: nia_package_metadata::SIGNATURE_FLAG_HAS_BODY,
+            type_roots: Vec::new(),
+        }],
+    };
+    let publication = database
+        .publish_package_artifact_with_resolver_and_products_and_signatures(
+            package.clone(),
+            &|_| Ok(package.clone()),
+            None,
+            None,
+            Some(signatures.clone()),
+        )
+        .unwrap();
+    let artifact = nia_package_metadata::PackageArtifact::open(publication.bytes).unwrap();
+    assert_eq!(artifact.signatures().unwrap(), Some(signatures));
 }
 
 #[test]

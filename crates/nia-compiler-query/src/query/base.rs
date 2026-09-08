@@ -97,6 +97,9 @@ pub(super) struct CompiledPackageModuleInterfaceQuery(pub(super) nia_package_met
 pub(super) struct CompiledPackageTemplatesQuery(pub(super) PackageId);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct CompiledPackageSignaturesQuery(pub(super) PackageId);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct CompiledPackageNativeQuery(pub(super) PackageId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -163,6 +166,25 @@ impl QueryKey<CompilerContext> for CompiledPackageTemplatesQuery {
 
     fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         unreachable!("compiled package templates are published by artifact installation")
+    }
+}
+
+impl QueryKey<CompilerContext> for CompiledPackageSignaturesQuery {
+    type Value = CompiledPackageSignatures;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "compiled_package_signatures"
+    }
+
+    fn description(&self) -> String {
+        format!("compiled_package_signatures({:?})", self.0)
+    }
+
+    fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        unreachable!("compiled package signatures are published by artifact installation")
     }
 }
 
