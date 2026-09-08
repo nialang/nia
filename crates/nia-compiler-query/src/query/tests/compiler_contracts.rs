@@ -222,6 +222,39 @@ fn stable_type_graph_publication_remaps_nominal_definition_identity() {
 }
 
 #[test]
+fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
+    let database = fixture.database();
+    let module = fixture.entry_id();
+    let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
+    let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
+    let append = database.db.context().type_store.append_for_module(module);
+    let nominal = append.intern(nia_ty::TyKind::Nominal {
+        def_id: nia_ids::GlobalDefId {
+            module_id: module,
+            def_id,
+        },
+        args: Vec::new(),
+        const_args: Vec::new(),
+    });
+    let dependency = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dependency".into(),
+        version: "2.0.0".into(),
+    };
+    let graph = database
+        .stable_type_graph_for_roots_with_resolver(&[nominal], &|resolved| {
+            assert_eq!(resolved.module_id, module);
+            Ok(dependency.clone())
+        })
+        .unwrap();
+    let nia_package_metadata::StableTypeNode::Named(definition) = &graph.nodes[0] else {
+        panic!("nominal type must publish as a stable definition identity");
+    };
+    assert_eq!(definition.package, dependency);
+}
+
+#[test]
 fn public_options_flow_through_compiler_query_context() {
     for level in [
         NiaOptimizationLevel::O0,
