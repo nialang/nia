@@ -737,7 +737,7 @@ impl Driver {
                     .as_slice()
                     .iter()
                     .map(|input| NativeObject {
-                        key: format!("{:?}", input.key),
+                        key: native_object_key(&input.key),
                         fingerprint: input.fingerprint.parts(),
                         bytes: input.object.bytes.clone(),
                     })
@@ -2403,6 +2403,22 @@ fn codegen_options(
         optimization,
         timings,
         toolchain_identity,
+    }
+}
+
+fn native_object_key(key: &nia_codegen_llvm::CodegenUnitKey) -> String {
+    match key {
+        nia_codegen_llvm::CodegenUnitKey::SourceModule {
+            source_identity,
+            ordinal,
+        } => format!("source:{}:{}", source_identity.normalized_path(), ordinal),
+        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "compiler-builtins".to_string(),
+        nia_codegen_llvm::CodegenUnitKey::CompiledPackage {
+            namespace,
+            package,
+            version,
+            object,
+        } => format!("package:{namespace}:{package}:{version}:{object}"),
     }
 }
 
