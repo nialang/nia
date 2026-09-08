@@ -22,6 +22,8 @@ const INTERFACE_SCHEMA: u32 = 3;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
+const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
+const TEMPLATE_SCHEMA: u32 = 1;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -78,6 +80,44 @@ pub struct InterfaceRecord {
     pub declaration: Vec<u8>,
     /// Strictly sorted indices into the package type-graph section.
     pub type_roots: Vec<u32>,
+}
+
+/// Checked generic/const body retained for downstream specialization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateRecord {
+    /// Stable identity of the definition owning this template.
+    pub definition: DefinitionId,
+    /// Compiler-owned checked template payload.
+    pub body: Vec<u8>,
+    /// Compositional semantic summary used before body materialization.
+    pub summary: Vec<u8>,
+}
+
+/// Canonical template section for public generic, inline, and CTFE items.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateSection {
+    pub records: Vec<TemplateRecord>,
+}
+
+impl TemplateSection {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        if self.records.len() > MAX_ITEMS {
+            return Err(MetadataError::TooManyItems);
+        }
+        for record in &self.records {
+            validate_definition(&record.definition)?;
+            validate_bytes(&record.body)?;
+            validate_bytes(&record.summary)?;
+        }
+        if self
+            .records
+            .windows(2)
+            .any(|pair| pair[0].definition >= pair[1].definition)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
 }
 
 /// Decoded canonical declaration facts carried by an interface record.
@@ -272,6 +312,7 @@ pub struct CompiledPackageInterface {
     manifest: PackageManifest,
     interface: InterfaceSection,
     type_graph: Option<StableTypeGraph>,
+    templates: Option<TemplateSection>,
     record_indexes: BTreeMap<DefinitionId, usize>,
 }
 
@@ -282,6 +323,17 @@ impl CompiledPackageInterface {
             records: Vec::new(),
         });
         let type_graph = artifact.type_graph()?;
+        let templates = artifact.templates()?;
+        if let Some(templates) = &templates {
+            templates.validate()?;
+            if templates
+                .records
+                .iter()
+                .any(|record| record.definition.module.package != artifact.manifest().package)
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
+        }
         if let Some(graph) = &type_graph {
             interface.validate_type_roots(graph)?;
         } else if interface
@@ -301,6 +353,7 @@ impl CompiledPackageInterface {
             manifest: artifact.manifest().clone(),
             interface,
             type_graph,
+            templates,
             record_indexes,
         })
     }
@@ -338,6 +391,11 @@ impl CompiledPackageInterface {
     /// Returns the canonical signature type graph, when published.
     pub fn type_graph(&self) -> Option<&StableTypeGraph> {
         self.type_graph.as_ref()
+    }
+
+    /// Returns the optional checked template section.
+    pub fn templates(&self) -> Option<&TemplateSection> {
+        self.templates.as_ref()
     }
 
     /// Resolves one stable definition identity without source loading.
@@ -595,6 +653,13 @@ impl PackageArtifact {
             .map(decode_type_graph)
             .transpose()
     }
+
+    /// Decodes the optional checked generic/const template section.
+    pub fn templates(&self) -> Result<Option<TemplateSection>, MetadataError> {
+        self.section(SectionKind::Templates)?
+            .map(decode_templates)
+            .transpose()
+    }
 }
 
 /// Encodes a manifest-only package artifact.
@@ -732,6 +797,56 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
         return Err(MetadataError::InvalidManifest);
     }
     let section = InterfaceSection { records };
+    section.validate()?;
+    Ok(section)
+}
+
+/// Encodes canonical checked generic/const templates.
+pub fn encode_templates(section: &TemplateSection) -> Result<Vec<u8>, MetadataError> {
+    section.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(TEMPLATE_MAGIC);
+    put_u32(&mut output, TEMPLATE_SCHEMA);
+    put_list_len(&mut output, section.records.len())?;
+    for record in &section.records {
+        put_definition(&mut output, &record.definition)?;
+        put_bytes(&mut output, &record.body)?;
+        put_bytes(&mut output, &record.summary)?;
+    }
+    if output.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    Ok(output)
+}
+
+/// Decodes and validates canonical checked generic/const templates.
+pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; 8];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *TEMPLATE_MAGIC {
+        return Err(MetadataError::BadMagic);
+    }
+    let schema = get_u32(&mut cursor)?;
+    if schema != TEMPLATE_SCHEMA {
+        return Err(MetadataError::Schema(schema));
+    }
+    let count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut records = Vec::with_capacity(count);
+    for _ in 0..count {
+        records.push(TemplateRecord {
+            definition: read_definition(&mut cursor)?,
+            body: get_bytes(&mut cursor)?,
+            summary: get_bytes(&mut cursor)?,
+        });
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let section = TemplateSection { records };
     section.validate()?;
     Ok(section)
 }
@@ -1259,6 +1374,45 @@ mod tests {
             decode_type_graph(&encode_type_graph(&graph).unwrap()).unwrap(),
             graph
         );
+    }
+
+    #[test]
+    fn template_section_round_trips_and_rejects_unsorted_records() {
+        let package = sample().package;
+        let section = TemplateSection {
+            records: vec![TemplateRecord {
+                definition: DefinitionId {
+                    module: ModuleId {
+                        package,
+                        path: "std/io".into(),
+                    },
+                    name: "write".into(),
+                    kind: 2,
+                },
+                body: vec![1, 2, 3],
+                summary: vec![4, 5],
+            }],
+        };
+        let bytes = encode_templates(&section).unwrap();
+        assert_eq!(decode_templates(&bytes).unwrap(), section);
+        let mut invalid = section.clone();
+        invalid.records.push(invalid.records[0].clone());
+        assert_eq!(
+            encode_templates(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn compiled_interface_decodes_templates_lazily() {
+        let section = TemplateSection { records: vec![] };
+        let bytes = encode_templates(&section).unwrap();
+        let artifact = PackageArtifact::open(
+            encode_artifact(&sample(), &[(SectionKind::Templates, &bytes)]).unwrap(),
+        )
+        .unwrap();
+        let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
+        assert_eq!(indexed.templates(), Some(&section));
     }
     #[test]
     fn rejects_corruption_and_noncanonical_manifest() {
