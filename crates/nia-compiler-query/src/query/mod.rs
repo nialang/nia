@@ -1378,14 +1378,33 @@ impl CompilerDatabase {
             .semantic
             .defs
             .iter()
-            .filter(|(_def_id, def)| {
-                def.parent.is_none()
-                    && def_kind_tag(def.kind) == definition.kind
-                    && symbols
+            .filter_map(|(def_id, def)| {
+                if def_kind_tag(def.kind) != definition.kind
+                    || !symbols
                         .resolve(def.name)
                         .is_some_and(|name| name.as_ref() == definition.name.as_str())
+                {
+                    return None;
+                }
+                let mut owner_chain = Vec::new();
+                let mut parent = def.parent;
+                while let Some(parent_id) = parent {
+                    let parent_def = defs.semantic.defs.get(parent_id)?;
+                    let parent_name = symbols.resolve(parent_def.name)?;
+                    owner_chain.push((parent_name.to_string(), def_kind_tag(parent_def.kind)));
+                    parent = parent_def.parent;
+                }
+                let mut owner_identity = None;
+                for (owner_name, owner_kind) in owner_chain.into_iter().rev() {
+                    owner_identity = Some(Box::new(DefinitionId {
+                        module: definition.module.clone(),
+                        name: owner_name,
+                        kind: owner_kind,
+                        owner: owner_identity,
+                    }));
+                }
+                (owner_identity == definition.owner).then_some(GlobalDefId { module_id, def_id })
             })
-            .map(|(def_id, _)| GlobalDefId { module_id, def_id })
             .collect::<Vec<_>>();
         let [resolved] = matches.as_slice() else {
             return Err(self.db.invalid_input(
