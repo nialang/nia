@@ -1563,7 +1563,15 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<nia_package_metadata::SignatureSection> {
-        let (interface, _) = self.package_interface_and_type_graph(package, resolver)?;
+        let (interface, _) = self.package_interface_and_type_graph(package.clone(), resolver)?;
+        self.signature_section_from_interface(resolver, interface)
+    }
+
+    fn signature_section_from_interface(
+        &self,
+        resolver: &dyn StableDefinitionPackageResolver,
+        interface: InterfaceSection,
+    ) -> QueryResult<nia_package_metadata::SignatureSection> {
         let definition_index = self.stable_definition_index(resolver)?;
         let mut records = Vec::with_capacity(interface.records.len());
         let mut members = BTreeMap::<DefinitionId, Vec<nia_package_metadata::SignatureMember>>::new();
@@ -1942,13 +1950,12 @@ impl CompilerDatabase {
         package: PackageId,
         resolver: &dyn StableDefinitionPackageResolver,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let signatures = self.package_signature_section_with_resolver(package.clone(), resolver)?;
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
             package,
             resolver,
             None,
             None,
-            Some(signatures),
+            None,
         )
     }
 
@@ -1962,13 +1969,12 @@ impl CompilerDatabase {
         resolver: &dyn StableDefinitionPackageResolver,
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let signatures = self.package_signature_section_with_resolver(package.clone(), resolver)?;
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
             package,
             resolver,
             None,
             native,
-            Some(signatures),
+            None,
         )
     }
 
@@ -2009,13 +2015,12 @@ impl CompilerDatabase {
         templates: Option<nia_package_metadata::TemplateSection>,
         native: Option<nia_package_metadata::NativeSection>,
     ) -> QueryResult<crate::PackageArtifactPublication> {
-        let signatures = self.package_signature_section_with_resolver(package.clone(), resolver)?;
         self.publish_package_artifact_with_resolver_and_products_and_signatures(
             package,
             resolver,
             templates,
             native,
-            Some(signatures),
+            None,
         )
     }
 
@@ -2032,6 +2037,10 @@ impl CompilerDatabase {
     ) -> QueryResult<crate::PackageArtifactPublication> {
         let (interface, type_graph) =
             self.package_interface_and_type_graph(package.clone(), resolver)?;
+        let signatures = match signatures {
+            Some(signatures) => Some(signatures),
+            None => Some(self.signature_section_from_interface(resolver, interface.clone())?),
+        };
         let public_surface =
             self.package_public_surface_section_with_resolver(package.clone(), resolver)?;
         let interface_bytes = nia_package_metadata::encode_interface(&interface)
