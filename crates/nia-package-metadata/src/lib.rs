@@ -4,6 +4,7 @@
 use std::{
     collections::BTreeMap,
     io::{self, Cursor, Read},
+    sync::Arc,
 };
 
 use nia_compat::{COMPILER_VERSION, formats, toolchain};
@@ -312,11 +313,11 @@ impl InterfaceSection {
 /// before constructing any session-local module, definition, or type handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledPackageInterface {
-    manifest: PackageManifest,
-    interface: InterfaceSection,
-    type_graph: Option<StableTypeGraph>,
-    templates: Option<TemplateSection>,
-    record_indexes: BTreeMap<DefinitionId, usize>,
+    manifest: Arc<PackageManifest>,
+    interface: Arc<InterfaceSection>,
+    type_graph: Option<Arc<StableTypeGraph>>,
+    templates: Option<Arc<TemplateSection>>,
+    record_indexes: Arc<BTreeMap<DefinitionId, usize>>,
 }
 
 impl CompiledPackageInterface {
@@ -353,11 +354,11 @@ impl CompiledPackageInterface {
             .map(|(index, record)| (record.definition.clone(), index))
             .collect();
         Ok(Self {
-            manifest: artifact.manifest().clone(),
-            interface,
-            type_graph,
-            templates,
-            record_indexes,
+            manifest: Arc::new(artifact.manifest().clone()),
+            interface: Arc::new(interface),
+            type_graph: type_graph.map(Arc::new),
+            templates: templates.map(Arc::new),
+            record_indexes: Arc::new(record_indexes),
         })
     }
 
@@ -393,12 +394,12 @@ impl CompiledPackageInterface {
 
     /// Returns the canonical signature type graph, when published.
     pub fn type_graph(&self) -> Option<&StableTypeGraph> {
-        self.type_graph.as_ref()
+        self.type_graph.as_ref().map(|graph| &**graph)
     }
 
     /// Returns the optional checked template section.
     pub fn templates(&self) -> Option<&TemplateSection> {
-        self.templates.as_ref()
+        self.templates.as_ref().map(|templates| &**templates)
     }
 
     /// Resolves one stable definition identity without source loading.
@@ -535,7 +536,7 @@ impl PackageManifest {
 /// A package container with a decoded manifest and lazy section directory.
 #[derive(Debug, Clone)]
 pub struct PackageArtifact {
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
     manifest: PackageManifest,
     sections: Vec<SectionEntry>,
 }
@@ -608,7 +609,7 @@ impl PackageArtifact {
             });
         }
         Ok(Self {
-            bytes,
+            bytes: Arc::new(bytes),
             manifest,
             sections,
         })
