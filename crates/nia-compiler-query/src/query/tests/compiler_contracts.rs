@@ -662,6 +662,14 @@ fn compiled_interface_index_resolves_stable_definitions_without_session_handles(
         index.module_records(&package, "src/lib.nia").unwrap().len(),
         1
     );
+    assert!(
+        index
+            .module(&nia_package_metadata::ModuleId {
+                package: package.clone(),
+                path: "src/lib.nia".into(),
+            })
+            .is_some()
+    );
     assert!(index.definition(&interface.records[0].definition).is_some());
 }
 
