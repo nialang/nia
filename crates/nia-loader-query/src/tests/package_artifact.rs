@@ -190,6 +190,25 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         }],
     };
     let interface_bytes = encode_interface(&interface).unwrap();
+    let target = nia_target_config::TargetConfig::host();
+    let native = nia_package_metadata::NativeSection {
+        target: nia_package_metadata::NativeTarget {
+            arch: target.arch,
+            vendor: target.vendor,
+            os: target.os,
+            env: target.env,
+            abi: target.abi,
+            endian: target.endian,
+            pointer_width: target.pointer_width,
+        },
+        profile: 0,
+        optimization: 0,
+        objects: vec![nia_package_metadata::NativeObject {
+            key: "unit-0".into(),
+            bytes: vec![1, 2, 3],
+        }],
+    };
+    let native_bytes = nia_package_metadata::encode_native(&native).unwrap();
     let mut metadata = PackageManifest::current(package.clone());
     metadata
         .modules
@@ -199,7 +218,14 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         });
     fs::write(
         &path,
-        encode_artifact(&metadata, &[(SectionKind::Interface, &interface_bytes)]).unwrap(),
+        encode_artifact(
+            &metadata,
+            &[
+                (SectionKind::Interface, &interface_bytes),
+                (SectionKind::Native, &native_bytes),
+            ],
+        )
+        .unwrap(),
     )
     .unwrap();
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_package_artifact(&path));
@@ -237,6 +263,17 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         .unwrap();
     assert_eq!(fact.identity(), &modules[0]);
     assert_eq!(fact.records().len(), 1);
+    let native_packages = compiler.install_compiled_package_native().unwrap();
+    assert_eq!(native_packages, vec![package.clone()]);
+    assert_eq!(
+        compiler
+            .compiled_package_native(package)
+            .unwrap()
+            .section()
+            .objects
+            .len(),
+        1
+    );
 }
 
 #[test]

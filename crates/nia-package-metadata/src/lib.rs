@@ -368,6 +368,7 @@ pub struct CompiledPackageInterface {
     interface: Arc<InterfaceSection>,
     type_graph: Option<Arc<StableTypeGraph>>,
     templates: Option<Arc<TemplateSection>>,
+    native: Option<Arc<NativeSection>>,
     record_indexes: Arc<BTreeMap<DefinitionId, usize>>,
 }
 
@@ -379,6 +380,7 @@ impl CompiledPackageInterface {
         });
         let type_graph = artifact.type_graph()?;
         let templates = artifact.templates()?;
+        let native = artifact.native()?;
         if let Some(templates) = &templates {
             templates.validate()?;
             if templates
@@ -409,6 +411,7 @@ impl CompiledPackageInterface {
             interface: Arc::new(interface),
             type_graph: type_graph.map(Arc::new),
             templates: templates.map(Arc::new),
+            native: native.map(Arc::new),
             record_indexes: Arc::new(record_indexes),
         })
     }
@@ -451,6 +454,11 @@ impl CompiledPackageInterface {
     /// Returns the optional checked template section.
     pub fn templates(&self) -> Option<&TemplateSection> {
         self.templates.as_ref().map(|templates| &**templates)
+    }
+
+    /// Returns the optional target-specific native payload.
+    pub fn native(&self) -> Option<&NativeSection> {
+        self.native.as_ref().map(|native| &**native)
     }
 
     /// Resolves one stable definition identity without source loading.

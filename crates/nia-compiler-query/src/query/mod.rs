@@ -322,6 +322,23 @@ pub struct CompiledPackageTemplates {
     records: BTreeMap<DefinitionId, nia_package_metadata::TemplateRecord>,
 }
 
+/// Target-specific native products selected from one compiled package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageNative {
+    package: PackageId,
+    section: nia_package_metadata::NativeSection,
+}
+
+impl CompiledPackageNative {
+    pub fn package(&self) -> &PackageId {
+        &self.package
+    }
+
+    pub fn section(&self) -> &nia_package_metadata::NativeSection {
+        &self.section
+    }
+}
+
 impl CompiledPackageTemplates {
     pub fn package(&self) -> &PackageId {
         &self.package
@@ -667,6 +684,41 @@ impl CompilerDatabase {
         package: PackageId,
     ) -> QueryResult<CompiledPackageTemplates> {
         self.db.get_owned(CompiledPackageTemplatesQuery(package))
+    }
+
+    /// Publishes the target-specific native section for one selected package.
+    pub fn install_compiled_package_native(&self) -> QueryResult<Vec<PackageId>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut installed = Vec::new();
+        for (package, interface) in index.packages() {
+            let Some(section) = interface.native() else {
+                continue;
+            };
+            if !native_target_matches(&section.target, &self.db.context().loader_facts().target()) {
+                continue;
+            }
+            let key = CompiledPackageNativeQuery(package.clone());
+            if self.db.can_publish_owned(key.clone()) {
+                self.db.publish_owned(
+                    key,
+                    CompiledPackageNative {
+                        package: package.clone(),
+                        section: section.clone(),
+                    },
+                    &CompiledPackageInterfaceIndexQuery,
+                );
+            }
+            installed.push(package.clone());
+        }
+        Ok(installed)
+    }
+
+    /// Consumes one target-specific native package product.
+    pub fn compiled_package_native(
+        &self,
+        package: PackageId,
+    ) -> QueryResult<CompiledPackageNative> {
+        self.db.get_owned(CompiledPackageNativeQuery(package))
     }
 
     /// Returns the query-tracked index of selected compiled interfaces.
@@ -1890,6 +1942,19 @@ impl CompilerDatabase {
     }
 }
 
+fn native_target_matches(
+    native: &nia_package_metadata::NativeTarget,
+    target: &nia_target_config::TargetConfig,
+) -> bool {
+    native.arch == target.arch
+        && native.vendor == target.vendor
+        && native.os == target.os
+        && native.env == target.env
+        && native.abi == target.abi
+        && native.endian == target.endian
+        && native.pointer_width == target.pointer_width
+}
+
 fn stable_primitive_from_tag(tag: u8) -> Option<nia_ty::PrimitiveTy> {
     use nia_ty::PrimitiveTy;
     Some(match tag {
@@ -2829,6 +2894,13 @@ fn compiled_interface_index_fingerprint(
                 builder.write_bytes(&record.body);
                 builder.write_bytes(&record.summary);
             }
+        } else {
+            builder.write_u8(0);
+        }
+        if let Some(native) = interface.native() {
+            builder.write_u8(1);
+            let native_bytes = nia_package_metadata::encode_native(native).ok()?;
+            builder.write_bytes(&native_bytes);
         } else {
             builder.write_u8(0);
         }
