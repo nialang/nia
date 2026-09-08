@@ -39,10 +39,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+pub use nia_package_metadata::CompiledPackageInterface;
 pub use package_artifact::{
-    CompiledPackageInterface, PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad,
-    PackageArtifactMismatch, PackageArtifactRequest, package_artifact_path,
-    select_package_artifact,
+    PackageArtifactError, PackageArtifactFallback, PackageArtifactLoad, PackageArtifactMismatch,
+    PackageArtifactRequest, package_artifact_path, select_package_artifact,
 };
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
@@ -797,6 +797,22 @@ impl LoaderFactProvider for LoaderDatabase {
 
     fn toolchain_identity(&self) -> nia_toolchain::ToolchainIdentityFingerprint {
         self.db.context().toolchain_identity
+    }
+
+    fn compiled_package_interfaces(
+        &self,
+    ) -> QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
+        let selection = self.package_artifact().map_err(|error| {
+            self.db
+                .invalid_input(&queries::LoadedProgramQuery, error.to_string())
+        })?;
+        Ok(selection
+            .and_then(|selection| match selection {
+                PackageArtifactLoad::Loaded { interface, .. } => Some(interface),
+                PackageArtifactLoad::SourceFallback { .. } => None,
+            })
+            .into_iter()
+            .collect())
     }
 }
 
