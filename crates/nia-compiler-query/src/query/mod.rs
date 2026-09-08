@@ -618,7 +618,7 @@ impl CompilerDatabase {
                 pending.push((
                     InterfaceRecord {
                         definition,
-                        declaration: declaration_signature(def_id, def),
+                        declaration: declaration_signature(def),
                         type_roots: Vec::new(),
                     },
                     roots,
@@ -1284,8 +1284,8 @@ fn primitive_type_node(primitive: nia_ty::PrimitiveTy) -> QueryResult<StableType
     })
 }
 
-fn declaration_signature(def_id: nia_ids::DefId, def: &nia_defs::Def) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(32 + def.generics.len() * 8);
+fn declaration_signature(def: &nia_defs::Def) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(24 + def.generics.len() * 8);
     bytes.extend_from_slice(b"NIADECL01");
     bytes.push(def_kind_tag(def.kind));
     bytes.push(match def.visibility {
@@ -1294,7 +1294,6 @@ fn declaration_signature(def_id: nia_ids::DefId, def: &nia_defs::Def) -> Vec<u8>
         nia_defs::Visibility::PublicPkg => 2,
         nia_defs::Visibility::Public => 3,
     });
-    bytes.extend_from_slice(&def_id.0.to_le_bytes());
     bytes.extend_from_slice(
         &u32::try_from(def.generics.len())
             .expect("definition generic count exceeds u32")
