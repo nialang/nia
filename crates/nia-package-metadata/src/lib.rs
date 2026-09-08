@@ -27,6 +27,8 @@ const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
 const NATIVE_SCHEMA: u32 = 1;
+const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
+const PUBLIC_SURFACE_SCHEMA: u32 = 1;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -128,6 +130,76 @@ pub struct NativeSection {
     pub profile: u8,
     pub optimization: u8,
     pub objects: Vec<NativeObject>,
+}
+
+/// One stable export in a package module's public surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicSurfaceExport {
+    /// Exported spelling in the containing module.
+    pub name: String,
+    /// Namespace tag: `0` for values, `1` for types.
+    pub namespace: u8,
+    /// Stable definition reached by this export (including re-exports).
+    pub target: DefinitionId,
+    /// Optional enum definition owning a variant export.
+    pub parent_enum: Option<DefinitionId>,
+    /// Provenance tag: `0` direct declaration, `1` public using.
+    pub source: u8,
+}
+
+/// Complete, resolved public surfaces for a compiled package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicSurfaceSection {
+    pub package: PackageId,
+    /// Canonical module path and its exported names.
+    pub modules: Vec<PublicSurfaceModule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicSurfaceModule {
+    pub path: String,
+    /// Exported child module names and canonical module identities.
+    pub modules: Vec<(String, ModuleId)>,
+    pub exports: Vec<PublicSurfaceExport>,
+}
+
+impl PublicSurfaceSection {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        validate_id(&self.package)?;
+        if self.modules.len() > MAX_ITEMS {
+            return Err(MetadataError::TooManyItems);
+        }
+        for module in &self.modules {
+            validate_string(&module.path)?;
+            for (name, target) in &module.modules {
+                validate_string(name)?;
+                validate_id(&target.package)?;
+                validate_string(&target.path)?;
+            }
+            for export in &module.exports {
+                validate_string(&export.name)?;
+                if export.namespace > 1 || export.source > 1 {
+                    return Err(MetadataError::InvalidManifest);
+                }
+                validate_definition(&export.target)?;
+                if let Some(parent) = &export.parent_enum {
+                    validate_definition(parent)?;
+                }
+            }
+            if module.modules.windows(2).any(|w| w[0].0 >= w[1].0)
+                || module.exports.windows(2).any(|w| {
+                    (w[0].name.as_str(), w[0].namespace, &w[0].target)
+                        >= (w[1].name.as_str(), w[1].namespace, &w[1].target)
+                })
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
+        }
+        if self.modules.windows(2).any(|w| w[0].path >= w[1].path) {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
 }
 
 impl NativeSection {
@@ -375,6 +447,7 @@ pub struct CompiledPackageInterface {
     type_graph: Option<Arc<StableTypeGraph>>,
     templates: Option<Arc<TemplateSection>>,
     native: Option<Arc<NativeSection>>,
+    public_surface: Option<Arc<PublicSurfaceSection>>,
     record_indexes: Arc<BTreeMap<DefinitionId, usize>>,
 }
 
@@ -387,6 +460,82 @@ impl CompiledPackageInterface {
         let type_graph = artifact.type_graph()?;
         let templates = artifact.templates()?;
         let native = artifact.native()?;
+        let public_surface = artifact.public_surface()?;
+        if let Some(surface) = &public_surface {
+            surface.validate()?;
+            if surface.package != artifact.manifest().package {
+                return Err(MetadataError::InvalidManifest);
+            }
+            if surface.modules.len() != artifact.manifest().modules.len()
+                || surface.modules.iter().any(|module| {
+                    !artifact
+                        .manifest()
+                        .modules
+                        .iter()
+                        .any(|m| m.path == module.path)
+                })
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
+            let mut allowed_packages = std::collections::BTreeSet::new();
+            allowed_packages.insert(artifact.manifest().package.clone());
+            allowed_packages.extend(
+                artifact
+                    .manifest()
+                    .dependencies
+                    .iter()
+                    .map(|d| d.package.clone()),
+            );
+            for module in &surface.modules {
+                for (_, child) in &module.modules {
+                    if !allowed_packages.contains(&child.package) {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    if child.package == artifact.manifest().package
+                        && !artifact
+                            .manifest()
+                            .modules
+                            .iter()
+                            .any(|m| m.path == child.path)
+                    {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                }
+                for export in &module.exports {
+                    if !allowed_packages.contains(&export.target.module.package) {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    if export.target.module.package == artifact.manifest().package
+                        && !artifact
+                            .manifest()
+                            .modules
+                            .iter()
+                            .any(|m| m.path == export.target.module.path)
+                    {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    if export.source == 0
+                        && export.target.module.package != artifact.manifest().package
+                    {
+                        return Err(MetadataError::InvalidManifest);
+                    }
+                    if let Some(parent) = &export.parent_enum {
+                        if !allowed_packages.contains(&parent.module.package) {
+                            return Err(MetadataError::InvalidManifest);
+                        }
+                        if parent.module.package == artifact.manifest().package
+                            && !artifact
+                                .manifest()
+                                .modules
+                                .iter()
+                                .any(|m| m.path == parent.module.path)
+                        {
+                            return Err(MetadataError::InvalidManifest);
+                        }
+                    }
+                }
+            }
+        }
         if let Some(templates) = &templates {
             templates.validate()?;
             if templates
@@ -418,6 +567,7 @@ impl CompiledPackageInterface {
             type_graph: type_graph.map(Arc::new),
             templates: templates.map(Arc::new),
             native: native.map(Arc::new),
+            public_surface: public_surface.map(Arc::new),
             record_indexes: Arc::new(record_indexes),
         })
     }
@@ -467,6 +617,10 @@ impl CompiledPackageInterface {
         self.native.as_ref().map(|native| &**native)
     }
 
+    pub fn public_surface(&self) -> Option<&PublicSurfaceSection> {
+        self.public_surface.as_ref().map(|surface| &**surface)
+    }
+
     /// Resolves one stable definition identity without source loading.
     pub fn definition(&self, definition: &DefinitionId) -> Option<&InterfaceRecord> {
         self.record_indexes
@@ -491,6 +645,7 @@ pub enum SectionKind {
     Templates = 2,
     Native = 3,
     TypeGraph = 4,
+    PublicSurface = 5,
 }
 impl SectionKind {
     fn decode(value: u8) -> Option<Self> {
@@ -499,6 +654,7 @@ impl SectionKind {
             2 => Some(Self::Templates),
             3 => Some(Self::Native),
             4 => Some(Self::TypeGraph),
+            5 => Some(Self::PublicSurface),
             _ => None,
         }
     }
@@ -739,6 +895,13 @@ impl PackageArtifact {
             .map(decode_native)
             .transpose()
     }
+
+    /// Decodes the optional complete resolved public-surface section.
+    pub fn public_surface(&self) -> Result<Option<PublicSurfaceSection>, MetadataError> {
+        self.section(SectionKind::PublicSurface)?
+            .map(decode_public_surface)
+            .transpose()
+    }
 }
 
 /// Encodes a manifest-only package artifact.
@@ -926,6 +1089,108 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
         return Err(MetadataError::InvalidManifest);
     }
     let section = TemplateSection { records };
+    section.validate()?;
+    Ok(section)
+}
+
+/// Encodes complete resolved public surfaces without source/session identities.
+pub fn encode_public_surface(section: &PublicSurfaceSection) -> Result<Vec<u8>, MetadataError> {
+    section.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(PUBLIC_SURFACE_MAGIC);
+    put_u32(&mut output, PUBLIC_SURFACE_SCHEMA);
+    put_id(&mut output, &section.package)?;
+    put_list_len(&mut output, section.modules.len())?;
+    for module in &section.modules {
+        put_string(&mut output, &module.path)?;
+        put_list_len(&mut output, module.modules.len())?;
+        for (name, target) in &module.modules {
+            put_string(&mut output, name)?;
+            put_id(&mut output, &target.package)?;
+            put_string(&mut output, &target.path)?;
+        }
+        put_list_len(&mut output, module.exports.len())?;
+        for export in &module.exports {
+            put_string(&mut output, &export.name)?;
+            output.push(export.namespace);
+            put_definition(&mut output, &export.target)?;
+            match &export.parent_enum {
+                Some(parent) => {
+                    output.push(1);
+                    put_definition(&mut output, parent)?;
+                }
+                None => output.push(0),
+            }
+            output.push(export.source);
+        }
+    }
+    if output.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    Ok(output)
+}
+
+/// Decodes and strictly validates complete resolved public surfaces.
+pub fn decode_public_surface(bytes: &[u8]) -> Result<PublicSurfaceSection, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; PUBLIC_SURFACE_MAGIC.len()];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *PUBLIC_SURFACE_MAGIC {
+        return Err(MetadataError::BadMagic);
+    }
+    let schema = get_u32(&mut cursor)?;
+    if schema != PUBLIC_SURFACE_SCHEMA {
+        return Err(MetadataError::Schema(schema));
+    }
+    let package = get_id(&mut cursor)?;
+    let count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut modules = Vec::with_capacity(count);
+    for _ in 0..count {
+        let path = get_string(&mut cursor)?;
+        let module_count = bounded_count(get_u32(&mut cursor)?)?;
+        let mut child_modules = Vec::with_capacity(module_count);
+        for _ in 0..module_count {
+            child_modules.push((
+                get_string(&mut cursor)?,
+                ModuleId {
+                    package: get_id(&mut cursor)?,
+                    path: get_string(&mut cursor)?,
+                },
+            ));
+        }
+        let export_count = bounded_count(get_u32(&mut cursor)?)?;
+        let mut exports = Vec::with_capacity(export_count);
+        for _ in 0..export_count {
+            let name = get_string(&mut cursor)?;
+            let namespace = read_u8(&mut cursor)?;
+            let target = read_definition(&mut cursor)?;
+            let parent_enum = match read_u8(&mut cursor)? {
+                0 => None,
+                1 => Some(read_definition(&mut cursor)?),
+                _ => return Err(MetadataError::InvalidManifest),
+            };
+            let source = read_u8(&mut cursor)?;
+            exports.push(PublicSurfaceExport {
+                name,
+                namespace,
+                target,
+                parent_enum,
+                source,
+            });
+        }
+        modules.push(PublicSurfaceModule {
+            path,
+            modules: child_modules,
+            exports,
+        });
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let section = PublicSurfaceSection { package, modules };
     section.validate()?;
     Ok(section)
 }
@@ -1841,5 +2106,46 @@ mod tests {
             decode_declaration(&bytes),
             Err(MetadataError::InvalidManifest)
         ));
+    }
+
+    #[test]
+    fn public_surface_round_trips_and_rejects_unsorted_exports() {
+        let package = PackageId {
+            namespace: "acme".into(),
+            name: "demo".into(),
+            version: "1".into(),
+        };
+        let module = ModuleId {
+            package: package.clone(),
+            path: "main".into(),
+        };
+        let definition = DefinitionId {
+            module: module.clone(),
+            name: "run".into(),
+            kind: 2,
+        };
+        let section = PublicSurfaceSection {
+            package: package.clone(),
+            modules: vec![PublicSurfaceModule {
+                path: "main".into(),
+                modules: vec![],
+                exports: vec![PublicSurfaceExport {
+                    name: "run".into(),
+                    namespace: 0,
+                    target: definition,
+                    parent_enum: None,
+                    source: 0,
+                }],
+            }],
+        };
+        let bytes = encode_public_surface(&section).unwrap();
+        assert_eq!(decode_public_surface(&bytes).unwrap(), section);
+        let mut invalid = section.clone();
+        let duplicate = invalid.modules[0].exports[0].clone();
+        invalid.modules[0].exports.push(duplicate);
+        assert_eq!(
+            encode_public_surface(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 }
