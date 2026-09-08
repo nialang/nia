@@ -443,6 +443,60 @@ impl CompilerDatabase {
             .collect())
     }
 
+    /// Resolves a stable definition identity against the currently loaded
+    /// source graph, validating module, name, and declaration kind together.
+    ///
+    /// This helper intentionally only resolves definitions present in the
+    /// current graph. External package identities must be supplied by a
+    /// compiled-interface installation layer rather than guessed from paths.
+    pub fn resolve_loaded_definition(
+        &self,
+        definition: &DefinitionId,
+        package: &PackageId,
+    ) -> QueryResult<GlobalDefId> {
+        if &definition.package != package {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                "stable definition belongs to a different package".to_string(),
+            ));
+        }
+        let graph = self.db.get(ModuleGraphQuery)?;
+        let Some(module_id) = graph.module_id_for_path(&definition.module) else {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                format!(
+                    "stable definition module is not loaded: {}",
+                    definition.module
+                ),
+            ));
+        };
+        let defs = self.db.get(FullModuleDefsQuery(module_id))?;
+        let symbols = self.db.context().loader_facts().symbols();
+        let matches = defs
+            .semantic
+            .defs
+            .iter()
+            .filter(|(_def_id, def)| {
+                def.parent.is_none()
+                    && def_kind_tag(def.kind) == definition.kind
+                    && symbols
+                        .resolve(def.name)
+                        .is_some_and(|name| name.as_ref() == definition.name.as_str())
+            })
+            .map(|(def_id, _)| GlobalDefId { module_id, def_id })
+            .collect::<Vec<_>>();
+        let [resolved] = matches.as_slice() else {
+            return Err(self.db.invalid_input(
+                &ModuleGraphQuery,
+                format!(
+                    "stable definition is missing or ambiguous: {}::{}",
+                    definition.module, definition.name
+                ),
+            ));
+        };
+        Ok(*resolved)
+    }
+
     /// Converts session-owned type roots into a package-stable type graph.
     ///
     /// Only forms with a complete cross-package representation are accepted.
