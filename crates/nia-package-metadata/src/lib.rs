@@ -133,6 +133,9 @@ pub struct NativeSection {
 impl NativeSection {
     pub fn validate(&self) -> Result<(), MetadataError> {
         validate_target(&self.target)?;
+        if self.profile > 1 || self.optimization > 5 {
+            return Err(MetadataError::InvalidManifest);
+        }
         if self.objects.len() > MAX_ITEMS {
             return Err(MetadataError::TooManyItems);
         }
