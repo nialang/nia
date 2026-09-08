@@ -31,11 +31,17 @@ pub struct PackageId {
     pub version: String,
 }
 
+/// Relocation-independent identity of one module within a package.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModuleId {
+    pub package: PackageId,
+    pub path: String,
+}
+
 /// Stable identity of a definition within a package module.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DefinitionId {
-    pub package: PackageId,
-    pub module: String,
+    pub module: ModuleId,
     pub name: String,
     pub kind: u8,
 }
@@ -326,7 +332,7 @@ impl CompiledPackageInterface {
         self.interface
             .records
             .iter()
-            .filter(move |record| record.definition.module == module)
+            .filter(move |record| record.definition.module.path == module)
     }
 }
 
@@ -635,7 +641,7 @@ pub fn interface_module_hash(
     let records = interface
         .records
         .iter()
-        .filter(|record| record.definition.module == module)
+        .filter(|record| record.definition.module.path == module)
         .cloned()
         .collect();
     Ok(section_hash(&encode_interface(&InterfaceSection {
@@ -655,8 +661,8 @@ pub fn encode_interface(section: &InterfaceSection) -> Result<Vec<u8>, MetadataE
     put_u32(&mut output, INTERFACE_SCHEMA);
     put_list_len(&mut output, section.records.len())?;
     for record in &section.records {
-        put_id(&mut output, &record.definition.package)?;
-        put_string(&mut output, &record.definition.module)?;
+        put_id(&mut output, &record.definition.module.package)?;
+        put_string(&mut output, &record.definition.module.path)?;
         put_string(&mut output, &record.definition.name)?;
         output.push(record.definition.kind);
         put_bytes(&mut output, &record.declaration)?;
@@ -691,8 +697,10 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
     for _ in 0..count {
         records.push(InterfaceRecord {
             definition: DefinitionId {
-                package: get_id(&mut cursor)?,
-                module: get_string(&mut cursor)?,
+                module: ModuleId {
+                    package: get_id(&mut cursor)?,
+                    path: get_string(&mut cursor)?,
+                },
                 name: get_string(&mut cursor)?,
                 kind: read_u8(&mut cursor)?,
             },
@@ -906,10 +914,10 @@ fn validate_interface_manifest(
     interface: &InterfaceSection,
 ) -> Result<(), MetadataError> {
     for record in &interface.records {
-        if record.definition.package != manifest.package
+        if record.definition.module.package != manifest.package
             || manifest
                 .modules
-                .binary_search_by(|module| module.path.cmp(&record.definition.module))
+                .binary_search_by(|module| module.path.cmp(&record.definition.module.path))
                 .is_err()
         {
             return Err(MetadataError::InvalidManifest);
@@ -949,8 +957,8 @@ fn validate_id(id: &PackageId) -> Result<(), MetadataError> {
     validate_string(&id.version)
 }
 fn validate_definition(definition: &DefinitionId) -> Result<(), MetadataError> {
-    validate_id(&definition.package)?;
-    validate_string(&definition.module)?;
+    validate_id(&definition.module.package)?;
+    validate_string(&definition.module.path)?;
     validate_string(&definition.name)?;
     (definition.kind != 0)
         .then_some(())
@@ -970,16 +978,18 @@ fn put_id(output: &mut Vec<u8>, id: &PackageId) -> Result<(), MetadataError> {
 }
 fn put_definition(output: &mut Vec<u8>, definition: &DefinitionId) -> Result<(), MetadataError> {
     validate_definition(definition)?;
-    put_id(output, &definition.package)?;
-    put_string(output, &definition.module)?;
+    put_id(output, &definition.module.package)?;
+    put_string(output, &definition.module.path)?;
     put_string(output, &definition.name)?;
     output.push(definition.kind);
     Ok(())
 }
 fn read_definition(cursor: &mut Cursor<&[u8]>) -> Result<DefinitionId, MetadataError> {
     let definition = DefinitionId {
-        package: get_id(cursor)?,
-        module: get_string(cursor)?,
+        module: ModuleId {
+            package: get_id(cursor)?,
+            path: get_string(cursor)?,
+        },
         name: get_string(cursor)?,
         kind: read_u8(cursor)?,
     };
@@ -1176,8 +1186,10 @@ mod tests {
         let graph = StableTypeGraph {
             nodes: vec![StableTypeNode::NamedApplied {
                 definition: DefinitionId {
-                    package,
-                    module: "m".into(),
+                    module: ModuleId {
+                        package,
+                        path: "m".into(),
+                    },
                     name: "Array".into(),
                     kind: 5,
                 },
@@ -1231,8 +1243,10 @@ mod tests {
         let section = InterfaceSection {
             records: vec![InterfaceRecord {
                 definition: DefinitionId {
-                    package,
-                    module: "std/io".into(),
+                    module: ModuleId {
+                        package,
+                        path: "std/io".into(),
+                    },
                     name: "write".into(),
                     kind: 2,
                 },
@@ -1263,8 +1277,10 @@ mod tests {
         let package = sample().package;
         let first = InterfaceRecord {
             definition: DefinitionId {
-                package: package.clone(),
-                module: "m".into(),
+                module: ModuleId {
+                    package: package.clone(),
+                    path: "m".into(),
+                },
                 name: "a".into(),
                 kind: 2,
             },
@@ -1273,8 +1289,10 @@ mod tests {
         };
         let second = InterfaceRecord {
             definition: DefinitionId {
-                package,
-                module: "m".into(),
+                module: ModuleId {
+                    package,
+                    path: "m".into(),
+                },
                 name: "a".into(),
                 kind: 2,
             },
@@ -1299,8 +1317,10 @@ mod tests {
     fn stable_type_graph_round_trips_and_rejects_forward_references() {
         let package = sample().package;
         let named = DefinitionId {
-            package,
-            module: "std/io".into(),
+            module: ModuleId {
+                package,
+                path: "std/io".into(),
+            },
             name: "Text".into(),
             kind: 5,
         };
