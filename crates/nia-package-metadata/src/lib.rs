@@ -24,6 +24,8 @@ const INTERFACE_SCHEMA: u32 = 5;
 const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
+const SIGNATURE_MAGIC: &[u8; 8] = b"NIASIG01";
+const SIGNATURE_SCHEMA: u32 = 1;
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 2;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
@@ -90,6 +92,86 @@ pub struct InterfaceRecord {
     pub declaration: Vec<u8>,
     /// Strictly sorted indices into the package type-graph section.
     pub type_roots: Vec<u32>,
+}
+
+/// Stable signature facts for one published definition.
+///
+/// The record deliberately contains only package-owned identities and indexes
+/// into the canonical [`StableTypeGraph`].  Session-local `DefId`,
+/// `InternedTyId`, symbols, and source spans must never cross this boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureRecord {
+    pub definition: DefinitionId,
+    /// Definition kind tag (the same canonical domain as `InterfaceRecord`).
+    pub kind: u8,
+    /// Canonical signature flags. Unknown bits are rejected by validation.
+    pub flags: u32,
+    /// Strictly sorted indexes into the package type-graph section.
+    pub type_roots: Vec<u32>,
+}
+
+/// Target-independent signature facts published by one package.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SignatureSection {
+    pub records: Vec<SignatureRecord>,
+}
+
+/// Signature has a checked body available to downstream consumers.
+pub const SIGNATURE_FLAG_HAS_BODY: u32 = 1 << 0;
+/// Signature is externally linked.
+pub const SIGNATURE_FLAG_EXTERN: u32 = 1 << 1;
+/// Signature is const-evaluable.
+pub const SIGNATURE_FLAG_CONST: u32 = 1 << 2;
+/// Signature accepts variadic arguments.
+pub const SIGNATURE_FLAG_VARIADIC: u32 = 1 << 3;
+/// Signature is an open enum declaration.
+pub const SIGNATURE_FLAG_OPEN: u32 = 1 << 4;
+/// Signature represents tuple-like aggregate construction.
+pub const SIGNATURE_FLAG_TUPLE: u32 = 1 << 5;
+const SIGNATURE_FLAGS_MASK: u32 = SIGNATURE_FLAG_HAS_BODY
+    | SIGNATURE_FLAG_EXTERN
+    | SIGNATURE_FLAG_CONST
+    | SIGNATURE_FLAG_VARIADIC
+    | SIGNATURE_FLAG_OPEN
+    | SIGNATURE_FLAG_TUPLE;
+
+impl SignatureSection {
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        if self.records.len() > MAX_ITEMS {
+            return Err(MetadataError::TooManyItems);
+        }
+        for record in &self.records {
+            validate_definition(&record.definition)?;
+            if !(1..=16).contains(&record.kind) || record.flags & !SIGNATURE_FLAGS_MASK != 0 {
+                return Err(MetadataError::InvalidManifest);
+            }
+            if record.type_roots.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(MetadataError::InvalidManifest);
+            }
+        }
+        if self
+            .records
+            .windows(2)
+            .any(|pair| pair[0].definition >= pair[1].definition)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
+
+    pub fn validate_type_roots(&self, graph: &StableTypeGraph) -> Result<(), MetadataError> {
+        self.validate()?;
+        let node_count = graph.nodes.len() as u32;
+        if self
+            .records
+            .iter()
+            .flat_map(|record| record.type_roots.iter())
+            .any(|root| *root >= node_count)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
 }
 
 /// Checked generic/const body retained for downstream specialization.
@@ -503,6 +585,7 @@ pub struct CompiledPackageInterface {
     templates: Option<Arc<TemplateSection>>,
     native: Option<Arc<NativeSection>>,
     public_surface: Option<Arc<PublicSurfaceSection>>,
+    signatures: Option<Arc<SignatureSection>>,
     record_indexes: Arc<BTreeMap<DefinitionId, usize>>,
 }
 
@@ -516,6 +599,7 @@ impl CompiledPackageInterface {
         let templates = artifact.templates()?;
         let native = artifact.native()?;
         let public_surface = artifact.public_surface()?;
+        let signatures = artifact.signatures()?;
         if let Some(surface) = &public_surface {
             surface.validate()?;
             if surface.package != artifact.manifest().package {
@@ -601,14 +685,32 @@ impl CompiledPackageInterface {
                 return Err(MetadataError::InvalidManifest);
             }
         }
+        if let Some(signatures) = &signatures {
+            signatures.validate()?;
+            if signatures
+                .records
+                .iter()
+                .any(|record| record.definition.module.package != artifact.manifest().package)
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
+        }
         if let Some(graph) = &type_graph {
             interface.validate_type_roots(graph)?;
-        } else if interface
-            .records
-            .iter()
-            .any(|record| !record.type_roots.is_empty())
-        {
-            return Err(MetadataError::InvalidManifest);
+            if let Some(signatures) = &signatures {
+                signatures.validate_type_roots(graph)?;
+            }
+        } else {
+            if interface
+                .records
+                .iter()
+                .any(|record| !record.type_roots.is_empty())
+                || signatures
+                    .as_ref()
+                    .is_some_and(|section| section.records.iter().any(|record| !record.type_roots.is_empty()))
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         let record_indexes = interface
             .records
@@ -623,6 +725,7 @@ impl CompiledPackageInterface {
             templates: templates.map(Arc::new),
             native: native.map(Arc::new),
             public_surface: public_surface.map(Arc::new),
+            signatures: signatures.map(Arc::new),
             record_indexes: Arc::new(record_indexes),
         })
     }
@@ -676,6 +779,11 @@ impl CompiledPackageInterface {
         self.public_surface.as_ref().map(|surface| &**surface)
     }
 
+    /// Returns the optional target-independent signature section.
+    pub fn signatures(&self) -> Option<&SignatureSection> {
+        self.signatures.as_ref().map(|section| &**section)
+    }
+
     /// Resolves one stable definition identity without source loading.
     pub fn definition(&self, definition: &DefinitionId) -> Option<&InterfaceRecord> {
         self.record_indexes
@@ -701,6 +809,7 @@ pub enum SectionKind {
     Native = 3,
     TypeGraph = 4,
     PublicSurface = 5,
+    Signatures = 6,
 }
 impl SectionKind {
     fn decode(value: u8) -> Option<Self> {
@@ -710,6 +819,7 @@ impl SectionKind {
             3 => Some(Self::Native),
             4 => Some(Self::TypeGraph),
             5 => Some(Self::PublicSurface),
+            6 => Some(Self::Signatures),
             _ => None,
         }
     }
@@ -957,6 +1067,13 @@ impl PackageArtifact {
             .map(decode_public_surface)
             .transpose()
     }
+
+    /// Decodes the optional target-independent signature section.
+    pub fn signatures(&self) -> Result<Option<SignatureSection>, MetadataError> {
+        self.section(SectionKind::Signatures)?
+            .map(decode_signatures)
+            .transpose()
+    }
 }
 
 /// Encodes a manifest-only package artifact.
@@ -1085,6 +1202,65 @@ pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError>
         return Err(MetadataError::InvalidManifest);
     }
     let section = InterfaceSection { records };
+    section.validate()?;
+    Ok(section)
+}
+
+/// Encodes canonical target-independent signature facts.
+pub fn encode_signatures(section: &SignatureSection) -> Result<Vec<u8>, MetadataError> {
+    section.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(SIGNATURE_MAGIC);
+    put_u32(&mut output, SIGNATURE_SCHEMA);
+    put_list_len(&mut output, section.records.len())?;
+    for record in &section.records {
+        put_definition(&mut output, &record.definition)?;
+        output.push(record.kind);
+        put_u32(&mut output, record.flags);
+        put_list_len(&mut output, record.type_roots.len())?;
+        for root in &record.type_roots {
+            put_u32(&mut output, *root);
+        }
+    }
+    if output.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    Ok(output)
+}
+
+/// Decodes and validates canonical target-independent signature facts.
+pub fn decode_signatures(bytes: &[u8]) -> Result<SignatureSection, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; 8];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *SIGNATURE_MAGIC {
+        return Err(MetadataError::BadMagic);
+    }
+    let schema = get_u32(&mut cursor)?;
+    if schema != SIGNATURE_SCHEMA {
+        return Err(MetadataError::Schema(schema));
+    }
+    let count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut records = Vec::with_capacity(count);
+    for _ in 0..count {
+        let definition = read_definition(&mut cursor)?;
+        let kind = read_u8(&mut cursor)?;
+        let flags = get_u32(&mut cursor)?;
+        let type_roots = read_refs(&mut cursor)?;
+        records.push(SignatureRecord {
+            definition,
+            kind,
+            flags,
+            type_roots,
+        });
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let section = SignatureSection { records };
     section.validate()?;
     Ok(section)
 }
@@ -2049,6 +2225,75 @@ mod tests {
             encode_templates(&incomplete),
             Err(MetadataError::InvalidManifest)
         );
+    }
+
+    #[test]
+    fn signature_section_round_trips_and_rejects_unknown_flags() {
+        let record = SignatureRecord {
+            definition: DefinitionId {
+                module: ModuleId {
+                    package: sample().package,
+                    path: "m".into(),
+                },
+                name: "f".into(),
+                kind: 2,
+                owner: None,
+            },
+            kind: 2,
+            flags: SIGNATURE_FLAG_HAS_BODY | SIGNATURE_FLAG_CONST,
+            type_roots: vec![0, 2],
+        };
+        let section = SignatureSection {
+            records: vec![record],
+        };
+        let bytes = encode_signatures(&section).unwrap();
+        assert_eq!(decode_signatures(&bytes).unwrap(), section);
+        let mut invalid = section.clone();
+        invalid.records[0].flags |= 1 << 31;
+        assert_eq!(
+            encode_signatures(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+    }
+
+    #[test]
+    fn signature_section_rejects_unsorted_roots_and_trailing_bytes() {
+        let definition = DefinitionId {
+            module: ModuleId {
+                package: sample().package,
+                path: "m".into(),
+            },
+            name: "f".into(),
+            kind: 2,
+            owner: None,
+        };
+        let invalid = SignatureSection {
+            records: vec![SignatureRecord {
+                definition,
+                kind: 2,
+                flags: 0,
+                type_roots: vec![2, 1],
+            }],
+        };
+        assert_eq!(
+            encode_signatures(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+        let mut bytes = encode_signatures(&SignatureSection::default()).unwrap();
+        bytes.push(0);
+        assert_eq!(decode_signatures(&bytes), Err(MetadataError::InvalidManifest));
+    }
+
+    #[test]
+    fn compiled_interface_decodes_signature_section_lazily() {
+        let section = SignatureSection::default();
+        let bytes = encode_signatures(&section).unwrap();
+        let artifact = PackageArtifact::open(
+            encode_artifact(&sample(), &[(SectionKind::Signatures, &bytes)]).unwrap(),
+        )
+        .unwrap();
+        let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
+        assert_eq!(indexed.signatures(), Some(&section));
     }
 
     #[test]
