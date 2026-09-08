@@ -192,7 +192,17 @@ pub fn main(init: process::Init) process::ExitCode!() {
 }
 
 fn test_command(workspace: &std::path::Path) -> Command {
+    let command_directory = workspace
+        .parent()
+        .expect("temporary workspace has a parent");
+    let relative_root = workspace
+        .strip_prefix(command_directory)
+        .expect("test package is below command directory");
     let mut command = support::nia_command();
-    command.arg("test").arg("--root").arg(workspace);
+    command
+        .current_dir(command_directory)
+        .arg("test")
+        .arg("--root")
+        .arg(relative_root);
     command
 }

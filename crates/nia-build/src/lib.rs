@@ -712,7 +712,10 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
 /// Resolves package paths and invocation-private directories without running actions.
 pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation, BuildError> {
     let start = match request.root {
-        Some(root) => root,
+        Some(root) if root.is_absolute() => root,
+        Some(root) => env::current_dir()
+            .map_err(|error| BuildError::CurrentDirectory { error })?
+            .join(root),
         None => env::current_dir().map_err(|error| BuildError::CurrentDirectory { error })?,
     };
     let package_root = find_package_root(&start)?;
@@ -1654,6 +1657,47 @@ mod tests {
         );
         assert_eq!(plan.step, BuildStepSelection::Default);
         assert_eq!(plan.optimization, OptimizationMode::O0);
+    }
+
+    #[test]
+    fn resolves_relative_root_to_absolute_invocation_paths() {
+        let relative_root = PathBuf::from("target")
+            .join("nia-build-tests")
+            .join(format!("relative-root-{}", std::process::id()));
+        let root = env::current_dir()
+            .expect("current test directory")
+            .join(&relative_root);
+        let child = root.join("src/nested");
+        if root.exists() {
+            std::fs::remove_dir_all(&root).expect("remove old relative-root fixture");
+        }
+        std::fs::create_dir_all(&child).expect("create relative child");
+        std::fs::write(root.join("build.nia"), "").expect("write build script");
+
+        let invocation = resolve_build_invocation(
+            BuildRequest::new(test_toolchain_layout()).with_root(relative_root.join("src/nested")),
+        )
+        .expect("build invocation");
+
+        assert_eq!(invocation.package_root, root);
+        for path in [
+            &invocation.package_root,
+            &invocation.build_script,
+            &invocation.build_dir,
+            &invocation.cache_dir,
+            &invocation.runner_dir,
+            &invocation.runner_executable,
+            &invocation.runner_config,
+            &invocation.plan_draft,
+            &invocation.plan_path,
+        ] {
+            assert!(
+                path.is_absolute(),
+                "path is not absolute: {}",
+                path.display()
+            );
+        }
+        std::fs::remove_dir_all(&root).expect("remove relative-root fixture");
     }
 
     #[test]
