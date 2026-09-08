@@ -23,7 +23,9 @@ use nia_linker::{
     LinkResultCacheKey, LinkResultEnvironmentFingerprint, LinkResultFingerprint,
     LinkResultFingerprintComponents, LinkResultFingerprintSet, LinkTarget,
 };
-use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, SourceInputManifest};
+use nia_loader_query::{
+    EntryRuntime, LoadRequest, LoaderDatabase, PackageArtifactRequest, SourceInputManifest,
+};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{PackageId, PackageManifest};
 use nia_source::{SourceDatabase, SourcePath};
@@ -61,6 +63,8 @@ pub struct CheckRequest {
     pub profile: BuildProfile,
     /// Whether test-only source participates in compilation.
     pub compilation_mode: nia_target_config::CompilationMode,
+    /// Optional compiled package artifact to consume before source fallback.
+    pub package_artifact: Option<PackageArtifactRequest>,
 }
 
 /// Checked program paired with the exact source closure used to produce it.
@@ -1639,6 +1643,7 @@ impl Driver {
             profile: request.profile,
             compilation_mode: request.compilation_mode,
             entry_runtime: entry_runtime(request.runtime),
+            package_artifact: request.package_artifact.clone(),
         };
         let mut loader_guard = self.loader.lock().expect("driver loader lock poisoned");
         let database = match &*loader_guard {
@@ -1654,6 +1659,9 @@ impl Driver {
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);
+                if let Some(package_artifact) = &key.package_artifact {
+                    load_request.package_artifact = Some(package_artifact.clone());
+                }
                 if let Some(package_root) = &key.package_root {
                     load_request = load_request.with_package_root(package_root.clone());
                 }
@@ -1917,6 +1925,7 @@ struct LoaderKey {
     profile: BuildProfile,
     compilation_mode: nia_target_config::CompilationMode,
     entry_runtime: EntryRuntime,
+    package_artifact: Option<PackageArtifactRequest>,
 }
 
 #[derive(Clone)]
@@ -1961,6 +1970,7 @@ impl CheckRequest {
             runtime: Runtime::Bare,
             profile: BuildProfile::default(),
             compilation_mode: nia_target_config::CompilationMode::default(),
+            package_artifact: None,
         }
     }
 
@@ -1991,6 +2001,18 @@ impl CheckRequest {
     /// Selects runtime startup semantics.
     pub fn with_runtime(mut self, runtime: Runtime) -> Self {
         self.runtime = runtime;
+        self
+    }
+
+    /// Selects an optional compiled package artifact with source fallback.
+    pub fn with_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
+        self.package_artifact = Some(PackageArtifactRequest::Optional(path.into()));
+        self
+    }
+
+    /// Requires a compiled package artifact and rejects source fallback.
+    pub fn require_package_artifact(mut self, path: impl Into<PathBuf>) -> Self {
+        self.package_artifact = Some(PackageArtifactRequest::Required(path.into()));
         self
     }
 
