@@ -30,6 +30,7 @@
     "std/builtin/atomic.nia",
     "std/builtin/bits.nia",
     "std/builtin/control.nia",
+    "std/builtin/error.nia",
     "std/builtin/iter.nia",
     "std/builtin/layout.nia",
     "std/builtin/marker.nia",
