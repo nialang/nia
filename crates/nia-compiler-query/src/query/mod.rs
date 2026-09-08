@@ -581,10 +581,11 @@ impl CompilerDatabase {
         let index = self.compiled_package_interface_index()?;
         let mut result = BTreeMap::new();
         for (_, interface) in index.packages() {
-            let Some(graph) = interface.type_graph() else {
-                continue;
-            };
-            let types = self.rehydrate_stable_type_graph(graph, resolver)?;
+            let types = interface
+                .type_graph()
+                .map(|graph| self.rehydrate_stable_type_graph(graph, resolver))
+                .transpose()?
+                .unwrap_or_default();
             for record in interface.records() {
                 let roots = record
                     .type_roots
@@ -607,6 +608,30 @@ impl CompilerDatabase {
             }
         }
         Ok(result)
+    }
+
+    /// Publishes rehydrated compiled-package roots into the typed query graph.
+    /// The interface index is recorded as the predecessor, so invalidating or
+    /// replacing loader-selected artifacts retires the owned payload.
+    pub fn publish_compiled_package_type_roots(
+        &self,
+        package: PackageId,
+        roots: BTreeMap<DefinitionId, Vec<InternedTyId>>,
+    ) {
+        self.db.publish_owned(
+            CompiledPackageTypeRootsQuery(package),
+            roots,
+            &CompiledPackageInterfaceIndexQuery,
+        );
+    }
+
+    /// Consumes one artifact-backed package root product from the query graph.
+    pub fn compiled_package_type_roots(
+        &self,
+        package: &PackageId,
+    ) -> QueryResult<BTreeMap<DefinitionId, Vec<InternedTyId>>> {
+        self.db
+            .get_owned(CompiledPackageTypeRootsQuery(package.clone()))
     }
 
     /// Resolves a stable definition identity against the currently loaded
