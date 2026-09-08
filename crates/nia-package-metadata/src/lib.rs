@@ -39,6 +39,15 @@ pub struct DefinitionId {
     pub kind: u8,
 }
 
+/// Stable const-generic argument used by applied nominal type nodes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StableConstArg {
+    GenericParam(u64),
+    Integer { bits: u128, signed: bool },
+    Bool(bool),
+    Char(char),
+}
+
 /// One package dependency and the interface section it consumed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageDependency {
@@ -81,6 +90,7 @@ pub enum StableTypeNode {
     NamedApplied {
         definition: DefinitionId,
         arguments: Vec<u32>,
+        const_arguments: Vec<StableConstArg>,
     },
     /// Unit type.
     Unit,
@@ -133,9 +143,13 @@ impl StableTypeGraph {
                 StableTypeNode::NamedApplied {
                     definition,
                     arguments,
+                    const_arguments,
                 } => {
                     validate_definition(definition)?;
                     references.extend(arguments);
+                    if const_arguments.len() > MAX_ITEMS {
+                        return Err(MetadataError::TooManyItems);
+                    }
                 }
                 StableTypeNode::Tuple(elements) => references.extend(elements),
                 StableTypeNode::Array { element, .. } => references.push(element),
@@ -672,12 +686,35 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
             StableTypeNode::NamedApplied {
                 definition,
                 arguments,
+                const_arguments,
             } => {
                 output.push(11);
                 put_definition(&mut output, definition)?;
                 put_list_len(&mut output, arguments.len())?;
                 for argument in arguments {
                     put_u32(&mut output, *argument);
+                }
+                put_list_len(&mut output, const_arguments.len())?;
+                for argument in const_arguments {
+                    match argument {
+                        StableConstArg::GenericParam(hash) => {
+                            output.push(0);
+                            output.extend_from_slice(&hash.to_le_bytes());
+                        }
+                        StableConstArg::Integer { bits, signed } => {
+                            output.push(1);
+                            output.extend_from_slice(&bits.to_le_bytes());
+                            output.push(u8::from(*signed));
+                        }
+                        StableConstArg::Bool(value) => {
+                            output.push(2);
+                            output.push(u8::from(*value));
+                        }
+                        StableConstArg::Char(value) => {
+                            output.push(3);
+                            output.extend_from_slice(&u32::from(*value).to_le_bytes());
+                        }
+                    }
                 }
             }
             StableTypeNode::Unit => output.push(3),
@@ -753,6 +790,31 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
             11 => StableTypeNode::NamedApplied {
                 definition: read_definition(&mut cursor)?,
                 arguments: read_refs(&mut cursor)?,
+                const_arguments: {
+                    let count = bounded_count(get_u32(&mut cursor)?)?;
+                    (0..count)
+                        .map(|_| match read_u8(&mut cursor)? {
+                            0 => Ok(StableConstArg::GenericParam(get_u64(&mut cursor)?)),
+                            1 => Ok(StableConstArg::Integer {
+                                bits: get_u128(&mut cursor)?,
+                                signed: match read_u8(&mut cursor)? {
+                                    0 => false,
+                                    1 => true,
+                                    _ => return Err(MetadataError::InvalidManifest),
+                                },
+                            }),
+                            2 => Ok(StableConstArg::Bool(match read_u8(&mut cursor)? {
+                                0 => false,
+                                1 => true,
+                                _ => return Err(MetadataError::InvalidManifest),
+                            })),
+                            3 => char::from_u32(get_u32(&mut cursor)?)
+                                .map(StableConstArg::Char)
+                                .ok_or(MetadataError::InvalidManifest),
+                            _ => Err(MetadataError::InvalidManifest),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                },
             },
             3 => StableTypeNode::Unit,
             4 => StableTypeNode::Never,
@@ -992,6 +1054,11 @@ fn get_u64(cursor: &mut Cursor<&[u8]>) -> Result<u64, MetadataError> {
     read_exact(cursor, &mut bytes)?;
     Ok(u64::from_le_bytes(bytes))
 }
+fn get_u128(cursor: &mut Cursor<&[u8]>) -> Result<u128, MetadataError> {
+    let mut bytes = [0; 16];
+    read_exact(cursor, &mut bytes)?;
+    Ok(u128::from_le_bytes(bytes))
+}
 fn read_u8(cursor: &mut Cursor<&[u8]>) -> Result<u8, MetadataError> {
     let mut byte = [0; 1];
     read_exact(cursor, &mut byte)?;
@@ -1055,6 +1122,31 @@ mod tests {
         assert_eq!(artifact.type_graph().unwrap(), Some(graph.clone()));
         let indexed = CompiledPackageInterface::from_artifact(&artifact).unwrap();
         assert_eq!(indexed.type_graph(), Some(&graph));
+    }
+
+    #[test]
+    fn applied_nominal_type_graph_round_trips_const_arguments() {
+        let package = sample().package;
+        let graph = StableTypeGraph {
+            nodes: vec![StableTypeNode::NamedApplied {
+                definition: DefinitionId {
+                    package,
+                    module: "m".into(),
+                    name: "Array".into(),
+                    kind: 5,
+                },
+                arguments: Vec::new(),
+                const_arguments: vec![StableConstArg::Integer {
+                    bits: 4,
+                    signed: false,
+                }],
+            }],
+            roots: vec![0],
+        };
+        assert_eq!(
+            decode_type_graph(&encode_type_graph(&graph).unwrap()).unwrap(),
+            graph
+        );
     }
     #[test]
     fn rejects_corruption_and_noncanonical_manifest() {
