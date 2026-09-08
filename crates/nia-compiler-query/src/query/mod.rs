@@ -701,6 +701,9 @@ impl CompilerDatabase {
             if !native_target_matches(&section.target, &self.db.context().loader_facts().target()) {
                 continue;
             }
+            if !native_profile_matches(section.profile, section.optimization, self) {
+                continue;
+            }
             let key = CompiledPackageNativeQuery(package.clone());
             if self.db.can_publish_owned(key.clone()) {
                 self.db.publish_owned(
@@ -2213,6 +2216,26 @@ fn native_target_matches(
         && native.abi == target.abi
         && native.endian == target.endian
         && native.pointer_width == target.pointer_width
+}
+
+fn native_profile_matches(
+    profile: u8,
+    optimization: u8,
+    database: &CompilerDatabase,
+) -> bool {
+    let expected_profile = match database.db.context().loader_facts().profile() {
+        nia_target_config::BuildProfile::Debug => 0,
+        nia_target_config::BuildProfile::Release => 1,
+    };
+    let expected_optimization = match database.current_optimization().level {
+        NiaOptimizationLevel::O0 => 0,
+        NiaOptimizationLevel::O1 => 1,
+        NiaOptimizationLevel::O2 => 2,
+        NiaOptimizationLevel::O3 => 3,
+        NiaOptimizationLevel::Os => 4,
+        NiaOptimizationLevel::Oz => 5,
+    };
+    profile == expected_profile && optimization == expected_optimization
 }
 
 fn stable_primitive_from_tag(tag: u8) -> Option<nia_ty::PrimitiveTy> {
