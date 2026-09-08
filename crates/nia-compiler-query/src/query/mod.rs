@@ -29,7 +29,7 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_package_metadata::{
     DefinitionId, InterfaceRecord, InterfaceSection, ModuleInterface, PackageId, PackageManifest,
-    SectionKind, StableConstArg, StableTypeGraph, StableTypeNode,
+    SectionKind, StableConstArg, StableDeclaration, StableTypeGraph, StableTypeNode,
 };
 use nia_parser::ParseError;
 use nia_program_signatures::{
@@ -234,6 +234,27 @@ where
 pub struct CompiledPackageInterfaceIndex {
     packages: BTreeMap<PackageId, nia_package_metadata::CompiledPackageInterface>,
     definitions: BTreeMap<DefinitionId, (PackageId, usize)>,
+}
+
+/// Decoded declaration facts for one selected compiled package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledPackageDeclarations {
+    package: PackageId,
+    declarations: BTreeMap<DefinitionId, StableDeclaration>,
+}
+
+impl CompiledPackageDeclarations {
+    pub fn package(&self) -> &PackageId {
+        &self.package
+    }
+
+    pub fn declaration(&self, definition: &DefinitionId) -> Option<&StableDeclaration> {
+        self.declarations.get(definition)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&DefinitionId, &StableDeclaration)> {
+        self.declarations.iter()
+    }
 }
 
 impl CompiledPackageInterfaceIndex {
@@ -643,11 +664,7 @@ impl CompilerDatabase {
 
     /// Publishes the validated declaration inventory for one selected package
     /// into the typed query graph.
-    pub fn publish_compiled_package_declarations(
-        &self,
-        package: PackageId,
-        declarations: InterfaceSection,
-    ) -> QueryResult<()> {
+    pub fn publish_compiled_package_declarations(&self, package: PackageId) -> QueryResult<()> {
         let index = self.compiled_package_interface_index()?;
         let Some(interface) = index.package(&package) else {
             return Err(self.db.invalid_input(
@@ -657,19 +674,28 @@ impl CompilerDatabase {
                 ),
             ));
         };
-        declarations.validate().map_err(|error| {
-            self.db
-                .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
-        })?;
-        if declarations.records.as_slice() != interface.records() {
-            return Err(self.db.invalid_input(
-                &CompiledPackageInterfaceIndexQuery,
-                "published declarations do not match the selected package interface".to_string(),
-            ));
+        let mut declarations = BTreeMap::new();
+        for record in interface.records() {
+            let declaration = nia_package_metadata::decode_declaration(&record.declaration)
+                .map_err(|error| {
+                    self.db
+                        .invalid_input(&CompiledPackageInterfaceIndexQuery, error.to_string())
+                })?;
+            if declaration.kind != record.definition.kind || declaration.visibility != 3 {
+                return Err(self.db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    "compiled declaration identity or public visibility is inconsistent"
+                        .to_string(),
+                ));
+            }
+            declarations.insert(record.definition.clone(), declaration);
         }
         self.db.publish_owned(
-            CompiledPackageDeclarationsQuery(package),
-            declarations,
+            CompiledPackageDeclarationsQuery(package.clone()),
+            CompiledPackageDeclarations {
+                package,
+                declarations,
+            },
             &CompiledPackageInterfaceIndexQuery,
         );
         Ok(())
@@ -679,7 +705,7 @@ impl CompilerDatabase {
     pub fn compiled_package_declarations(
         &self,
         package: &PackageId,
-    ) -> QueryResult<InterfaceSection> {
+    ) -> QueryResult<CompiledPackageDeclarations> {
         self.db
             .get_owned(CompiledPackageDeclarationsQuery(package.clone()))
     }
@@ -710,16 +736,11 @@ impl CompilerDatabase {
             self.publish_compiled_package_type_roots(package, roots)?;
         }
         let index = self.compiled_package_interface_index()?;
-        for (package, interface) in index.packages() {
+        for (package, _) in index.packages() {
             if !packages.contains(package) {
                 packages.push(package.clone());
             }
-            self.publish_compiled_package_declarations(
-                package.clone(),
-                InterfaceSection {
-                    records: interface.records().to_vec(),
-                },
-            )?;
+            self.publish_compiled_package_declarations(package.clone())?;
         }
         packages.sort();
         Ok(packages)

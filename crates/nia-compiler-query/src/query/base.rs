@@ -91,7 +91,7 @@ pub(super) struct CompiledPackageTypeRootsQuery(pub(super) PackageId);
 pub(super) struct CompiledPackageDeclarationsQuery(pub(super) PackageId);
 
 impl QueryKey<CompilerContext> for CompiledPackageDeclarationsQuery {
-    type Value = InterfaceSection;
+    type Value = CompiledPackageDeclarations;
 
     const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
     const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
