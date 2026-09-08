@@ -142,6 +142,12 @@ fn package_interface_publication_is_canonical_and_stable() {
             record.definition.name == "greet" || record.definition.name == "User"
         })
     );
+    assert!(
+        first
+            .records
+            .iter()
+            .all(|record| nia_package_metadata::decode_declaration(&record.declaration).is_ok())
+    );
 }
 
 #[test]
