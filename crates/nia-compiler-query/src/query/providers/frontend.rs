@@ -98,6 +98,122 @@ pub(in crate::query) fn provide_artifact_public_surface_facts(
     }))
 }
 
+/// Materializes a complete artifact public surface for direct lookup queries.
+/// Stable targets are remapped through the loaded module graph and canonical
+/// definition-id constructor; no source path is used as an identity key.
+pub(in crate::query) fn provide_artifact_public_surface(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<Option<ModulePublicSurface>> {
+    let Some(identity) = db
+        .context()
+        .loader_facts()
+        .compiled_package_module_identity(module_id)?
+    else {
+        return Ok(None);
+    };
+    let index = db.get(CompiledPackageInterfaceIndexQuery)?;
+    let Some(interface) = index.package(&identity.package) else {
+        return Ok(None);
+    };
+    let Some(section) = interface.public_surface() else {
+        return Ok(None);
+    };
+    let Some(module) = section
+        .modules
+        .iter()
+        .find(|module| module.path == identity.path)
+    else {
+        return Ok(None);
+    };
+    let symbols = db.context().symbols();
+    let graph = db.get(ModuleGraphQuery)?;
+    let resolve_module = |target: &nia_package_metadata::ModuleId| -> Option<ModuleId> {
+        graph.modules().find_map(|node| {
+            if let Ok(Some(identity)) = db
+                .context()
+                .loader_facts()
+                .compiled_package_module_identity(node.id)
+            {
+                if identity == *target {
+                    return Some(node.id);
+                }
+            }
+            let key = graph.stable_key(node.id)?;
+            (target.package == section.package
+                && key.source_identity().normalized_path() == target.path)
+                .then_some(node.id)
+        })
+    };
+    let resolve_def =
+        |target: &nia_package_metadata::DefinitionId| -> QueryResult<nia_ids::GlobalDefId> {
+            let target_module = resolve_module(&target.module).ok_or_else(|| {
+                db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    format!(
+                        "artifact export target module is not loaded: {:?}",
+                        target.module
+                    ),
+                )
+            })?;
+            let name = symbols.intern(&target.name).map_err(|e| {
+                db.invalid_input(&CompiledPackageInterfaceIndexQuery, e.to_string())
+            })?;
+            let kind = def_kind_from_tag(target.kind).ok_or_else(|| {
+                db.invalid_input(
+                    &CompiledPackageInterfaceIndexQuery,
+                    "artifact export has unknown definition kind".to_string(),
+                )
+            })?;
+            Ok(GlobalDefId {
+                module_id: target_module,
+                def_id: nia_defs::stable_top_level_def_id(kind, name),
+            })
+        };
+    let mut surface = ModulePublicSurface::new(module_id);
+    for (name, child) in &module.modules {
+        if let Some(child_id) = resolve_module(child) {
+            surface.modules.insert(
+                symbols.intern(name).map_err(|e| {
+                    db.invalid_input(&CompiledPackageInterfaceIndexQuery, e.to_string())
+                })?,
+                child_id,
+            );
+        }
+    }
+    for export in &module.exports {
+        let name = symbols
+            .intern(&export.name)
+            .map_err(|e| db.invalid_input(&CompiledPackageInterfaceIndexQuery, e.to_string()))?;
+        let target = resolve_def(&export.target)?;
+        let parent_enum = export.parent_enum.as_ref().map(resolve_def).transpose()?;
+        let item = nia_defs::PublicItem {
+            target_module: target.module_id,
+            target_def_id: target.def_id,
+            namespace: if export.namespace == 0 {
+                nia_defs::PublicNamespace::Value
+            } else {
+                nia_defs::PublicNamespace::Type
+            },
+            name_span: Span::default(),
+            source: if export.source == 0 {
+                nia_defs::PublicSource::Direct
+            } else {
+                nia_defs::PublicSource::PubUsing {
+                    directive_span: Span::default(),
+                }
+            },
+            parent_enum,
+        };
+        if export.namespace == 0 {
+            surface.values.insert(name, item);
+        } else {
+            surface.types.insert(name, item);
+        }
+    }
+    Ok(Some(surface))
+}
+
 fn def_kind_from_tag(tag: u8) -> Option<nia_defs::DefKind> {
     use nia_defs::DefKind;
     Some(match tag {

@@ -1216,6 +1216,9 @@ impl QueryKey<CompilerContext> for ModulePublicSurfaceQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        if let Some(surface) = provide_artifact_public_surface(db, self.0)? {
+            return Ok(Some(Arc::new(surface)));
+        }
         (db.context().providers.module_public_surface)(db, self.0)
     }
 
