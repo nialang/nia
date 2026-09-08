@@ -394,6 +394,17 @@ impl CompilerDatabase {
                     args: Vec::new(),
                     const_args: Vec::new(),
                 }),
+                StableTypeNode::NamedApplied {
+                    definition,
+                    arguments,
+                } => append.intern(nia_ty::TyKind::Nominal {
+                    def_id: resolver.definition_for_identity(definition)?,
+                    args: arguments
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                    const_args: Vec::new(),
+                }),
                 StableTypeNode::Unit => append.intern(nia_ty::TyKind::Tuple(Vec::new())),
                 StableTypeNode::Never => {
                     append.intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Never))
@@ -563,6 +574,9 @@ impl CompilerDatabase {
             .iter()
             .map(|root| encoder.encode(*root))
             .collect::<QueryResult<Vec<_>>>()?;
+        let mut roots = roots;
+        roots.sort_unstable();
+        roots.dedup();
         let graph = StableTypeGraph {
             nodes: encoder.nodes,
             roots,
@@ -1206,8 +1220,19 @@ impl StableTypeGraphEncoder<'_> {
                 def_id,
                 args,
                 const_args,
-            } if args.is_empty() && const_args.is_empty() => {
-                StableTypeNode::Named(self.definition(def_id)?)
+            } if const_args.is_empty() => {
+                let definition = self.definition(def_id)?;
+                if args.is_empty() {
+                    StableTypeNode::Named(definition)
+                } else {
+                    StableTypeNode::NamedApplied {
+                        definition,
+                        arguments: args
+                            .into_iter()
+                            .map(|argument| self.encode(argument))
+                            .collect::<QueryResult<Vec<_>>>()?,
+                    }
+                }
             }
             nia_ty::TyKind::GenericParam(name) => StableTypeNode::GenericParam(name.raw()),
             _ => return Err(self.unsupported("type form has no stable package encoding")),

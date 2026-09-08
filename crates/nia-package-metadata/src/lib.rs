@@ -77,6 +77,11 @@ pub enum StableTypeNode {
     Primitive(u8),
     /// Named declaration resolved through a package-stable identity.
     Named(DefinitionId),
+    /// Named declaration applied to earlier type-graph arguments.
+    NamedApplied {
+        definition: DefinitionId,
+        arguments: Vec<u32>,
+    },
     /// Unit type.
     Unit,
     /// Never type.
@@ -125,6 +130,13 @@ impl StableTypeGraph {
                 }
                 StableTypeNode::Primitive(_) | StableTypeNode::Unit | StableTypeNode::Never => {}
                 StableTypeNode::Named(definition) => validate_definition(definition)?,
+                StableTypeNode::NamedApplied {
+                    definition,
+                    arguments,
+                } => {
+                    validate_definition(definition)?;
+                    references.extend(arguments);
+                }
                 StableTypeNode::Tuple(elements) => references.extend(elements),
                 StableTypeNode::Array { element, .. } => references.push(element),
                 StableTypeNode::Function { parameters, result } => {
@@ -657,6 +669,17 @@ pub fn encode_type_graph(graph: &StableTypeGraph) -> Result<Vec<u8>, MetadataErr
                 output.push(2);
                 put_definition(&mut output, definition)?;
             }
+            StableTypeNode::NamedApplied {
+                definition,
+                arguments,
+            } => {
+                output.push(11);
+                put_definition(&mut output, definition)?;
+                put_list_len(&mut output, arguments.len())?;
+                for argument in arguments {
+                    put_u32(&mut output, *argument);
+                }
+            }
             StableTypeNode::Unit => output.push(3),
             StableTypeNode::Never => output.push(4),
             StableTypeNode::Tuple(elements) => {
@@ -727,6 +750,10 @@ pub fn decode_type_graph(bytes: &[u8]) -> Result<StableTypeGraph, MetadataError>
         nodes.push(match tag {
             1 => StableTypeNode::Primitive(read_u8(&mut cursor)?),
             2 => StableTypeNode::Named(read_definition(&mut cursor)?),
+            11 => StableTypeNode::NamedApplied {
+                definition: read_definition(&mut cursor)?,
+                arguments: read_refs(&mut cursor)?,
+            },
             3 => StableTypeNode::Unit,
             4 => StableTypeNode::Never,
             5 => StableTypeNode::Tuple(read_refs(&mut cursor)?),
