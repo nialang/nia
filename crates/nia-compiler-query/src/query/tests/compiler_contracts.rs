@@ -999,6 +999,18 @@ fn installing_compiled_templates_publishes_empty_package_slots() {
 }
 
 #[test]
+fn installing_compiled_signatures_publishes_empty_package_slots() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "fn main() () {}");
+    let database = fixture.database();
+    assert!(
+        database
+            .install_compiled_package_signatures()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn loaded_definition_resolver_validates_stable_identity() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
     let database = fixture.database();
