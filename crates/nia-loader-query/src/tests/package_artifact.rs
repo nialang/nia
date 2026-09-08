@@ -266,15 +266,10 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
     assert_eq!(fact.records().len(), 1);
     let native_packages = compiler.install_compiled_package_native().unwrap();
     assert_eq!(native_packages, vec![package.clone()]);
-    assert_eq!(
-        compiler
-            .compiled_package_native(package)
-            .unwrap()
-            .section()
-            .objects
-            .len(),
-        1
-    );
+    let products = compiler.compiled_package_native_products().unwrap();
+    assert_eq!(products.len(), 1);
+    assert_eq!(products[0].package(), &package);
+    assert_eq!(products[0].section().objects[0].fingerprint, [0, 0]);
 }
 
 #[test]

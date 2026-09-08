@@ -728,6 +728,20 @@ impl CompilerDatabase {
         self.db.get_owned(CompiledPackageNativeQuery(package))
     }
 
+    /// Returns all target-compatible native products selected from compiled
+    /// package artifacts. Products are query-owned and therefore participate
+    /// in normal invalidation when an artifact is replaced.
+    pub fn compiled_package_native_products(&self) -> QueryResult<Vec<CompiledPackageNative>> {
+        let index = self.compiled_package_interface_index()?;
+        let mut products = Vec::new();
+        for (package, _) in index.packages() {
+            if let Ok(product) = self.compiled_package_native(package.clone()) {
+                products.push(product);
+            }
+        }
+        Ok(products)
+    }
+
     /// Returns the query-tracked index of selected compiled interfaces.
     pub fn compiled_package_interface_index(&self) -> QueryResult<CompiledPackageInterfaceIndex> {
         self.db

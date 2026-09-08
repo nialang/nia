@@ -1195,9 +1195,24 @@ impl Driver {
                     ));
                 }
             };
+            let mut link_inputs = output.link_inputs.into_vec();
+            match append_compiled_package_native_inputs(&database, &mut link_inputs) {
+                Ok(()) => {}
+                Err(error) => return DriverOutput::from_error(error),
+            }
+            link_inputs.sort_by(|left, right| left.key.cmp(&right.key));
+            if link_inputs
+                .windows(2)
+                .any(|pair| pair[0].key == pair[1].key)
+            {
+                return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
+                    "compiled package native objects contain duplicate stable unit keys"
+                        .to_string(),
+                ));
+            }
             DriverOutput::success(ObjectArtifactWithSourceManifest {
                 artifact: ObjectArtifact {
-                    link_inputs: output.link_inputs,
+                    link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs),
                     optimization,
                     optimization_report,
                     diagnostics,
@@ -2389,6 +2404,58 @@ fn codegen_options(
         timings,
         toolchain_identity,
     }
+}
+
+/// Appends native objects supplied by selected compiled package artifacts to
+/// the source codegen inputs. Artifact objects retain their canonical package
+/// identity and metadata fingerprint; the numeric unit id is deliberately
+/// transient and derived from the stable key for this invocation.
+fn append_compiled_package_native_inputs(
+    database: &CompilerDatabase,
+    inputs: &mut Vec<nia_codegen_llvm::IncrementalLinkInput<nia_codegen_llvm::NativeObject>>,
+) -> Result<(), DriverError> {
+    for product in database
+        .compiled_package_native_products()
+        .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))?
+    {
+        let package = product.package();
+        for object in &product.section().objects {
+            let key = nia_codegen_llvm::CodegenUnitKey::compiled_package(
+                package.namespace.clone(),
+                package.name.clone(),
+                package.version.clone(),
+                object.key.clone(),
+            );
+            let mut hasher = blake3::Hasher::new();
+            for field in [
+                package.namespace.as_str(),
+                package.name.as_str(),
+                package.version.as_str(),
+                object.key.as_str(),
+            ] {
+                hasher.update(field.as_bytes());
+                hasher.update(&[0]);
+            }
+            let digest = hasher.finalize();
+            let bytes = digest.as_bytes();
+            let unit = nia_codegen_llvm::CodegenUnitId::CompiledPackage {
+                package: u64::from_le_bytes(bytes[0..8].try_into().expect("digest width")),
+                object: u64::from_le_bytes(bytes[8..16].try_into().expect("digest width")),
+            };
+            inputs.push(nia_codegen_llvm::IncrementalLinkInput {
+                key: key.clone(),
+                fingerprint: nia_codegen_llvm::CodegenUnitFingerprint::from_parts(
+                    object.fingerprint,
+                ),
+                object: nia_codegen_llvm::NativeObject {
+                    unit,
+                    name: object.key.clone(),
+                    bytes: object.bytes.clone(),
+                },
+            });
+        }
+    }
+    Ok(())
 }
 
 fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {

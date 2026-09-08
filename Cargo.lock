@@ -545,6 +545,7 @@ dependencies = [
 name = "nia-driver"
 version = "0.2.0-dev"
 dependencies = [
+ "blake3",
  "nia-ast",
  "nia-backend-ir",
  "nia-body-ir",
