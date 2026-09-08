@@ -218,6 +218,47 @@ fn stable_type_graph_publication_encodes_generic_parameter_identity() {
 }
 
 #[test]
+fn stable_type_graph_rehydrates_into_current_type_store() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
+    let database = fixture.database();
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "demo".into(),
+        version: "1.0.0".into(),
+    };
+    let graph = nia_package_metadata::StableTypeGraph {
+        nodes: vec![
+            nia_package_metadata::StableTypeNode::Primitive(3),
+            nia_package_metadata::StableTypeNode::Pointer {
+                target: 0,
+                readonly: true,
+            },
+        ],
+        roots: vec![1],
+    };
+    let roots = database
+        .rehydrate_stable_type_graph(
+            &graph,
+            &|definition: &nia_package_metadata::DefinitionId| {
+                assert_eq!(definition.package, package);
+                Ok(nia_ids::GlobalDefId {
+                    module_id: fixture.entry_id(),
+                    def_id: nia_ids::DefId(0),
+                })
+            },
+        )
+        .unwrap();
+    assert_eq!(roots.len(), 1);
+    assert!(matches!(
+        database.db.context().type_store.get(roots[0]),
+        Some(nia_ty::TyKind::Pointer {
+            is_readonly: true,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn stable_type_graph_publication_remaps_nominal_definition_identity() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
     let database = fixture.database();

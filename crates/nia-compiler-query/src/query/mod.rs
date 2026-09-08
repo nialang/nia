@@ -169,6 +169,22 @@ pub trait StableDefinitionPackageResolver {
     fn package_for_definition(&self, def_id: GlobalDefId) -> QueryResult<PackageId>;
 }
 
+/// Resolves a published definition identity into the current compiler
+/// session. Implementations are responsible for remapping package/module
+/// identities; no physical path lookup is implied by this trait.
+pub trait StableDefinitionResolver {
+    fn definition_for_identity(&self, definition: &DefinitionId) -> QueryResult<GlobalDefId>;
+}
+
+impl<F> StableDefinitionResolver for F
+where
+    F: Fn(&DefinitionId) -> QueryResult<GlobalDefId>,
+{
+    fn definition_for_identity(&self, definition: &DefinitionId) -> QueryResult<GlobalDefId> {
+        self(definition)
+    }
+}
+
 /// Compiler-owned index of validated compiled package interfaces.
 ///
 /// The index deliberately retains stable metadata identities. It does not
@@ -348,6 +364,83 @@ impl CompilerDatabase {
         self.db
             .get(CompiledPackageInterfaceIndexQuery)
             .map(Arc::unwrap_or_clone)
+    }
+
+    /// Rehydrates a stable package type graph into this database's canonical
+    /// type store using an explicit definition identity resolver.
+    pub fn rehydrate_stable_type_graph(
+        &self,
+        graph: &StableTypeGraph,
+        resolver: &dyn StableDefinitionResolver,
+    ) -> QueryResult<Vec<InternedTyId>> {
+        graph
+            .validate()
+            .map_err(|error| self.db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
+        let entry = self.db.get(ModuleGraphQuery)?.entry();
+        let append = self.db.context().type_store.append_for_module(entry);
+        let mut types = Vec::with_capacity(graph.nodes.len());
+        for node in &graph.nodes {
+            let ty = match node {
+                StableTypeNode::Primitive(tag) => stable_primitive_from_tag(*tag)
+                    .map(|primitive| append.primitive(primitive))
+                    .ok_or_else(|| {
+                        self.db.invalid_input(
+                            &ModuleGraphQuery,
+                            "unknown stable primitive tag".to_string(),
+                        )
+                    })?,
+                StableTypeNode::Named(definition) => append.intern(nia_ty::TyKind::Nominal {
+                    def_id: resolver.definition_for_identity(definition)?,
+                    args: Vec::new(),
+                    const_args: Vec::new(),
+                }),
+                StableTypeNode::Unit => append.intern(nia_ty::TyKind::Tuple(Vec::new())),
+                StableTypeNode::Never => {
+                    append.intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Never))
+                }
+                StableTypeNode::Tuple(elements) => append.intern(nia_ty::TyKind::Tuple(
+                    elements
+                        .iter()
+                        .map(|index| types[usize::try_from(*index).unwrap()])
+                        .collect(),
+                )),
+                StableTypeNode::Array { element, length } => append.intern(nia_ty::TyKind::Array {
+                    elem: types[usize::try_from(*element).unwrap()],
+                    len: nia_ty::ArrayLenTy::ConstValue(*length),
+                }),
+                StableTypeNode::Function { parameters, result } => {
+                    append.intern(nia_ty::TyKind::FunctionPointer {
+                        params: parameters
+                            .iter()
+                            .map(|index| types[usize::try_from(*index).unwrap()])
+                            .collect(),
+                        return_type: types[usize::try_from(*result).unwrap()],
+                        is_variadic: false,
+                    })
+                }
+                StableTypeNode::Reference { target, mutable } => {
+                    append.intern(nia_ty::TyKind::Pointer {
+                        is_readonly: !*mutable,
+                        elem: types[usize::try_from(*target).unwrap()],
+                    })
+                }
+                StableTypeNode::Pointer { target, readonly } => {
+                    append.intern(nia_ty::TyKind::Pointer {
+                        is_readonly: *readonly,
+                        elem: types[usize::try_from(*target).unwrap()],
+                    })
+                }
+                StableTypeNode::GenericParam(hash) => append.intern(nia_ty::TyKind::GenericParam(
+                    SymbolId::from_stable_hash(*hash),
+                )),
+            };
+            types.push(ty);
+        }
+        Ok(graph
+            .roots
+            .iter()
+            .map(|root| types[usize::try_from(*root).unwrap()])
+            .collect())
     }
 
     /// Converts session-owned type roots into a package-stable type graph.
@@ -962,6 +1055,29 @@ impl CompilerDatabase {
         }
         Ok(invalidation)
     }
+}
+
+fn stable_primitive_from_tag(tag: u8) -> Option<nia_ty::PrimitiveTy> {
+    use nia_ty::PrimitiveTy;
+    Some(match tag {
+        1 => PrimitiveTy::I8,
+        2 => PrimitiveTy::I16,
+        3 => PrimitiveTy::I32,
+        4 => PrimitiveTy::I64,
+        5 => PrimitiveTy::I128,
+        6 => PrimitiveTy::Isize,
+        7 => PrimitiveTy::U8,
+        8 => PrimitiveTy::U16,
+        9 => PrimitiveTy::U32,
+        10 => PrimitiveTy::U64,
+        11 => PrimitiveTy::U128,
+        12 => PrimitiveTy::Usize,
+        13 => PrimitiveTy::F32,
+        14 => PrimitiveTy::F64,
+        15 => PrimitiveTy::Bool,
+        16 => PrimitiveTy::Char,
+        _ => return None,
+    })
 }
 
 struct StableTypeGraphEncoder<'db> {
