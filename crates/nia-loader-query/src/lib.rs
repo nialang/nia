@@ -428,8 +428,7 @@ impl LoaderDatabase {
             self.expected_package.as_ref(),
             &self.artifact_compatibility,
         )
-        .map(Some)
-        .or_else(|error| Err(error))?;
+        .map(Some)?;
         if let Ok(stamp) = artifact_file_stamp(request.path()) {
             *self
                 .artifact_selection_cache
