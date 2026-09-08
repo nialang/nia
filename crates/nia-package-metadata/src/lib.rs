@@ -108,6 +108,9 @@ impl TemplateSection {
             validate_definition(&record.definition)?;
             validate_bytes(&record.body)?;
             validate_bytes(&record.summary)?;
+            if record.body.is_empty() || record.summary.is_empty() {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         if self
             .records
@@ -1399,6 +1402,12 @@ mod tests {
         invalid.records.push(invalid.records[0].clone());
         assert_eq!(
             encode_templates(&invalid),
+            Err(MetadataError::InvalidManifest)
+        );
+        let mut incomplete = section;
+        incomplete.records[0].body.clear();
+        assert_eq!(
+            encode_templates(&incomplete),
             Err(MetadataError::InvalidManifest)
         );
     }
