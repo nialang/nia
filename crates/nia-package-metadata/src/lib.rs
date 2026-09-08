@@ -26,7 +26,7 @@ const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
 const TEMPLATE_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
-const NATIVE_SCHEMA: u32 = 1;
+const NATIVE_SCHEMA: u32 = 2;
 const PUBLIC_SURFACE_MAGIC: &[u8; 8] = b"NIAPUB01";
 const PUBLIC_SURFACE_SCHEMA: u32 = 1;
 
@@ -120,6 +120,8 @@ pub struct NativeTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeObject {
     pub key: String,
+    /// Stable code-generation fingerprint of this object.
+    pub fingerprint: [u64; 2],
     pub bytes: Vec<u8>,
 }
 
@@ -1206,6 +1208,8 @@ pub fn encode_native(section: &NativeSection) -> Result<Vec<u8>, MetadataError> 
     put_list_len(&mut output, section.objects.len())?;
     for object in &section.objects {
         put_string(&mut output, &object.key)?;
+        output.extend_from_slice(&object.fingerprint[0].to_le_bytes());
+        output.extend_from_slice(&object.fingerprint[1].to_le_bytes());
         put_bytes(&mut output, &object.bytes)?;
     }
     Ok(output)
@@ -1231,6 +1235,7 @@ pub fn decode_native(bytes: &[u8]) -> Result<NativeSection, MetadataError> {
     for _ in 0..count {
         objects.push(NativeObject {
             key: get_string(&mut cursor)?,
+            fingerprint: [get_u64(&mut cursor)?, get_u64(&mut cursor)?],
             bytes: get_bytes(&mut cursor)?,
         });
     }
@@ -1780,6 +1785,7 @@ mod tests {
             optimization: 2,
             objects: vec![NativeObject {
                 key: "unit-0".into(),
+                fingerprint: [1, 2],
                 bytes: vec![0, 1, 2, 3],
             }],
         };

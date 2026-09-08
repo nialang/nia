@@ -2218,11 +2218,7 @@ fn native_target_matches(
         && native.pointer_width == target.pointer_width
 }
 
-fn native_profile_matches(
-    profile: u8,
-    optimization: u8,
-    database: &CompilerDatabase,
-) -> bool {
+fn native_profile_matches(profile: u8, optimization: u8, database: &CompilerDatabase) -> bool {
     let expected_profile = match database.db.context().loader_facts().profile() {
         nia_target_config::BuildProfile::Debug => 0,
         nia_target_config::BuildProfile::Release => 1,

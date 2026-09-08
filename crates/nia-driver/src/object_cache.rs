@@ -506,6 +506,19 @@ fn encode_unit_key(key: &CodegenUnitKey) -> Vec<u8> {
             encoded.extend_from_slice(&ordinal.to_le_bytes());
         }
         CodegenUnitKey::CompilerBuiltins => encoded.push(1),
+        CodegenUnitKey::CompiledPackage {
+            namespace,
+            package,
+            version,
+            object,
+        } => {
+            encoded.push(2);
+            for value in [namespace, package, version, object] {
+                let bytes = value.as_bytes();
+                encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+                encoded.extend_from_slice(bytes);
+            }
+        }
     }
     encoded
 }

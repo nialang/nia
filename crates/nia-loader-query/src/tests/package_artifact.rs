@@ -205,6 +205,7 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         optimization: 0,
         objects: vec![nia_package_metadata::NativeObject {
             key: "unit-0".into(),
+            fingerprint: [0, 0],
             bytes: vec![1, 2, 3],
         }],
     };

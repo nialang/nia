@@ -738,6 +738,7 @@ impl Driver {
                     .iter()
                     .map(|input| NativeObject {
                         key: format!("{:?}", input.key),
+                        fingerprint: input.fingerprint.parts(),
                         bytes: input.object.bytes.clone(),
                     })
                     .collect(),
@@ -2510,6 +2511,7 @@ fn archive_member_file_name(index: usize, key: &nia_codegen_llvm::CodegenUnitKey
             source_identity, ..
         } => source_identity.normalized_path(),
         nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "nia_compiler_builtins",
+        nia_codegen_llvm::CodegenUnitKey::CompiledPackage { object, .. } => object,
     };
     object_file_name(index, stable_name)
 }
