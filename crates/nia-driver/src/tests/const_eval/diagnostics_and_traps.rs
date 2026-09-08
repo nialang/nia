@@ -1874,14 +1874,10 @@ fn unused_const_function_rejects_runtime_into_error_witness() {
     write(
         &root.join("main.nia"),
         r#"
-trait IntoError[Target] {
-    fn intoError(self) Target;
-}
-
 struct SourceError {}
 struct TargetError {}
 
-extend SourceError : IntoError[TargetError] {
+extend SourceError : std::builtin::IntoError[TargetError] {
     fn intoError(self) TargetError {
         {}
     }
