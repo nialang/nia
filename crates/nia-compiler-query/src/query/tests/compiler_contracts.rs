@@ -243,7 +243,7 @@ fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
         version: "2.0.0".into(),
     };
     let graph = database
-        .stable_type_graph_for_roots_with_resolver(&[nominal], &|resolved| {
+        .stable_type_graph_for_roots_with_resolver(&[nominal], &|resolved: nia_ids::GlobalDefId| {
             assert_eq!(resolved.module_id, module);
             Ok(dependency.clone())
         })
