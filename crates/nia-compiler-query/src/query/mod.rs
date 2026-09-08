@@ -695,6 +695,10 @@ impl CompilerDatabase {
         let roots = self.rehydrate_compiled_interface_type_roots(resolver)?;
         let mut grouped: BTreeMap<PackageId, BTreeMap<DefinitionId, Vec<InternedTyId>>> =
             BTreeMap::new();
+        let selected = self.compiled_package_interface_index()?;
+        for (package, _) in selected.packages() {
+            grouped.entry(package.clone()).or_default();
+        }
         for (definition, type_roots) in roots {
             grouped
                 .entry(definition.package.clone())
