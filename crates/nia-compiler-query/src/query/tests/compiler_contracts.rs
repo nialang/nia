@@ -292,6 +292,39 @@ fn stable_type_graph_publication_remaps_nominal_definition_identity() {
 }
 
 #[test]
+fn stable_type_graph_publication_preserves_nominal_type_arguments() {
+    let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct Box[T] {}");
+    let database = fixture.database();
+    let module = fixture.entry_id();
+    let defs = database.db.get(FullModuleDefsQuery(module)).unwrap();
+    let (def_id, _) = defs.semantic.defs.iter().next().unwrap();
+    let append = database.db.context().type_store.append_for_module(module);
+    let argument = append.primitive(nia_ty::PrimitiveTy::I32);
+    let nominal = append.intern(nia_ty::TyKind::Nominal {
+        def_id: nia_ids::GlobalDefId {
+            module_id: module,
+            def_id,
+        },
+        args: vec![argument],
+        const_args: Vec::new(),
+    });
+    let graph = database
+        .stable_type_graph_for_roots(
+            nia_package_metadata::PackageId {
+                namespace: "example".into(),
+                name: "demo".into(),
+                version: "1.0.0".into(),
+            },
+            &[nominal],
+        )
+        .unwrap();
+    assert!(matches!(
+        &graph.nodes[1],
+        nia_package_metadata::StableTypeNode::NamedApplied { arguments, .. } if arguments == &vec![0]
+    ));
+}
+
+#[test]
 fn stable_type_graph_publication_uses_explicit_definition_package_resolver() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub struct User {}");
     let database = fixture.database();
