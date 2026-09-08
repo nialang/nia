@@ -1384,7 +1384,7 @@ impl CompilerDatabase {
                 };
                 let definition = DefinitionId {
                     module: StableModuleId {
-                        package: owner,
+                        package: owner.clone(),
                         path: module_path.clone(),
                     },
                     name: name.to_string(),
@@ -1396,9 +1396,35 @@ impl CompilerDatabase {
                     .semantic
                     .type_roots_for_definition(def_id)
                     .unwrap_or_default();
+                let parent = def
+                    .parent
+                    .map(|parent| {
+                        let parent_def = defs.semantic.defs.get(parent).ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "definition parent is missing from module facts".to_string(),
+                            )
+                        })?;
+                        let parent_name = symbols.resolve(parent_def.name).ok_or_else(|| {
+                            self.db.invalid_input(
+                                &ModuleGraphQuery,
+                                "definition parent has no resolvable symbol".to_string(),
+                            )
+                        })?;
+                        Ok(DefinitionId {
+                            module: StableModuleId {
+                                package: owner.clone(),
+                                path: module_path.clone(),
+                            },
+                            name: parent_name.to_string(),
+                            kind: def_kind_tag(parent_def.kind),
+                        })
+                    })
+                    .transpose()?;
                 pending.push((
                     InterfaceRecord {
                         definition,
+                        parent,
                         declaration: declaration_signature(def),
                         type_roots: Vec::new(),
                     },
