@@ -25,7 +25,7 @@ const TYPE_GRAPH_MAGIC: &[u8; 8] = b"NIATYP01";
 const TYPE_GRAPH_SCHEMA: u32 = 2;
 const DECLARATION_MAGIC: &[u8; 9] = b"NIADECL01";
 const TEMPLATE_MAGIC: &[u8; 8] = b"NIATPL01";
-const TEMPLATE_SCHEMA: u32 = 1;
+const TEMPLATE_SCHEMA: u32 = 2;
 const TEMPLATE_SUMMARY_MAGIC: &[u8; 8] = b"NIASUM01";
 const TEMPLATE_SUMMARY_SCHEMA: u32 = 1;
 const NATIVE_MAGIC: &[u8; 8] = b"NIANAT01";
@@ -97,6 +97,8 @@ pub struct InterfaceRecord {
 pub struct TemplateRecord {
     /// Stable identity of the definition owning this template.
     pub definition: DefinitionId,
+    /// Number of ABI parameters represented by the summary index domain.
+    pub parameter_count: u32,
     /// Compiler-owned checked template payload.
     pub body: Vec<u8>,
     /// Compositional semantic summary used before body materialization.
@@ -273,7 +275,17 @@ impl TemplateSection {
             if record.body.is_empty() || record.summary.is_empty() {
                 return Err(MetadataError::InvalidManifest);
             }
-            decode_template_summary(&record.summary)?;
+            let summary = decode_template_summary(&record.summary)?;
+            if summary
+                .returned_parameters
+                .iter()
+                .chain(summary.escaping_parameters.iter())
+                .chain(summary.returned_captured_address_parameters.iter())
+                .chain(summary.escaping_captured_address_parameters.iter())
+                .any(|index| *index >= record.parameter_count)
+            {
+                return Err(MetadataError::InvalidManifest);
+            }
         }
         if self
             .records
@@ -1086,6 +1098,7 @@ pub fn encode_templates(section: &TemplateSection) -> Result<Vec<u8>, MetadataEr
     put_list_len(&mut output, section.records.len())?;
     for record in &section.records {
         put_definition(&mut output, &record.definition)?;
+        put_u32(&mut output, record.parameter_count);
         put_bytes(&mut output, &record.body)?;
         put_bytes(&mut output, &record.summary)?;
     }
@@ -1115,6 +1128,7 @@ pub fn decode_templates(bytes: &[u8]) -> Result<TemplateSection, MetadataError> 
     for _ in 0..count {
         records.push(TemplateRecord {
             definition: read_definition(&mut cursor)?,
+            parameter_count: get_u32(&mut cursor)?,
             body: get_bytes(&mut cursor)?,
             summary: get_bytes(&mut cursor)?,
         });
@@ -2016,6 +2030,7 @@ mod tests {
                     kind: 2,
                     owner: None,
                 },
+                parameter_count: 0,
                 body: vec![1, 2, 3],
                 summary: encode_template_summary(&TemplateSummary::default()).unwrap(),
             }],
@@ -2069,11 +2084,39 @@ mod tests {
                     kind: 2,
                     owner: None,
                 },
+                parameter_count: 0,
                 body: vec![1],
                 summary: b"opaque summary".to_vec(),
             }],
         };
         assert_eq!(section.validate(), Err(MetadataError::BadMagic));
+    }
+
+    #[test]
+    fn template_section_rejects_summary_parameter_out_of_range() {
+        let definition = DefinitionId {
+            module: ModuleId {
+                package: sample().package,
+                path: "m".into(),
+            },
+            name: "generic".into(),
+            kind: 2,
+            owner: None,
+        };
+        let summary = encode_template_summary(&TemplateSummary {
+            returned_parameters: vec![1],
+            ..Default::default()
+        })
+        .unwrap();
+        let section = TemplateSection {
+            records: vec![TemplateRecord {
+                definition,
+                parameter_count: 1,
+                body: vec![1],
+                summary,
+            }],
+        };
+        assert_eq!(section.validate(), Err(MetadataError::InvalidManifest));
     }
 
     #[test]
