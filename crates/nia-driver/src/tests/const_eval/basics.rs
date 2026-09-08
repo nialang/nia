@@ -1161,10 +1161,6 @@ fn const_function_try_converts_errors_through_const_into_error() {
     write(
         &root.join("main.nia"),
         r#"
-trait IntoError[Target] {
-    const fn intoError(self) Target;
-}
-
 enum SourceError: i32 {
     Failed = 1,
     _,
@@ -1176,7 +1172,7 @@ enum TargetError: i32 {
     _,
 }
 
-extend SourceError : IntoError[TargetError] {
+extend SourceError : std::builtin::IntoError[TargetError] {
     const fn intoError(self) TargetError {
         match self {
             SourceError::Failed => TargetError::Converted,
@@ -1220,10 +1216,6 @@ fn const_function_try_instantiates_generic_into_error_witness() {
     write(
         &root.join("main.nia"),
         r#"
-trait IntoError[Target] {
-    const fn intoError(self) Target;
-}
-
 struct SourceError[T] {
     value: T,
 }
@@ -1233,7 +1225,7 @@ enum TargetError: i32 {
     _,
 }
 
-extend[T] SourceError[T] : IntoError[TargetError] {
+extend[T] SourceError[T] : std::builtin::IntoError[TargetError] {
     const fn intoError(self) TargetError {
         TargetError::Converted
     }

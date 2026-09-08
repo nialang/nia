@@ -21,7 +21,7 @@ pub module target;
 using pkg::builtin::atomic;
 using pkg::builtin::bits;
 using pkg::builtin::control;
-using pkg::builtin::error;
+using pkg::builtin::error as errorBuiltin;
 using pkg::builtin::iter;
 using pkg::builtin::layout;
 using pkg::builtin::marker;
@@ -42,8 +42,8 @@ pub using atomic::{
     fence,
 };
 pub using bits::{clz, ctz, popcount};
-pub using control::{AsmConfig, AsmInputs, AsmOutputs, asm, embed, trap};
-pub using error::IntoError;
+pub using control::{AsmConfig, AsmInputs, AsmOutputs, asm, embed, error, trap};
+pub using errorBuiltin::IntoError;
 pub using iter::{Iterable, Iterator};
 pub using layout::{align, offset, size};
 pub using marker::{Sized, Unsized};

@@ -1159,10 +1159,6 @@ fn driver_invalidates_reused_loader_sources() {
 #[test]
 fn incremental_into_error_witness_body_invalidates_const_result() {
     let initial = r#"
-trait IntoError[Target] {
-    const fn intoError(self) Target;
-}
-
 enum SourceError: i32 {
     Failed = 1,
     _,
@@ -1174,7 +1170,7 @@ enum TargetError: i32 {
     _,
 }
 
-extend SourceError : IntoError[TargetError] {
+extend SourceError : std::builtin::IntoError[TargetError] {
     const fn intoError(self) TargetError {
         TargetError::First
     }
