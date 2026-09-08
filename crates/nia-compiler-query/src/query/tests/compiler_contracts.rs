@@ -171,6 +171,71 @@ fn package_artifact_publication_round_trips_manifest_and_interface() {
 }
 
 #[test]
+fn compiler_update_invalidates_replaced_compiled_interfaces_without_graph_change() {
+    let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+    let loader = TestLoaderFacts::new(
+        fixture.program(),
+        crate::ProviderFactSnapshot::empty(crate::ProviderFactRevision::default()),
+    );
+    let database = super::super::CompilerDatabase::new(
+        CompileRequest::new(fixture.program()).with_loader_facts(loader.clone()),
+    );
+    let package = nia_package_metadata::PackageId {
+        namespace: "example".into(),
+        name: "dep".into(),
+        version: "1.0.0".into(),
+    };
+    let make_interface = |name: &str| {
+        let section = nia_package_metadata::InterfaceSection {
+            records: vec![nia_package_metadata::InterfaceRecord {
+                definition: nia_package_metadata::DefinitionId {
+                    module: nia_package_metadata::ModuleId {
+                        package: package.clone(),
+                        path: "src/lib.nia".into(),
+                    },
+                    name: name.into(),
+                    kind: 2,
+                },
+                declaration: b"NIADECL01".to_vec(),
+                type_roots: Vec::new(),
+            }],
+        };
+        let bytes = nia_package_metadata::encode_interface(&section).unwrap();
+        let mut manifest = nia_package_metadata::PackageManifest::current(package.clone());
+        manifest
+            .modules
+            .push(nia_package_metadata::ModuleInterface {
+                path: "src/lib.nia".into(),
+                interface_hash: nia_package_metadata::interface_module_hash(
+                    &section,
+                    "src/lib.nia",
+                )
+                .unwrap(),
+            });
+        let artifact = nia_package_metadata::PackageArtifact::open(
+            nia_package_metadata::encode_artifact(
+                &manifest,
+                &[(nia_package_metadata::SectionKind::Interface, &bytes)],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        nia_package_metadata::CompiledPackageInterface::from_artifact(&artifact).unwrap()
+    };
+    loader.replace_compiled_interfaces(vec![make_interface("first")]);
+    let _ = database.compiled_package_interface_index().unwrap();
+    let invalidation = database
+        .update(CompileRequest::new(fixture.program()).with_loader_facts(loader))
+        .unwrap();
+    assert!(
+        invalidation
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "compiled_package_interface_index")
+    );
+}
+
+#[test]
 fn stable_type_graph_publication_remaps_session_handles() {
     let fixture = LoadedProgramFixture::new("src/main.nia", "pub fn greet() Unit {}");
     let database = fixture.database();

@@ -1693,6 +1693,17 @@ impl CompilerDatabase {
             "Nia ICE: compiler frontend cache verification cannot change within a query session"
         );
         let new_graph = request.loader_facts.module_graph()?;
+        let new_compiled_interface_fingerprint =
+            compiled_interface_fingerprint(request.loader_facts.compiled_package_interfaces()?)?;
+        let compiled_interfaces_changed = {
+            let observed = self
+                .db
+                .context()
+                .observed_compiled_interfaces
+                .lock()
+                .expect("compiler compiled-interface observation lock poisoned");
+            *observed != Some(new_compiled_interface_fingerprint)
+        };
         let graph_changed = {
             let observed = self
                 .db
@@ -1753,6 +1764,16 @@ impl CompilerDatabase {
                     ExecutableFactSession::default();
             }
         }
+        if compiled_interfaces_changed {
+            invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
+            *self
+                .db
+                .context()
+                .observed_compiled_interfaces
+                .lock()
+                .expect("compiler compiled-interface observation lock poisoned") =
+                Some(new_compiled_interface_fingerprint);
+        }
         let inputs_invalidation = self.invalidate_inputs(optimization_changed)?;
         invalidation
             .invalidated
@@ -1769,7 +1790,7 @@ impl CompilerDatabase {
         // Retire it only when the loaded module graph changes; option-only or
         // content-identical updates must preserve the query graph and reuse
         // the existing index.
-        if graph_changed {
+        if graph_changed && !compiled_interfaces_changed {
             invalidation.extend(self.db.invalidate(CompiledPackageInterfaceIndexQuery));
         }
         Ok(invalidation)
@@ -2329,6 +2350,12 @@ fn compiler_database_with_providers_in_session(
     let observed_graph = loader_facts
         .module_graph()
         .expect("initial compiler module graph");
+    let observed_compiled_interfaces = compiled_interface_fingerprint(
+        loader_facts
+            .compiled_package_interfaces()
+            .expect("initial compiled package interfaces"),
+    )
+    .expect("initial compiled package interface fingerprint");
     if let Some(loader_session) = loader_facts.query_session() {
         assert!(
             session.ptr_eq(&loader_session),
@@ -2343,6 +2370,7 @@ fn compiler_database_with_providers_in_session(
         CompilerContext {
             inputs: inputs.clone(),
             observed_graph: std::sync::Mutex::new(observed_graph),
+            observed_compiled_interfaces: std::sync::Mutex::new(Some(observed_compiled_interfaces)),
             loader_facts,
             providers,
             executable_fact_session,
@@ -2717,6 +2745,29 @@ fn compiled_interface_index_fingerprint(
         }
     }
     Some(builder.finish())
+}
+
+fn compiled_interface_fingerprint(
+    interfaces: Vec<nia_package_metadata::CompiledPackageInterface>,
+) -> QueryResult<QueryFingerprint> {
+    let index = CompiledPackageInterfaceIndex::from_interfaces(interfaces).map_err(|error| {
+        QueryError::InvalidInput {
+            query: QueryFrame {
+                name: "compiled_package_interface_index",
+                key: "compiled_package_interface_index".to_string(),
+                description: "compiled_package_interface_index".to_string(),
+            },
+            message: error,
+        }
+    })?;
+    compiled_interface_index_fingerprint(&index).ok_or_else(|| QueryError::InvalidInput {
+        query: QueryFrame {
+            name: "compiled_package_interface_index",
+            key: "compiled_package_interface_index".to_string(),
+            description: "compiled_package_interface_index".to_string(),
+        },
+        message: "failed to encode compiled interface fingerprint".to_string(),
+    })
 }
 
 impl CompilerContext {
