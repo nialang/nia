@@ -353,6 +353,20 @@ pub trait LoaderFactProvider: Send + Sync {
     ) -> nia_query::QueryResult<Vec<nia_package_metadata::CompiledPackageInterface>> {
         Ok(Vec::new())
     }
+    /// Returns canonical module identities declared by selected artifacts.
+    ///
+    /// These identities are metadata facts only; they are not session-local
+    /// [`ModuleId`] handles and must be remapped before entering semantic
+    /// queries.
+    fn compiled_package_module_identities(
+        &self,
+    ) -> nia_query::QueryResult<Vec<nia_package_metadata::ModuleId>> {
+        Ok(self
+            .compiled_package_interfaces()?
+            .into_iter()
+            .flat_map(|interface| interface.module_identities().collect::<Vec<_>>())
+            .collect())
+    }
 }
 
 /// Complete loader snapshot usable as an untracked compiler input.

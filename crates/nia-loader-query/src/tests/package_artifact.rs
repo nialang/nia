@@ -197,6 +197,12 @@ fn loaded_artifact_exposes_indexed_interface_without_source_access() {
         b"fn() Int"
     );
     assert_eq!(indexed.module_records("src/lib.nia").count(), 1);
+    let modules =
+        nia_compiler_query::LoaderFactProvider::compiled_package_module_identities(&loader)
+            .unwrap();
+    assert_eq!(modules.len(), 1);
+    assert_eq!(modules[0].package, package);
+    assert_eq!(modules[0].path, "src/lib.nia");
 }
 
 #[test]
