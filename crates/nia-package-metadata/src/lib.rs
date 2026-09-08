@@ -13,6 +13,8 @@ const MAX_STRING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ITEMS: usize = 1_000_000;
 const HEADER_BYTES: usize = 8 + 4 + 4 + 4;
 const SECTION_ENTRY_BYTES: usize = 1 + 8 + 8 + 32;
+const INTERFACE_MAGIC: &[u8; 8] = b"NIAINT01";
+const INTERFACE_SCHEMA: u32 = 1;
 
 /// Relocation-independent identity of one package.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -42,6 +44,46 @@ pub struct PackageDependency {
 pub struct ModuleInterface {
     pub path: String,
     pub interface_hash: [u8; 32],
+}
+
+/// One target-independent public declaration and its canonical signature.
+///
+/// The signature bytes are an opaque compiler-owned type graph for this
+/// container layer. Their interpretation is versioned by the interface
+/// section schema and must not depend on physical source paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceRecord {
+    pub definition: DefinitionId,
+    pub signature: Vec<u8>,
+}
+
+/// Decoded target-independent interface section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceSection {
+    pub records: Vec<InterfaceRecord>,
+}
+
+impl InterfaceSection {
+    /// Validates bounded fields and canonical definition ordering.
+    pub fn validate(&self) -> Result<(), MetadataError> {
+        if self.records.len() > MAX_ITEMS {
+            return Err(MetadataError::TooManyItems);
+        }
+        for record in &self.records {
+            validate_id(&record.definition.package)?;
+            validate_string(&record.definition.module)?;
+            validate_string(&record.definition.name)?;
+            validate_bytes(&record.signature)?;
+        }
+        if self
+            .records
+            .windows(2)
+            .any(|pair| pair[0].definition >= pair[1].definition)
+        {
+            return Err(MetadataError::InvalidManifest);
+        }
+        Ok(())
+    }
 }
 
 /// Kind of lazily loaded package payload.
@@ -262,6 +304,13 @@ impl PackageArtifact {
         }
         Ok(())
     }
+
+    /// Decodes the optional target-independent declaration section.
+    pub fn interface(&self) -> Result<Option<InterfaceSection>, MetadataError> {
+        self.section(SectionKind::Interface)?
+            .map(decode_interface)
+            .transpose()
+    }
 }
 
 /// Encodes a manifest-only package artifact.
@@ -319,6 +368,60 @@ pub fn decode(bytes: &[u8]) -> Result<PackageManifest, MetadataError> {
     Ok(PackageArtifact::open(bytes.to_vec())?.manifest)
 }
 
+/// Encodes a canonical target-independent declaration section.
+pub fn encode_interface(section: &InterfaceSection) -> Result<Vec<u8>, MetadataError> {
+    section.validate()?;
+    let mut output = Vec::new();
+    output.extend_from_slice(INTERFACE_MAGIC);
+    put_u32(&mut output, INTERFACE_SCHEMA);
+    put_list_len(&mut output, section.records.len())?;
+    for record in &section.records {
+        put_id(&mut output, &record.definition.package)?;
+        put_string(&mut output, &record.definition.module)?;
+        put_string(&mut output, &record.definition.name)?;
+        put_bytes(&mut output, &record.signature)?;
+    }
+    if output.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    Ok(output)
+}
+
+/// Decodes and validates a target-independent declaration section.
+pub fn decode_interface(bytes: &[u8]) -> Result<InterfaceSection, MetadataError> {
+    if bytes.len() > MAX_PACKAGE_BYTES {
+        return Err(MetadataError::TooLarge);
+    }
+    let mut cursor = Cursor::new(bytes);
+    let mut magic = [0; 8];
+    read_exact(&mut cursor, &mut magic)?;
+    if magic != *INTERFACE_MAGIC {
+        return Err(MetadataError::BadMagic);
+    }
+    let schema = get_u32(&mut cursor)?;
+    if schema != INTERFACE_SCHEMA {
+        return Err(MetadataError::Schema(schema));
+    }
+    let count = bounded_count(get_u32(&mut cursor)?)?;
+    let mut records = Vec::with_capacity(count);
+    for _ in 0..count {
+        records.push(InterfaceRecord {
+            definition: DefinitionId {
+                package: get_id(&mut cursor)?,
+                module: get_string(&mut cursor)?,
+                name: get_string(&mut cursor)?,
+            },
+            signature: get_bytes(&mut cursor)?,
+        });
+    }
+    if cursor.position() != bytes.len() as u64 {
+        return Err(MetadataError::InvalidManifest);
+    }
+    let section = InterfaceSection { records };
+    section.validate()?;
+    Ok(section)
+}
+
 /// Errors returned by package metadata validation and decoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataError {
@@ -371,6 +474,28 @@ fn put_string(output: &mut Vec<u8>, value: &str) -> Result<(), MetadataError> {
     );
     output.extend_from_slice(value.as_bytes());
     Ok(())
+}
+fn validate_bytes(value: &[u8]) -> Result<(), MetadataError> {
+    if value.len() > MAX_STRING_BYTES {
+        Err(MetadataError::TooLarge)
+    } else {
+        Ok(())
+    }
+}
+fn put_bytes(output: &mut Vec<u8>, value: &[u8]) -> Result<(), MetadataError> {
+    validate_bytes(value)?;
+    put_u32(
+        output,
+        u32::try_from(value.len()).map_err(|_| MetadataError::TooLarge)?,
+    );
+    output.extend_from_slice(value);
+    Ok(())
+}
+fn get_bytes(cursor: &mut Cursor<&[u8]>) -> Result<Vec<u8>, MetadataError> {
+    let length = bounded_len(get_u32(cursor)?)?;
+    let mut bytes = vec![0; length];
+    read_exact(cursor, &mut bytes)?;
+    Ok(bytes)
 }
 fn get_string(cursor: &mut Cursor<&[u8]>) -> Result<String, MetadataError> {
     let length = bounded_len(get_u32(cursor)?)?;
@@ -522,5 +647,68 @@ mod tests {
             interface_hash: [8; 32],
         });
         assert_eq!(encode(&manifest), Err(MetadataError::InvalidManifest));
+    }
+
+    #[test]
+    fn interface_section_round_trips_canonical_records() {
+        let package = sample().package;
+        let section = InterfaceSection {
+            records: vec![InterfaceRecord {
+                definition: DefinitionId {
+                    package,
+                    module: "std/io".into(),
+                    name: "write".into(),
+                },
+                signature: b"fn(Text) Unit".to_vec(),
+            }],
+        };
+        let bytes = encode_interface(&section).unwrap();
+        assert_eq!(decode_interface(&bytes).unwrap(), section);
+        let artifact = PackageArtifact::open(
+            encode_artifact(
+                &PackageManifest::current(PackageId {
+                    namespace: "nia".into(),
+                    name: "std".into(),
+                    version: "0.2".into(),
+                }),
+                &[(SectionKind::Interface, &bytes)],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(artifact.interface().unwrap(), Some(section));
+    }
+
+    #[test]
+    fn interface_section_rejects_noncanonical_or_trailing_bytes() {
+        let package = sample().package;
+        let first = InterfaceRecord {
+            definition: DefinitionId {
+                package: package.clone(),
+                module: "m".into(),
+                name: "a".into(),
+            },
+            signature: vec![1],
+        };
+        let second = InterfaceRecord {
+            definition: DefinitionId {
+                package,
+                module: "m".into(),
+                name: "a".into(),
+            },
+            signature: vec![2],
+        };
+        assert_eq!(
+            encode_interface(&InterfaceSection {
+                records: vec![first, second],
+            }),
+            Err(MetadataError::InvalidManifest)
+        );
+        let mut bytes = encode_interface(&InterfaceSection { records: vec![] }).unwrap();
+        bytes.push(0);
+        assert_eq!(
+            decode_interface(&bytes),
+            Err(MetadataError::InvalidManifest)
+        );
     }
 }
